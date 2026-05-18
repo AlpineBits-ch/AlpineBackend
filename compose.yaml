@@ -1,0 +1,50 @@
+﻿version: '3.8'
+
+services:
+  # --- PostgreSQL Database ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: database_service
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
+    restart: unless-stopped
+
+  # --- Redis Cache ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis_service
+    # Note: Default setup doesn't use a password to match your blank default.
+    # If you want a password, use: command: redis-server --requirepass your_password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --requirepass devpassword
+  # --- RabbitMQ Message Broker ---
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq_service
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672"       # RabbitMQ AMQP port
+      - "15672:15672"     # Management UI port
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  scylla_data:

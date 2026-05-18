@@ -1,0 +1,550 @@
+# Echo application services — images from ghcr.io/alpinebits-ch (private).
+#
+# Before applying, create a pull secret for GHCR:
+#   kubectl create secret docker-registry ghcr-pull-secret \
+#     --docker-server=ghcr.io \
+#     --docker-username=<your-github-username> \
+#     --docker-password=<github-pat-with-read:packages> \
+#     --namespace=echo-stress
+#
+# The PAT needs the "read:packages" scope. Generate one at:
+#   https://github.com/settings/tokens
+#
+# DATABASE_HOSTNAME points to pgbouncer (not postgres) for all services.
+# The Auth key must match across all services for JWT validation to work.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: echo-secrets
+  namespace: echo-stress
+type: Opaque
+stringData:
+  AUTH_KEY: "REPLACE_WITH_YOUR_AUTH_KEY"
+  DB_PASSWORD: "postgres"
+  REDIS_PASSWORD: "devpassword"
+  RABBITMQ_PASSWORD: "admin"
+---
+# ── Identity Service ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-svc
+  namespace: echo-stress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: identity-svc
+  template:
+    metadata:
+      labels:
+        app: identity-svc
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: identity
+          image: ghcr.io/alpinebits-ch/identity-application:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_HOSTNAME
+              value: pgbouncer
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: identity_db
+            - name: DATABASE_USERNAME
+              value: postgres
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: REDIS_PASSWORD
+            - name: RABBITMQ_HOST
+              value: echo-rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: admin
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: AUTH_KEY
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: AUTH_REQUIRE_USER_EMAIL_VERIFICATION
+              value: "false"
+          readinessProbe:
+            httpGet:
+              path: /identity/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /identity/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity
+  namespace: echo-stress
+spec:
+  selector:
+    app: identity-svc
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# ── Guild Service ────────────────────────────────────────────────────────────
+# 3 replicas to exercise GuildHub SignalR backplane and YARP session affinity
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guild-svc
+  namespace: echo-stress
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: guild-svc
+  template:
+    metadata:
+      labels:
+        app: guild-svc
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: guild
+          image: ghcr.io/alpinebits-ch/guild-application:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_HOSTNAME
+              value: pgbouncer
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: guild_db
+            - name: DATABASE_USERNAME
+              value: postgres
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: REDIS_PASSWORD
+            - name: RABBITMQ_HOST
+              value: echo-rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: admin
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: AUTH_KEY
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: "/app/Credentials/google_cloud_credentials.json"
+
+          readinessProbe:
+            httpGet:
+              path: /guild/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /guild/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guild
+  namespace: echo-stress
+spec:
+  selector:
+    app: guild-svc
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# ── Messaging Service ────────────────────────────────────────────────────────
+# 3 replicas to exercise MessagingHub + VoiceHub backplane
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: messaging-svc
+  namespace: echo-stress
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: messaging-svc
+  template:
+    metadata:
+      labels:
+        app: messaging-svc
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: messaging
+          image: ghcr.io/alpinebits-ch/messaging-application:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_HOSTNAME
+              value: pgbouncer
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: messaging_db
+            - name: DATABASE_USERNAME
+              value: postgres
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: REDIS_PASSWORD
+            - name: RABBITMQ_HOST
+              value: echo-rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: admin
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: SCYLLA_HOST
+              value: scylladb
+            - name: SCYLLA_PORT
+              value: "9042"
+            - name: SCYLLA_USERNAME
+              value: cassandra
+            - name: SCYLLA_PASSWORD
+              value: cassandra
+            - name: AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: AUTH_KEY
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+          readinessProbe:
+            httpGet:
+              path: /messaging/health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /messaging/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: messaging
+  namespace: echo-stress
+spec:
+  selector:
+    app: messaging-svc
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# ── Social Service ───────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: social-svc
+  namespace: echo-stress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: social-svc
+  template:
+    metadata:
+      labels:
+        app: social-svc
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: social
+          image: ghcr.io/alpinebits-ch/social-application:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DATABASE_HOSTNAME
+              value: pgbouncer
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: social_db
+            - name: DATABASE_USERNAME
+              value: postgres
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: REDIS_PASSWORD
+            - name: RABBITMQ_HOST
+              value: echo-rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: admin
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: RABBITMQ_PASSWORD
+            - name: AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: AUTH_KEY
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+          readinessProbe:
+            httpGet:
+              path: /social/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: social
+  namespace: echo-stress
+spec:
+  selector:
+    app: social-svc
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# ── Echo YARP Proxy config ───────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: echo-proxy-config
+  namespace: echo-stress
+data:
+  Services__Identity: "http://_http.identity.echo-stress.svc.cluster.local"
+  Services__Guild: "http://_http.guild.echo-stress.svc.cluster.local"
+  Services__Messaging: "http://_http.messaging.echo-stress.svc.cluster.local"
+  Services__Social: "http://_http.social.echo-stress.svc.cluster.local"
+---
+# ── Echo YARP Proxy ──────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo-proxy
+  namespace: echo-stress
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: echo-proxy
+  template:
+    metadata:
+      labels:
+        app: echo-proxy
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: echo-proxy
+          image: ghcr.io/alpinebits-ch/echo:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: echo-proxy-config
+          env:
+            - name: DATABASE_HOSTNAME
+              value: pgbouncer
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_NAME
+              value: echo_db
+            - name: DATABASE_USERNAME
+              value: postgres
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: DB_PASSWORD
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: REDIS_PASSWORD
+            - name: AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: AUTH_KEY
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: RABBITMQ_HOST
+              value: echo-rabbitmq
+            - name: RABBITMQ_PORT
+              value: "5672"
+            - name: RABBITMQ_USERNAME
+              value: admin
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: echo-secrets
+                  key: RABBITMQ_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "4"
+              memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-proxy
+  namespace: echo-stress
+spec:
+  selector:
+    app: echo-proxy
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

@@ -1,0 +1,228 @@
+# RabbitMQ 3-node cluster — plain StatefulSet, no operator required.
+#
+# Peer discovery uses the official rabbitmq_peer_discovery_k8s plugin
+# which reads Endpoints from the Kubernetes API. The RBAC objects below
+# grant the rabbitmq ServiceAccount read access to Endpoints in this namespace.
+#
+# After the cluster is up, Wolverine connects to the "rabbitmq" ClusterIP
+# service on port 5672 with credentials admin/admin.
+# The management UI is available on port 15672.
+# Prometheus metrics are exposed on port 15692.
+#
+# If you DO want the operator instead, the two install commands are:
+#   kubectl apply -f https://github.com/rabbitmq/cluster-operator/releases/latest/download/cluster-operator.yml
+#   # then restore the original 04-rabbitmq.yaml that uses RabbitmqCluster
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rabbitmq
+  namespace: echo-stress
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: rabbitmq-peer-discovery
+  namespace: echo-stress
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: rabbitmq-peer-discovery
+  namespace: echo-stress
+subjects:
+  - kind: ServiceAccount
+    name: rabbitmq
+    namespace: echo-stress
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: rabbitmq-peer-discovery
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  namespace: echo-stress
+data:
+  rabbitmq.conf: |
+    cluster_formation.peer_discovery_backend         = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.host                       = kubernetes.default.svc.cluster.local
+    cluster_formation.k8s.address_type               = hostname
+    cluster_formation.k8s.service_name               = rabbitmq-headless
+    cluster_formation.k8s.hostname_suffix            = .rabbitmq-headless.echo-stress.svc.cluster.local
+    cluster_formation.node_cleanup.interval          = 30
+    cluster_formation.node_cleanup.only_log_warning  = true
+    cluster_partition_handling                       = autoheal
+
+    loopback_users.guest = false
+
+    vm_memory_high_watermark.relative = 0.8
+    disk_free_limit.absolute          = 2GB
+    channel_max                       = 2000
+    heartbeat                         = 60
+    consumer_timeout                  = 3600000
+
+  enabled_plugins: |
+    [rabbitmq_management,rabbitmq_peer_discovery_k8s,rabbitmq_prometheus].
+---
+# Headless service — required for DNS-based pod hostname resolution
+# used by the peer discovery plugin.
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq-headless
+  namespace: echo-stress
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true  # nodes need to find each other before becoming ready
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+    - name: management
+      port: 15672
+    - name: epmd
+      port: 4369
+    - name: erlang-dist
+      port: 25672
+---
+# Regular service for Wolverine and external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-rabbitmq
+  namespace: echo-stress
+spec:
+  selector:
+    app: rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672
+    - name: management
+      port: 15672
+      targetPort: 15672
+    - name: prometheus
+      port: 15692
+      targetPort: 15692
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: rabbitmq
+  namespace: echo-stress
+spec:
+  serviceName: rabbitmq-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      serviceAccountName: rabbitmq
+      # Copy ConfigMap files into a writable emptyDir so RabbitMQ can
+      # write its own files alongside them at startup.
+      initContainers:
+        - name: copy-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              cp /tmp/rabbitmq-src/rabbitmq.conf  /etc/rabbitmq/rabbitmq.conf
+              cp /tmp/rabbitmq-src/enabled_plugins /etc/rabbitmq/enabled_plugins
+          volumeMounts:
+            - name: rabbitmq-config-src
+              mountPath: /tmp/rabbitmq-src
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management-alpine
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: admin
+            - name: RABBITMQ_DEFAULT_PASS
+              value: admin
+            - name: RABBITMQ_ERLANG_COOKIE
+              value: "echo-stress-erlang-cookie"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Node name must match the hostname suffix configured in rabbitmq.conf
+            - name: RABBITMQ_NODENAME
+              value: "rabbit@$(POD_NAME).rabbitmq-headless.$(POD_NAMESPACE).svc.cluster.local"
+            - name: RABBITMQ_USE_LONGNAME
+              value: "true"
+            - name: K8S_SERVICE_NAME
+              value: rabbitmq-headless
+            - name: K8S_HOSTNAME_SUFFIX
+              value: ".rabbitmq-headless.$(POD_NAMESPACE).svc.cluster.local"
+          ports:
+            - containerPort: 4369
+              name: epmd
+            - containerPort: 5672
+              name: amqp
+            - containerPort: 15672
+              name: management
+            - containerPort: 15692
+              name: prometheus
+            - containerPort: 25672
+              name: erlang-dist
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "status"]
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: rabbitmq-config
+              mountPath: /etc/rabbitmq
+            - name: data
+              mountPath: /var/lib/rabbitmq
+      volumes:
+        - name: rabbitmq-config-src
+          configMap:
+            name: rabbitmq-config
+        - name: rabbitmq-config
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi

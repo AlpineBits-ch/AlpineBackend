@@ -1,0 +1,97 @@
+# Redis standalone for 1k-user tests.
+#
+# At 10k users, consider switching to Redis Sentinel (3 nodes, 1 primary + 2 replicas).
+# At 100k users, use Redis Cluster (6 nodes minimum: 3 primaries + 3 replicas).
+# The SignalR backplane uses pub/sub which in Cluster mode requires all nodes
+# to subscribe to every channel — use Redis Cluster with client-side routing
+# or a Redis Cluster-aware SignalR backplane library.
+#
+# Memory sizing at 1k users:
+#   - Presence state: ~200 bytes × 1000 users = ~200 KB
+#   - Voice state: ~500 bytes × 200 voice users = ~100 KB
+#   - SignalR group state: ~2 KB/group × 100 channels = ~200 KB
+#   - Data protection keys: ~10 KB
+#   - SignalR backplane pub/sub overhead: ~50 MB active
+#   - Total budget: 1 GB is comfortable, 512 MB is tight
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: echo-stress
+data:
+  redis.conf: |
+    # Max memory with LRU eviction for cache entries
+    # Do NOT evict pub/sub related keys — those are not cache keys
+    maxmemory 2gb
+    maxmemory-policy allkeys-lru
+
+    # Enable keyspace notifications for monitoring (optional, slight CPU cost)
+    notify-keyspace-events ""
+
+    # Disable RDB persistence during load tests — reduces I/O noise
+    save ""
+
+    # AOF off — we don't need durability for ephemeral test state
+    appendonly no
+
+    # Tune for high-throughput
+    hz 20
+    dynamic-hz yes
+    activerehashing yes
+
+    loglevel notice
+    requirepass devpassword
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: echo-stress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "1"
+              memory: "2Gi"
+            limits:
+              cpu: "4"
+              memory: "4Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-a", "devpassword", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: redis-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: echo-stress
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379

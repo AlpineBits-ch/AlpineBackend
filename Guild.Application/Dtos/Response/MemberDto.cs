@@ -1,0 +1,41 @@
+﻿using Facet;
+using Guild.Domain.Aggregates;
+using Guild.Domain.Entity;
+using Social.Contracts.Dtos;
+
+namespace Guild.Application.Dtos.Response;
+
+public enum OnlineStatus
+{
+    Offline,
+    Online,
+}
+
+[Facet(typeof(GuildMember), nameof(GuildMember.Guild),  NestedFacets = [typeof(InviteDto), typeof(RoleMemberDto), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]
+public partial class MemberDto
+{
+    public OnlineStatus Status { get; set; }
+    public ProfileDto? Profile { get; set; }
+}
+
+[Facet(typeof(GuildMember), nameof(GuildMember.Guild),
+    NestedFacets = [typeof(InviteDto), typeof(FlatRoleMember), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 2)]
+public partial class SelfMemberDto
+{
+    
+}
+
+[Facet(typeof(Role), Include = ["Id", "CreatedAt", "UpdatedAt", nameof(Role.Permissions)])]
+public partial class FlatRoleDto
+{
+    
+}
+
+
+
+[Facet(typeof(GuildMember), Include = ["Id", "CreatedAt", "UpdatedAt", "UserId", "GuildId", "SearchValue"], NestedFacets = [typeof(FlatRoleDto)])]
+public partial class FlatMemberDto
+{
+    
+}
+

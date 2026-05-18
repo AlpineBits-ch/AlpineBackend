@@ -1,0 +1,121 @@
+# PgBouncer in transaction pooling mode — mirrors production setup.
+#
+# Transaction pooling allows one PostgreSQL server connection to serve many
+# application-side clients because the server connection is held only for the
+# duration of a single transaction, not the session lifetime.
+#
+# Key numbers at 1k users:
+#   default_pool_size = 25 per database × 4 databases = 100 server connections
+#   PostgreSQL max_connections = 500 (plenty of headroom for monitoring tools)
+#   max_client_conn = 5000 (all services + PgBouncer overhead)
+#
+# Known limitation: LISTEN/NOTIFY and session-level advisory locks do NOT work
+# in transaction pooling mode. Wolverine's PostgreSQL transport uses polling
+# (not LISTEN), so this is safe. If you add anything that uses NOTIFY, switch
+# that connection to session mode by adding it to [databases] with pool_mode=session.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: echo-stress
+data:
+  pgbouncer.ini: |
+    [databases]
+    guild_db     = host=postgres port=5432 dbname=guild_db     user=postgres password=postgres
+    identity_db  = host=postgres port=5432 dbname=identity_db  user=postgres password=postgres
+    messaging_db = host=postgres port=5432 dbname=messaging_db user=postgres password=postgres
+    social_db    = host=postgres port=5432 dbname=social_db    user=postgres password=postgres
+    echo_db    = host=postgres port=5432 dbname=echo_db    user=postgres password=postgres
+
+    [pgbouncer]
+    listen_port          = 5432
+    listen_addr          = *
+    auth_type            = trust
+    auth_file            = /etc/pgbouncer/userlist.txt
+
+    pool_mode            = transaction
+    max_client_conn      = 5000
+    default_pool_size    = 25
+    min_pool_size        = 5
+    reserve_pool_size    = 5
+    reserve_pool_timeout = 3
+
+    server_idle_timeout  = 30
+    server_lifetime      = 300
+    client_idle_timeout  = 60
+    query_timeout        = 0
+    query_wait_timeout   = 120
+
+    # Reduce log noise during load tests
+    log_connections      = 0
+    log_disconnections   = 0
+    log_pooler_errors    = 1
+
+    # Stats exposed on port 6432 for monitoring
+    stats_period         = 10
+    admin_users          = pgbouncer_admin
+
+  userlist.txt: |
+    "postgres" ""
+    "pgbouncer_admin" ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: echo-stress
+spec:
+  replicas: 2  # Two instances for HA; services connect via ClusterIP load-balancing
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:latest
+          command: ["pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer
+          ports:
+            - containerPort: 5432
+              name: pgbouncer
+            - containerPort: 6432
+              name: admin
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "256Mi"
+            limits:
+              cpu: "2"
+              memory: "512Mi"
+      volumes:
+        - name: config
+          configMap:
+            name: pgbouncer-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: echo-stress
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - name: pgbouncer
+      port: 5432
+      targetPort: 5432
+    - name: admin
+      port: 6432
+      targetPort: 6432

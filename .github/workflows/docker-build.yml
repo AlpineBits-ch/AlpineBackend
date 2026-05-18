@@ -12,6 +12,9 @@ env:
 
 jobs:
   test:
+    permissions:
+      contents: write
+      pull-requests: write
     name: Run tests
     runs-on: ubuntu-latest
     steps:

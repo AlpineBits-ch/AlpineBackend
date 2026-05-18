@@ -56,22 +56,22 @@ jobs:
         with:
           recreate: true
           path: code-coverage-results.md
-                  - name: Generate Coverage Badge Image
-                  uses: cicirello/jacoco-badge-generator@v2
-                  with:
+      - name: Generate Coverage Badge Image
+        uses: cicirello/jacoco-badge-generator@v2
+        with:
                     # Pass your cobertura xml file here
-                    coverage-reports: solution_coverage.xml
-                    badges-directory: .github/badges
-                    generate-coverage-badge: true
-                    coverage-label: 'coverage'
+          coverage-reports: solution_coverage.xml
+          badges-directory: .github/badges
+          generate-coverage-badge: true
+          coverage-label: 'coverage'
             
-                  - name: Commit Badge Image
-                    run: |
-                      git config --local user.email "action@github.com"
-                      git config --local user.name "GitHub Action"
-                      git add .github/badges/coverage.svg
-                      git commit -m "Update coverage badge [skip ci]" || exit 0
-                      git push
+      - name: Commit Badge Image
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .github/badges/coverage.svg
+        git commit -m "Update coverage badge [skip ci]" || exit 0
+        git push
   build:
     name: Build ${{ matrix.project }}
     runs-on: ubuntu-latest

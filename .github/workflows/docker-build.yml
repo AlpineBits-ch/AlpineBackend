@@ -50,14 +50,28 @@ jobs:
             format: markdown
             output: both
             
-            # 3. Publish the comment to the Pull Request
       - name: Add Coverage PR Comment
         uses: marocchino/sticky-pull-request-comment@v2
         if: github.event_name == 'pull_request'
         with:
           recreate: true
           path: code-coverage-results.md
-
+                  - name: Generate Coverage Badge Image
+                  uses: cicirello/jacoco-badge-generator@v2
+                  with:
+                    # Pass your cobertura xml file here
+                    coverage-reports: solution_coverage.xml
+                    badges-directory: .github/badges
+                    generate-coverage-badge: true
+                    coverage-label: 'coverage'
+            
+                  - name: Commit Badge Image
+                    run: |
+                      git config --local user.email "action@github.com"
+                      git config --local user.name "GitHub Action"
+                      git add .github/badges/coverage.svg
+                      git commit -m "Update coverage badge [skip ci]" || exit 0
+                      git push
   build:
     name: Build ${{ matrix.project }}
     runs-on: ubuntu-latest

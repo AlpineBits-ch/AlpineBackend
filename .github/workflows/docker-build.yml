@@ -54,17 +54,17 @@ jobs:
           path: code-coverage-results.md
       - name: Generate Coverage Badge Image
         run: |
-        # Create the directory if it doesn't exist
-        mkdir -p .github/badges
+          # Create the directory if it doesn't exist
+          mkdir -p .github/badges
         
-        # Extract the badge URL from the generated markdown and download the SVG
-        BADGE_URL=$(grep -oE 'https://img.shields.io/[^)]+' code-coverage-results.md | head -n 1)
-        if [ -n "$BADGE_URL" ]; then
-          curl -s -o .github/badges/coverage.svg "$BADGE_URL"
-        else
-          echo "Could not find badge URL in markdown report."
-          exit 1
-        fi
+          # Extract the badge URL from the generated markdown and download the SVG
+          BADGE_URL=$(grep -oE 'https://img.shields.io/[^)]+' code-coverage-results.md | head -n 1)
+          if [ -n "$BADGE_URL" ]; then
+            curl -s -o .github/badges/coverage.svg "$BADGE_URL"
+          else
+            echo "Could not find badge URL in markdown report."
+            exit 1
+          fi
             
       - name: Commit Badge Image
         run: |

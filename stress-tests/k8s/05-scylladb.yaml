@@ -1,0 +1,108 @@
+# ScyllaDB 3-node cluster for the Messaging service (message time-series storage).
+#
+# Prerequisites:
+#   helm repo add scylla https://scylla-operator-charts.storage.googleapis.com/stable
+#   helm install scylla-operator scylla/scylla-operator --namespace scylla-operator --create-namespace
+#
+# Alternatively use the manual StatefulSet below (no operator dependency).
+# The operator is recommended for production-like tests as it handles
+# rack-awareness, repair scheduling, and rolling upgrades automatically.
+#
+# Keyspace setup (run after all nodes are UP):
+#   kubectl exec -n echo-stress scylladb-0 -- cqlsh -e "
+#     CREATE KEYSPACE IF NOT EXISTS messaging
+#     WITH replication = {'class':'NetworkTopologyStrategy','replication_factor':3}
+#     AND durable_writes = true;
+#   "
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: scylladb
+  namespace: echo-stress
+spec:
+  serviceName: scylladb
+  replicas: 3
+  selector:
+    matchLabels:
+      app: scylladb
+  template:
+    metadata:
+      labels:
+        app: scylladb
+    spec:
+      terminationGracePeriodSeconds: 120
+      initContainers:
+        # ScyllaDB needs many AIO slots. Default aio-max-nr (65536) is exhausted
+        # by the first pod, starving subsequent ones. Raise it to 1M per node.
+        # This runs once per node; all pods on the same node share the benefit.
+        - name: tune-aio
+          image: busybox:1.36
+          securityContext:
+            privileged: true
+          command: ["sh", "-c", "sysctl -w fs.aio-max-nr=1048576"]
+      containers:
+        - name: scylladb
+          image: scylladb/scylla:5.4
+          args:
+            - --seeds=scylladb-0.scylladb.echo-stress.svc.cluster.local
+            - --cluster-name=echo-stress
+            - --endpoint-snitch=SimpleSnitch
+            - --developer-mode=1
+            - --smp=1
+            - --memory=2G
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - containerPort: 9042  # CQL
+              name: cql
+            - containerPort: 7000  # inter-node
+              name: intra-node
+            - containerPort: 7001  # inter-node TLS
+              name: intra-node-tls
+            - containerPort: 9180  # Prometheus metrics
+              name: prometheus
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "nodetool status | grep -E '^UN'"]
+            initialDelaySeconds: 90
+            periodSeconds: 15
+            failureThreshold: 10
+          resources:
+            requests:
+              cpu: "1"
+              memory: "3Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/scylla
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scylladb
+  namespace: echo-stress
+spec:
+  selector:
+    app: scylladb
+  ports:
+    - name: cql
+      port: 9042
+      targetPort: 9042
+    - name: prometheus
+      port: 9180
+      targetPort: 9180
+  clusterIP: None  # headless — driver connects to all nodes directly

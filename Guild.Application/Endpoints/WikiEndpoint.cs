@@ -1,0 +1,357 @@
+using System.Security.Claims;
+using Facet.Extensions;
+using Facet.Extensions.EFCore;
+using Guild.Application.Dtos.Request;
+using Guild.Application.Dtos.Response;
+using Guild.Application.Services;
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
+using Guild.Persistence.Persistence;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
+using Wolverine.Http;
+
+namespace Guild.Application.Endpoints;
+
+[Authorize]
+public class WikiEndpoint
+{
+    [WolverineGet("/api/v1/guilds/{guildId}/wiki")]
+    public async Task<IResult> GetWiki(
+        string guildId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var wiki = await ctx.Wikis.FirstOrDefaultAsync(w => w.GuildId == guildId);
+        if (wiki is null)
+        {
+            wiki = Wiki.Create(guildId);
+            ctx.Wikis.Add(wiki);
+            await ctx.SaveChangesAsync();
+        }
+
+        var pages = await ctx.WikiPages
+            .Include(p => p.Revisions)
+            .Where(p => p.GuildId == guildId)
+            .OrderBy(p => p.CreatedAt)
+            .ToListAsync();
+
+        var categories = await ctx.WikiCategories
+            .Where(c => c.GuildId == guildId)
+            .OrderBy(c => c.Position)
+            .ToListAsync();
+
+        return Results.Ok(new WikiDto
+        {
+            Id = wiki.Id,
+            GuildId = wiki.GuildId,
+            Categories = categories.Select(c => c.ToFacet<WikiCategory, WikiCategoryDto>()).ToList(),
+            Pages = pages.Select(p =>
+            {
+                var summary = p.ToFacet<WikiPage, WikiPageSummaryDto>();
+                summary.RevisionCount = p.Revisions.Count;
+                return summary;
+            }).ToList(),
+        });
+    }
+
+    [WolverineGet("/api/v1/guilds/{guildId}/wiki/pages/{pageId}")]
+    public async Task<IResult> GetWikiPage(
+        string guildId,
+        string pageId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var page = await ctx.WikiPages
+            .FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+
+        if (page is null) return Results.NotFound();
+
+        var dto = page.ToFacet<WikiPage, WikiPageDto>();
+        dto.RevisionCount = await ctx.WikiRevisions
+            .CountAsync(r => r.PageId == pageId);
+        
+        return Results.Ok(dto);
+    }
+
+    [WolverinePost("/api/v1/guilds/{guildId}/wiki/pages")]
+    public async Task<IResult> CreateWikiPage(
+        string guildId,
+        CreateWikiPageDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canCreate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.CreateWikiPages);
+        if (!canCreate) return Results.Forbid();
+
+        var page = WikiPage.Create(new CreateWikiPageParams
+        {
+            GuildId = guildId,
+            Title = dto.Title,
+            Content = dto.Content ?? string.Empty,
+            AuthorId = userId,
+            ParentPageId = dto.ParentPageId,
+            CategoryId = dto.CategoryId,
+            Visibility = dto.Visibility ?? WikiVisibility.Public,
+            Tags = dto.Tags ?? [],
+            IsPinned = dto.IsPinned ?? false,
+        });
+
+        ctx.WikiPages.Add(page);
+
+        var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
+        responseDto.RevisionCount = page.Revisions.Count;
+        return Results.Ok(responseDto);
+    }
+
+    [WolverinePut("/api/v1/guilds/{guildId}/wiki/pages/{pageId}")]
+    public async Task<IResult> UpdateWikiPage(
+        string guildId,
+        string pageId,
+        UpdateWikiPageDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var page = await ctx.WikiPages
+            .Include(p => p.Revisions)
+            .FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+
+        if (page is null) return Results.NotFound();
+
+        var isOwn = page.AuthorId == userId;
+        var requiredPermission = isOwn ? Permissions.EditOwnWikiPages : Permissions.EditAnyWikiPage;
+        var canEdit = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
+        if (!canEdit) return Results.Forbid();
+
+        var contentChanged = dto.Content is not null && dto.Content != page.Content;
+
+        if (dto.Title is not null) page.Title = dto.Title;
+        if (dto.Content is not null) page.Content = dto.Content;
+        page.ParentPageId = dto.ParentPageId;
+        page.CategoryId = dto.CategoryId;
+        if (dto.Visibility is not null) page.Visibility = dto.Visibility.Value;
+        if (dto.Tags is not null) page.Tags = dto.Tags;
+        if (dto.IsPinned is not null) page.IsPinned = dto.IsPinned.Value;
+        page.LastEditorId = userId;
+
+        if (contentChanged)
+        {
+            var nextRevisionNumber = page.Revisions.Count > 0
+                ? page.Revisions.Max(r => r.RevisionNumber) + 1
+                : 1;
+
+            var revision = WikiRevision.Create(new CreateWikiRevisionParams
+            {
+                PageId = page.Id,
+                Content = page.Content,
+                EditorId = userId,
+                RevisionNumber = nextRevisionNumber,
+            });
+            ctx.WikiRevisions.Add(revision);
+            page.Revisions.Add(revision);
+        }
+
+        page.RaiseUpdated();
+
+        var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
+        responseDto.RevisionCount = page.Revisions.Count;
+        return Results.Ok(responseDto);
+    }
+
+    [WolverineDelete("/api/v1/guilds/{guildId}/wiki/pages/{pageId}")]
+    public async Task<IResult> DeleteWikiPage(
+        string guildId,
+        string pageId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var page = await ctx.WikiPages.FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (page is null) return Results.NotFound();
+
+        var canDelete = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.DeleteWikiPages);
+        if (!canDelete) return Results.Forbid();
+
+        page.RaiseDeleted();
+        ctx.WikiPages.Remove(page);
+
+        return Results.NoContent();
+    }
+
+    [WolverineGet("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/revisions")]
+    public async Task<IResult> GetWikiPageRevisions(
+        string guildId,
+        string pageId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return Results.NotFound();
+
+        var revisions = await ctx.WikiRevisions
+            .Where(r => r.PageId == pageId)
+            .OrderByDescending(r => r.RevisionNumber)
+            .ToFacetsAsync<WikiRevision, WikiRevisionDto>();
+
+        return Results.Ok(revisions);
+    }
+
+    [WolverinePost("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/revisions/{revisionId}/restore")]
+    public async Task<IResult> RestoreWikiRevision(
+        string guildId,
+        string pageId,
+        string revisionId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiRevisions);
+        if (!canManage) return Results.Forbid();
+
+        var page = await ctx.WikiPages
+            .Include(p => p.Revisions)
+            .FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+
+        if (page is null) return Results.NotFound();
+
+        var revision = page.Revisions.FirstOrDefault(r => r.Id == revisionId);
+        if (revision is null) return Results.NotFound();
+
+        page.Content = revision.Content;
+        page.LastEditorId = userId;
+
+        var nextRevisionNumber = page.Revisions.Max(r => r.RevisionNumber) + 1;
+        var restoredRevision = WikiRevision.Create(new CreateWikiRevisionParams
+        {
+            PageId = page.Id,
+            Content = revision.Content,
+            EditorId = userId,
+            RevisionNumber = nextRevisionNumber,
+            Summary = $"Restored from revision #{revision.RevisionNumber}",
+        });
+        ctx.WikiRevisions.Add(restoredRevision);
+        page.Revisions.Add(restoredRevision);
+
+        page.RaiseUpdated();
+
+        var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
+        responseDto.RevisionCount = page.Revisions.Count;
+        return Results.Ok(responseDto);
+    }
+
+    [WolverinePost("/api/v1/guilds/{guildId}/wiki/categories")]
+    public async Task<IResult> CreateWikiCategory(
+        string guildId,
+        CreateWikiCategoryDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+        if (!canManage) return Results.Forbid();
+
+        var position = dto.Position ?? await ctx.WikiCategories
+            .Where(c => c.GuildId == guildId)
+            .CountAsync();
+
+        var category = WikiCategory.Create(new CreateWikiCategoryParams
+        {
+            GuildId = guildId,
+            Name = dto.Name,
+            Position = position,
+            ParentCategoryId = dto.ParentCategoryId,
+        });
+
+        ctx.WikiCategories.Add(category);
+
+        return Results.Ok(category.ToFacet<WikiCategory, WikiCategoryDto>());
+    }
+
+    [WolverinePut("/api/v1/guilds/{guildId}/wiki/categories/{categoryId}")]
+    public async Task<IResult> UpdateWikiCategory(
+        string guildId,
+        string categoryId,
+        UpdateWikiCategoryDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var category = await ctx.WikiCategories.FirstOrDefaultAsync(c => c.Id == categoryId && c.GuildId == guildId);
+        if (category is null) return Results.NotFound();
+
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+        if (!canManage) return Results.Forbid();
+
+        if (dto.Name is not null) category.Name = dto.Name;
+        if (dto.Position is not null) category.Position = dto.Position.Value;
+        category.ParentCategoryId = dto.ParentCategoryId;
+
+        category.RaiseUpdated();
+
+        return Results.Ok(category.ToFacet<WikiCategory, WikiCategoryDto>());
+    }
+
+    [WolverineDelete("/api/v1/guilds/{guildId}/wiki/categories/{categoryId}")]
+    public async Task<IResult> DeleteWikiCategory(
+        string guildId,
+        string categoryId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var category = await ctx.WikiCategories.FirstOrDefaultAsync(c => c.Id == categoryId && c.GuildId == guildId);
+        if (category is null) return Results.NotFound();
+
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+        if (!canManage) return Results.Forbid();
+
+        category.RaiseDeleted();
+        ctx.WikiCategories.Remove(category);
+
+        return Results.NoContent();
+    }
+}

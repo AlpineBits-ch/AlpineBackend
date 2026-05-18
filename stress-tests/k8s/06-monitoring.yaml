@@ -1,0 +1,267 @@
+# Prometheus + Grafana for stress test observability.
+#
+# Prometheus scrapes:
+#  - k6 metrics (via Prometheus remote write from k6 → pushgateway or direct remote_write)
+#  - All Echo service /metrics endpoints (if exposed)
+#  - PgBouncer admin stats (via pgbouncer_exporter)
+#  - Redis stats (via redis_exporter)
+#  - RabbitMQ stats (via rabbitmq_prometheus plugin, port 15692)
+#  - ScyllaDB stats (port 9180)
+#
+# k6 → Prometheus integration:
+#   Set K6_PROMETHEUS_RW_SERVER_URL=http://prometheus:9090/api/v1/write
+#   in k6 TestRun env, and run k6 with -o experimental-prometheus-rw
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: echo-stress
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+      evaluation_interval: 10s
+
+    # k6 pushes metrics via remote_write — no scrape needed for k6 itself.
+    # Uncomment if using pushgateway instead:
+    # - job_name: k6
+    #   static_configs:
+    #     - targets: ['pushgateway:9091']
+
+    scrape_configs:
+      - job_name: pgbouncer
+        static_configs:
+          - targets: ['pgbouncer-exporter:9127']
+
+      - job_name: redis
+        static_configs:
+          - targets: ['redis-exporter:9121']
+
+      - job_name: rabbitmq
+        static_configs:
+          - targets: ['echo-rabbitmq.echo-stress.svc.cluster.local:15692']
+
+      - job_name: scylladb
+        static_configs:
+          - targets:
+            - 'scylladb-0.scylladb.echo-stress.svc.cluster.local:9180'
+            - 'scylladb-1.scylladb.echo-stress.svc.cluster.local:9180'
+            - 'scylladb-2.scylladb.echo-stress.svc.cluster.local:9180'
+
+      - job_name: echo-services
+        # Assumes services expose /metrics on port 8080
+        static_configs:
+          - targets:
+            - 'guild-svc:8080'
+            - 'messaging-svc:8080'
+            - 'identity-svc:8080'
+            - 'social-svc:8080'
+            - 'echo-proxy:8080'
+        metrics_path: /metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: echo-stress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.52.0
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --web.enable-remote-write-receiver   # k6 remote_write target
+            - --storage.tsdb.retention.time=7d
+          ports:
+            - containerPort: 9090
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: echo-stress
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: echo-stress
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus:9090
+        isDefault: true
+        access: proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: echo-stress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.0
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "echo-stress"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: echo-stress
+spec:
+  selector:
+    app: grafana
+  type: LoadBalancer  # expose externally so you can open dashboards from your machine
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Redis exporter — scrapes Redis INFO and exposes as Prometheus metrics
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: echo-stress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-exporter
+  template:
+    metadata:
+      labels:
+        app: redis-exporter
+    spec:
+      containers:
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.62.0
+          env:
+            - name: REDIS_ADDR
+              value: redis://redis:6379
+            - name: REDIS_PASSWORD
+              value: devpassword
+          ports:
+            - containerPort: 9121
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-exporter
+  namespace: echo-stress
+spec:
+  selector:
+    app: redis-exporter
+  ports:
+    - port: 9121
+---
+# PgBouncer exporter — exposes SHOW STATS / SHOW POOLS as Prometheus metrics
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer-exporter
+  namespace: echo-stress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer-exporter
+  template:
+    metadata:
+      labels:
+        app: pgbouncer-exporter
+    spec:
+      containers:
+        - name: pgbouncer-exporter
+          image: prometheuscommunity/pgbouncer-exporter:v0.7.0
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "postgresql://pgbouncer_admin:@pgbouncer:6432/pgbouncer?sslmode=disable"
+          ports:
+            - containerPort: 9127
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer-exporter
+  namespace: echo-stress
+spec:
+  selector:
+    app: pgbouncer-exporter
+  ports:
+    - port: 9127

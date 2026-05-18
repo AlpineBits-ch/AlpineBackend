@@ -1,0 +1,13 @@
+﻿{
+  "$schema": "http://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "Identity.Application": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "DATABASE_NAME": "identity",
+        "DATABASE_PASSWORD": "postgres",
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

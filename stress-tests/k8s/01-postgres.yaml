@@ -1,0 +1,109 @@
+# PostgreSQL StatefulSet for the stress test environment.
+# max_connections is set high because PgBouncer is the actual connection limiter.
+# PostgreSQL only sees PgBouncer's server-side pool connections (default_pool_size
+# per DB × number of databases), not all 1k+ client connections.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: echo-stress
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
+      CREATE DATABASE guild_db;
+      CREATE DATABASE identity_db;
+      CREATE DATABASE messaging_db;
+      CREATE DATABASE social_db;
+    CREATE DATABASE echo_db;
+
+    EOSQL
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: echo-stress
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          args:
+            # Allow PgBouncer + all service pools to connect without hitting limits.
+            # Actual client ceiling is enforced at PgBouncer (max_client_conn=5000).
+            - postgres
+            - -c
+            - max_connections=500
+            - -c
+            - shared_buffers=1GB
+            - -c
+            - effective_cache_size=3GB
+            - -c
+            - work_mem=16MB
+            - -c
+            - maintenance_work_mem=256MB
+            - -c
+            - checkpoint_completion_target=0.9
+            - -c
+            - wal_buffers=64MB
+            - -c
+            - log_min_duration_statement=500
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              cpu: "2"
+              memory: "4Gi"
+            limits:
+              cpu: "4"
+              memory: "8Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: init
+          configMap:
+            name: postgres-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: echo-stress
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None  # headless — PgBouncer connects by pod hostname

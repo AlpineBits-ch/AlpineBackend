@@ -1,0 +1,45 @@
+{
+  "ext": {
+    "loadimpact": {
+      "name": "Echo Stress — 100k Users"
+    }
+  },
+  "env": {
+    "TEST_USER_COUNT": "100000",
+    "WRITER_VUS": "50000",
+    "MONITOR_VUS": "5000",
+    "VOICE_USERS": "20000",
+    "TYPING_CONCURRENCY": "10000",
+    "SENDER_VUS": "5000",
+    "LISTENER_VUS": "20000",
+    "GHOST_CONCURRENCY": "5000",
+    "PEAK_VUS": "40000",
+    "TEST_DURATION_S": "600",
+    "SUSTAIN_MS": "1200000",
+    "SEND_INTERVAL_MS": "200",
+    "CHURN_INTERVAL_MS": "500",
+    "PROPAGATION_TIMEOUT_MS": "30000"
+  },
+  "notes": [
+    "At 100k users the k6 test runner itself needs horizontal distribution.",
+    "Use the k6 operator with parallelism >= 20 pods, each pod handles ~5k VUs.",
+    "Redis must be in cluster mode (min 3 shards) — standalone will OOM.",
+    "PgBouncer default_pool_size should be tuned to match PostgreSQL max_connections.",
+    "ScyllaDB must have 3+ nodes; increase RF=3 for the messaging keyspace.",
+    "Consider splitting k8s namespaces: echo-stress-infra vs echo-stress-app.",
+    "RabbitMQ shovel or federation may be needed if queue depth exceeds memory."
+  ],
+  "thresholds": {
+    "ws_full_connect_ms":       ["p(95)<15000"],
+    "ws_broadcast_latency_ms":  ["p(95)<5000"],
+    "ws_typing_latency_ms":     ["p(95)<3000"],
+    "ws_voice_state_latency_ms":["p(95)<3000"],
+    "presence_propagation_ms":  ["p(95)<15000"],
+    "wolverine_pipeline_ms":    ["p(95)<20000"],
+    "api_response_ms":          ["p(95)<5000"],
+    "msg_write_latency_ms":     ["p(95)<10000"],
+    "msg_read_latency_ms":      ["p(95)<8000"],
+    "http_req_failed":          ["rate<0.10"],
+    "ws_connect_fail_rate":     ["rate<0.05"]
+  }
+}

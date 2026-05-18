@@ -1,0 +1,36 @@
+{
+  "ext": {
+    "loadimpact": {
+      "name": "Echo Stress — 10k Users"
+    }
+  },
+  "env": {
+    "TEST_USER_COUNT": "10000",
+    "WRITER_VUS": "5000",
+    "MONITOR_VUS": "500",
+    "VOICE_USERS": "2000",
+    "TYPING_CONCURRENCY": "1000",
+    "SENDER_VUS": "500",
+    "LISTENER_VUS": "2000",
+    "GHOST_CONCURRENCY": "500",
+    "PEAK_VUS": "4000",
+    "TEST_DURATION_S": "300",
+    "SUSTAIN_MS": "600000",
+    "SEND_INTERVAL_MS": "200",
+    "CHURN_INTERVAL_MS": "500",
+    "PROPAGATION_TIMEOUT_MS": "15000"
+  },
+  "thresholds": {
+    "ws_full_connect_ms":       ["p(95)<8000"],
+    "ws_broadcast_latency_ms":  ["p(95)<1500"],
+    "ws_typing_latency_ms":     ["p(95)<800"],
+    "ws_voice_state_latency_ms":["p(95)<1000"],
+    "presence_propagation_ms":  ["p(95)<5000"],
+    "wolverine_pipeline_ms":    ["p(95)<8000"],
+    "api_response_ms":          ["p(95)<2000"],
+    "msg_write_latency_ms":     ["p(95)<5000"],
+    "msg_read_latency_ms":      ["p(95)<3000"],
+    "http_req_failed":          ["rate<0.05"],
+    "ws_connect_fail_rate":     ["rate<0.02"]
+  }
+}

@@ -1,0 +1,223 @@
+# k6 Operator TestRun manifests for each stress test scenario.
+#
+# Prerequisites:
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm install k6-operator grafana/k6-operator -n k6-operator --create-namespace
+#
+# The test scripts are bundled into a Docker image (see Dockerfile.k6 at repo root).
+# Build and push before applying:
+#   docker build -f Dockerfile.k6 -t your-registry/echo-k6-tests:latest .
+#   docker push your-registry/echo-k6-tests:latest
+#
+# Apply a specific test:
+#   kubectl apply -f k8s/07-k6-testruns.yaml
+#   kubectl -n echo-stress get testrun
+#   kubectl -n echo-stress logs -l k6_cr=a1-connection-ramp -f
+#
+# Change parallelism to distribute load across more pods (each pod runs a VU slice):
+#   parallelism: 4  →  4 k6 pods, each handling 250 VUs of the 1000 total
+#   parallelism: 20 →  20 pods for 10k users (500 VUs per pod)
+#
+# Metrics flow: k6 → Prometheus remote_write → http://prometheus:9090/api/v1/write
+---
+# ── A1: Connection Ramp ──────────────────────────────────────────────────────
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: a1-connection-ramp
+  namespace: echo-stress
+spec:
+  parallelism: 4
+  script:
+    localFile: /scripts/a-websocket/01-connection-ramp.js
+  runner:
+    image: your-registry/echo-k6-tests:latest
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "1"
+        memory: "512Mi"
+      limits:
+        cpu: "2"
+        memory: "1Gi"
+    env:
+      - name: BASE_URL
+        value: "http://echo-proxy.echo-stress.svc.cluster.local"
+      - name: TEST_USER_COUNT
+        value: "1000"
+      - name: SKIP_PROVISION
+        value: "false"
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus.echo-stress.svc.cluster.local:9090/api/v1/write"
+      - name: K6_PROMETHEUS_RW_TREND_STATS
+        value: "p(50),p(95),p(99),max"
+  arguments: "-o experimental-prometheus-rw --config /scripts/options/1k.json"
+---
+# ── A2: Idle Sustain ─────────────────────────────────────────────────────────
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: a2-idle-sustain
+  namespace: echo-stress
+spec:
+  parallelism: 4
+  script:
+    localFile: /scripts/a-websocket/02-idle-sustain.js
+  runner:
+    image: your-registry/echo-k6-tests:latest
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "1"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+    env:
+      - name: BASE_URL
+        value: "http://echo-proxy.echo-stress.svc.cluster.local"
+      - name: TEST_USER_COUNT
+        value: "1000"
+      - name: SKIP_PROVISION
+        value: "true"
+      - name: TEST_GUILD_ID
+        value: ""   # fill in after first provision run
+      - name: TEST_CHANNEL_ID
+        value: ""   # fill in after first provision run
+      - name: SUSTAIN_MS
+        value: "600000"
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus.echo-stress.svc.cluster.local:9090/api/v1/write"
+  arguments: "-o experimental-prometheus-rw"
+---
+# ── A3: Fan-Out Storm ────────────────────────────────────────────────────────
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: a3-fanout-storm
+  namespace: echo-stress
+spec:
+  parallelism: 4
+  script:
+    localFile: /scripts/a-websocket/03-fanout-storm.js
+  runner:
+    image: your-registry/echo-k6-tests:latest
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "1"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "2Gi"
+    env:
+      - name: BASE_URL
+        value: "http://echo-proxy.echo-stress.svc.cluster.local"
+      - name: TEST_USER_COUNT
+        value: "1000"
+      - name: SKIP_PROVISION
+        value: "true"
+      - name: SEND_INTERVAL_MS
+        value: "200"
+      - name: BROADCAST_EVENT_NAME
+        value: "ChannelMessageCreated"  # ADJUST to match your GuildHub event name
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus.echo-stress.svc.cluster.local:9090/api/v1/write"
+  arguments: "-o experimental-prometheus-rw"
+---
+# ── B2: Read-Your-Writes ─────────────────────────────────────────────────────
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: b2-read-your-writes
+  namespace: echo-stress
+spec:
+  parallelism: 4
+  script:
+    localFile: /scripts/b-consistency/02-read-your-writes.js
+  runner:
+    image: your-registry/echo-k6-tests:latest
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "1"
+        memory: "512Mi"
+      limits:
+        cpu: "2"
+        memory: "1Gi"
+    env:
+      - name: BASE_URL
+        value: "http://echo-proxy.echo-stress.svc.cluster.local"
+      - name: TEST_USER_COUNT
+        value: "500"
+      - name: SKIP_PROVISION
+        value: "true"
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus.echo-stress.svc.cluster.local:9090/api/v1/write"
+  arguments: "-o experimental-prometheus-rw"
+---
+# ── C1: YARP Throughput ──────────────────────────────────────────────────────
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: c1-yarp-throughput
+  namespace: echo-stress
+spec:
+  parallelism: 8   # more parallelism to generate enough request rate
+  script:
+    localFile: /scripts/c-performance/01-yarp-throughput.js
+  runner:
+    image: your-registry/echo-k6-tests:latest
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "2"
+        memory: "1Gi"
+      limits:
+        cpu: "4"
+        memory: "2Gi"
+    env:
+      - name: BASE_URL
+        value: "http://echo-proxy.echo-stress.svc.cluster.local"
+      - name: TEST_USER_COUNT
+        value: "1000"
+      - name: SKIP_PROVISION
+        value: "true"
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus.echo-stress.svc.cluster.local:9090/api/v1/write"
+  arguments: "-o experimental-prometheus-rw"
+---
+# ── C4: Write Amplification ──────────────────────────────────────────────────
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: c4-write-amplification
+  namespace: echo-stress
+spec:
+  parallelism: 4
+  script:
+    localFile: /scripts/c-performance/04-write-amplification.js
+  runner:
+    image: your-registry/echo-k6-tests:latest
+    imagePullPolicy: Always
+    resources:
+      requests:
+        cpu: "2"
+        memory: "1Gi"
+      limits:
+        cpu: "4"
+        memory: "2Gi"
+    env:
+      - name: BASE_URL
+        value: "http://echo-proxy.echo-stress.svc.cluster.local"
+      - name: WRITER_VUS
+        value: "500"
+      - name: MONITOR_VUS
+        value: "50"
+      - name: MSG_RATE
+        value: "1"
+      - name: SKIP_PROVISION
+        value: "true"
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: "http://prometheus.echo-stress.svc.cluster.local:9090/api/v1/write"
+  arguments: "-o experimental-prometheus-rw"

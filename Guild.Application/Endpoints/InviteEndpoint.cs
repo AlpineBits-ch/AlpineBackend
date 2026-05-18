@@ -1,0 +1,166 @@
+﻿using System.Security.Claims;
+using Facet.Extensions;
+using Guild.Application.Dtos.Request;
+using Guild.Application.Dtos.Response;
+using Guild.Application.Services;
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
+using Guild.Persistence.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Social.Contracts.Bus.Integration.Request;
+using Social.Contracts.Bus.Integration.Response;
+using Wolverine;
+using Wolverine.Http;
+
+namespace Guild.Application.Endpoints;
+
+public class InviteEndpoint
+{
+
+
+    [WolverineGet("/api/v1/guilds/{guildId}/invites")]
+    public async Task<IResult> GetInvitesAsync(string guildId, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+        
+        if(!await permissionService.CanUserPerformActionOnGuildAsync(userId: userId, guildId: guildId, Permissions.ManageChannel))
+        {
+            return Results.Forbid();
+        }
+        
+        var invites = await ctx.GuildInvites.Include(g => g.Guild).Where(x => x.GuildId == guildId).ToListAsync();
+        return Results.Ok(invites.SelectFacets<GuildInvite, InviteDto>());
+    }
+    
+    [WolverinePost("/api/v1/guilds/{guildId}/invite")]
+
+    public async Task<IResult> CreateInviteAsync(string guildId, CreateInviteDto createInviteDto, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.CreateInvite))
+        {
+            return Results.Forbid();
+        }
+        
+        var id = GuildInvite.GenerateId();
+        var invite = new GuildInvite()
+        {
+            Id = id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            GuildId = guildId,
+            Type = createInviteDto.Type,
+            State = InviteState.Active
+        };
+        
+        ctx.GuildInvites.Add(invite);
+        
+        
+        
+        return Results.Ok(new InviteDto()
+        {
+            Id = invite.Id,
+            Type = invite.Type,
+            State = invite.State,
+            CreatedAt = invite.CreatedAt,
+            UpdatedAt = invite.UpdatedAt,
+            GuildId = invite.GuildId,
+            Guild = default!
+        });
+        
+    }
+
+
+    [WolverineGet("/api/v1/invites/{inviteId}")]
+    public async Task<IResult> GetInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx)
+    {
+        var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Id == inviteId);
+        if(invite is null) return Results.NotFound();
+        return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
+    }
+    [WolverineDelete("/api/v1/invites/{inviteId}")]
+    public async Task<IResult> DeleteInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx,  [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if(string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+        var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Id == inviteId);
+
+        if(invite is null) return Results.NotFound();
+        
+        if(!await permissionService.CanUserPerformActionOnGuildAsync(userId, invite.GuildId, Permissions.ManageChannel))
+            return Results.Forbid();
+        
+        ctx.GuildInvites.Remove(invite);
+        
+        return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
+    }
+
+    [WolverinePost("/api/v1/invites/{inviteId}/redeem")]
+    public async Task<IResult> RedeemInviteAsync(string inviteId, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx, [NotBody] IDistributedCache cache, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var profileResponse = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
+        {
+            UserId = userId
+        });
+
+        if(profileResponse.Profile is null) return Results.BadRequest("User not found");
+        var searchValue = profileResponse.Profile.UserName! + "#" + profileResponse.Profile.Hash;
+
+        var invite = await ctx.GuildInvites.FirstOrDefaultAsync(i => i.Id == inviteId);
+        if (invite is null) return Results.NotFound();
+        
+        if(invite.State == InviteState.Expired) return Results.BadRequest("Invite has expired");
+        
+        if(invite.Type == InviteType.OneTime) invite.State = InviteState.Expired;
+        
+        var guild = await ctx.Guilds.Include(guild => guild.Channels).Include(guild => guild.Roles).FirstOrDefaultAsync(g => g.Id == invite.GuildId);
+        if(guild is null) return Results.NotFound();
+
+        var id = GuildMember.GenerateId();
+        var member = new GuildMember()
+        {
+            Id = id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            GuildId = guild.Id,
+            UserId = userId,
+            JoinedAt = DateTime.UtcNow,
+            InviteId = inviteId,
+            SearchValue = searchValue.ToUpperInvariant()
+        };
+        
+        ctx.GuildMembers.Add(member);
+
+        var role = guild.Roles.FirstOrDefault(r => r.Type == RoleType.Everyone);
+        
+        role!.Members.Add(new RoleMember()
+        {
+            Id = RoleMember.GenerateId(),
+            UpdatedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            MemberId = member.Id,
+            RoleId = role.Id,
+        });
+        
+        var cacheKeyOne = GuildPermissionsForUser.GetCacheKey(guild.Id, userId);
+        await cache.RemoveAsync(cacheKeyOne);
+
+        foreach (var channel in guild.Channels)
+        {
+            var cacheKey = GuildChannelPermission.GetCacheKey(guild.Id, channel.Id, userId);
+            await cache.RemoveAsync(cacheKey);
+        }
+        
+        
+        return Results.Accepted();
+
+    }
+}

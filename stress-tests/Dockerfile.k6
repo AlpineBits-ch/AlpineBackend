@@ -1,0 +1,27 @@
+# Bundles all k6 test scripts into a single image for the k6 operator.
+# Build: docker build -f stress-tests/Dockerfile.k6 -t your-registry/echo-k6-tests:latest .
+# Push:  docker push your-registry/echo-k6-tests:latest
+#
+# The k6 operator mounts the image filesystem and runs scripts from /scripts/.
+# All lib/ imports (../lib/signalr.js etc.) resolve correctly because the
+# full directory tree is preserved under /scripts/.
+
+FROM grafana/k6:0.52.0
+
+COPY stress-tests/ /scripts/
+
+# Smoke-test that k6 can parse the main scripts without running them.
+# Catches syntax errors before the image is pushed.
+RUN k6 inspect /scripts/a-websocket/01-connection-ramp.js && \
+    k6 inspect /scripts/a-websocket/02-idle-sustain.js && \
+    k6 inspect /scripts/a-websocket/03-fanout-storm.js && \
+    k6 inspect /scripts/a-websocket/04-typing-storm.js && \
+    k6 inspect /scripts/a-websocket/05-voice-churn.js && \
+    k6 inspect /scripts/b-consistency/01-event-propagation.js && \
+    k6 inspect /scripts/b-consistency/02-read-your-writes.js && \
+    k6 inspect /scripts/b-consistency/03-outbox-lag.js && \
+    k6 inspect /scripts/b-consistency/04-ghost-presence.js && \
+    k6 inspect /scripts/c-performance/01-yarp-throughput.js && \
+    k6 inspect /scripts/c-performance/02-db-pool-exhaustion.js && \
+    k6 inspect /scripts/c-performance/03-rate-limiter.js && \
+    k6 inspect /scripts/c-performance/04-write-amplification.js

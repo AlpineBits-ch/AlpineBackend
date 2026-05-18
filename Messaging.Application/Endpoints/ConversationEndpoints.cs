@@ -1,0 +1,226 @@
+﻿using System.Security.Claims;
+using Facet.Extensions;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
+using Messaging.Application.Dtos.Request;
+using Messaging.Application.Dtos.Response;
+using Messaging.Domain.Aggregates;
+using Messaging.Domain.Entities;
+using Messaging.Domain.Enums;
+using Messaging.Domain.Events.Conversation;
+using Messaging.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
+using Social.Contracts.Bus.Integration.Request;
+using Social.Contracts.Bus.Integration.Response;
+using Social.Contracts.Dtos;
+using Wolverine;
+using Wolverine.Http;
+
+namespace Messaging.Application.Endpoints;
+
+[Authorize]
+public class ConversationEndpoints
+{
+    
+    
+    [WolverinePost("/api/v1/conversations/consume-tokens")]
+    public async Task<IResult> FetchTokensForUsers(ConsumeMlsDeviceTokensForUserRequest request, [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
+    {
+        var ownUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if(ownUserId is null) return Results.Unauthorized();
+
+
+        if (!await IsBefriendedWithUsers(ownUserId, request.UserIds.ToList(), messageBus))
+        {
+            return Results.BadRequest("User is not friends with the users you are trying to consume tokens for");
+        }
+        
+        var tokens = await messageBus.InvokeAsync<ConsumeMlsDeviceTokensForUserResponse>(request);
+        
+        return Results.Ok(tokens);
+    }
+    
+    [WolverinePost( "/api/v1/conversations")]
+    public async Task<IResult> CreateConversation(CreateConversationDto createDto, [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
+    {
+        
+        
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if(userId is null) return Results.Unauthorized();
+        
+        var response = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
+        {
+            UserId = userId
+        });
+        
+        if(response.Profile is null) return Results.BadRequest("Profile not found");
+        
+        var memberProfiles = new List<ProfileDto>();
+
+        foreach (var member in createDto.Members)
+        {
+            var memberResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
+            {
+                UserId = member.UserId
+            });
+            
+            if(memberResponse.Profile is null) return Results.BadRequest("Profile not found");
+            
+            memberProfiles.Add(memberResponse.Profile);
+        }
+        
+        var befriendedUserIds = response.Profile.Relationships
+            .Where(r => r.Status == RelationshipStatus.Accepted)
+            .Select(r => r.UserId).Where(u => u != userId).ToList();
+        
+        // check if all user ids are friends 
+        
+        foreach (var createConversationMemberDto in createDto.Members)
+        {
+            // TODO: We have to check the users privacy bit settings here, but for now default to this
+            if (!befriendedUserIds.Contains(createConversationMemberDto.UserId))
+                return Results.BadRequest("User cannot be added to conversation if not friends");
+        }
+
+
+        var selfMember = new CreateConversationMemberParams()
+        {
+            UserId = userId,
+            PublicKey = Array.Empty<byte>(),
+            CachedUserName = response.Profile.UserName,
+            CachedUserHash = response.Profile.Hash,
+        };
+
+
+        var tokens = new List<DeviceTokenResponse>();
+        if (createDto.Encryption == ChannelEncryptionState.Encrypted)
+        {
+            var consumedTokens = await messageBus.InvokeAsync<ConsumeMlsDeviceTokensForUserResponse>(new ConsumeMlsDeviceTokensForUserRequest()
+            {
+                UserIds = createDto.Members.Select(m => m.UserId).ToList(),
+            });
+            
+            tokens.AddRange(consumedTokens.DeviceTokens);
+        }
+        
+        
+        var conversation = Conversation.Create(new CreateConversationParams()
+        {
+            Encryption = createDto.Encryption,
+            Members = createDto.Members.Select(m => new CreateConversationMemberParams()
+            {
+                UserId = m.UserId,
+                PublicKey = Array.Empty<byte>(),
+                CachedUserName = memberProfiles.Single(p => p.UserId == m.UserId).UserName,
+                CachedUserHash = memberProfiles.Single(p => p.UserId == m.UserId).Hash,
+            }).Concat([selfMember]).ToList(),
+            Name = createDto.Name,
+            MlsEpoch = createDto.MlsEpoch,
+            MlsGroupId = createDto.MlsGroupId,
+            MlsGroupInfo = createDto.MlsGroupInfo,
+        });
+        ctx.Conversations.Add(conversation);
+
+        foreach (var deviceWelcome in createDto.DeviceWelcomes)
+        {
+            var id = PendingWelcome.GenerateId();
+            var date = DateTime.UtcNow;
+            
+            var welcome = new PendingWelcome
+            {
+                ConversationId = conversation.Id,
+                DeviceId = deviceWelcome.DeviceId,
+                UserId = deviceWelcome.UserId,
+                Welcome = deviceWelcome.Welcome,
+                CreatedAt = date,
+                UpdatedAt = date,
+                Id = id,
+            };
+            
+            ctx.PendingWelcomes.Add(welcome);
+        }
+        
+        
+        return Results.Ok(conversation.ToFacet<Conversation, ConversationDto>());
+    }
+
+  
+
+    [WolverineDelete("/api/v1/conversations/{id}")]
+    public async Task<IResult> DeleteConversation(string id, [NotBody] IMessageBus messageBus,
+        [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx)
+    {
+        
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if(userId is null) return Results.Unauthorized();
+        
+        var conversation = await ctx.Conversations.Include(conversation => conversation.Members).SingleAsync(c => c.Id == id);
+        
+        if(conversation.Members.All(m => m.UserId != userId)) return Results.Forbid();
+
+        if (conversation.Members.Count == 1)
+        {
+            ctx.Conversations.Remove(conversation);
+            // Intentionally not using cascading handlers, to make sure the conversation still exists at that point
+            await messageBus.PublishAsync(new ConversationDeleted() { ConversationId = conversation.Id });  
+            return Results.Ok();
+        }
+        
+        conversation.Members.Remove(conversation.Members.Single(m => m.UserId == userId));
+
+        await messageBus.PublishAsync(new ConversationMemberRemoved()
+        {
+            HasLeft = true,
+            ConversationId = conversation.Id,
+            UserId = userId
+        });
+        
+        return Results.Ok();
+    }
+
+
+    private async Task<bool> IsBefriendedWithUsers(string ownUserId, List<string> userIds, IMessageBus messageBus)
+    {
+        
+        var response = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
+        {
+            UserId = ownUserId
+        });
+        if (response.Profile is null) return false;
+
+        var memberProfiles = new List<ProfileDto>();
+
+        foreach (var userId in userIds)
+        {
+            var memberResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
+            {
+                UserId = userId
+            });
+            
+            if(memberResponse.Profile is null) return false;
+            
+            memberProfiles.Add(memberResponse.Profile);
+        }
+        
+        var befriendedUserIds = response.Profile.Relationships
+            .Where(r => r.Status == RelationshipStatus.Accepted)
+            .Select(r => r.UserId).Where(u => u != ownUserId).ToList();
+        
+        // check if all user ids are friends 
+        
+        foreach (var getTokenUserId in userIds)
+        {
+            if(getTokenUserId == ownUserId) continue;
+            // TODO: We have to check the users privacy bit settings here, but for now default to this
+            if (!befriendedUserIds.Contains(getTokenUserId))
+            {
+                return false;
+
+            }
+        }
+
+        return true;
+    }
+    
+}

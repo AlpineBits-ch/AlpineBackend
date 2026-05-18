@@ -36,8 +36,12 @@ jobs:
         run: dotnet build --configuration Release --no-restore
         
 
-      - name: Run tests
-        run: dotnet test --configuration Release --logger "console;verbosity=normal" --no-restore --no-build
+      - name: Install dotnet-coverage
+        run: dotnet tool install --global dotnet-coverage
+      
+      - name: Run Tests with Coverage
+        run: dotnet-coverage collect "dotnet test" -f cobertura -o solution_coverage.xml
+
 
   build:
     name: Build ${{ matrix.project }}

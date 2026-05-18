@@ -13,7 +13,9 @@
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
+        <PackageReference Include="coverlet.MTP" Version="10.0.1" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.7.0" />
         <PackageReference Include="NUnit" Version="4.6.0" />
         <PackageReference Include="NUnit.Analyzers" Version="4.13.0">
           <PrivateAssets>all</PrivateAssets>
@@ -29,5 +31,5 @@
     <ItemGroup>
       <ProjectReference Include="..\Domain\Domain.csproj" />
     </ItemGroup>
-
+   
 </Project>

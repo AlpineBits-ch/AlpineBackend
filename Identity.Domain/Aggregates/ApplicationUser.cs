@@ -44,7 +44,6 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
 
     public string JsonSettings { get; set; } = "{}";
     
-    
     public EncryptedMasterKey? EncryptedMasterKey{ get; set; }
     
     public ICollection<UserDeviceToken> DeviceTokens { get; set; } = new List<UserDeviceToken>();

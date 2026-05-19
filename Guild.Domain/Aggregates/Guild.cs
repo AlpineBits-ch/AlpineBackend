@@ -34,6 +34,8 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     public ICollection<GuildInvite> Invites { get; set; } = new List<GuildInvite>();
     
     public virtual Channel? SystemChannel { get; set; }
+    
+    public virtual ICollection<WebhookConfig> WebhookConfig { get; set; }
     public string? SystemChannelId { get; set; }
 
     public static Guild Create(CreateGuildParams parameters)

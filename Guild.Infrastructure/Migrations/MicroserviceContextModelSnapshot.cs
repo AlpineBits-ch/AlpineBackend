@@ -523,6 +523,11 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -537,12 +542,20 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("guild_id");
 
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_webhook_configs");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_webhook_configs_channel_id");
 
                     b.HasIndex("GuildId")
                         .HasDatabaseName("ix_webhook_configs_guild_id");
@@ -920,12 +933,21 @@ namespace Guild.Persistence.Migrations
 
             modelBuilder.Entity("Guild.Domain.Entity.WebhookConfig", b =>
                 {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", "Channel")
+                        .WithMany("WebhookConfigs")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_webhook_configs_channels_channel_id");
+
                     b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
                         .WithMany("WebhookConfigs")
                         .HasForeignKey("GuildId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_webhook_configs_guilds_guild_id");
+
+                    b.Navigation("Channel");
 
                     b.Navigation("Guild");
                 });
@@ -979,6 +1001,8 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("ReadStates");
 
                     b.Navigation("SystemChannelGuild");
+
+                    b.Navigation("WebhookConfigs");
                 });
 
             modelBuilder.Entity("Guild.Domain.Aggregates.Guild", b =>

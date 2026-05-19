@@ -90,8 +90,7 @@ builder.Services.AddHealthChecks()
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // The URL of your Auth Server
-        options.Authority = "http://identity:8080"; 
+        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
         options.RequireHttpsMetadata = false; // Set to true in Prod
 
         options.TokenValidationParameters = new TokenValidationParameters

@@ -87,17 +87,16 @@ builder.Services.Configure<TransportFailureRateHealthPolicyOptions>(options =>
     options.MinimalTotalCountThreshold = 1; // fail after just 1 failure in the window
     options.DefaultFailureRateLimit = 0.3; // 30% failure rate triggers ejection
 });
-var identityUrl = Environment.GetEnvironmentVariable("Services__Identity") ?? "http://_http.identity.default.svc.cluster.local";
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = identityUrl;
+        options.Authority = "identity:8080";
         options.RequireHttpsMetadata = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = identityUrl,
+            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
             ValidateAudience = false,
         };
     });

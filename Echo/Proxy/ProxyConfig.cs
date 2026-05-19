@@ -41,7 +41,15 @@ public static class ProxyConfig
             RouteId = "identity-connect-route",
             ClusterId = "identity-connect-cluster",
             Match = new RouteMatch { Path = "/connect/{**catch-all}" }
+        },
+        new RouteConfig
+        {
+            RouteId = "identity-oauth-route",
+            ClusterId = "identity-oauth-cluster",
+            Match = new RouteMatch { Path = "/.well-known/{**catch-all}" }
         }
+        
+        
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()
@@ -94,6 +102,29 @@ public static class ProxyConfig
         new ClusterConfig
         {
             ClusterId = "identity-connect-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = identity } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "identity/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
+        },
+        new ClusterConfig
+        {
+            ClusterId = "identity-oauth-cluster",
             Destinations = new Dictionary<string, DestinationConfig>
             {
                 { "dest1", new DestinationConfig { Address = identity } }

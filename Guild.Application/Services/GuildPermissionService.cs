@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
@@ -386,6 +387,16 @@ public class GuildPermissionService(
 
         var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
         return (userPermissions.BasePermissions & requiredPermission) == requiredPermission;
+    }
+
+    public async Task<bool> CanUserPerformActionOnGuildAsync(
+        ClaimsPrincipal user,
+        string guildId,
+        Permissions requiredPermission)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return false;
+        return await CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);   
     }
 
     public async Task InvalidateUserPermissionsCacheAsync(string guildId, string userId)

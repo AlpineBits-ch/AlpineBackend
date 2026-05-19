@@ -2,7 +2,9 @@
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Storage.V1;
+using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence;
+using Messaging.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -51,6 +53,8 @@ public static class MessagingInfrastructure
         {
             // Empty            
         }
-        
+
+        services.AddScoped<IMessageRepository, ScyllaMessageRepository>();
+
     }
 }

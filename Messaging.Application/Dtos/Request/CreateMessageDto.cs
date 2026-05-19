@@ -13,8 +13,8 @@ public class CreateMessageDto
     public string? SenderDeviceId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     
-    
     // This should be user_ids
     public ICollection<string> Mentions { get; set; } = new List<string>();
     public ICollection<string> Attachments { get; set; } = new List<string>();
+    
 }

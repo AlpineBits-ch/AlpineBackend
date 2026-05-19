@@ -423,7 +423,7 @@ public class GuildPermissionServiceTests
     public void CanUserPerformActionOnGuild_NullUserId_ThrowsArgumentException()
     {
         Assert.ThrowsAsync<ArgumentException>(
-            () => _service.CanUserPerformActionOnGuildAsync(null!, GuildId, Permissions.ViewChannel));
+            () => _service.CanUserPerformActionOnGuildAsync(string.Empty, GuildId, Permissions.ViewChannel));
     }
 
     [Test]

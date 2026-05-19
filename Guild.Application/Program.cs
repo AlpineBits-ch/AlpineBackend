@@ -75,18 +75,18 @@ builder.UseWolverine(opts =>
     opts.ConfigureWolverine();
 });
 builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy()); // Simple check
+    .AddCheck("self", () => HealthCheckResult.Healthy());
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.Authority = "http://identity:8080"; 
-        options.RequireHttpsMetadata = false; // Set to true in Prod
+        options.RequireHttpsMetadata = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = "http://identity:8080",
+            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
             ValidateAudience = false,
          
         };
@@ -129,10 +129,10 @@ if (args.Contains("codegen") || args.Contains("describe"))
     {
         var options = new ConfigurationOptions
         {
-            EndPoints = { "localhost:6379" }, // Doesn't need to be an active server
+            EndPoints = { "localhost:6379" },
             AbortOnConnectFail = false,
             AllowAdmin = false,
-            Password = null // Unauthenticated
+            Password = null 
         };
 
         return ConnectionMultiplexer.Connect(options);
@@ -153,10 +153,10 @@ if (args.Contains("facets"))
     {
         var options = new ConfigurationOptions
         {
-            EndPoints = { "localhost:6379" }, // Doesn't need to be an active server
+            EndPoints = { "localhost:6379" }, 
             AbortOnConnectFail = false,
             AllowAdmin = false,
-            Password = null // Unauthenticated
+            Password = null 
         };
 
         return ConnectionMultiplexer.Connect(options);

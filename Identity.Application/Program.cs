@@ -46,7 +46,10 @@ builder.Services.AddOpenIddict()
     .AddServer(options =>
     {
         options.SetTokenEndpointUris("/connect/token");
-        options.SetIssuer("http://identity:8080");
+        options.SetIssuer(Env.GeneralConfiguration.InstanceUrl);
+        
+        options.SetConfigurationEndpointUris("/.well-known/openid-configuration");
+        options.SetJsonWebKeySetEndpointUris("/.well-known/jwks");
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();

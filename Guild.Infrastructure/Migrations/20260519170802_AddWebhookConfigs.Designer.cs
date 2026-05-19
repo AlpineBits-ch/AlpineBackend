@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Guild.Persistence.Migrations
 {
     [DbContext(typeof(MicroserviceContext))]
-    [Migration("20260519142810_AddWebhookConfigToGuild")]
-    partial class AddWebhookConfigToGuild
+    [Migration("20260519170802_AddWebhookConfigs")]
+    partial class AddWebhookConfigs
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -545,12 +545,12 @@ namespace Guild.Persistence.Migrations
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id")
-                        .HasName("pk_webhook_config");
+                        .HasName("pk_webhook_configs");
 
                     b.HasIndex("GuildId")
-                        .HasDatabaseName("ix_webhook_config_guild_id");
+                        .HasDatabaseName("ix_webhook_configs_guild_id");
 
-                    b.ToTable("webhook_config", (string)null);
+                    b.ToTable("webhook_configs", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.Wiki", b =>
@@ -923,12 +923,14 @@ namespace Guild.Persistence.Migrations
 
             modelBuilder.Entity("Guild.Domain.Entity.WebhookConfig", b =>
                 {
-                    b.HasOne("Guild.Domain.Aggregates.Guild", null)
-                        .WithMany("WebhookConfig")
+                    b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
+                        .WithMany("WebhookConfigs")
                         .HasForeignKey("GuildId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_webhook_config_guilds_guild_id");
+                        .HasConstraintName("fk_webhook_configs_guilds_guild_id");
+
+                    b.Navigation("Guild");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.Wiki", b =>
@@ -996,7 +998,7 @@ namespace Guild.Persistence.Migrations
 
                     b.Navigation("Roles");
 
-                    b.Navigation("WebhookConfig");
+                    b.Navigation("WebhookConfigs");
                 });
 
             modelBuilder.Entity("Guild.Domain.Aggregates.Role", b =>

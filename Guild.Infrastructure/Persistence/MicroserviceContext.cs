@@ -7,22 +7,24 @@ using Persistence;
 
 namespace Guild.Persistence.Persistence;
 
-public class MicroserviceContext : Microsoft.EntityFrameworkCore.DbContext
+public class MicroserviceContext : DbContext
 {
     public DbSet<Domain.Aggregates.Guild> Guilds { get; set; }
     public DbSet<Domain.Aggregates.Channel> Channels { get; set; }
     public DbSet<Domain.Aggregates.Role> Roles { get; set; }
-    public DbSet<Domain.Entity.PublicKeyStore> PublicKeys { get; set; }
-    public DbSet<Domain.Entity.Category> Categories { get; set; }
-    public DbSet<Domain.Entity.ChannelPermission> ChannelPermissions { get; set; }
-    public DbSet<Domain.Entity.GuildMember> GuildMembers { get; set; }
-    public DbSet<Domain.Entity.RoleMember> RoleMembers { get; set; }
+    public DbSet<PublicKeyStore> PublicKeys { get; set; }
+    public DbSet<Category> Categories { get; set; }
+    public DbSet<ChannelPermission> ChannelPermissions { get; set; }
+    public DbSet<GuildMember> GuildMembers { get; set; }
+    public DbSet<RoleMember> RoleMembers { get; set; }
     public DbSet<GuildInvite> GuildInvites { get; set; }
     public DbSet<ReadState> ReadStates { get; set; }
     public DbSet<Wiki> Wikis { get; set; }
     public DbSet<WikiPage> WikiPages { get; set; }
     public DbSet<WikiCategory> WikiCategories { get; set; }
     public DbSet<WikiRevision> WikiRevisions { get; set; }
+    
+    public DbSet<WebhookConfig> WebhookConfigs { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -60,6 +62,14 @@ public class MicroserviceContext : Microsoft.EntityFrameworkCore.DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
        
+        modelBuilder.Entity<WebhookConfig>(webhookConfigBuilder =>
+        {
+            webhookConfigBuilder.HasOne(x => x.Guild)
+                .WithMany(x => x.WebhookConfigs)
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+        
         modelBuilder.Entity<Domain.Aggregates.Guild>(guidBuilder =>
         {
          
@@ -83,7 +93,7 @@ public class MicroserviceContext : Microsoft.EntityFrameworkCore.DbContext
          
         });
         
-        modelBuilder.Entity<Domain.Entity.Category>(categoryBuilder =>
+        modelBuilder.Entity<Category>(categoryBuilder =>
         {
             categoryBuilder.HasOne(x => x.Guild)
                 .WithMany(x => x.Categories)
@@ -112,7 +122,7 @@ public class MicroserviceContext : Microsoft.EntityFrameworkCore.DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<Domain.Entity.ChannelPermission>(channelPermissionBuilder =>
+        modelBuilder.Entity<ChannelPermission>(channelPermissionBuilder =>
         {
             channelPermissionBuilder.HasOne(x => x.Role)
                 .WithMany()
@@ -176,7 +186,7 @@ public class MicroserviceContext : Microsoft.EntityFrameworkCore.DbContext
             roleBuilder.HasOne(x => x.Guild).WithMany(x => x.Roles).HasForeignKey(x => x.GuildId).OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<Domain.Entity.PublicKeyStore>(keyStoreBuilder =>
+        modelBuilder.Entity<PublicKeyStore>(keyStoreBuilder =>
         {
             keyStoreBuilder.HasOne<Domain.Aggregates.Guild>()
                 .WithMany(x => x.PublicKeys)

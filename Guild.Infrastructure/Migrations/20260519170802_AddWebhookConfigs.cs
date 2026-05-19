@@ -6,13 +6,13 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Guild.Persistence.Migrations
 {
     /// <inheritdoc />
-    public partial class AddWebhookConfigToGuild : Migration
+    public partial class AddWebhookConfigs : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "webhook_config",
+                name: "webhook_configs",
                 columns: table => new
                 {
                     id = table.Column<string>(type: "text", nullable: false),
@@ -23,9 +23,9 @@ namespace Guild.Persistence.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("pk_webhook_config", x => x.id);
+                    table.PrimaryKey("pk_webhook_configs", x => x.id);
                     table.ForeignKey(
-                        name: "fk_webhook_config_guilds_guild_id",
+                        name: "fk_webhook_configs_guilds_guild_id",
                         column: x => x.guild_id,
                         principalTable: "guilds",
                         principalColumn: "id",
@@ -33,8 +33,8 @@ namespace Guild.Persistence.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "ix_webhook_config_guild_id",
-                table: "webhook_config",
+                name: "ix_webhook_configs_guild_id",
+                table: "webhook_configs",
                 column: "guild_id");
         }
 
@@ -42,7 +42,7 @@ namespace Guild.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "webhook_config");
+                name: "webhook_configs");
         }
     }
 }

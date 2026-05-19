@@ -1,32 +1,26 @@
-﻿using Messaging.Domain.Entities;
+﻿using Messaging.Contracts.Bus.Commands;
+using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Messaging.Domain.Events.Message;
 using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence;
+using MessageEncryptionState = Messaging.Domain.Enums.MessageEncryptionState;
 
 namespace Messaging.Application.Commands;
 
-public class CreateMessageCommand
-{
-    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
-    public string AuthorId { get; set; }
-    public byte[] Content { get; set; }
-    public string? ChannelId { get; set; }
-    public string? ConversationId { get; set; }
-    public string? InReplyTo { get; set; }
-    public long? MlsEpoch { get; set; }
-    public long? MlsSequenceNumber { get; set; }
-    public string? SenderDeviceId { get; set; }
-    public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
-    
-    public List<string> Mentions { get; set; } = new List<string>();
-    public List<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
-}
+
 
 public class CreateMessageCommandHandler
 {
     public async Task<(Message, MessageCreated)> Handle(CreateMessageCommand command, IMessageRepository ctx)
     {
+
+        var encryptionState = MessageEncryptionState.Plain;
+        if (command.EncryptionState == Contracts.Bus.Commands.MessageEncryptionState.Encrypted)
+        {
+            encryptionState = MessageEncryptionState.Encrypted;
+        }
+        
         var message = Message.Create(new CreateMessageParams()
         {
             Content = command.Content,
@@ -36,10 +30,17 @@ public class CreateMessageCommandHandler
             Mentions = command.Mentions,
             AuthorId = command.AuthorId,
             SenderDeviceId = command.SenderDeviceId,
-            EncryptionState = command.EncryptionState,
+            EncryptionState = encryptionState,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
-            Attachments = command.Attachments
+            Attachments = command.Attachments.Select(a => MinimalAttachment.Create(new CreateMinimalAttachmentParams()
+            {
+                Id = a.Id,
+                ThumbnailId = a.ThumbnailId,
+                FileName = a.FileName,
+                ContentType = a.ContentType,
+                ThumbnailUrl = a.ThumbnailUrl,
+            })).ToList()
         });
         await ctx.CreateMessageAsync(message);
 
@@ -57,7 +58,7 @@ public class CreateMessageCommandHandler
                 ContentType = a.ContentType,
                 FileName = a.FileName,
             }).ToList(),
-            EncryptionState = command.EncryptionState,
+            EncryptionState = encryptionState,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
             SenderDeviceId = command.SenderDeviceId,

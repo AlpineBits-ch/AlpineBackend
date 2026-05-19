@@ -68,6 +68,11 @@ public class MicroserviceContext : DbContext
                 .WithMany(x => x.WebhookConfigs)
                 .HasForeignKey(x => x.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
+            
+            webhookConfigBuilder.HasOne(x => x.Channel)
+                .WithMany(x => x.WebhookConfigs)
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
         
         modelBuilder.Entity<Domain.Aggregates.Guild>(guidBuilder =>

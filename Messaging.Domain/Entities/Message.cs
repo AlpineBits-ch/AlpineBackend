@@ -21,6 +21,8 @@ public class CreateMessageParams
     public string? SenderDeviceId { get; set; }
     public string? InReplyTo { get; set; }
     
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
+    
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
 }
 public class Message : BaseEntity<Message>, IPrefixedEntity
@@ -38,6 +40,8 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public string? InReplyTo { get; set; }
     
     public MessageType Type { get; set; } = MessageType.Message;
+    
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
     
     public List<string> Mentions { get; set; } = new();
     public IDictionary<string, DateTimeOffset> ReadReceipts { get; set; } = new Dictionary<string, DateTimeOffset>();
@@ -73,6 +77,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             MlsEpoch = createMessageParams.MlsEpoch,
             MlsSequenceNumber = createMessageParams.MlsSequenceNumber,
             SenderDeviceId = createMessageParams.SenderDeviceId,
+            AuthorIdType = createMessageParams.AuthorIdType,
         };
         
         return message;

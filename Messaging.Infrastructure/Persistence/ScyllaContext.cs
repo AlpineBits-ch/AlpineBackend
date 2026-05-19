@@ -89,6 +89,7 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.ChannelId, cm => cm.WithName("channel_id"))
                 .Column(m => m.Mentions, cm => cm.WithName("mentions"))
                 .Column(m => m.ReadReceipts, cm => cm.WithName("read_receipts"))
+                .Column(m => m.AuthorIdType, cm => cm.WithName("author_id_type"))
                 .Column(m => m.Type, cm => cm.WithName("message_type").WithDbType<string>())
                 .Column(m => m.Attachments, cm => cm.WithName("attachments").AsFrozen())
                 .Column(m => m.EncryptionState, cm => cm.WithName("encryption_state").WithDbType<string>()));
@@ -128,6 +129,7 @@ public class ScyllaContext : IAsyncDisposable
             "content blob, " +
             "conversation_id text," +
             "in_reply_to text," +
+            "author_id_type text," + 
             "channel_id text," +
             "message_type text, " +
             "sender_device_id text, " + // which device sent this
@@ -187,6 +189,15 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD mls_sequence_number bigint;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+        
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD author_id_type text;"));
         }
         catch (InvalidQueryException)
         {

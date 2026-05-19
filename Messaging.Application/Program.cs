@@ -97,7 +97,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = "http://identity:8080",
+            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
             ValidateAudience = false,
          
         };

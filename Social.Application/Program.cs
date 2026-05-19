@@ -36,14 +36,13 @@ builder.Services.AddWolverineHttp();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        // The URL of your Auth Server
         options.Authority = "http://identity:8080"; 
         options.RequireHttpsMetadata = false; // Set to true in Prod
 
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
-            ValidIssuer = "http://identity:8080",
+            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
             ValidateAudience = false,
          
         };

@@ -39,7 +39,7 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     
     public virtual ICollection<ReadState> ReadStates { get; set; } = [];
     
-   
+    public virtual ICollection<WebhookConfig> WebhookConfigs { get; set; } = [];
     
     [NotMapped] public static string Prefix { get; } = "chan";
 

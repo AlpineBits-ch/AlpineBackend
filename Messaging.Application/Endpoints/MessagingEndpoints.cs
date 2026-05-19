@@ -4,8 +4,10 @@ using Facet.Extensions;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
+using Messaging.Application.Commands;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
+using Messaging.Contracts.Bus.Commands;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
 using Messaging.Infrastructure.Persistence;
@@ -21,7 +23,7 @@ namespace Messaging.Application.Endpoints;
 public class MessagingEndpoints
 {
     [WolverinePost("/api/v1/messaging")]
-    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto, [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus)
+    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return (Results.Unauthorized(), null);
@@ -57,16 +59,24 @@ public class MessagingEndpoints
         
        
         
-        var attachments = (await context.Attachments.AsNoTracking().Where(a => dto.Attachments.Contains(a.Id)).ToListAsync()).Select(a => MinimalAttachment.Create(new CreateMinimalAttachmentParams()
+        var attachments = (await context.Attachments.AsNoTracking().Where(a => dto.Attachments.Contains(a.Id)).ToListAsync()).Select(a => new MinimalAttachmentContract()
         {
             Id = a.Id,
             FileName = a.FileName,
             ContentType = a.ContentType,
             ThumbnailUrl = "https://api.alpinebits.ch/api/v1/messaging/attachments/" + a.Id + "/thumbnail",
             ThumbnailId = a.ThumbnailId
-        })).ToList();
+        }).ToList();
+
+
+        var encryptionState = MessageEncryptionState.Plain;
+
+        if (dto.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted)
+        {
+            encryptionState = MessageEncryptionState.Encrypted;
+        }
         
-        var message = Message.Create(new CreateMessageParams()
+        var message = await bus.InvokeAsync<Message>(new CreateMessageCommand()
         {
             AuthorId = userId,
             Content = Encoding.UTF8.GetBytes(dto.Content),
@@ -75,13 +85,14 @@ public class MessagingEndpoints
             Attachments = attachments,
             InReplyTo = dto.InReplyTo,
             Mentions = dto.Mentions.ToList(),
-            EncryptionState = dto.EncryptionState,
+            EncryptionState = encryptionState,
             MlsEpoch = dto.MlsEpoch,
             MlsSequenceNumber = dto.MlsSequenceNumber,
             SenderDeviceId = dto.SenderDeviceId
         });
         
-        await ctx.Mapper.InsertAsync(message);
+       
+        
         
 
         return (Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>()),

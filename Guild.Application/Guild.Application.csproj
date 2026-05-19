@@ -45,6 +45,7 @@
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
       <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
       <ProjectReference Include="..\Guild.Infrastructure\Guild.Infrastructure.csproj" />
+      <ProjectReference Include="..\Messaging.Contracts\Messaging.Contracts.csproj" />
       <ProjectReference Include="..\Messaging.Domain\Messaging.Domain.csproj" />
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
       <ProjectReference Include="..\Social.Contracts\Social.Contracts.csproj" />

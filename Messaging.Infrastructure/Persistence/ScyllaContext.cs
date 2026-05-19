@@ -89,7 +89,7 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.ChannelId, cm => cm.WithName("channel_id"))
                 .Column(m => m.Mentions, cm => cm.WithName("mentions"))
                 .Column(m => m.ReadReceipts, cm => cm.WithName("read_receipts"))
-                .Column(m => m.AuthorIdType, cm => cm.WithName("author_id_type"))
+                .Column(m => m.AuthorIdType, cm => cm.WithName("author_id_type").WithDbType<string>())
                 .Column(m => m.Type, cm => cm.WithName("message_type").WithDbType<string>())
                 .Column(m => m.Attachments, cm => cm.WithName("attachments").AsFrozen())
                 .Column(m => m.EncryptionState, cm => cm.WithName("encryption_state").WithDbType<string>()));

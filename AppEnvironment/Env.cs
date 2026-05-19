@@ -27,6 +27,8 @@ public static class Env
     
     public static string GoogleServiceAccountJsonBase64 => GetEnvironmentVariable("GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64") ?? string.Empty;
     public static string FireBaseServiceAccountJsonBase64 => GetEnvironmentVariable("FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64") ?? string.Empty;
+    
+    public static GeneralConfiguration GeneralConfiguration = new();
 
 }
 
@@ -114,4 +116,10 @@ public class AuthConfiguration
 
     public string IdentitySecretPassword { get; set; } = GetEnvironmentVariable("IDENTITY_KEY_PASSWORD") ?? "devpassword";
     public string IdentitySigningCert { get; set; } = GetEnvironmentVariable("IDENTITY_SIGNING_CERT") ?? string.Empty;
+}
+
+public class GeneralConfiguration
+{
+    public bool IsUserHashGenerationEnabled { get; set; } = (GetEnvironmentVariable("IS_USER_HASH_GENERATION_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
+    public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://venta.gg";
 }

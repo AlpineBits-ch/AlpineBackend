@@ -34,7 +34,6 @@ public static class ProxyConfig
             ClusterId = "guild-cluster",
             Match = new RouteMatch { Path = "/api/v1/guild/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
-
         
         new RouteConfig
         {
@@ -48,8 +47,6 @@ public static class ProxyConfig
             ClusterId = "identity-oauth-cluster",
             Match = new RouteMatch { Path = "/.well-known/{**catch-all}" }
         }
-        
-        
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

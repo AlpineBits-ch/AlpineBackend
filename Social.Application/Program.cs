@@ -37,8 +37,8 @@ builder.Services.AddWolverineHttp();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = "http://identity:8080"; 
-        options.RequireHttpsMetadata = false; // Set to true in Prod
+        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
+        options.RequireHttpsMetadata = false; 
 
         options.TokenValidationParameters = new TokenValidationParameters
         {

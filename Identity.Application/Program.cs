@@ -9,6 +9,7 @@ using Identity.Infrastructure.Persistence;
 using JasperFx;
 using JasperFx.CodeGeneration;
 using Messaging;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OpenIddict.Abstractions;
@@ -142,6 +143,14 @@ if (args.Contains("codegen") || args.Contains("describe"))
     return;
 }
 var app = builder.Build();
+
+var forwardedOptions = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost
+};
+forwardedOptions.KnownIPNetworks.Clear();
+forwardedOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedOptions);
 app.MapHealthChecks("/identity/health");
 
 // Configure the HTTP request pipeline.

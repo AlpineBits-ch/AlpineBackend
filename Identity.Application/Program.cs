@@ -150,6 +150,14 @@ var forwardedOptions = new ForwardedHeadersOptions
 };
 forwardedOptions.KnownIPNetworks.Clear();
 forwardedOptions.KnownProxies.Clear();
+app.Use((context, next) =>
+{
+    if (context.Request.Host.Host.Equals("api.venta.gg", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Request.Scheme = "https";
+    }
+    return next();
+});
 app.UseForwardedHeaders(forwardedOptions);
 app.MapHealthChecks("/identity/health");
 

@@ -8,6 +8,8 @@
 
     <ItemGroup>
       <PackageReference Include="Npgsql" Version="10.0.2" />
+      <PackageReference Include="NSec.Cryptography" Version="26.4.0" />
+      <PackageReference Include="Portable.BouncyCastle" Version="1.9.0" />
     </ItemGroup>
 
 </Project>

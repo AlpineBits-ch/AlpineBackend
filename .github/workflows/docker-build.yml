@@ -107,7 +107,11 @@ jobs:
           - project: social
             context: .
             dockerfile: Social.Application/Dockerfile
-            image: social-application      
+            image: social-application 
+          - project: federation
+            context: .
+            dockerfile: Federation.Application/Dockerfile
+            image: federation-application
     steps:
       - name: Checkout
         uses: actions/checkout@v4

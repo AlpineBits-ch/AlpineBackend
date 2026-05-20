@@ -20,13 +20,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
-builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(cfg =>
+builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(options =>
 {
-    cfg.SerializerOptions.TypeInfoResolver = EventJsonContext.Default;
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
 });
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
-    options.SerializerOptions.TypeInfoResolver = EventJsonContext.Default;
+    options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
 });
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

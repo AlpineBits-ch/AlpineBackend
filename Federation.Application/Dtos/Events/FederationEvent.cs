@@ -17,7 +17,7 @@ public class MessageReceived : FederationEvent
 }
 
 [JsonSerializable(typeof(FederationEvent))]
-[JsonSerializable(typeof(MessageReceived))]           // Register concrete types too
+[JsonSerializable(typeof(MessageReceived))]
 [JsonSerializable(typeof(List<FederationEvent>))]
 public partial class EventJsonContext : JsonSerializerContext
 {

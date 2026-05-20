@@ -67,6 +67,17 @@ public static class ProxyConfig
             xHost: ForwardedTransformActions.Set,
             xFor: ForwardedTransformActions.Append,
             xProto: ForwardedTransformActions.Append),
+        
+        new RouteConfig
+        {
+            RouteId = "federation-document-route",
+            ClusterId = "federation-document-cluster",
+            Match = new RouteMatch { Path = "/.well-known/federation" }
+        }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
+            xDefault: ForwardedTransformActions.Append,
+            xHost: ForwardedTransformActions.Set,
+            xFor: ForwardedTransformActions.Append,
+            xProto: ForwardedTransformActions.Append),
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()
@@ -75,6 +86,7 @@ public static class ProxyConfig
         var guild     = Environment.GetEnvironmentVariable("Services__Guild")     ?? "http://_http.guild.default.svc.cluster.local";
         var messaging = Environment.GetEnvironmentVariable("Services__Messaging") ?? "http://_http.messaging.default.svc.cluster.local";
         var social    = Environment.GetEnvironmentVariable("Services__Social")    ?? "http://_http.social.default.svc.cluster.local";
+        var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://_http.federation.default.svc.cluster.local";
 
         return new[]
         {
@@ -157,6 +169,29 @@ public static class ProxyConfig
                 Active = new ActiveHealthCheckConfig()
                 {
                     Path = "identity/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
+        },
+        new ClusterConfig
+        {
+            ClusterId = "federation-document-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = federation } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "federation/health",
                     Timeout = TimeSpan.FromSeconds(10),
                     Interval = TimeSpan.FromSeconds(15),
                 }

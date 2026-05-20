@@ -2,7 +2,6 @@ using System.Threading.RateLimiting;
 using AppEnvironment;
 using Echo.Proxy;
 using Echo.RateLimiter;
-using Federation.Application;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;

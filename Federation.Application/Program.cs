@@ -19,7 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
-
+builder.Services.AddWolverineHttp();
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolver = EventJsonContext.Default;
@@ -83,7 +83,7 @@ app.UseCors("AlpinePolicy");
 app.MapControllers();
 
 app.MapHealthChecks("/federation/health");
-
+app.MapWolverineEndpoints();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

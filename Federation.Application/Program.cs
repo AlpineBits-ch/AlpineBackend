@@ -60,6 +60,8 @@ builder.UseWolverine(opts =>
 if (args.Contains("codegen") || args.Contains("describe"))
 {
     var codeGenApp = builder.Build();
+    codeGenApp.MapWolverineEndpoints();
+
     await codeGenApp.RunJasperFxCommands(args);
     Environment.Exit(0);   
 }

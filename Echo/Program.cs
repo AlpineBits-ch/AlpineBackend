@@ -137,6 +137,7 @@ forwardedOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedOptions);
 app.UseCors("AlpinePolicy");
 app.MapControllers();
+app.MapReverseProxy();
 
 app.MapHealthChecks("/health");
 

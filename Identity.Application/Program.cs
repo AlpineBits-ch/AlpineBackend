@@ -12,6 +12,7 @@ using Messaging;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Newtonsoft.Json;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
@@ -159,6 +160,8 @@ app.Use((context, next) =>
 {
     Console.WriteLine($"Scheme: {context.Request.Scheme}");
     Console.WriteLine($"Host: {context.Request.Host}");
+    Console.WriteLine($"Path: {context.Request.Path}");
+    Console.WriteLine($"Headers {JsonConvert.SerializeObject(context.Request.Headers)}");
     return next(context);
 });
 app.MapHealthChecks("/identity/health");

@@ -4,6 +4,7 @@ using Facet.Extensions;
 using Identity.Application.Dtos.Request;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
+using Identity.Domain.ValueObjects;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

@@ -1,5 +1,4 @@
-﻿using System.Text.Json;
-using Guild.Application.Hubs;
+﻿using Guild.Application.Hubs;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
@@ -8,7 +7,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 
-namespace Guild.Application.Bus.Events;
+namespace Guild.Application.Bus.Events.Messages;
 
 public class MessageCreatedHandler
 {

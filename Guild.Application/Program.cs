@@ -11,7 +11,6 @@ using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
-using Social.Api.Services;
 using Social.Contracts.Services;
 using StackExchange.Redis;
 using Wolverine;

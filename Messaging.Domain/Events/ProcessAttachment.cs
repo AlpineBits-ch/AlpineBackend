@@ -1,4 +1,4 @@
-﻿namespace Messaging.Application.Events;
+﻿namespace Messaging.Domain.Events;
 
 public class ProcessAttachment
 {

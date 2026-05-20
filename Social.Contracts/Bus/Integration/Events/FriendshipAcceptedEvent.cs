@@ -1,4 +1,4 @@
-﻿namespace Social.Contracts.Bus.Integratoin;
+﻿namespace Social.Contracts.Bus.Integration.Events;
 
 public class FriendshipAcceptedEvent
 {

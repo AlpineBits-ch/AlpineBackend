@@ -1,4 +1,4 @@
-﻿namespace Identity.Domain.Entities;
+﻿namespace Identity.Domain.ValueObjects;
 
 public class EncryptedMasterKey
 {

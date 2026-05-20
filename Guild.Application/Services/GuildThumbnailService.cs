@@ -1,7 +1,6 @@
 ﻿using Google.Cloud.Storage.V1;
-using Persistence;
 
-namespace Social.Api.Services;
+namespace Guild.Application.Services;
 
 public class UploadedFile
 {

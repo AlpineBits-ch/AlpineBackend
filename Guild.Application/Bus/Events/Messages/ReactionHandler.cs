@@ -5,7 +5,7 @@ using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
 
-namespace Guild.Application.Bus.Events;
+namespace Guild.Application.Bus.Events.Messages;
 
 public class ReactionHandler
 {

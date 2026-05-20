@@ -4,6 +4,7 @@ using Federation.Application;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Wolverine;
 
@@ -62,12 +63,14 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy());
 var app = builder.Build();
 
 app.UseCors("AlpinePolicy");
 app.MapControllers();
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/federation/health");
 
 if (app.Environment.IsDevelopment())
 {

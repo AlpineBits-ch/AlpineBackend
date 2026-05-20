@@ -75,11 +75,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddReverseProxy()
-    .LoadFromMemory(ProxyConfig.GetRoutes(), ProxyConfig.GetClusters()).AddTransforms(context =>
-    {
-        context.AddXForwardedHost();
-        context.AddXForwardedProto();
-    })
+    .LoadFromMemory(ProxyConfig.GetRoutes(), ProxyConfig.GetClusters())
     .ConfigureHttpClient((context, handler) =>
     {
         handler.PooledConnectionLifetime = TimeSpan.FromSeconds(10);
@@ -141,7 +137,6 @@ forwardedOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedOptions);
 app.UseCors("AlpinePolicy");
 app.MapControllers();
-app.MapReverseProxy();
 
 app.MapHealthChecks("/health");
 

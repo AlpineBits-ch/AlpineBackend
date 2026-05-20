@@ -51,14 +51,25 @@ public static class ProxyConfig
         ,
         new RouteConfig
         {
-            RouteId = "identity-oauth-route",
+            RouteId = "identity-openid-config-route",
             ClusterId = "identity-oauth-cluster",
-            Match = new RouteMatch { Path = "/.well-known/{**catch-all}" }
+            Match = new RouteMatch { Path = "/.well-known/openid-configuration" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
             xDefault: ForwardedTransformActions.Append,
             xHost: ForwardedTransformActions.Set,
             xFor: ForwardedTransformActions.Append,
-            xProto: ForwardedTransformActions.Append)
+            xProto: ForwardedTransformActions.Append),
+        new RouteConfig
+        {
+            RouteId = "identity-jwks-route",
+            ClusterId = "identity-oauth-cluster",
+            Match = new RouteMatch { Path = "/.well-known/jwks" }
+        }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
+            xDefault: ForwardedTransformActions.Append,
+            xHost: ForwardedTransformActions.Set,
+            xFor: ForwardedTransformActions.Append,
+            xProto: ForwardedTransformActions.Append),
+      
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

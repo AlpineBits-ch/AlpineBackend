@@ -150,6 +150,8 @@ var forwardedOptions = new ForwardedHeadersOptions
 };
 forwardedOptions.KnownIPNetworks.Clear();
 forwardedOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedOptions);
+
 app.Use((context, next) =>
 {
     if (context.Request.Host.Host.Equals("api.venta.gg", StringComparison.OrdinalIgnoreCase))
@@ -158,7 +160,6 @@ app.Use((context, next) =>
     }
     return next();
 });
-app.UseForwardedHeaders(forwardedOptions);
 app.MapHealthChecks("/identity/health");
 
 // Configure the HTTP request pipeline.

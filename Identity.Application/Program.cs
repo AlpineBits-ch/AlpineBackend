@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OpenIddict.Abstractions;
+using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -46,12 +47,11 @@ builder.Services.AddOpenIddict()
     })
     .AddServer(options =>
     {        
-        var baseUrl = new Uri(Env.GeneralConfiguration.InstanceUrl.TrimEnd('/') + "/");
         
-        options.SetIssuer(baseUrl);
-        options.SetTokenEndpointUris(new Uri(baseUrl, "connect/token"));
-        options.SetConfigurationEndpointUris(new Uri(baseUrl, ".well-known/openid-configuration"));
-        options.SetJsonWebKeySetEndpointUris(new Uri(baseUrl, ".well-known/jwks"));
+        options.SetIssuer(Env.GeneralConfiguration.InstanceUrl);
+        options.SetTokenEndpointUris("/connect/token");
+        options.SetConfigurationEndpointUris("/.well-known/openid-configuration");
+        options.SetJsonWebKeySetEndpointUris("/.well-known/jwks");
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();
@@ -156,10 +156,8 @@ app.UseForwardedHeaders(forwardedOptions);
 
 app.Use((context, next) =>
 {
-    if (context.Request.Host.Host.Equals("api.venta.gg", StringComparison.OrdinalIgnoreCase))
-    {
-        context.Request.Scheme = "https";
-    }
+    context.Request.Scheme = "https";
+
     return next();
 });
 app.MapHealthChecks("/identity/health");
@@ -170,7 +168,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-// app.UseHttpsRedirection();
+app.UseHttpsRedirection();
 app.UseInfrastructure();
 
 app.MapControllers();

@@ -23,10 +23,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-var federationAssembly = typeof(FederationModule).Assembly; 
 
-builder.Services.AddControllers()
-    .AddApplicationPart(federationAssembly);
+builder.Services.AddControllers();
+
 var redis = Env.Redis;
 
 

@@ -155,16 +155,7 @@ forwardedOptions.ForwardLimit = null;
 
 app.UseForwardedHeaders(forwardedOptions);
 
-app.Use((context, next) =>
-{
-    context.Request.Scheme = "https";
-    context.Request.Host = new HostString(Env.GeneralConfiguration.InstanceUrl.Replace("https://", ""));
-    Console.WriteLine($"Scheme: {context.Request.Scheme}");
-    Console.WriteLine($"Host: {context.Request.Host}");
-    Console.WriteLine($"Path: {context.Request.Path}");
-    Console.WriteLine($"Headers {JsonConvert.SerializeObject(context.Request.Headers)}");
-    return next(context);
-});
+
 app.MapHealthChecks("/identity/health");
 
 // Configure the HTTP request pipeline.

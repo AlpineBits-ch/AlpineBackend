@@ -6,6 +6,7 @@ using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.ServiceDiscovery.Dns;
 using Microsoft.IdentityModel.Tokens;
@@ -126,14 +127,13 @@ builder.Services.AddCors(options =>
     });
 });
 var app = builder.Build();
-app.Use((context, next) =>
+var forwardedOptions = new ForwardedHeadersOptions
 {
-    Console.WriteLine($"Scheme: {context.Request.Scheme}");
-    Console.WriteLine($"X-Forwarded-Proto: {context.Request.Headers["X-Forwarded-Proto"]}");
-    Console.WriteLine($"X-Forwarded-Host: {context.Request.Headers["X-Forwarded-Host"]}");
-    Console.WriteLine($"Host: {context.Request.Host}");
-    return next(context);
-});
+    ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost
+};
+forwardedOptions.KnownIPNetworks.Clear();
+forwardedOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedOptions);
 app.UseCors("AlpinePolicy");
 app.MapControllers();
 app.MapReverseProxy();

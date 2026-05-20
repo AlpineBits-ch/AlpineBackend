@@ -151,6 +151,7 @@ var forwardedOptions = new ForwardedHeadersOptions
 };
 forwardedOptions.KnownIPNetworks.Clear();
 forwardedOptions.KnownProxies.Clear();
+forwardedOptions.ForwardLimit = null;
 app.UseForwardedHeaders(forwardedOptions);
 
 app.Use((context, next) =>

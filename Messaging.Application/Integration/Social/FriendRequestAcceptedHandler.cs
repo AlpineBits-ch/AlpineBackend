@@ -2,7 +2,7 @@
 using Messaging.Application.Hubs;
 using Messaging.Application.Services;
 using Microsoft.AspNetCore.SignalR;
-using Social.Contracts.Bus.Integratoin;
+using Social.Contracts.Bus.Integration.Events;
 
 namespace Messaging.Application.Integration.Social;
 

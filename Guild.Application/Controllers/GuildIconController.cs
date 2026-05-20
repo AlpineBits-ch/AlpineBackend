@@ -1,7 +1,7 @@
-﻿using Messaging.Application.Events;
+﻿using Guild.Application.Services;
+using Messaging.Domain.Events;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Social.Api.Services;
 using Wolverine;
 
 namespace Guild.Application.Controllers;

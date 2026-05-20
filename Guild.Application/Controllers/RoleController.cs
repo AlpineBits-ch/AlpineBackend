@@ -8,7 +8,6 @@ using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Social.Api.Services;
 
 namespace Guild.Application.Controllers;
 

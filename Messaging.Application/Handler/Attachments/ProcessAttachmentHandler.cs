@@ -1,8 +1,8 @@
 ﻿using FFMpegCore;
 using Google.Cloud.Storage.V1;
-using Messaging.Application.Events;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
+using Messaging.Domain.Events;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.Extensions.Caching.Distributed;
 using SixLabors.ImageSharp;

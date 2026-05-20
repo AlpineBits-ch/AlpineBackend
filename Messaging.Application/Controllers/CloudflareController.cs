@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Messaging.Application.Hubs;
+using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;

@@ -1,11 +1,9 @@
 ﻿using Microsoft.EntityFrameworkCore;
-using Social.Contracts.Bus.Integratoin;
-using Social.Domain.Aggregate;
+using Social.Contracts.Bus.Integration.Events;
 using Social.Domain.Events.Relationship;
 using Social.Infrastructure.Persistence;
-using Wolverine.Persistence;
 
-namespace Social.Api.Integration.Relationship;
+namespace Social.Api.Integration.Relationship.Events;
 
 public class FriendshipAcceptedHandler
 {

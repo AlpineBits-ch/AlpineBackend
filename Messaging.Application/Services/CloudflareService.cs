@@ -1,7 +1,8 @@
-﻿using System.Net.Http.Json;
-using System.Net.Http.Headers;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+
+namespace Messaging.Application.Services;
+
 public record CfSessionDescription(string Type, string Sdp);
 
 public record CfTrackNew(

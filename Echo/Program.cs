@@ -128,13 +128,7 @@ builder.Services.AddCors(options =>
     });
 });
 var app = builder.Build();
-var forwardedOptions = new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost
-};
-forwardedOptions.KnownIPNetworks.Clear();
-forwardedOptions.KnownProxies.Clear();
-app.UseForwardedHeaders(forwardedOptions);
+
 app.UseCors("AlpinePolicy");
 app.MapControllers();
 app.MapReverseProxy();

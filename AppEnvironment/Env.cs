@@ -1,5 +1,7 @@
-﻿using Npgsql;
+﻿using System.Text;
+using Npgsql;
 using static System.Environment;
+using NSec.Cryptography;
 
 namespace AppEnvironment;
 
@@ -12,6 +14,8 @@ public static class Env
         UserName = GetEnvironmentVariable("RABBITMQ_USERNAME") ?? "admin",
         Password = GetEnvironmentVariable("RABBITMQ_PASSWORD") ?? "admin"
     };
+    
+    public static readonly FederationConfiguration Federation = new();
     
     public static readonly ScyllaConfig Scylla = new();
 
@@ -122,6 +126,38 @@ public class GeneralConfiguration
 {
     public bool IsUserHashGenerationEnabled { get; set; } = (GetEnvironmentVariable("IS_USER_HASH_GENERATION_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
     public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg";
+
+}
+
+public class FederationConfiguration
+{
     public string InstanceName { get; set; } = GetEnvironmentVariable("INSTANCE_NAME") ?? "Venta.gg";
     public string Version { get; set; } = GetEnvironmentVariable("VERSION") ?? "1.0.0";
+    public byte[] PrivateKey { get; set; } = Array.Empty<byte>();
+    public byte[] PublicKey { get; set; } = Array.Empty<byte>();
+
+    public FederationConfiguration()
+    {
+        
+        var privKeyB64 = GetEnvironmentVariable("FEDERATION_PRIVATE_KEY_BASE_64");
+        var pubKeyB64 = GetEnvironmentVariable("FEDERATION_PUBLIC_KEY_BASE_64");
+
+        if (!string.IsNullOrEmpty(privKeyB64) && !string.IsNullOrEmpty(pubKeyB64))
+        {
+            PrivateKey = Convert.FromBase64String(privKeyB64);
+            PublicKey = Convert.FromBase64String(pubKeyB64);
+        }
+        
+        if (PrivateKey.Length == 0 || PublicKey.Length == 0)
+        {
+            var algorithm = SignatureAlgorithm.Ed25519;
+            var key = Key.Create(algorithm, new KeyCreationParameters
+            {
+                ExportPolicy = KeyExportPolicies.AllowPlaintextExport
+            });
+
+            PrivateKey =(key.Export(KeyBlobFormat.RawPrivateKey));
+            PublicKey = (key.PublicKey.Export(KeyBlobFormat.RawPublicKey));
+        }
+    }
 }

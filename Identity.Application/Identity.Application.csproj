@@ -10,8 +10,8 @@
 
     <ItemGroup>
       <PackageReference Include="ChatAIze.PerfectEmail" Version="0.4.0" />
-      <PackageReference Include="Facet.Extensions" Version="6.5.5" />
-      <PackageReference Include="Facet.Extensions.EFCore" Version="6.5.5" />
+      <PackageReference Include="Facet.Extensions" Version="6.6.0" />
+      <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.0" />
       <PackageReference Include="FluentValidation" Version="12.1.1" />
       <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
       <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.8" />
@@ -25,12 +25,12 @@
       <PackageReference Include="OpenIddict.Quartz" Version="7.5.0" />
       <PackageReference Include="OpenIddict.Validation.AspNetCore" Version="7.5.0" />
       <PackageReference Include="RazorLight" Version="2.3.1" />
-      <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.39.1" />
-      <PackageReference Include="WolverineFx.FluentValidation" Version="5.39.1" />
-      <PackageReference Include="WolverineFx.Http" Version="5.39.1" />
-      <PackageReference Include="WolverineFx.Http.FluentValidation" Version="5.39.1" />
-      <PackageReference Include="WolverineFx.Postgresql" Version="5.39.1" />
-      <PackageReference Include="WolverineFx.RabbitMQ" Version="5.39.1" />
+      <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.39.3" />
+      <PackageReference Include="WolverineFx.FluentValidation" Version="5.39.3" />
+      <PackageReference Include="WolverineFx.Http" Version="5.39.3" />
+      <PackageReference Include="WolverineFx.Http.FluentValidation" Version="5.39.3" />
+      <PackageReference Include="WolverineFx.Postgresql" Version="5.39.3" />
+      <PackageReference Include="WolverineFx.RabbitMQ" Version="5.39.3" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
         <PackageReference Include="WorkOS.net" Version="4.0.1" />
     </ItemGroup>

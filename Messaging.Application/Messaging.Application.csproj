@@ -11,8 +11,8 @@
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="dotAPNS.AspNetCore" Version="2.2.2" />
-        <PackageReference Include="Facet.Extensions" Version="6.5.5" />
-        <PackageReference Include="Facet.Extensions.EFCore" Version="6.5.5" />
+        <PackageReference Include="Facet.Extensions" Version="6.6.0" />
+        <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.0" />
         <PackageReference Include="FFMpegCore" Version="5.4.0" />
         <PackageReference Include="FirebaseAdmin" Version="3.5.0" />
         <PackageReference Include="Google.Cloud.Storage.V1" Version="4.14.0" />
@@ -24,11 +24,11 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="SixLabors.ImageSharp" Version="4.0.0" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.39.1" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="5.39.1" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="5.39.1" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.39.3" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="5.39.3" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="5.39.3" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
-        <PackageReference Include="WolverineFx.Http" Version="5.39.1" />
+        <PackageReference Include="WolverineFx.Http" Version="5.39.3" />
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
 
     </ItemGroup>

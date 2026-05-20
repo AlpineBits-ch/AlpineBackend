@@ -42,7 +42,8 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/connect/{**catch-all}" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
             xDefault: ForwardedTransformActions.Append,
-            xHost: ForwardedTransformActions.Append,
+            xHost: ForwardedTransformActions.Set,
+            xFor: ForwardedTransformActions.Append,
             xProto: ForwardedTransformActions.Append)
 
         
@@ -54,7 +55,8 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/.well-known/{**catch-all}" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
             xDefault: ForwardedTransformActions.Append,
-            xHost: ForwardedTransformActions.Append,
+            xHost: ForwardedTransformActions.Set,
+            xFor: ForwardedTransformActions.Append,
             xProto: ForwardedTransformActions.Append)
     };
 

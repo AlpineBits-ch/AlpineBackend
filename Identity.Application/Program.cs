@@ -158,8 +158,6 @@ app.UseForwardedHeaders(forwardedOptions);
 app.Use((context, next) =>
 {
     Console.WriteLine($"Scheme: {context.Request.Scheme}");
-    Console.WriteLine($"X-Forwarded-Proto: {context.Request.Headers["X-Forwarded-Proto"]}");
-    Console.WriteLine($"X-Forwarded-Host: {context.Request.Headers["X-Forwarded-Host"]}");
     Console.WriteLine($"Host: {context.Request.Host}");
     return next(context);
 });

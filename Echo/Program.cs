@@ -14,6 +14,7 @@ using Octokit;
 using StackExchange.Redis;
 using Wolverine;
 using Yarp.ReverseProxy.Health;
+using Yarp.ReverseProxy.Transforms;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -73,7 +74,11 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddReverseProxy()
-    .LoadFromMemory(ProxyConfig.GetRoutes(), ProxyConfig.GetClusters())
+    .LoadFromMemory(ProxyConfig.GetRoutes(), ProxyConfig.GetClusters()).AddTransforms(context =>
+    {
+        context.AddXForwardedHost();
+        context.AddXForwardedProto();
+    })
     .ConfigureHttpClient((context, handler) =>
     {
         handler.PooledConnectionLifetime = TimeSpan.FromSeconds(10);

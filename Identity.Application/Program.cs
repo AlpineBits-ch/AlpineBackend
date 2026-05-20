@@ -145,7 +145,12 @@ if (args.Contains("codegen") || args.Contains("describe"))
     return;
 }
 var app = builder.Build();
-
+app.Use((context, next) =>
+{
+    context.Request.Scheme = "https";
+    context.Request.Host = new HostString("api.venta.gg");
+    return next(context);
+});
 var forwardedOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost

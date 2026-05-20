@@ -28,7 +28,6 @@ builder.Services.AddControllers();
 var redis = Env.Redis;
 
 
-builder.Services.AddFederation();
 builder.UseWolverine(opts =>
 {
 

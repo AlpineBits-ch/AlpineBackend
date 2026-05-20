@@ -48,7 +48,6 @@ builder.Services.AddOpenIddict()
     })
     .AddServer(options =>
     {        
-        
         options.SetIssuer(Env.GeneralConfiguration.InstanceUrl);
         options.SetTokenEndpointUris("/connect/token");
         options.SetConfigurationEndpointUris("/.well-known/openid-configuration");
@@ -158,6 +157,8 @@ app.UseForwardedHeaders(forwardedOptions);
 
 app.Use((context, next) =>
 {
+    context.Request.Scheme = "https";
+    context.Request.Host = new HostString(Env.GeneralConfiguration.InstanceUrl.Replace("https://", ""));
     Console.WriteLine($"Scheme: {context.Request.Scheme}");
     Console.WriteLine($"Host: {context.Request.Host}");
     Console.WriteLine($"Path: {context.Request.Path}");

@@ -20,7 +20,10 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
-builder.Services.AddWolverineHttp();
+builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(cfg =>
+{
+    cfg.SerializerOptions.TypeInfoResolver = EventJsonContext.Default;
+});
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.TypeInfoResolver = EventJsonContext.Default;
@@ -55,6 +58,10 @@ builder.UseWolverine(opts =>
     }
 
     opts.ConfigureWolverine(false);
+    opts.UseSystemTextJsonForSerialization(o =>
+    {
+        o.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
+    });
 });
 
 if (args.Contains("codegen") || args.Contains("describe"))

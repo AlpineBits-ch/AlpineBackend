@@ -1,6 +1,7 @@
 ﻿
 using AppEnvironment;
 using Federation.Application;
+using Federation.Application.Dtos.Events;
 using Federation.Infrastructure;
 using Federation.Infrastructure.Persistence;
 using JasperFx;
@@ -19,7 +20,10 @@ builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
 
-
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.TypeInfoResolver = EventJsonContext.Default;
+});
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {

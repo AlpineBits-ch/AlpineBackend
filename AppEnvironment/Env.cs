@@ -121,5 +121,5 @@ public class AuthConfiguration
 public class GeneralConfiguration
 {
     public bool IsUserHashGenerationEnabled { get; set; } = (GetEnvironmentVariable("IS_USER_HASH_GENERATION_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
-    public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://app.venta.gg";
+    public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg";
 }

@@ -40,8 +40,7 @@ public static class ProxyConfig
             RouteId = "identity-connect-route",
             ClusterId = "identity-connect-cluster",
             Match = new RouteMatch { Path = "/connect/{**catch-all}" }
-        }.WithTransformUseOriginalHostHeader()
-        .WithTransformRequestHeader("X-Forwarded-Proto", "https", append: false)
+        }
 
         
         ,
@@ -50,8 +49,7 @@ public static class ProxyConfig
             RouteId = "identity-oauth-route",
             ClusterId = "identity-oauth-cluster",
             Match = new RouteMatch { Path = "/.well-known/{**catch-all}" }
-        }.WithTransformUseOriginalHostHeader()
-        .WithTransformRequestHeader("X-Forwarded-Proto", "https", append: false)
+        }
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

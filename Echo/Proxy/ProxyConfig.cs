@@ -41,9 +41,9 @@ public static class ProxyConfig
             ClusterId = "identity-connect-cluster",
             Match = new RouteMatch { Path = "/connect/{**catch-all}" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
-            xDefault: ForwardedTransformActions.Append,
-            xHost: ForwardedTransformActions.Append,
-            xProto: ForwardedTransformActions.Append)
+            xDefault: ForwardedTransformActions.Set,
+            xHost: ForwardedTransformActions.Set,
+            xProto: ForwardedTransformActions.Set)
 
         
         ,
@@ -53,9 +53,9 @@ public static class ProxyConfig
             ClusterId = "identity-oauth-cluster",
             Match = new RouteMatch { Path = "/.well-known/{**catch-all}" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
-            xDefault: ForwardedTransformActions.Append,
-            xHost: ForwardedTransformActions.Append,
-            xProto: ForwardedTransformActions.Append)
+            xDefault: ForwardedTransformActions.Set,
+            xHost: ForwardedTransformActions.Set,
+            xProto: ForwardedTransformActions.Set)
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

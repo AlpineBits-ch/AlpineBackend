@@ -1,13 +1,16 @@
 ﻿
 using AppEnvironment;
 using Federation.Application;
+using Federation.Infrastructure.Persistence;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Wolverine;
-
+using Wolverine;
+using Wolverine.EntityFrameworkCore;
+using Wolverine.Http;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -34,9 +37,12 @@ builder.Services.AddHttpClient();
 
 
 
-builder.Services.AddFederation();
 builder.UseWolverine(opts =>
 {
+    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(opts =>
+    {
+
+    });
 
     if (builder.Environment.IsDevelopment())
     {

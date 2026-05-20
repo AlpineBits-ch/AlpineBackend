@@ -1,6 +1,7 @@
 ﻿
 using AppEnvironment;
 using Federation.Application;
+using Federation.Infrastructure;
 using Federation.Infrastructure.Persistence;
 using JasperFx;
 using Messaging;
@@ -72,6 +73,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy());
 var app = builder.Build();
+
+app.UseInfrastructure();
 
 app.UseCors("AlpinePolicy");
 app.MapControllers();

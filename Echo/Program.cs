@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using AppEnvironment;
 using Echo.Proxy;
 using Echo.RateLimiter;
+using Federation.Application;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -22,11 +23,14 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+var federationAssembly = typeof(FederationModule).Assembly; 
 
+builder.Services.AddControllers()
+    .AddApplicationPart(federationAssembly);
 var redis = Env.Redis;
 
 
-
+builder.Services.AddFederation();
 builder.UseWolverine(opts =>
 {
 

@@ -44,11 +44,8 @@ public static class ProxyConfig
             xDefault: ForwardedTransformActions.Append,
             xHost: ForwardedTransformActions.Set,
             xFor: ForwardedTransformActions.Append,
-            xProto: ForwardedTransformActions.Append)
+            xProto: ForwardedTransformActions.Append),
         
-
-        
-        ,
         new RouteConfig
         {
             RouteId = "identity-openid-config-route",
@@ -59,6 +56,7 @@ public static class ProxyConfig
             xHost: ForwardedTransformActions.Set,
             xFor: ForwardedTransformActions.Append,
             xProto: ForwardedTransformActions.Append),
+        
         new RouteConfig
         {
             RouteId = "identity-jwks-route",
@@ -69,7 +67,6 @@ public static class ProxyConfig
             xHost: ForwardedTransformActions.Set,
             xFor: ForwardedTransformActions.Append,
             xProto: ForwardedTransformActions.Append),
-      
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

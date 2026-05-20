@@ -37,6 +37,12 @@ public static class ProxyConfig
         
         new RouteConfig
         {
+            RouteId = "federation-route",
+            ClusterId = "federation-cluster",
+            Match = new RouteMatch { Path = "/api/v1/federation/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+        new RouteConfig
+        {
             RouteId = "identity-connect-route",
             ClusterId = "identity-connect-cluster",
             Match = new RouteMatch { Path = "/connect/{**catch-all}" }
@@ -177,6 +183,29 @@ public static class ProxyConfig
         new ClusterConfig
         {
             ClusterId = "federation-document-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = federation } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "federation/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
+        },
+        new ClusterConfig
+        {
+            ClusterId = "federation-cluster",
             Destinations = new Dictionary<string, DestinationConfig>
             {
                 { "dest1", new DestinationConfig { Address = federation } }

@@ -7,6 +7,7 @@ namespace Federation.Application.Endpoints;
 
 public class FederationEndpoint 
 {
+    [WolverinePost("api/v1/federation/events")]
     public async Task<IResult> EventAsync(FederationEvent @event, [NotBody] ILogger<FederationEndpoint> logger)
     {
         logger.LogInformation("Got event {event}", JsonSerializer.Serialize(@event));

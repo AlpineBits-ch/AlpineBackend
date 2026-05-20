@@ -22,10 +22,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-var federationAssembly = typeof(FederationModule).Assembly; 
 
-builder.Services.AddControllers()
-    .AddApplicationPart(federationAssembly);
+builder.Services.AddControllers();
+
 var redis = Env.Redis;
 
 

@@ -46,10 +46,12 @@ builder.Services.AddOpenIddict()
     })
     .AddServer(options =>
     {        
-        options.SetIssuer(Env.GeneralConfiguration.InstanceUrl);
-        options.SetTokenEndpointUris("/connect/token");
-        options.SetConfigurationEndpointUris("/.well-known/openid-configuration");
-        options.SetJsonWebKeySetEndpointUris("/.well-known/jwks");
+        var baseUrl = new Uri(Env.GeneralConfiguration.InstanceUrl.TrimEnd('/') + "/");
+        
+        options.SetIssuer(baseUrl);
+        options.SetTokenEndpointUris(new Uri(baseUrl, "connect/token"));
+        options.SetConfigurationEndpointUris(new Uri(baseUrl, ".well-known/openid-configuration"));
+        options.SetJsonWebKeySetEndpointUris(new Uri(baseUrl, ".well-known/jwks"));
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();

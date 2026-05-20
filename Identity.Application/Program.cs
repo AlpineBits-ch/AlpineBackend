@@ -43,10 +43,9 @@ builder.Services.AddOpenIddict()
         options.UseQuartz(); 
     })
     .AddServer(options =>
-    {
-        options.SetTokenEndpointUris("/connect/token");
+    {        
         options.SetIssuer(Env.GeneralConfiguration.InstanceUrl);
-        
+        options.SetTokenEndpointUris("/connect/token");
         options.SetConfigurationEndpointUris("/.well-known/openid-configuration");
         options.SetJsonWebKeySetEndpointUris("/.well-known/jwks");
 

@@ -11,7 +11,6 @@ ARG TARGETARCH
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-# Copy and restore using the architecture flag (-a)
 
 COPY **/*.csproj ./
 RUN for file in $(ls *.csproj); do mkdir -p ${file%.*}/ && mv $file ${file%.*}/; done
@@ -22,14 +21,12 @@ COPY . .
 WORKDIR "/src/Echo"
 RUN dotnet run -c $BUILD_CONFIGURATION -- codegen write
 
-# Build for the target architecture
 RUN dotnet build "./Echo.csproj" -c $BUILD_CONFIGURATION -o /app/build -a $TARGETARCH
 
 
 FROM build AS publish
 ARG TARGETARCH
 ARG BUILD_CONFIGURATION=Release
-# Publish specifically for the target architecture
 RUN dotnet publish "./Echo.csproj" -c $BUILD_CONFIGURATION -o /app/publish -a $TARGETARCH /p:UseAppHost=false
 
 FROM base AS final

@@ -29,6 +29,9 @@ public class ConversationMember : BaseEntity<ConversationMember>, IPrefixedEntit
     public string? LastReadMessageId { get; set; }
     public int MentionCount { get; set; }
     
+    public string? FederatedServerId { get; set; }
+
+    
     public virtual ICollection<ConversationMemberDevice> Devices { get; set; } = new List<ConversationMemberDevice>();
 
 

@@ -41,6 +41,7 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public string UserPreferencesId { get; set; } = null!;
     
     public string? Bio { get; set; }
+    public string? FederatedServerId { get; set; }
 
     public string JsonSettings { get; set; } = "{}";
     

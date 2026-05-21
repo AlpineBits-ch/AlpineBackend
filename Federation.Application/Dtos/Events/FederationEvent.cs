@@ -63,9 +63,8 @@ public partial class EventJsonContext : JsonSerializerContext
 
 public class SignedFederationEvent
 {
-    public FederationEvent Payload { get; set; } = null!;
-    public byte[] Signature { get; set; } = null!;
-    public byte[] PublicKey { get; set; } = null!;
+    public required FederationEvent Payload { get; set; }
+    public required byte[] Signature { get; set; }
 
     public static SignedFederationEvent Create(FederationEvent payload)
     {
@@ -73,7 +72,6 @@ public class SignedFederationEvent
         var algorithm = SignatureAlgorithm.Ed25519;
     
         var privateKeyBytes = (Env.Federation.PrivateKey);
-        var publicKeyBytes = (Env.Federation.PublicKey);
     
         var key = Key.Import(algorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
     
@@ -86,7 +84,6 @@ public class SignedFederationEvent
         {
             Payload = payload,
             Signature = signature,
-            PublicKey = publicKeyBytes
         };
     }
 

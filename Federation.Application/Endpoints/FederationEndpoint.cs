@@ -20,7 +20,7 @@ public class FederationEndpoint
         
         if(federatedSystem is null) 
         {
-            logger.LogWarning("No federated system found for public key {key}", @event.PublicKey);
+            logger.LogWarning("No federated system found for public key {key}", @event.Payload.Host);
             return (Results.BadRequest(), null);
         }
         if (federatedSystem.Status != FederationStatus.Active)

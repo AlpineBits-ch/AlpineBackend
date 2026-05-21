@@ -1,7 +1,5 @@
-﻿using System.Text;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using AppEnvironment;
 using Federation.Application.Dtos.Events.Bidirectional.Conversation;
 using Federation.Application.Dtos.Events.Bidirectional.Guild;
@@ -15,17 +13,14 @@ using NSec.Cryptography;
 namespace Federation.Application.Dtos.Events;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$eventType")]
-[JsonDerivedType(typeof(MessageReceived), "messageReceived")]
-// Add all derived types here on the BASE class
+[JsonDerivedType(typeof(MessageCreated), "messageCreated")]
+
 public  class FederationEvent
 {
     public string Host { get; set; }
 }
 
-public class MessageReceived : FederationEvent
-{
-    public string Message { get; set; } = null!;
-}
+
 [JsonSerializable(typeof(ConversationCreated))]
 [JsonSerializable(typeof(ConversationDeleted))]
 [JsonSerializable(typeof(ConversationEdited))]
@@ -55,7 +50,6 @@ public class MessageReceived : FederationEvent
 
 
 [JsonSerializable(typeof(FederationEvent))]
-[JsonSerializable(typeof(MessageReceived))]
 [JsonSerializable(typeof(List<FederationEvent>))]
 public partial class EventJsonContext : JsonSerializerContext
 {
@@ -93,7 +87,7 @@ public class SignedFederationEvent
         
         var algorithm = SignatureAlgorithm.Ed25519;
 
-        var publicKey = NSec.Cryptography.PublicKey.Import(SignatureAlgorithm.Ed25519, federationPublicKey, KeyBlobFormat.RawPublicKey);
+        var publicKey = PublicKey.Import(SignatureAlgorithm.Ed25519, federationPublicKey, KeyBlobFormat.RawPublicKey);
         var isValid = algorithm.Verify(publicKey, JsonSerializer.SerializeToUtf8Bytes(Payload), Signature);
         
         return isValid;

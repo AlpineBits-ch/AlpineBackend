@@ -14,6 +14,10 @@ namespace Federation.Application.Dtos.Events;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$eventType")]
 [JsonDerivedType(typeof(MessageCreated), "messageCreated")]
+[JsonDerivedType(typeof(MessageEdited), "messageEdited")]
+[JsonDerivedType(typeof(MessageDeleted), "messageDeleted")]
+[JsonDerivedType(typeof(MessageReactionAdded), "messageReactionAdded")]
+[JsonDerivedType(typeof(MessageReactionRemoved), "messageReactionRemoved")]
 
 public  class FederationEvent
 {

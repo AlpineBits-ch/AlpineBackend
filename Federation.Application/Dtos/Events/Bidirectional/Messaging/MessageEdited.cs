@@ -1,6 +1,6 @@
 ﻿namespace Federation.Application.Dtos.Events.Bidirectional.Messaging;
 
-public class MessageEdited
+public class MessageEdited : FederationEvent
 {
     
 }

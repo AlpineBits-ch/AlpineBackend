@@ -39,7 +39,6 @@ jobs:
         run: dotnet tool install --global dotnet-coverage
       
       - name: Run Tests with Coverage
-        run: dotnet-coverage collect "dotnet test" -f cobertura -o solution_coverage.xml 
       - name: Code Coverage Report
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:

@@ -18,6 +18,9 @@ public class Profile : BaseEntity<Profile>, IPrefixedEntity
     public string UserName { get; set; }
     public int Hash { get; private set; }
     
+    public string? FederatedServerId { get; set; }
+
+    
     public virtual ICollection<Relationship> Relationships { get; set; } = new List<Relationship>();
     
     public virtual ICollection<Relationship> InvolvedRelationships { get; set; } = new List<Relationship>();

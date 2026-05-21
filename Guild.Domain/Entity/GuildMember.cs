@@ -33,6 +33,8 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     public GuildInvite? Invite { get; init; }
     
     public string SearchValue { get; set; }
+    
+    public string? FederatedServerId { get; set; }
 
     // Guild-level permission overrides for this member, applied after role aggregation
     // and before channel/category overwrites. Allows granting or revoking specific

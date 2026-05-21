@@ -1,12 +1,16 @@
-﻿using System.Text.Json;
+﻿using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
+using AppEnvironment;
 using Federation.Application.Dtos.Events.Bidirectional.Conversation;
 using Federation.Application.Dtos.Events.Bidirectional.Guild;
 using Federation.Application.Dtos.Events.Bidirectional.Messaging;
 using Federation.Application.Dtos.Events.Bidirectional.Social;
 using Federation.Application.Dtos.Events.Inbound.Guild;
 using Federation.Application.Dtos.Events.Outbound.Guild;
+using Federation.Domain.Aggregates;
+using NSec.Cryptography;
 
 namespace Federation.Application.Dtos.Events;
 
@@ -15,6 +19,7 @@ namespace Federation.Application.Dtos.Events;
 // Add all derived types here on the BASE class
 public  class FederationEvent
 {
+    public string Host { get; set; }
 }
 
 public class MessageReceived : FederationEvent
@@ -54,4 +59,48 @@ public class MessageReceived : FederationEvent
 [JsonSerializable(typeof(List<FederationEvent>))]
 public partial class EventJsonContext : JsonSerializerContext
 {
+}
+
+public class SignedFederationEvent
+{
+    public FederationEvent Payload { get; set; } = null!;
+    public byte[] Signature { get; set; } = null!;
+    public byte[] PublicKey { get; set; } = null!;
+
+    public static SignedFederationEvent Create(FederationEvent payload)
+    {
+        payload.Host = Env.GeneralConfiguration.InstanceUrl;
+        var algorithm = SignatureAlgorithm.Ed25519;
+    
+        var privateKeyBytes = (Env.Federation.PrivateKey);
+        var publicKeyBytes = (Env.Federation.PublicKey);
+    
+        var key = Key.Import(algorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+    
+        var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        var signature = algorithm.Sign(key, payloadBytes);
+        
+      
+        
+        return new SignedFederationEvent
+        {
+            Payload = payload,
+            Signature = signature,
+            PublicKey = publicKeyBytes
+        };
+    }
+
+    public bool IsValid(FederationInstance instance)
+    {
+        var federationPublicKey = instance.PublicKey;
+        
+        var algorithm = SignatureAlgorithm.Ed25519;
+
+        var publicKey = NSec.Cryptography.PublicKey.Import(SignatureAlgorithm.Ed25519, federationPublicKey, KeyBlobFormat.RawPublicKey);
+        var isValid = algorithm.Verify(publicKey, JsonSerializer.SerializeToUtf8Bytes(Payload), Signature);
+        
+        return isValid;
+    }
+    
+    
 }

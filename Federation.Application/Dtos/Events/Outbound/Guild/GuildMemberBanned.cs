@@ -1,6 +1,6 @@
 ﻿namespace Federation.Application.Dtos.Events.Outbound.Guild;
 
-public class MemberBanned_
+public class GuildMemberBanned
 {
     
 }

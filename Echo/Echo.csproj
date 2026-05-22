@@ -18,8 +18,8 @@
         <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="10.6.0" />
         <PackageReference Include="Octokit" Version="14.0.0" />
         <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.18.0" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="5.39.3" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="5.39.3" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.0.0" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.0.0" />
         <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
     </ItemGroup>
 

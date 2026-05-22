@@ -13,7 +13,7 @@
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.8" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.8" />
-        <PackageReference Include="WolverineFx" Version="5.39.3" />
+        <PackageReference Include="WolverineFx" Version="6.0.0" />
         <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.39.3" />
         <PackageReference Include="WolverineFx.Http" Version="5.39.3" />
         <PackageReference Include="WolverineFx.Postgresql" Version="5.39.3" />

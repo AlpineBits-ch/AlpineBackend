@@ -26,7 +26,7 @@
       <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
       <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
       <PackageReference Include="RedLock.net" Version="2.3.2" />
-      <PackageReference Include="WolverineFx.Postgresql" Version="5.39.3" />
+      <PackageReference Include="WolverineFx.Postgresql" Version="6.0.0" />
     </ItemGroup>
 
     <ItemGroup>

@@ -9,9 +9,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Facet.Extensions" Version="6.6.0" />
-        <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.0" />
-        <PackageReference Include="Facet.Mapping" Version="6.6.0" />
+        <PackageReference Include="Facet.Extensions" Version="6.6.2" />
+        <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.2" />
+        <PackageReference Include="Facet.Mapping" Version="6.6.2" />
         <PackageReference Include="FluentValidation" Version="12.1.1" />
         <PackageReference Include="IGDB" Version="6.1.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
@@ -22,11 +22,11 @@
         </PackageReference>
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.8" />
         <PackageReference Include="StackExchange.Redis" Version="2.13.1" />
-        <PackageReference Include="WolverineFx" Version="5.39.3" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="5.39.3" />
-        <PackageReference Include="WolverineFx.Http" Version="5.39.3" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="5.39.3" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="5.39.3" />
+        <PackageReference Include="WolverineFx" Version="6.0.0" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.0.0" />
+        <PackageReference Include="WolverineFx.Http" Version="6.0.0" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.0.0" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.0.0" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.8" />

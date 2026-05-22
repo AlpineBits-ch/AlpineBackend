@@ -44,7 +44,6 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
     
     public List<string> Mentions { get; set; } = new();
-    public IDictionary<string, DateTimeOffset> ReadReceipts { get; set; } = new Dictionary<string, DateTimeOffset>();
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
     
     public Message()

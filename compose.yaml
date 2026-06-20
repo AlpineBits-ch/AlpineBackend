@@ -1,7 +1,28 @@
-﻿version: '3.8'
+version: '3.8'
+
+# Shared environment for all application services
+x-app-env: &app-env
+  DATABASE_HOSTNAME: postgres
+  DATABASE_PORT: "5432"
+  DATABASE_USERNAME: postgres
+  DATABASE_PASSWORD: postgres
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: devpassword
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: admin
+  RABBITMQ_PASSWORD: admin
+  ASPNETCORE_URLS: http://+:8080
+  ASPNETCORE_ENVIRONMENT: Development
+  AUTH_REQUIRE_USER_EMAIL_VERIFICATION: "false"
+  IDENTITY_KEY_PASSWORD: devpassword
+  INSTANCE_URL: http://localhost:8080
 
 services:
-  # --- PostgreSQL Database ---
+
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+
   postgres:
     image: postgres:16-alpine
     container_name: database_service
@@ -9,26 +30,34 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_MULTIPLE_DATABASES: identity_db,guild_db,messaging_db,social_db,echo_db,federation_db
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
-  # --- Redis Cache ---
   redis:
     image: redis:7-alpine
     container_name: redis_service
-    # Note: Default setup doesn't use a password to match your blank default.
-    # If you want a password, use: command: redis-server --requirepass your_password
+    command: redis-server --requirepass devpassword
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a devpassword ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
-    command: redis-server --requirepass devpassword
-  # --- RabbitMQ Message Broker ---
+
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: rabbitmq_service
@@ -36,12 +65,191 @@ services:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin
     ports:
-      - "5672:5672"       # RabbitMQ AMQP port
-      - "15672:15672"     # Management UI port
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
     restart: unless-stopped
 
+  scylladb:
+    image: scylladb/scylla:6.2
+    container_name: scylla_service
+    # PasswordAuthenticator enables login with the default cassandra:cassandra superuser
+    command: --authenticator=PasswordAuthenticator --authorizer=CassandraAuthorizer --smp=1
+    ports:
+      - "9042:9042"
+    volumes:
+      - scylla_data:/var/lib/scylla
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'DESCRIBE KEYSPACES' 2>/dev/null && echo OK || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
+
+  # ── Application Services ──────────────────────────────────────────────────────
+
+  identity:
+    build:
+      context: .
+      dockerfile: Identity.Application/Dockerfile
+    container_name: identity_service
+    environment:
+      <<: *app-env
+      DATABASE_NAME: identity_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/identity/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  guild:
+    build:
+      context: .
+      dockerfile: Guild.Application/Dockerfile
+    container_name: guild_service
+    environment:
+      <<: *app-env
+      DATABASE_NAME: guild_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/guild/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  messaging:
+    build:
+      context: .
+      dockerfile: Messaging.Application/Dockerfile
+    container_name: messaging_service
+    environment:
+      <<: *app-env
+      DATABASE_NAME: messaging_db
+      USE_SCYLLA_DB: "true"
+      SCYLLA_HOST: scylladb
+      SCYLLA_PORT: "9042"
+      SCYLLA_USERNAME: cassandra
+      SCYLLA_PASSWORD: cassandra
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      scylladb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/messaging/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 90s
+    restart: unless-stopped
+
+  social:
+    build:
+      context: .
+      dockerfile: Social.Application/Dockerfile
+    container_name: social_service
+    environment:
+      <<: *app-env
+      DATABASE_NAME: social_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/social/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  federation:
+    build:
+      context: .
+      dockerfile: Federation.Application/Dockerfile
+    container_name: federation_service
+    environment:
+      <<: *app-env
+      DATABASE_NAME: federation_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/federation/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  echo:
+    build:
+      context: .
+      dockerfile: Echo/Dockerfile
+    container_name: echo_gateway
+    environment:
+      <<: *app-env
+      DATABASE_NAME: echo_db
+      Services__Identity: http://identity:8080
+      Services__Guild: http://guild:8080
+      Services__Messaging: http://messaging:8080
+      Services__Social: http://social:8080
+      Services__Federation: http://federation:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      identity:
+        condition: service_healthy
+      guild:
+        condition: service_healthy
+      messaging:
+        condition: service_healthy
+      social:
+        condition: service_healthy
+      federation:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   postgres_data:

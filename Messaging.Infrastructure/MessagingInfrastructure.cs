@@ -8,6 +8,7 @@ using Messaging.Infrastructure.Persistence.Repositories;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Messaging.Infrastructure;
 
@@ -22,6 +23,8 @@ public static class MessagingInfrastructure
 
     public static void AddInfrastructure(this IServiceCollection services)
     {
+        using var serviceProvider = services.BuildServiceProvider();
+        var logger = serviceProvider.GetRequiredService<ILogger>();
         try
         {
             var googleServiceAccountJsonBase64 = Env.GoogleServiceAccountJsonBase64;
@@ -54,7 +57,18 @@ public static class MessagingInfrastructure
             // Empty            
         }
 
-        services.AddScoped<IMessageRepository, ScyllaMessageRepository>();
+
+        if (AppEnvironment.Env.MessagingConfiguration.UseScyllaDb)
+        {
+            logger.LogInformation("Using scylla db for message storage");
+            services.AddScoped<IMessageRepository, ScyllaMessageRepository>();
+
+        }
+        else
+        {
+            logger.LogInformation("Using ef core for message storage");
+            services.AddScoped<IMessageRepository, EfCoreMessageRepository>();
+        }
 
     }
 }

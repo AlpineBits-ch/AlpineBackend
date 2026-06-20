@@ -42,6 +42,11 @@ docker compose up --build
 
 The API gateway will be available at `http://localhost:8080`.
 
+You can find the federation document at `http://localhost:8080/.well-known/federation` when both endpoints return a 200, you're fully set up!.
+
+As a side note: The gateway expects a terminated TLS connection, if you host it behind a proxy: GG, you're done. 
+If you don't, you need to setup a reverse proxy that handles SSL. Maybe Traefik, Caddy, or even a simple reverse proxy like Nginx.
+
 ---
 
 ## Environment Variables

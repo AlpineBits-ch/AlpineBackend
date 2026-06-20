@@ -51,6 +51,8 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public ICollection<UserDevice> Devices { get; set; } = new List<UserDevice>();
     public ICollection<UserKeyPackage> KeyPackages { get; set; } = new List<UserKeyPackage>();
     public ICollection<UserDeviceBackup> Backups { get; set; } = new List<UserDeviceBackup>();
+    
+    public UserType UserType { get; set; } = UserType.Default;
     public static ApplicationUser Create(CreateUserParams createUserParams)
     {
         var id = GenerateId();
@@ -65,6 +67,7 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             NormalizedUserName = createUserParams.Email.ToUpperInvariant(),
             CorrelationId = id,
             Id = id,
+            UserType = UserType.Default,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             SecurityStamp = Guid.NewGuid().ToString(),

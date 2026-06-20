@@ -18,6 +18,7 @@ x-app-env: &app-env
   AUTH_REQUIRE_USER_EMAIL_VERIFICATION: "false"
   IDENTITY_KEY_PASSWORD: devpassword
   INSTANCE_URL: http://localhost:8080
+  INSTANCE_NAME: "Venta Selfhosted Template"
 
 services:
 
@@ -221,7 +222,7 @@ services:
     build:
       context: .
       dockerfile: Echo/Dockerfile
-    container_name: echo_gateway
+    container_name: echo
     environment:
       <<: *app-env
       DATABASE_NAME: echo_db
@@ -234,15 +235,15 @@ services:
       - "8080:8080"
     depends_on:
       identity:
-        condition: service_healthy
+        condition: service_started
       guild:
-        condition: service_healthy
+        condition: service_started
       messaging:
-        condition: service_healthy
+        condition: service_started
       social:
-        condition: service_healthy
+        condition: service_started
       federation:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 15s

@@ -1,6 +1,8 @@
 ﻿using System.Security.Claims;
+using Facet.Extensions;
 using Identity.Application.Dtos.Request;
 using Identity.Application.Dtos.Response;
+using Identity.Domain.Entities;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -40,5 +42,17 @@ public class MlsDeviceController(MicroserviceContext ctx) : ControllerBase
         {
             Count = Math.Clamp(100 - unconsumedKeyCount, min: 0, max: 100)
         });
+    }
+    
+    [HttpGet]
+
+    public async Task<IActionResult> GetDevicesAsync()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+        
+        var devices = await ctx.UserDevices.AsNoTracking().Where(x => x.UserId == userId).ToListAsync();
+        
+        return Ok(devices.SelectFacets<UserDevice, UserDeviceDto>());
     }
 }

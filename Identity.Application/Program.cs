@@ -24,6 +24,8 @@ using Wolverine.Http.FluentValidation;
 
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddErrorReporting();
+
 // Add services to the container.
 builder.Services.AddOpenApi();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>

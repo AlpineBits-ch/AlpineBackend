@@ -18,9 +18,12 @@ using Yarp.ReverseProxy.Transforms;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.AddErrorReporting();
+
 // Add services to the container.
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
+
 
 builder.Services.AddControllers();
 

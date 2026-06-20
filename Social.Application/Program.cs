@@ -12,6 +12,7 @@ using Wolverine.EntityFrameworkCore;
 using Wolverine.Http;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddErrorReporting();
 
 // Add services to the container.
 builder.Services.AddOpenApi();

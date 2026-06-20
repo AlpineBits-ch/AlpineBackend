@@ -8,16 +8,16 @@
     </PropertyGroup>
     
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.8" />
-        <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.8" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
-        <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.8" />
-        <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.8" />
-        <PackageReference Include="WolverineFx" Version="6.0.0" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.0.0" />
-        <PackageReference Include="WolverineFx.Http" Version="6.0.0" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="6.0.0" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.9" />
+        <PackageReference Include="WolverineFx" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.Http" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.13.1" />
         <ProjectReference Include="..\Federation.Infrastructure\Federation.Infrastructure.csproj" />
         <ProjectReference Include="..\Messaging\Messaging.csproj" />
 

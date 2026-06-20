@@ -15,7 +15,7 @@
 
     <ItemGroup>
       <PackageReference Include="KsuidDotNet" Version="2.0.0" />
-      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.8" />
+      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.9" />
     </ItemGroup>
 
 </Project>

@@ -28,6 +28,8 @@ public static class Env
     public static readonly CloudflareConfig CloudflareConfig = new();
     public static readonly MicrosoftGraph MicrosoftGraph = new();
     public static readonly AuthConfiguration AuthConfiguration = new();
+    
+    public static readonly MessagingConfiguration MessagingConfiguration = new();
 
     public static string PersonalAccessToken => GetEnvironmentVariable("PERSONAL_ACCESS_TOKEN") ?? string.Empty;
     
@@ -129,6 +131,11 @@ public class GeneralConfiguration
     public bool IsUserHashGenerationEnabled { get; set; } = (GetEnvironmentVariable("IS_USER_HASH_GENERATION_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
     public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg";
 
+}
+
+public class MessagingConfiguration
+{
+    public bool UseScyllaDb { get; set; } = (GetEnvironmentVariable("USE_SCYLLA_DB")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
 }
 
 public class FederationConfiguration

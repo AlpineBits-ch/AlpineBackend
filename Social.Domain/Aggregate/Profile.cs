@@ -16,11 +16,9 @@ public class Profile : BaseEntity<Profile>, IPrefixedEntity
     
     public string? Bio { get; set; }
     public string UserName { get; set; }
-    public int Hash { get; private set; }
     
     public string? FederatedServerId { get; set; }
 
-    
     public virtual ICollection<Relationship> Relationships { get; set; } = new List<Relationship>();
     
     public virtual ICollection<Relationship> InvolvedRelationships { get; set; } = new List<Relationship>();
@@ -40,7 +38,6 @@ public class Profile : BaseEntity<Profile>, IPrefixedEntity
             Id = id,
             UserId = @params.UserId,
             UserName = @params.Username,
-            Hash = new Random((int)DateTime.UtcNow.Ticks).Next(1111, 9999),
         };
         
         return profile;

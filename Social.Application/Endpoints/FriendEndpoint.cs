@@ -27,7 +27,7 @@ public static class FriendshipEndpoints
         var initiator = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
         if (initiator is null) return Results.BadRequest("Initiator profile not found.");
         
-        var targetProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserName == dto.UserName && p.Hash == dto.Hash);
+        var targetProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserName == dto.UserName );
         if(targetProfile is null) return Results.BadRequest("Target profile not found.");
         if (initiator.Id == targetProfile.Id) 
             return Results.BadRequest("You cannot friend yourself.");

@@ -12,7 +12,6 @@ public static class IntegrationProfileDtoExtensions
             Id = profileDto.Id,
             UserName = profileDto.UserName,
             Bio = profileDto.Bio,
-            Hash = profileDto.Hash,
             Relationships = profileDto.Relationships.Select(r => r.ToIntegrationRelationship()).ToList(),
             UserId = profileDto.UserId,
         };

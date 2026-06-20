@@ -24,6 +24,11 @@ public class MlsDeviceEndpoint
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
+        
+        
+        var existingDevice = await ctx.UserDevices.FirstOrDefaultAsync(x => x.ClientDeviceId == dto.ClientDeviceId && x.UserId == userId);
+        
+        if(existingDevice is not null) return (Results.Ok(existingDevice.ToFacet<UserDevice, UserDeviceDto>()), null);
 
         var device = UserDevice.Create(new CreateUserDeviceParams()
         {

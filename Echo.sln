@@ -2,7 +2,7 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Echo", "Echo\Echo.csproj", "{3718C8AA-EE4D-49D7-9958-D7427E27579A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Echo.Persistence", "Echo.Persistence\Echo.Persistence.csproj", "{96AAABAC-5351-418A-9D91-274491351D2C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Echo.Infrastructure", "Echo.Infrastructure\Echo.Infrastructure.csproj", "{96AAABAC-5351-418A-9D91-274491351D2C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Guild", "Guild", "{97463163-EA52-4D56-B4A8-A8C01896F304}"
 EndProject

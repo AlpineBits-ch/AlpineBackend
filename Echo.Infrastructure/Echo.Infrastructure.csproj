@@ -1,14 +1,20 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <OutputType>Library</OutputType>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <RootNamespace>Echo.Persistence</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
-        <PackageReference Include="Google.Cloud.Storage.V1" Version="4.15.0" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Redis" Version="1.2.11" />
+        <PackageReference Include="WolverineFx" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.RDBMS" Version="6.13.1" />
         <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.11" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
             <PrivateAssets>all</PrivateAssets>
@@ -19,10 +25,6 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
-</ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
-      <ProjectReference Include="..\Social.Domain\Social.Domain.csproj" />
     </ItemGroup>
+
 </Project>

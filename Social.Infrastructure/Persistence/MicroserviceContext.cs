@@ -33,8 +33,7 @@ public class MicroserviceContext : DbContext
         modelBuilder.Entity<Profile>(profileBuilder =>
         {
             profileBuilder.HasIndex(x => x.UserId).IsUnique();
-            profileBuilder.HasIndex(x => x.UserName);
-            profileBuilder.HasIndex(x => x.Hash);
+            profileBuilder.HasIndex(x => x.UserName).IsUnique();
         });
 
         modelBuilder.Entity<Relationship>(relationshipBuilder =>

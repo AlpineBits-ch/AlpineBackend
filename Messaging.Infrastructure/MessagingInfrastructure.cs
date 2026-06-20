@@ -24,7 +24,10 @@ public static class MessagingInfrastructure
     public static void AddInfrastructure(this IServiceCollection services)
     {
         using var serviceProvider = services.BuildServiceProvider();
-        var logger = serviceProvider.GetRequiredService<ILogger>();
+        var logger = LoggerFactory.Create(config =>
+        {
+            config.AddConsole();
+        }).CreateLogger(typeof(MessagingInfrastructure));
         try
         {
             var googleServiceAccountJsonBase64 = Env.GoogleServiceAccountJsonBase64;

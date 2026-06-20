@@ -15,6 +15,8 @@ public static class Env
         Password = GetEnvironmentVariable("RABBITMQ_PASSWORD") ?? "admin"
     };
     
+    public static string SentryUrl => GetEnvironmentVariable("SENTRY_URL") ?? string.Empty;
+    
     public static readonly FederationConfiguration Federation = new();
     
     public static readonly ScyllaConfig Scylla = new();

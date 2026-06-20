@@ -17,6 +17,8 @@ using Wolverine.EntityFrameworkCore;
 using Wolverine.Http;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddErrorReporting();
+
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();

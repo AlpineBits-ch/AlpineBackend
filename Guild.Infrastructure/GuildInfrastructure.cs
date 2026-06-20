@@ -35,16 +35,21 @@ public static class GuildInfrastructure
         }
         try
         {
-            var storage = StorageClient.Create();
+            var googleServiceAccountJsonBase64 = Env.GoogleServiceAccountJsonBase64;
+            var googleServiceAccountJson = Convert.FromBase64String(googleServiceAccountJsonBase64);
+            
+            using var  storageCredentialMs = new MemoryStream(googleServiceAccountJson);
+            var storageClientCredential = ServiceAccountCredential.FromServiceAccountData(storageCredentialMs);
 
-           
-          
-            services.AddSingleton(storage);
+            var storage = StorageClient.Create(storageClientCredential.ToGoogleCredential());
+            services.AddSingleton(storage);           
+
         }
         catch (Exception _)
         {
             services.AddSingleton(StorageClient.CreateUnauthenticated());
-            // Empty            
+            // Empty     
+            Console.WriteLine("Could not create storage client, falling back to unauthenticated client");
         }
     }
 }

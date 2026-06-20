@@ -55,6 +55,7 @@ public class GuildThumbnailService(StorageClient client)
         if (string.IsNullOrEmpty(id))
             return null;
         
+        
         var signer = client.CreateUrlSigner();
         
         string thumbnailPath = $"thumbnails/{id}.jpg";

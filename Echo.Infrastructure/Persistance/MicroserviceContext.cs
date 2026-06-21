@@ -16,6 +16,7 @@ public class MicroserviceContext : DbContext
         {
          
         }).UseSnakeCaseNamingConvention();
+        
     }
     
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -37,7 +38,17 @@ public class MicroserviceContext : DbContext
                 table.HasCheckConstraint("ck_single_row_enforcer", "[enforced_singleton] = 1");
             });
             builder.HasIndex(x => x.EnforcedSingleton).IsUnique();
+            
+            builder.HasData(new EchoConfiguration()
+            {
+                Id = "ecco_3FQmtSXdg2VUCabuTR1r25imW2m",
+                CreatedAt = new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                UpdatedAt = new DateTimeOffset(2023, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                IsLoginEnabled = true,
+                IsRegisterEnabled = true,
+            });
         });
+        
 
     }
 

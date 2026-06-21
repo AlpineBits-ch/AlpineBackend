@@ -1,7 +1,8 @@
 ﻿using System.Security.Claims;
+using Amazon.S3;
+using Amazon.S3.Model;
 using AppEnvironment;
 using Facet.Extensions;
-using Google.Cloud.Storage.V1;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Services;
@@ -18,7 +19,7 @@ namespace Messaging.Application.Controllers;
 
 [ApiController]
 [Route("api/v1/attachments")]
-public class AttachmentController(FileService fileService, IMessageBus messageBus, MicroserviceContext context, StorageClient storageClient, IDistributedCache cache) : ControllerBase
+public class AttachmentController(FileService fileService, IMessageBus messageBus, IAmazonS3 s3Client, MicroserviceContext context, IDistributedCache cache) : ControllerBase
 {
     [Authorize]
 
@@ -89,45 +90,82 @@ public class AttachmentController(FileService fileService, IMessageBus messageBu
     }
 
     [HttpGet("{id}/download")]
-    public async Task<IActionResult> DownloadAttachmentAsync(string id)
-    {
-        var attachment = await context.Attachments.FindAsync(id);
-        if (attachment is null) return NotFound();
-        var data = await cache.GetAsync(Attachment.GetCacheId(id));
-        if(data is not null) return File(data, attachment.ContentType ?? "application/octet-stream", attachment.FileName);
-        var memoryStream = new MemoryStream();
-        await storageClient.DownloadObjectAsync(Env.MessagingConfiguration.AwsBucketName, attachment.Id, memoryStream);
-        memoryStream.Position = 0; 
-        
-        await cache.SetAsync(Attachment.GetCacheId(id), memoryStream.ToArray(), new DistributedCacheEntryOptions()
-        {
-            SlidingExpiration = TimeSpan.FromMinutes(10)
-        });
+public async Task<IActionResult> DownloadAttachmentAsync(string id)
+{
+    var attachment = await context.Attachments.FindAsync(id);
+    if (attachment is null) return NotFound();
+
+    var data = await cache.GetAsync(Attachment.GetCacheId(id));
+    if (data is not null) 
+        return File(data, attachment.ContentType ?? "application/octet-stream", attachment.FileName);
+
+    var memoryStream = new MemoryStream();
     
-        memoryStream.Position = 0;
-        return File(memoryStream, attachment.ContentType ?? "application/octet-stream", attachment.FileName);
+    try
+    {
+        // Request the object from the S3-compatible provider
+        var request = new GetObjectRequest
+        {
+            BucketName = Env.StorageConfiguration.BucketName,
+            Key = attachment.Id
+        };
+
+        using var response = await s3Client.GetObjectAsync(request);
+        // Copy the cloud network stream into your local memory stream
+        await response.ResponseStream.CopyToAsync(memoryStream);
+    }
+    catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return NotFound();
     }
 
-    [HttpGet("{id}/thumbnail")]
-    public async Task<IActionResult> GetThumbnailAsync(string id)
-    {
-        var attachment = await context.Attachments.FindAsync(id);
-        if (attachment is null || string.IsNullOrEmpty(attachment.ThumbnailId)) return NotFound();
-        
-        var data = await cache.GetAsync(MinimalAttachment.GetCacheId(id));
-        if(data is not null) return File(data, "image/jpeg");
-
-        var memoryStream = new MemoryStream();
-        await storageClient.DownloadObjectAsync(Env.MessagingConfiguration.AwsBucketName, attachment.ThumbnailId, memoryStream);
-        memoryStream.Position = 0;
-        await cache.SetAsync(MinimalAttachment.GetCacheId(id), memoryStream.ToArray(), new DistributedCacheEntryOptions()
-        {
-            SlidingExpiration = TimeSpan.FromMinutes(10)
-        });
+    memoryStream.Position = 0; 
     
-        memoryStream.Position = 0;
-        return File(memoryStream, "image/jpeg");
+    await cache.SetAsync(Attachment.GetCacheId(id), memoryStream.ToArray(), new DistributedCacheEntryOptions()
+    {
+        SlidingExpiration = TimeSpan.FromMinutes(10)
+    });
+
+    memoryStream.Position = 0;
+    return File(memoryStream, attachment.ContentType ?? "application/octet-stream", attachment.FileName);
+}
+
+[HttpGet("{id}/thumbnail")]
+public async Task<IActionResult> GetThumbnailAsync(string id)
+{
+    var attachment = await context.Attachments.FindAsync(id);
+    if (attachment is null || string.IsNullOrEmpty(attachment.ThumbnailId)) return NotFound();
+    
+    var data = await cache.GetAsync(MinimalAttachment.GetCacheId(id));
+    if (data is not null) return File(data, "image/jpeg");
+
+    var memoryStream = new MemoryStream();
+
+    try
+    {
+        var request = new GetObjectRequest
+        {
+            BucketName = Env.StorageConfiguration.BucketName,
+            Key = attachment.ThumbnailId
+        };
+
+        using var response = await s3Client.GetObjectAsync(request);
+        await response.ResponseStream.CopyToAsync(memoryStream);
     }
+    catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+    {
+        return NotFound();
+    }
+
+    memoryStream.Position = 0;
+    await cache.SetAsync(MinimalAttachment.GetCacheId(id), memoryStream.ToArray(), new DistributedCacheEntryOptions()
+    {
+        SlidingExpiration = TimeSpan.FromMinutes(10)
+    });
+
+    memoryStream.Position = 0;
+    return File(memoryStream, "image/jpeg");
+}
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteAttachmentAsync(string id)

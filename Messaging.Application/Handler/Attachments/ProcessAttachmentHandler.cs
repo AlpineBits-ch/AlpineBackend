@@ -1,11 +1,13 @@
-﻿using AppEnvironment;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+using AppEnvironment;
 using FFMpegCore;
-using Google.Cloud.Storage.V1;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Messaging.Domain.Events;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
@@ -15,9 +17,9 @@ namespace Messaging.Application.Handler.Attachments;
 
 public class ProcessAttachmentHandler
 {
-    public static async Task Handle(ProcessAttachment request, StorageClient storageClient, ILogger<ProcessAttachmentHandler> logger,  MicroserviceContext ctx, IDistributedCache cache)
+    public static async Task Handle(ProcessAttachment request, IAmazonS3 s3Client, ILogger<ProcessAttachmentHandler> logger, MicroserviceContext ctx, IDistributedCache cache)
     {
-        string bucketName = Env.MessagingConfiguration.AwsBucketName;
+        string bucketName = Env.StorageConfiguration.BucketName;
         string thumbnailPath = $"thumbnails/{request.AttachmentId}.jpg";
 
         logger.LogInformation("Processing attachment {AttachmentId}", request.AttachmentId);
@@ -30,35 +32,47 @@ public class ProcessAttachmentHandler
             {
                 using var sourceStream = new MemoryStream();
             
-                await storageClient.DownloadObjectAsync(bucketName, request.AttachmentId, sourceStream);
+                // 1. Download original image using S3
+                var getRequest = new GetObjectRequest
+                {
+                    BucketName = bucketName,
+                    Key = request.AttachmentId
+                };
+                using (var response = await s3Client.GetObjectAsync(getRequest))
+                {
+                    await response.ResponseStream.CopyToAsync(sourceStream);
+                }
                 sourceStream.Position = 0;
 
+                // 2. Process Thumbnail
                 using var image = await Image.LoadAsync(sourceStream);
                 image.Mutate(x => {
-                 
                     x.BackgroundColor(Color.White); 
 
-                    // 2. High-quality resize
+                    // High-quality resize
                     x.Resize(new ResizeOptions {
                         Size = new Size(300, 300), 
                         Mode = ResizeMode.Max,
                         Sampler = KnownResamplers.Lanczos3
                     });
                 });
+
                 using var thumbStream = new MemoryStream();
                 await image.SaveAsJpegAsync(thumbStream, new JpegEncoder { 
                     Quality = 90,
-                    ColorType = JpegColorType.YCbCrRatio444 // Keeps colors crisp
+                    ColorType = JpegColorType.YCbCrRatio444 
                 });
                 thumbStream.Position = 0;   
 
-                // 3. Upload Thumbnail
-                await storageClient.UploadObjectAsync(
-                    bucketName, 
-                    thumbnailPath, 
-                    "image/jpeg", 
-                    thumbStream
-                );
+                // 3. Upload Thumbnail using S3
+                var putThumbRequest = new PutObjectRequest
+                {
+                    BucketName = bucketName,
+                    Key = thumbnailPath,
+                    ContentType = "image/jpeg",
+                    InputStream = thumbStream
+                };
+                await s3Client.PutObjectAsync(putThumbRequest);
                 
                 sourceStream.Position = 0;
                 await cache.SetAsync(MinimalAttachment.GetCacheId(attachment.Id), sourceStream.ToArray(),
@@ -77,22 +91,33 @@ public class ProcessAttachmentHandler
                     // Download video to local disk for FFmpeg to seek
                     using (var fs = new FileStream(tempVideoPath, FileMode.Create))
                     {
-                        await storageClient.DownloadObjectAsync(bucketName, request.AttachmentId, fs);
+                        var getVideoRequest = new GetObjectRequest
+                        {
+                            BucketName = bucketName,
+                            Key = request.AttachmentId
+                        };
+                        using var response = await s3Client.GetObjectAsync(getVideoRequest);
+                        await response.ResponseStream.CopyToAsync(fs);
                     }
 
                     // Extract frame (FFMpegCore uses System.Drawing.Size)
                     await FFMpeg.SnapshotAsync(tempVideoPath, tempThumbPath, new System.Drawing.Size(320, 240), TimeSpan.FromSeconds(1));
             
                     using var thumbFileStream = File.OpenRead(tempThumbPath);
-                    await storageClient.UploadObjectAsync(
-                        bucketName, 
-                        thumbnailPath, 
-                        "image/jpeg", 
-                        thumbFileStream
-                    );
+                    
+                    // Upload extracted frame to storage
+                    var putVideoThumbRequest = new PutObjectRequest
+                    {
+                        BucketName = bucketName,
+                        Key = thumbnailPath,
+                        ContentType = "image/jpeg",
+                        InputStream = thumbFileStream
+                    };
+                    await s3Client.PutObjectAsync(putVideoThumbRequest);
+                    
                     thumbFileStream.Position = 0;
                     
-                    var ms =  new MemoryStream();
+                    var ms = new MemoryStream();
                     await thumbFileStream.CopyToAsync(ms);
                     await cache.SetAsync(MinimalAttachment.GetCacheId(attachment.Id), ms.ToArray(),
                         new DistributedCacheEntryOptions()
@@ -110,12 +135,14 @@ public class ProcessAttachmentHandler
         }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            logger.LogError(e, "Error processing attachment background tasks");
         }
         
-
-        attachment?.ThumbnailUrl = "https://api.alpinebits.ch/api/v1/messaging/attachments/" + request.AttachmentId + "/thumbnail";
-        attachment?.ThumbnailId = thumbnailPath;
-        attachment?.State = AttachmentState.Complete;
+        if (attachment is not null)
+        {
+            attachment.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/" + request.AttachmentId + "/thumbnail";
+            attachment.ThumbnailId = thumbnailPath;
+            attachment.State = AttachmentState.Complete;
+        }
     }
 }

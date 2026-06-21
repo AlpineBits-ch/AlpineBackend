@@ -2,7 +2,6 @@
 using AppEnvironment;
 using FirebaseAdmin;
 using Google.Apis.Auth.OAuth2;
-using Google.Cloud.Storage.V1;
 using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence;
 using Messaging.Infrastructure.Persistence.Repositories;
@@ -63,10 +62,7 @@ public static class MessagingInfrastructure
             var googleServiceAccountJson = Convert.FromBase64String(googleServiceAccountJsonBase64);
             
             using var  storageCredentialMs = new MemoryStream(googleServiceAccountJson);
-            var storageClientCredential = ServiceAccountCredential.FromServiceAccountData(storageCredentialMs);
 
-            var storage = StorageClient.Create(storageClientCredential.ToGoogleCredential());
-            services.AddSingleton(storage);           
             
             
             
@@ -82,7 +78,6 @@ public static class MessagingInfrastructure
                 Credential = fireBaseCredentials.ToGoogleCredential()
             });
             services.AddSingleton(app);
-            services.AddSingleton(storage);
         }
         catch (Exception _)
         {

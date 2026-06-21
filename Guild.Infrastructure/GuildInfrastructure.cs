@@ -1,7 +1,6 @@
 ﻿using Amazon.S3;
 using AppEnvironment;
-using Google.Apis.Auth.OAuth2;
-using Google.Cloud.Storage.V1;
+
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -67,15 +66,11 @@ public static class GuildInfrastructure
             var googleServiceAccountJson = Convert.FromBase64String(googleServiceAccountJsonBase64);
             
             using var  storageCredentialMs = new MemoryStream(googleServiceAccountJson);
-            var storageClientCredential = ServiceAccountCredential.FromServiceAccountData(storageCredentialMs);
-
-            var storage = StorageClient.Create(storageClientCredential.ToGoogleCredential());
-            services.AddSingleton(storage);           
+                 
 
         }
         catch (Exception _)
         {
-            services.AddSingleton(StorageClient.CreateUnauthenticated());
             // Empty     
             Console.WriteLine("Could not create storage client, falling back to unauthenticated client");
         }

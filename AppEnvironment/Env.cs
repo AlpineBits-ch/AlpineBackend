@@ -138,7 +138,6 @@ public class GeneralConfiguration
 public class MessagingConfiguration
 {
     public bool UseScyllaDb { get; set; } = (GetEnvironmentVariable("USE_SCYLLA_DB")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
-    public string AwsBucketName { get; set;  } = GetEnvironmentVariable("AWS_BUCKET_NAME") ?? "echo-chat";
 }
 
 public class StorageConfiguration

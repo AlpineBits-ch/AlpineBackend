@@ -36,6 +36,8 @@ public static class Env
     public static string GoogleServiceAccountJsonBase64 => GetEnvironmentVariable("GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64") ?? string.Empty;
     public static string FireBaseServiceAccountJsonBase64 => GetEnvironmentVariable("FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64") ?? string.Empty;
     
+    public static readonly StorageConfiguration StorageConfiguration = new();
+    
     public static GeneralConfiguration GeneralConfiguration = new();
 
 }
@@ -137,8 +139,20 @@ public class MessagingConfiguration
 {
     public bool UseScyllaDb { get; set; } = (GetEnvironmentVariable("USE_SCYLLA_DB")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
     public string AwsBucketName { get; set;  } = GetEnvironmentVariable("AWS_BUCKET_NAME") ?? "echo-chat";
-
 }
+
+public class StorageConfiguration
+{
+    public string BucketName { get; set;  } = GetEnvironmentVariable("BUCKET_NAME") ?? "echo-chat";
+    public string AccessKey { get; set; } = GetEnvironmentVariable("ACCESS_KEY_ID") ?? "mock_access_key";
+    public string SecretKey { get; set; } = GetEnvironmentVariable("SECRET_ACCESS_KEY") ?? "mock_secret_key";
+    public string PublicUrl { get; set; } = GetEnvironmentVariable("PUBLIC_URL") ?? "https://storage.googleapis.com";
+    public string ServiceUrl { get; set; } = GetEnvironmentVariable("SERVICE_URL") ?? "https://storage.googleapis.com";
+    public bool UseServiceUrl { get; set; } = (GetEnvironmentVariable("USE_SERVICE_URL")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
+    
+    public string Region { get; set; } = GetEnvironmentVariable("REGION") ?? "us-east-1";
+}
+
 
 public class FederationConfiguration
 {

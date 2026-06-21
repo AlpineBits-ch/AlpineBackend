@@ -10,6 +10,7 @@
         <SixLaborsLicenseFile>./Credentials/sixlabors.lic</SixLaborsLicenseFile>
     </PropertyGroup>
     <ItemGroup>
+        <PackageReference Include="AWSSDK.S3" Version="4.0.25.2" />
         <PackageReference Include="dotAPNS.AspNetCore" Version="2.2.2" />
         <PackageReference Include="Facet.Extensions" Version="6.6.8" />
         <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.8" />

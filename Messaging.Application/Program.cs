@@ -1,7 +1,6 @@
 ﻿using System.Net.Http.Headers;
 using AppEnvironment;
 using Domain;
-using Google.Cloud.Storage.V1;
 using JasperFx;
 using Messaging;
 using Messaging.Application.Hubs;
@@ -74,8 +73,6 @@ builder.Services.AddScoped<ConversationPermissionService>();
 builder.Services.AddScoped<IceServerService>();
 if (args.Contains("codegen") || args.Contains("describe"))
 {
-    var storageClient = StorageClient.CreateUnauthenticated();
-    builder.Services.AddSingleton(storageClient);
     var debugScylla = ScyllaContext.CreateDebug();
     builder.Services.AddSingleton(debugScylla);
     var jasperApp = builder.Build();

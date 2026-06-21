@@ -1,6 +1,7 @@
-﻿using AppEnvironment;
-using Google.Cloud.Storage.V1;
-using Persistence;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.AspNetCore.Http;
+using AppEnvironment;
 
 namespace Social.Api.Services;
 
@@ -12,29 +13,47 @@ public class UploadedFile
     public long SizeBytes { get; set; }
     public string ContentType { get; set; }
 }
-public class FileService(StorageClient client)
+
+public class FileService(IAmazonS3 s3Client)
 {
     public async Task<UploadedFile> UploadAvatarAsync(IFormFile file, string profileId)
     {
+        var config = Env.StorageConfiguration;
+        string publicUrlBase = config.PublicUrl.TrimEnd('/');
+
+        // 1. Attempt to delete the old avatar profile image if it exists
         try
         {
-            await client.DeleteObjectAsync(Env.MessagingConfiguration.AwsBucketName, profileId);
-
+            await s3Client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = config.BucketName,
+                Key = profileId
+            });
         }
-        catch (Exception _)
+        catch (Exception)
         {
             // empty :D
         }
-        var uploadResult = await client.UploadObjectAsync(Env.MessagingConfiguration.AwsBucketName, profileId, file.ContentType, file.OpenReadStream(),
-            new UploadObjectOptions()
-            {
 
-            });
+        // 2. Upload the new avatar file
+        using var stream = file.OpenReadStream();
+        var putRequest = new PutObjectRequest
+        {
+            BucketName = config.BucketName,
+            Key = profileId,
+            ContentType = file.ContentType,
+            InputStream = stream
+        };
 
-        return new UploadedFile()
+        await s3Client.PutObjectAsync(putRequest);
+
+        // 3. Formulate the cloud-agnostic public download link
+        string fileUrl = $"{publicUrlBase}/{config.BucketName}/{profileId}";
+
+        return new UploadedFile
         {
             Id = profileId,
-            Url = uploadResult.MediaLink,
+            Url = fileUrl,
             FileName = file.FileName,
             SizeBytes = file.Length,
             ContentType = file.ContentType
@@ -46,9 +65,17 @@ public class FileService(StorageClient client)
         if (string.IsNullOrEmpty(id))
             return null;
         
-        var signer = client.CreateUrlSigner();
-        
-        var data = await signer.SignAsync(Env.MessagingConfiguration.AwsBucketName, id, TimeSpan.FromMinutes(10));
-        return data;
+        var config = Env.StorageConfiguration;
+
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = config.BucketName,
+            Key = id,
+            Expires = DateTime.UtcNow.AddMinutes(10),
+            Verb = HttpVerb.GET
+        };
+
+        // Generates the presigned URL dynamically matching the user's host endpoint
+        return s3Client.GetPreSignedURL(request);
     }
 }

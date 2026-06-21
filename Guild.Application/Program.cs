@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using AppEnvironment;
 using Facet.Dashboard;
-using Google.Cloud.Storage.V1;
 using Guild.Application.Hubs;
 using Guild.Application.Services;
 using Guild.Persistence;
@@ -123,7 +122,6 @@ builder.Services.AddHttpClient("CloudflareProxy", client =>
 });
 if (args.Contains("codegen") || args.Contains("describe"))
 {
-    builder.Services.AddSingleton(StorageClient.CreateUnauthenticated());
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
     {
         var options = new ConfigurationOptions
@@ -147,7 +145,6 @@ if (args.Contains("facets"))
 {
     builder.Services.AddFacetDashboard();
     builder.Services.AddDbContext<MicroserviceContext>();
-    builder.Services.AddSingleton(StorageClient.CreateUnauthenticated());
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
     {
         var options = new ConfigurationOptions

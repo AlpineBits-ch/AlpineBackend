@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using AppEnvironment;
 using Echo.Domain.Entities;
+using Echo.Persistence;
 using Echo.Persistence.Persistance;
 using Echo.Proxy;
 using Echo.RateLimiter;
@@ -120,6 +121,8 @@ builder.Services.AddScoped<IGitHubClient>(s =>
     };
     return client;
 });
+builder.Services.AddInfrastructure();
+;
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy());
 builder.Services.AddSignalR()
@@ -149,6 +152,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseInfrastructure();
 
 
 await app.RunJasperFxCommands(args);

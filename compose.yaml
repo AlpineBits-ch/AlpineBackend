@@ -1,28 +1,32 @@
-version: '3.8'
 
 # Shared environment for all application services
 x-app-env: &app-env
   DATABASE_HOSTNAME: postgres
   DATABASE_PORT: "5432"
   DATABASE_USERNAME: postgres
-  DATABASE_PASSWORD: postgres
+  DATABASE_PASSWORD: "${POSTGRES_PASSWORD}"
   REDIS_HOST: redis
   REDIS_PORT: "6379"
-  REDIS_PASSWORD: devpassword
+  REDIS_PASSWORD: "${REDIS_PASSWORD}"
   RABBITMQ_HOST: rabbitmq
   RABBITMQ_PORT: "5672"
   RABBITMQ_USERNAME: admin
-  RABBITMQ_PASSWORD: admin
+  RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD}"
   ASPNETCORE_URLS: http://+:8080
   ASPNETCORE_ENVIRONMENT: Production
   AUTH_REQUIRE_USER_EMAIL_VERIFICATION: "false"
-  IDENTITY_KEY_PASSWORD: devpassword
-  INSTANCE_URL: http://localhost:8080
-  INSTANCE_NAME: "Venta Selfhosted Template"
+  
+  # Configuration parameters set via installer
+  INSTANCE_NAME: "${INSTANCE_NAME}"
+  INSTANCE_URL: "${INSTANCE_URL}"
+  PUBLIC_URL: "${STORAGE_PUBLIC_URL}"
+  IDENTITY_KEY_PASSWORD: "${IDENTITY_KEY_PASSWORD}"
+  FEDERATION_PRIVATE_KEY_BASE_64: "${FEDERATION_PRIVATE_KEY_BASE_64}"
+  FEDERATION_PUBLIC_KEY_BASE_64: "${FEDERATION_PUBLIC_KEY_BASE_64}"
+
   BUCKET_NAME: "echo-chat"
-  ACCESS_KEY_ID: "minio_dev_access_key"
-  SECRET_ACCESS_KEY: "minio_dev_secret_key"
-  PUBLIC_URL: "http://localhost:9000"
+  ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
+  SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
   SERVICE_URL: "http://minio:9000"
   USE_SERVICE_URL: "true"
   REGION: "us-east-1"
@@ -37,7 +41,7 @@ services:
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
       POSTGRES_MULTIPLE_DATABASES: identity_db,guild_db,messaging_db,social_db,echo_db,federation_db
     ports:
       - "5433:5432"
@@ -54,13 +58,13 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis_service
-    command: redis-server --requirepass devpassword
+    command: redis-server --requirepass "${REDIS_PASSWORD}"
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a devpassword ping | grep PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD}\" ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -71,7 +75,7 @@ services:
     container_name: rabbitmq_service
     environment:
       RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD}"
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -104,11 +108,11 @@ services:
     image: minio/minio:latest
     container_name: minio_service
     ports:
-      - "9000:9000"   # MinIO API
-      - "9001:9001"   # MinIO Web Console
+      - "9000:9000"
+      - "9001:9001"
     environment:
-      MINIO_ROOT_USER: "minio_dev_access_key"
-      MINIO_ROOT_PASSWORD: "minio_dev_secret_key"
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -119,7 +123,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # Setup Container to automatically create the initial bucket
   minio-init:
     image: minio/mc:latest
     container_name: minio_init_service
@@ -128,7 +131,7 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set localminio http://minio:9000 minio_dev_access_key minio_dev_secret_key;
+      /usr/bin/mc alias set localminio http://minio:9000 \"${MINIO_ROOT_USER}\" \"${MINIO_ROOT_PASSWORD}\";
       /usr/bin/mc mb --ignore-existing localminio/echo-chat;
       /usr/bin/mc anonymous set public localminio/echo-chat;
       exit 0;
@@ -194,7 +197,7 @@ services:
       SCYLLA_HOST: scylladb
       SCYLLA_PORT: "9042"
       SCYLLA_USERNAME: cassandra
-      SCYLLA_PASSWORD: cassandra
+      SCYLLA_PASSWORD: "${SCYLLA_PASSWORD}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -285,7 +288,7 @@ services:
       federation:
         condition: service_started
       minio-init:
-        condition: service_completed_successfully # Ensures bucket is ready before echo fires up
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -296,7 +299,32 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR}/postgres
   redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR}/redis
   rabbitmq_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR}/rabbitmq
   scylla_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR}/scylla
   minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_DIR}/minio

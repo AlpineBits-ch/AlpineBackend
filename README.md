@@ -43,7 +43,7 @@ The quickest way to run a local instance is with Docker Compose:
 The setup script will setup all required local resources and start the services. You can later adjust the env variables further - if you wish to do so.
 
 
-The API gateway will be available at `http://localhost:8080`.
+The API gateway will be available at `http://localhost:8080/api/v1/configuration`.
 
 You can find the federation document at `http://localhost:8080/.well-known/federation` when both endpoints return a 200, you're fully set up!.
 

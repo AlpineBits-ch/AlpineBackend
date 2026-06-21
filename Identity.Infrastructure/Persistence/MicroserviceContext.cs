@@ -34,6 +34,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
             options.MapEnum<DeviceStatus>();
             options.MapEnum<DeviceType>();
             options.MapEnum<UserStatus>();
+            options.MapEnum<UserType>();
         }).UseSnakeCaseNamingConvention();
         
        

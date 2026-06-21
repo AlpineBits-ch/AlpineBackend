@@ -63,7 +63,7 @@ builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("PerUserPolicy", context =>
     {
-        var username = context.User?.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
+        var username = context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
         
         return RateLimitPartition.GetFixedWindowLimiter(username, _ => new FixedWindowRateLimiterOptions
         {

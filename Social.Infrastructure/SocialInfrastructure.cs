@@ -1,7 +1,6 @@
 ﻿using Amazon.S3;
 using AppEnvironment;
-using Google.Apis.Auth.OAuth2;
-using Google.Cloud.Storage.V1;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -54,16 +53,12 @@ public static class SocialInfrastructure
             
                 
             using var  ms = new MemoryStream(credsJson);
-            var credential = ServiceAccountCredential.FromServiceAccountData(ms);
-
-            var storage = StorageClient.Create(credential.ToGoogleCredential());
-            services.AddSingleton(storage);
+       
             
             
         }
         catch (Exception e)
         {
-            services.AddSingleton(StorageClient.CreateUnauthenticated());
 
         }
     }

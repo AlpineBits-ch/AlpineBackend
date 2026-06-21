@@ -1,7 +1,9 @@
-﻿using AppEnvironment;
-using Google.Apis.Auth.OAuth2;
-using Google.Cloud.Storage.V1;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+using Microsoft.AspNetCore.Http;
+using AppEnvironment;
 using Messaging.Domain.Entities;
+using Microsoft.Extensions.Configuration; // Ensure this is included
 
 namespace Messaging.Application.Services;
 
@@ -13,36 +15,45 @@ public class UploadedFile
     public long SizeBytes { get; set; }
     public string ContentType { get; set; }
 }
-public class FileService(StorageClient client)
+
+public class FileService(IAmazonS3 s3Client)
 {
     public async Task<ICollection<UploadedFile>> UploadFileAsync(ICollection<IFormFile> files)
     {
-
         var responses = new List<UploadedFile>();
+
+        string bucketName = Env.StorageConfiguration.BucketName;
+        string publicUrlBase = Env.StorageConfiguration.PublicUrl;
 
         foreach (var file in files)
         {
             var id = Attachment.GenerateId();
 
-            var uploadResult = await client.UploadObjectAsync(Env.MessagingConfiguration.AwsBucketName, id, file.ContentType, file.OpenReadStream(),
-                new UploadObjectOptions()
-                {
+            using var stream = file.OpenReadStream();
+            
+            var putRequest = new PutObjectRequest
+            {
+                BucketName = bucketName,
+                Key = id,
+                ContentType = file.ContentType,
+                InputStream = stream
+            };
 
-                });
+            await s3Client.PutObjectAsync(putRequest);
 
-            responses.Add(new UploadedFile()
+         
+            string fileUrl = $"{publicUrlBase}/{bucketName}/{id}";
+
+            responses.Add(new UploadedFile
             {
                 Id = id,
-                Url = uploadResult.MediaLink,
+                Url = fileUrl,
                 FileName = file.FileName,
                 SizeBytes = file.Length,
                 ContentType = file.ContentType
-
             });
-
         }
 
-        return responses.ToList();
+        return responses;
     }
-
 }

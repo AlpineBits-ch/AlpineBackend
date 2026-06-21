@@ -1,4 +1,5 @@
-﻿using AppEnvironment;
+﻿using Amazon.S3;
+using AppEnvironment;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Storage.V1;
 using Guild.Persistence.Persistence;
@@ -35,6 +36,33 @@ public static class GuildInfrastructure
         }
         try
         {
+             
+            var storageConfig = Env.StorageConfiguration;
+
+            var s3Config = new AmazonS3Config
+            {
+      
+                ForcePathStyle = true 
+            };
+
+            if (storageConfig.UseServiceUrl)
+            {
+                s3Config.ServiceURL = storageConfig.ServiceUrl;
+            }
+            else
+            {
+               
+                string region = Env.StorageConfiguration.Region;
+                s3Config.RegionEndpoint = Amazon.RegionEndpoint.GetBySystemName(region);
+            }
+
+            var credentials = new Amazon.Runtime.BasicAWSCredentials(
+                storageConfig.AccessKey,
+                storageConfig.SecretKey
+            );
+
+            services.AddSingleton<IAmazonS3>(new AmazonS3Client(credentials, s3Config));
+            
             var googleServiceAccountJsonBase64 = Env.GoogleServiceAccountJsonBase64;
             var googleServiceAccountJson = Convert.FromBase64String(googleServiceAccountJsonBase64);
             

@@ -16,9 +16,11 @@ namespace Echo.Controllers;
 [Route("api/v1/configuration")]
 public class ConfigurationController(MicroserviceContext context, IMessageBus bus) : ControllerBase
 {
+    [HttpGet]
     public async Task<IActionResult> Get()
     {
-        return (Ok(context.EchoConfigurations.FirstAsync()));
+        var configuration = await context.EchoConfigurations.FirstAsync();
+        return Ok(configuration.ToFacet<EchoConfiguration, EchoConfigurationDto>());
     }
     
     [HttpPost]

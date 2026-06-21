@@ -19,6 +19,13 @@ x-app-env: &app-env
   IDENTITY_KEY_PASSWORD: devpassword
   INSTANCE_URL: http://localhost:8080
   INSTANCE_NAME: "Venta Selfhosted Template"
+  BUCKET_NAME: "echo-chat"
+  ACCESS_KEY_ID: "minio_dev_access_key"
+  SECRET_ACCESS_KEY: "minio_dev_secret_key"
+  PUBLIC_URL: "http://localhost:9000"
+  SERVICE_URL: "http://minio:9000"
+  USE_SERVICE_URL: "true"
+  REGION: "us-east-1"
 
 services:
 
@@ -80,7 +87,6 @@ services:
   scylladb:
     image: scylladb/scylla:6.2
     container_name: scylla_service
-    # PasswordAuthenticator enables login with the default cassandra:cassandra superuser
     command: --authenticator=PasswordAuthenticator --authorizer=CassandraAuthorizer --smp=1
     ports:
       - "9042:9042"
@@ -93,6 +99,40 @@ services:
       retries: 10
       start_period: 90s
     restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio_service
+    ports:
+      - "9000:9000"   # MinIO API
+      - "9001:9001"   # MinIO Web Console
+    environment:
+      MINIO_ROOT_USER: "minio_dev_access_key"
+      MINIO_ROOT_PASSWORD: "minio_dev_secret_key"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Setup Container to automatically create the initial bucket
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio_init_service
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set localminio http://minio:9000 minio_dev_access_key minio_dev_secret_key;
+      /usr/bin/mc mb --ignore-existing localminio/echo-chat;
+      /usr/bin/mc anonymous set public localminio/echo-chat;
+      exit 0;
+      "
 
   # ── Application Services ──────────────────────────────────────────────────────
 
@@ -244,6 +284,8 @@ services:
         condition: service_started
       federation:
         condition: service_started
+      minio-init:
+        condition: service_completed_successfully # Ensures bucket is ready before echo fires up
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -257,3 +299,4 @@ volumes:
   redis_data:
   rabbitmq_data:
   scylla_data:
+  minio_data:

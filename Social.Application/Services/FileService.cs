@@ -1,4 +1,5 @@
-﻿using Google.Cloud.Storage.V1;
+﻿using AppEnvironment;
+using Google.Cloud.Storage.V1;
 using Persistence;
 
 namespace Social.Api.Services;
@@ -17,14 +18,14 @@ public class FileService(StorageClient client)
     {
         try
         {
-            await client.DeleteObjectAsync("echo-chat", profileId);
+            await client.DeleteObjectAsync(Env.MessagingConfiguration.AwsBucketName, profileId);
 
         }
         catch (Exception _)
         {
             // empty :D
         }
-        var uploadResult = await client.UploadObjectAsync("echo-chat", profileId, file.ContentType, file.OpenReadStream(),
+        var uploadResult = await client.UploadObjectAsync(Env.MessagingConfiguration.AwsBucketName, profileId, file.ContentType, file.OpenReadStream(),
             new UploadObjectOptions()
             {
 
@@ -47,7 +48,7 @@ public class FileService(StorageClient client)
         
         var signer = client.CreateUrlSigner();
         
-        var data = await signer.SignAsync("echo-chat", id, TimeSpan.FromMinutes(10));
+        var data = await signer.SignAsync(Env.MessagingConfiguration.AwsBucketName, id, TimeSpan.FromMinutes(10));
         return data;
     }
 }

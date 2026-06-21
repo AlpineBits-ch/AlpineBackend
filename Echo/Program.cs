@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using AppEnvironment;
 using Echo.Domain.Entities;
+using Echo.Persistence.Persistance;
 using Echo.Proxy;
 using Echo.RateLimiter;
 using JasperFx;
@@ -14,6 +15,7 @@ using Microsoft.IdentityModel.Tokens;
 using Octokit;
 using StackExchange.Redis;
 using Wolverine;
+using Wolverine.EntityFrameworkCore;
 using Yarp.ReverseProxy.Health;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -34,6 +36,7 @@ var redis = Env.Redis;
 builder.UseWolverine(opts =>
 {
 
+    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(opts => {});
     if (builder.Environment.IsDevelopment())
     {
         return;

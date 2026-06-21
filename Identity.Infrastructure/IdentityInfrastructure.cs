@@ -15,5 +15,6 @@ public static class IdentityInfrastructure
 
     public static void AddInfrastructure(this IServiceCollection services)
     {
+        
     }
 }

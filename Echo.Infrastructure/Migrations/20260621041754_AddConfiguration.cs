@@ -25,7 +25,7 @@ namespace Echo.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("pk_echo_configurations", x => x.id);
-                    table.CheckConstraint("ck_single_row_enforcer", "[enforced_singleton] = 1");
+                    table.CheckConstraint("ck_single_row_enforcer", "enforced_singleton = 1");
                 });
 
             migrationBuilder.CreateIndex(

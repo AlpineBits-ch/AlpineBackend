@@ -35,7 +35,8 @@ public class MicroserviceContext : DbContext
                 .HasDefaultValue(1);
             builder.ToTable(table =>
             {
-                table.HasCheckConstraint("ck_single_row_enforcer", "[enforced_singleton] = 1");
+                table.HasCheckConstraint("ck_single_row_enforcer", "enforced_singleton = 1");
+                
             });
             builder.HasIndex(x => x.EnforcedSingleton).IsUnique();
             

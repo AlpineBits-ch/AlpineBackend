@@ -1,4 +1,5 @@
-﻿using FFMpegCore;
+﻿using AppEnvironment;
+using FFMpegCore;
 using Google.Cloud.Storage.V1;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
@@ -16,7 +17,7 @@ public class ProcessAttachmentHandler
 {
     public static async Task Handle(ProcessAttachment request, StorageClient storageClient, ILogger<ProcessAttachmentHandler> logger,  MicroserviceContext ctx, IDistributedCache cache)
     {
-        string bucketName = "echo-chat";
+        string bucketName = Env.MessagingConfiguration.AwsBucketName;
         string thumbnailPath = $"thumbnails/{request.AttachmentId}.jpg";
 
         logger.LogInformation("Processing attachment {AttachmentId}", request.AttachmentId);

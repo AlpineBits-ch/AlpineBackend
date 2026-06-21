@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using AppEnvironment;
 using Facet.Extensions;
 using Google.Cloud.Storage.V1;
 using Messaging.Application.Dtos.Request;
@@ -82,9 +83,8 @@ public class AttachmentController(FileService fileService, IMessageBus messageBu
         var attachment = context.Attachments.FirstOrDefault(a => a.Id == id);
         if (attachment is null) return NotFound();
         var dto = attachment.ToFacet<Attachment, AttachmentDto>();
-        
-        dto.Url = $"https://api.alpinebits.ch/api/v1/messaging/attachments/{id}/download";
-        dto.ThumbnailUrl = $"https://api.alpinebits.ch/api/v1/messaging/attachments/{id}/thumbnail";
+        dto.Url = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/{id}/download";
+        dto.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/{id}/thumbnail";
         return Ok(dto);
     }
 
@@ -96,7 +96,7 @@ public class AttachmentController(FileService fileService, IMessageBus messageBu
         var data = await cache.GetAsync(Attachment.GetCacheId(id));
         if(data is not null) return File(data, attachment.ContentType ?? "application/octet-stream", attachment.FileName);
         var memoryStream = new MemoryStream();
-        await storageClient.DownloadObjectAsync("echo-chat", attachment.Id, memoryStream);
+        await storageClient.DownloadObjectAsync(Env.MessagingConfiguration.AwsBucketName, attachment.Id, memoryStream);
         memoryStream.Position = 0; 
         
         await cache.SetAsync(Attachment.GetCacheId(id), memoryStream.ToArray(), new DistributedCacheEntryOptions()
@@ -118,7 +118,7 @@ public class AttachmentController(FileService fileService, IMessageBus messageBu
         if(data is not null) return File(data, "image/jpeg");
 
         var memoryStream = new MemoryStream();
-        await storageClient.DownloadObjectAsync("echo-chat", attachment.ThumbnailId, memoryStream);
+        await storageClient.DownloadObjectAsync(Env.MessagingConfiguration.AwsBucketName, attachment.ThumbnailId, memoryStream);
         memoryStream.Position = 0;
         await cache.SetAsync(MinimalAttachment.GetCacheId(id), memoryStream.ToArray(), new DistributedCacheEntryOptions()
         {

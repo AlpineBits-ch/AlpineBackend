@@ -1,4 +1,5 @@
-﻿using Google.Apis.Auth.OAuth2;
+﻿using AppEnvironment;
+using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Storage.V1;
 using Messaging.Domain.Entities;
 
@@ -23,7 +24,7 @@ public class FileService(StorageClient client)
         {
             var id = Attachment.GenerateId();
 
-            var uploadResult = await client.UploadObjectAsync("echo-chat", id, file.ContentType, file.OpenReadStream(),
+            var uploadResult = await client.UploadObjectAsync(Env.MessagingConfiguration.AwsBucketName, id, file.ContentType, file.OpenReadStream(),
                 new UploadObjectOptions()
                 {
 

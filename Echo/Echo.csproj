@@ -31,14 +31,11 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Echo.Domain\Echo.Domain.csproj" />
+      <ProjectReference Include="..\Echo.Infrastructure\Echo.Infrastructure.csproj" />
       <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Messaging.Infrastructure\Messaging.Infrastructure.csproj" />
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
       <ProjectReference Include="..\Social.Contracts\Social.Contracts.csproj" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="Dtos\Request\" />
     </ItemGroup>
 
 </Project>

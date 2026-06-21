@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using AppEnvironment;
+using Echo.Domain.Entities;
 using Echo.Proxy;
 using Echo.RateLimiter;
 using JasperFx;
@@ -14,7 +15,6 @@ using Octokit;
 using StackExchange.Redis;
 using Wolverine;
 using Yarp.ReverseProxy.Health;
-using Yarp.ReverseProxy.Transforms;
 
 var builder = WebApplication.CreateBuilder(args);
 

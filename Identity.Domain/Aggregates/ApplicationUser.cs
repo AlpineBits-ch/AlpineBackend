@@ -32,6 +32,8 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public DateTimeOffset? EmailVerifiedAt { get; set; }
 
     public AgeVerification AgeVerification { get; set; } = null!;
+
+    public string FederatedUserId { get; set; } = null!;
     
     public UserPreferences UserPreferences { get; set; } = new();
     

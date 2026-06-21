@@ -37,8 +37,11 @@
 The quickest way to run a local instance is with Docker Compose:
 
 ```bash
-docker compose up --build
+./deploy/setup.sh
 ```
+
+The setup script will setup all required local resources and start the services. You can later adjust the env variables further - if you wish to do so.
+
 
 The API gateway will be available at `http://localhost:8080`.
 

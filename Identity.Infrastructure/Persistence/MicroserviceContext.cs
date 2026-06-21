@@ -44,13 +44,10 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
         
     }
     
-    private string ConvertToSnakeCase(string input)
+    private static string ConvertToSnakeCase(string input)
     {
         if (string.IsNullOrEmpty(input)) return input;
-    
-        // Simple regex or manual logic to convert PascalCase to snake_case
-        // Note: EFCore.NamingConventions usually has a utility for this, 
-        // but doing it explicitly here ensures Identity tables follow suit.
+        
         return System.Text.RegularExpressions.Regex
             .Replace(input, "([a-z0-9])([A-Z])", "$1_$2").ToLower();
     }
@@ -61,8 +58,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
 
         foreach (var entity in modelBuilder.Model.GetEntityTypes())
         {
-            // Replace "AspNet" prefix if you want (e.g., AspNetUsers -> users)
-            // Or just let the convention handle the transformation
+        
             var tableName = entity.GetTableName();
             if (tableName != null)
             {

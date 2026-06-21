@@ -1,4 +1,4 @@
-﻿using Echo.Entities;
+﻿using Echo.Domain.Entities;
 using Facet;
 
 namespace Echo.Dtos.Response;

@@ -1,6 +1,6 @@
 ﻿using Persistence;
 
-namespace Echo.Entities;
+namespace Echo.Domain.Entities;
 
 public class EchoConfiguration : BaseEntity<EchoConfiguration>, IPrefixedEntity
 {
@@ -8,4 +8,8 @@ public class EchoConfiguration : BaseEntity<EchoConfiguration>, IPrefixedEntity
     
     public bool IsRegisterEnabled { get; set; }
     public bool IsLoginEnabled { get; set; }
+
+
+
+    public int EnforcedSingleton { get; set; } = 1;
 }

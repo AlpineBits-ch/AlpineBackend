@@ -35,6 +35,7 @@ namespace Identity.Infrastructure.Migrations
                 name: "user_type",
                 table: "asp_net_users",
                 type: "user_type",
+                defaultValue: UserType.Default,
                 nullable: false);
         }
 

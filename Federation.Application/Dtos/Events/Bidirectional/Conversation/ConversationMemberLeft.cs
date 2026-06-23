@@ -1,6 +1,6 @@
 ﻿namespace Federation.Application.Dtos.Events.Bidirectional.Conversation;
 
-public class ConversationMemberLeft
+public class ConversationMemberLeft : FederationEvent
 {
     
 }

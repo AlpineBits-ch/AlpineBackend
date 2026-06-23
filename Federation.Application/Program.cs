@@ -2,6 +2,7 @@
 using AppEnvironment;
 using Federation.Application;
 using Federation.Application.Dtos.Events;
+using Federation.Application.Providers;
 using Federation.Infrastructure;
 using Federation.Infrastructure.Persistence;
 using JasperFx;
@@ -19,7 +20,8 @@ builder.AddErrorReporting();
 // Add services to the container.
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
-
+builder.Services.AddSingleton<IFederatedDomainResolver, VentaDomainResolver>();
+builder.Services.AddSingleton<IFederationProvider, VentaFederationProvider>();
 builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);

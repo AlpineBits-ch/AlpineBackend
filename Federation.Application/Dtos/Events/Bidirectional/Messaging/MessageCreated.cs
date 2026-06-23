@@ -2,5 +2,5 @@
 
 public class MessageCreated : FederationEvent
 {
-    
+    public byte[] Content { get; set; } = [];
 }

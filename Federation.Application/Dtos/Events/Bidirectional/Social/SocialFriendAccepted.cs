@@ -1,6 +1,6 @@
 ﻿namespace Federation.Application.Dtos.Events.Bidirectional.Social;
 
-public class SocialFriendAccepted
+public class SocialFriendAccepted : FederationEvent
 {
     
 }

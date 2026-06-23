@@ -13,15 +13,43 @@ using NSec.Cryptography;
 namespace Federation.Application.Dtos.Events;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "$eventType")]
+// Messaging
 [JsonDerivedType(typeof(MessageCreated), "messageCreated")]
 [JsonDerivedType(typeof(MessageEdited), "messageEdited")]
 [JsonDerivedType(typeof(MessageDeleted), "messageDeleted")]
 [JsonDerivedType(typeof(MessageReactionAdded), "messageReactionAdded")]
 [JsonDerivedType(typeof(MessageReactionRemoved), "messageReactionRemoved")]
-
-public  class FederationEvent
+// Guild (bidirectional)
+[JsonDerivedType(typeof(GuildMemberJoined), "guildMemberJoined")]
+[JsonDerivedType(typeof(GuildMemberLeft), "guildMemberLeft")]
+[JsonDerivedType(typeof(GuildMemberBanned), "guildMemberBanned")]
+// Guild (inbound)
+[JsonDerivedType(typeof(GuildInviteRedeemed), "guildInviteRedeemed")]
+[JsonDerivedType(typeof(GuildJoinRequest), "guildJoinRequest")]
+// Guild (outbound)
+[JsonDerivedType(typeof(GuildInviteAccepted), "guildInviteAccepted")]
+[JsonDerivedType(typeof(GuildInviteRevoked), "guildInviteRevoked")]
+// Social
+[JsonDerivedType(typeof(SocialFriendRequest), "socialFriendRequest")]
+[JsonDerivedType(typeof(SocialFriendAccepted), "socialFriendAccepted")]
+[JsonDerivedType(typeof(SocialFriendRejected), "socialFriendRejected")]
+[JsonDerivedType(typeof(SocialFriendRemoved), "socialFriendRemoved")]
+// Conversation
+[JsonDerivedType(typeof(ConversationCreated), "conversationCreated")]
+[JsonDerivedType(typeof(ConversationEdited), "conversationEdited")]
+[JsonDerivedType(typeof(ConversationDeleted), "conversationDeleted")]
+[JsonDerivedType(typeof(ConversationMemberAdded), "conversationMemberAdded")]
+[JsonDerivedType(typeof(ConversationMemberLeft), "conversationMemberLeft")]
+public class FederationEvent
 {
-    public string Host { get; set; }
+    public string Host { get; set; } = string.Empty;
+    public string ProtocolVersion { get; set; } = string.Empty;
+    public string EventId { get; set; } = string.Empty;
+    public string[] PreviousEventIds { get; set; } = [];
+    public long Depth { get; set; }
+    public string ChannelId { get; set; } = string.Empty;
+    public string SenderId { get; set; } = string.Empty;
+    public DateTime OriginServerTime { get; set; }
 }
 
 
@@ -64,9 +92,10 @@ public class SignedFederationEvent
     public required FederationEvent Payload { get; set; }
     public required byte[] Signature { get; set; }
 
-    public static SignedFederationEvent Create(FederationEvent payload)
+    public static SignedFederationEvent Create(FederationEvent payload, string protocolVersion)
     {
         payload.Host = Env.GeneralConfiguration.InstanceUrl;
+        payload.ProtocolVersion = protocolVersion;
         var algorithm = SignatureAlgorithm.Ed25519;
     
         var privateKeyBytes = (Env.Federation.PrivateKey);

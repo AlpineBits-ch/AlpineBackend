@@ -1,6 +1,5 @@
 ﻿namespace Federation.Application.Dtos.Events.Bidirectional.Guild;
 
-public class GuildMemberJoined
+public class GuildMemberJoined : FederationEvent
 {
-    
 }

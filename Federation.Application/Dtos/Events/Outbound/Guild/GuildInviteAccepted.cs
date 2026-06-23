@@ -1,6 +1,6 @@
 ﻿namespace Federation.Application.Dtos.Events.Outbound.Guild;
 
-public class GuildInviteAccepted
+public class GuildInviteAccepted : FederationEvent
 {
     
 }

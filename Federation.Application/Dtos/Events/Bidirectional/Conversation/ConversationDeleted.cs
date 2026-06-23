@@ -1,6 +1,6 @@
 ﻿namespace Federation.Application.Dtos.Events.Bidirectional.Conversation;
 
-public class ConversationDeleted
+public class ConversationDeleted : FederationEvent
 {
     
 }

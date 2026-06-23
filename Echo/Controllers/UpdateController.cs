@@ -47,7 +47,7 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
 
         var signatures = await Task.WhenAll(signatureTasks);
 
-        var baseUrl = $"https://api.alpinebits.ch/api/v1/update/download/latest";
+        var baseUrl = $"https://api.venta.gg/api/v1/update/download/latest";
         var platforms = signatures
             .Where(s => s.Sig != null)
             .ToDictionary(

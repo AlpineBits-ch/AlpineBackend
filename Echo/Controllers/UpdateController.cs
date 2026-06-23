@@ -6,7 +6,7 @@ namespace Echo.Controllers;
 
 [ApiController]
 [Route("api/v1/update")]
-public class UpdateController(IGitHubClient client, IHttpClientFactory httpClientFactory) : ControllerBase
+public class UpdateController(IGitHubClient client, ILogger<UpdateController> logger, IHttpClientFactory httpClientFactory) : ControllerBase
 {
     private const string Owner = "AlpineBits-ch";
     private const string Repo = "AlpineFrontend";
@@ -76,7 +76,11 @@ public class UpdateController(IGitHubClient client, IHttpClientFactory httpClien
 
         var latest = await client.Repository.Release.GetLatest(Owner, Repo);
         var asset = latest.Assets.FirstOrDefault(a => a.Name.EndsWith(entry.Suffix));
-        if (asset == null) return NotFound();
+        if (asset == null)
+        {
+            logger.LogInformation("Asset not found for platform: {platform}", platform);
+            return NotFound();
+        }
 
         var assetResponse = await FetchGitHubAsset(asset.Url, "application/octet-stream");
         var bytes = await assetResponse.Content.ReadAsByteArrayAsync();

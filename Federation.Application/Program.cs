@@ -65,7 +65,7 @@ builder.UseWolverine(opts =>
         return;
     }
 
-    opts.ConfigureWolverine(false);
+    opts.ConfigureWolverine();
     opts.UseSystemTextJsonForSerialization(o =>
     {
         o.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);

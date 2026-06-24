@@ -8,6 +8,8 @@
     </PropertyGroup>
     
     <ItemGroup>
+        <PackageReference Include="Facet" Version="6.6.8" />
+        <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.8" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
         <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.9" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />

@@ -160,4 +160,19 @@ public class UserRegistrationTests
             x.StatusCodeShouldBe(HttpStatusCode.BadRequest);
         });
     }
+    [TearDown]
+    public async Task ClearDatabaseAfterTest()
+    {
+        using var scope = Host.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+
+        if (await ctx.Users.AnyAsync())
+        {
+            ctx.Users.RemoveRange(ctx.Users);
+        
+         
+
+            await ctx.SaveChangesAsync();
+        }
+    }
 }

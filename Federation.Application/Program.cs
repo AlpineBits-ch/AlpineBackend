@@ -3,6 +3,7 @@ using AppEnvironment;
 using Federation.Application;
 using Federation.Application.Dtos.Events;
 using Federation.Application.Providers;
+using Federation.Application.Services;
 using Federation.Infrastructure;
 using Federation.Infrastructure.Persistence;
 using JasperFx;
@@ -23,12 +24,16 @@ builder.Services.AddControllers();
 builder.Services.AddSingleton<IFederatedDomainResolver, VentaDomainResolver>();
 builder.Services.AddScoped<Federation.Application.Services.FederationDagService>();
 builder.Services.AddScoped<IFederationProvider, VentaFederationProvider>();
+builder.Services.AddScoped<IFederationAcceptanceEvaluator, PolicyBasedEvaluator>();
+builder.Services.AddScoped<FederationHandshakeService>();
 builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(options =>
 {
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
 });
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
 });
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

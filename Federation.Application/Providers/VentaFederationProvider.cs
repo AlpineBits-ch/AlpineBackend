@@ -5,7 +5,9 @@ using Federation.Application.Dtos.Events.Bidirectional.Conversation;
 using Federation.Application.Dtos.Events.Bidirectional.Guild;
 using Federation.Application.Dtos.Events.Bidirectional.Messaging;
 using Federation.Application.Dtos.Events.Bidirectional.Social;
+using Federation.Application.Messages;
 using Federation.Application.Services;
+using Wolverine;
 
 namespace Federation.Application.Providers;
 
@@ -29,14 +31,19 @@ public class VentaFederationProvider : IFederationProvider
 
     private readonly IFederatedDomainResolver _domainResolver;
     private readonly FederationDagService? _dagService;
+    private readonly IMessageBus? _messageBus;
     private const string FederationEventsPath = "/api/v1/federation/events";
 
     public event Action<FederationEvent>? OnFederatedEventReceived;
 
-    public VentaFederationProvider(IFederatedDomainResolver domainResolver, FederationDagService? dagService = null)
+    public VentaFederationProvider(
+        IFederatedDomainResolver domainResolver,
+        FederationDagService? dagService = null,
+        IMessageBus? messageBus = null)
     {
         _domainResolver = domainResolver;
         _dagService = dagService;
+        _messageBus = messageBus;
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -52,11 +59,11 @@ public class VentaFederationProvider : IFederationProvider
         {
             var ready = await _dagService.RecordAndResolveAsync(@event, cancellationToken);
             foreach (var e in ready)
-                OnFederatedEventReceived?.Invoke(e);
+                await FireEventAsync(e);
         }
         else
         {
-            OnFederatedEventReceived?.Invoke(@event);
+            await FireEventAsync(@event);
         }
     }
 
@@ -315,6 +322,13 @@ public class VentaFederationProvider : IFederationProvider
         var content = new ByteArrayContent(json);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         await client.PostAsync(FederationEventsPath, content, cancellationToken);
+    }
+
+    private async Task FireEventAsync(FederationEvent @event)
+    {
+        OnFederatedEventReceived?.Invoke(@event);
+        if (_messageBus is not null)
+            await _messageBus.PublishAsync(new FederationInboundEventReady(@event));
     }
 
     private static bool IsFederated(string id) => id.Contains(':');

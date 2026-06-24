@@ -2,6 +2,7 @@
 
 public enum FederationStatus
 {
+    Pending,
     Active,
     Suspended,
     Defederated,

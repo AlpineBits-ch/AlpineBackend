@@ -65,8 +65,7 @@ public class AppFixture
             });
         });
 
-        // Rebuild DB schema on startup so tests always start clean
-        await Host.ResetResourceState();
+        await Host.SetupResources();
     }
 
     [OneTimeTearDown]

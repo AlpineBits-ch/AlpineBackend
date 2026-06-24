@@ -15,15 +15,12 @@ namespace Messaging;
 
 public static class Messaging
 {
-   public static WolverineOptions ConfigureWolverine(this WolverineOptions opts, bool useEfCore = true, bool setupResources = true)
+   public static WolverineOptions ConfigureWolverine(this WolverineOptions opts, bool useEfCore = true)
 {
-    var skipPersistence = Environment.GetEnvironmentVariable("WOLVERINE_SKIP_PERSISTENCE")
-        ?.Equals("true", StringComparison.OrdinalIgnoreCase) == true;
 
-    if (!skipPersistence)
-    {
-        opts.PersistMessagesWithPostgresql(Env.Database.ConnectionString(), "public");
-    }
+  
+   opts.PersistMessagesWithPostgresql(Env.Database.ConnectionString(), "public");
+   
     
     opts
         .Policies.OnException<TimeoutException>()
@@ -35,27 +32,25 @@ public static class Messaging
         .RetryWithCooldown(500.Milliseconds(), 5.Seconds(), 30.Seconds())
         .Then.MoveToErrorQueue();
     
-    if (!skipPersistence)
-    {
+    
         opts.CodeGeneration.TypeLoadMode = TypeLoadMode.Static;
         opts.Policies.UseDurableInboxOnAllListeners();
         opts.Policies.UseDurableLocalQueues();
         opts.Policies.UseDurableOutboxOnAllSendingEndpoints();
-    }
+    
     
     opts.MultipleHandlerBehavior = MultipleHandlerBehavior.Separated;
     opts.Durability.MessageIdentity = MessageIdentity.IdAndDestination;
 
     opts.Durability.InboxStaleTime = 30.Minutes();
     opts.Durability.OutboxStaleTime = 30.Minutes();
+    opts.Policies.AutoApplyTransactions();
 
     if (useEfCore)
     {
-        opts.Policies.AutoApplyTransactions();
-        if (!skipPersistence)
-        {
-            opts.UseEntityFrameworkCoreTransactions();
-        }
+       
+      opts.UseEntityFrameworkCoreTransactions();
+        
     }
  
     opts.PublishDomainEventsFromEntityFrameworkCore<IEventSource>(x => x.GetDomainEvents());
@@ -71,8 +66,7 @@ public static class Messaging
     }).AutoProvision();
     opts.Policies.DisableConventionalLocalRouting();
     
-    if (setupResources && !skipPersistence)
-        opts.Services.AddResourceSetupOnStartup();
+    opts.Services.AddResourceSetupOnStartup();
 
     return opts;
 }

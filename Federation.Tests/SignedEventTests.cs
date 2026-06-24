@@ -20,8 +20,8 @@ public class SignedFederationEventTests
             ExportPolicy = KeyExportPolicies.AllowPlaintextExport
         });
 
-        var privateKeyBytes = key.Export(KeyBlobFormat.RawPrivateKey);
-        var publicKeyBytes  = key.PublicKey.Export(KeyBlobFormat.RawPublicKey);
+        var privateKeyBytes = key.Export(KeyBlobFormat.PkixPrivateKeyText);
+        var publicKeyBytes  = key.PublicKey.Export(KeyBlobFormat.PkixPublicKeyText);
         return (privateKeyBytes, publicKeyBytes);
     }
 
@@ -37,7 +37,7 @@ public class SignedFederationEventTests
 
     private static SignedFederationEvent ManuallySign(FederationEvent payload, byte[] privateKeyBytes)
     {
-        using var key    = Key.Import(Algorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+        using var key    = Key.Import(Algorithm, privateKeyBytes, KeyBlobFormat.PkixPrivateKeyText);
         var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload, EventJsonContext.Default.FederationEvent);
         var signature    = Algorithm.Sign(key, payloadBytes);
 

@@ -70,6 +70,7 @@ builder.UseWolverine(opts =>
     opts.ConfigureWolverine();
     opts.UseSystemTextJsonForSerialization(o =>
     {
+        o.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         o.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
         o.TypeInfoResolverChain.Insert(1, FederationMessageContext.Default);
 

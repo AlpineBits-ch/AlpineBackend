@@ -145,6 +145,10 @@ if (args.Contains("codegen") || args.Contains("describe"))
     }
     return;
 }
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+});
 var app = builder.Build();
 
 var forwardedOptions = new ForwardedHeadersOptions

@@ -157,7 +157,7 @@ public class FederationConfiguration
 {
     public string InstanceName { get; set; } = GetEnvironmentVariable("INSTANCE_NAME") ?? "Venta.gg";
     public string Version { get; set; } = GetEnvironmentVariable("VERSION") ?? "1.0.0";
-    public byte[] PrivateKey { get; set; } = Array.Empty<byte>();
+    public byte[] PrivateKey { get; set; } =  Array.Empty<byte>();
     public byte[] PublicKey { get; set; } = Array.Empty<byte>();
 
     public FederationConfiguration()
@@ -165,6 +165,11 @@ public class FederationConfiguration
         
         var privKeyB64 = GetEnvironmentVariable("FEDERATION_PRIVATE_KEY_BASE_64");
         var pubKeyB64 = GetEnvironmentVariable("FEDERATION_PUBLIC_KEY_BASE_64");
+
+        if (privKeyB64 == null || pubKeyB64 == null)
+        {
+            throw new Exception("FEDERATION_PRIVATE_KEY_BASE_64 or FEDERATION_PUBLIC_KEY_BASE_64 environment variables are not set");
+        }
 
         if (!string.IsNullOrEmpty(privKeyB64) && !string.IsNullOrEmpty(pubKeyB64))
         {

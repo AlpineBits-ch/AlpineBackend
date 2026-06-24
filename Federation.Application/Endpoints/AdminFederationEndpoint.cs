@@ -1,3 +1,4 @@
+using Facet.Extensions.EFCore;
 using Federation.Application.Dtos.Requests;
 using Federation.Application.Dtos.Response;
 using Federation.Application.Messages;
@@ -27,16 +28,7 @@ public class AdminFederationEndpoint
 
         var instances = await query
             .OrderByDescending(i => i.CreatedAt)
-            .Select(i => new
-            {
-                i.Id,
-                i.Host,
-                i.Name,
-                Status = i.Status.ToString(),
-                i.CreatedAt,
-                i.UpdatedAt,
-            })
-            .ToListAsync(cancellationToken);
+            .ToFacetsAsync<FederationInstance, FederationInstanceDto>(cancellationToken);
 
         return Results.Ok(instances);
     }

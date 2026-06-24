@@ -1,4 +1,11 @@
+using System.Net.Http.Headers;
+using System.Text.Json;
 using Federation.Application.Dtos.Events;
+using Federation.Application.Dtos.Events.Bidirectional.Conversation;
+using Federation.Application.Dtos.Events.Bidirectional.Guild;
+using Federation.Application.Dtos.Events.Bidirectional.Messaging;
+using Federation.Application.Dtos.Events.Bidirectional.Social;
+using Federation.Application.Services;
 
 namespace Federation.Application.Providers;
 
@@ -10,7 +17,9 @@ public class VentaDomainResolver : IFederatedDomainResolver
         if (colonIndex == -1 || colonIndex == federatedId.Length - 1)
             throw new ArgumentException($"Identifier '{federatedId}' is missing a valid domain suffix component.");
 
-        return ValueTask.FromResult(new Uri(federatedId[(colonIndex + 1)..]));
+        var host = federatedId[(colonIndex + 1)..];
+        var uri = host.Contains("://") ? new Uri(host) : new Uri($"https://{host}");
+        return ValueTask.FromResult(uri);
     }
 }
 
@@ -19,101 +28,298 @@ public class VentaFederationProvider : IFederationProvider
     public FederationProtocolVersion ProtocolVersion { get; } = new("venta", 0, 1);
 
     private readonly IFederatedDomainResolver _domainResolver;
-    private readonly string _federationPath = "/.well-known/federation/events";
+    private readonly FederationDagService? _dagService;
+    private const string FederationEventsPath = "/api/v1/federation/events";
 
     public event Action<FederationEvent>? OnFederatedEventReceived;
 
-    public VentaFederationProvider(IFederatedDomainResolver domainResolver)
+    public VentaFederationProvider(IFederatedDomainResolver domainResolver, FederationDagService? dagService = null)
     {
         _domainResolver = domainResolver;
+        _dagService = dagService;
     }
 
     public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     public Task ShutdownAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public Task HandleInboundEventAsync(FederationEvent @event, CancellationToken cancellationToken = default)
+    public async Task HandleInboundEventAsync(FederationEvent @event, CancellationToken cancellationToken = default)
     {
-        OnFederatedEventReceived?.Invoke(@event);
-        return Task.CompletedTask;
+        if (@event.ProtocolVersion != ProtocolVersion.ToString())
+            throw new InvalidOperationException(
+                $"Protocol version mismatch: expected {ProtocolVersion}, got {@event.ProtocolVersion}");
+
+        if (_dagService is not null)
+        {
+            var ready = await _dagService.RecordAndResolveAsync(@event, cancellationToken);
+            foreach (var e in ready)
+                OnFederatedEventReceived?.Invoke(e);
+        }
+        else
+        {
+            OnFederatedEventReceived?.Invoke(@event);
+        }
     }
+
+    public Task<object> GetUserProfileAsync(string userId, CancellationToken cancellationToken)
+        => Task.FromResult<object>(new { });
 
     // Messaging
-    public async Task SendMessageAsync(string channelId, byte[] content, CancellationToken cancellationToken)
+
+    public async Task SendMessageAsync(string channelId, string messageId, byte[] content, CancellationToken cancellationToken)
     {
-        var domain = await _domainResolver.ResolveServerUrlAsync(channelId, ProtocolVersion);
-        using var client = CreateHttpClient(domain);
-        await client.PutAsync(_federationPath, new ByteArrayContent(content), cancellationToken);
+        var @event = new MessageCreated
+        {
+            MessageId = messageId,
+            ChannelId = channelId,
+            Content = content,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
     }
 
-    public Task EditMessageAsync(string channelId, string messageId, byte[] content, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task EditMessageAsync(string channelId, string messageId, byte[] content, CancellationToken cancellationToken)
+    {
+        var @event = new MessageEdited
+        {
+            MessageId = messageId,
+            ChannelId = channelId,
+            Content = content,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
+    }
 
-    public Task DeleteMessageAsync(string channelId, string messageId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task DeleteMessageAsync(string channelId, string messageId, CancellationToken cancellationToken)
+    {
+        var @event = new MessageDeleted
+        {
+            MessageId = messageId,
+            ChannelId = channelId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
+    }
 
-    public Task AddReactionAsync(string channelId, string messageId, string reaction, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task AddReactionAsync(string channelId, string messageId, string reaction, CancellationToken cancellationToken)
+    {
+        var @event = new MessageReactionAdded
+        {
+            MessageId = messageId,
+            ChannelId = channelId,
+            Emoji = reaction,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
+    }
 
-    public Task RemoveReactionAsync(string channelId, string messageId, string reaction, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task RemoveReactionAsync(string channelId, string messageId, string reaction, CancellationToken cancellationToken)
+    {
+        var @event = new MessageReactionRemoved
+        {
+            MessageId = messageId,
+            ChannelId = channelId,
+            Emoji = reaction,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
+    }
 
     // Guild
+
     public async Task JoinChannelAsync(string channelId, CancellationToken cancellationToken)
     {
-        var domain = await _domainResolver.ResolveServerUrlAsync(channelId, ProtocolVersion);
-        using var client = CreateHttpClient(domain);
-        await client.PutAsync(_federationPath, new StringContent(channelId), cancellationToken);
+        var @event = new GuildMemberJoined
+        {
+            GuildId = channelId,
+            ChannelId = channelId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
     }
 
     public async Task LeaveChannelAsync(string channelId, CancellationToken cancellationToken)
     {
-        var domain = await _domainResolver.ResolveServerUrlAsync(channelId, ProtocolVersion);
-        using var client = CreateHttpClient(domain);
-        await client.PutAsync(_federationPath, new StringContent(channelId), cancellationToken);
+        var @event = new GuildMemberLeft
+        {
+            GuildId = channelId,
+            ChannelId = channelId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(channelId, @event, cancellationToken);
     }
 
-    public Task AcceptGuildInviteAsync(string guildId, string inviteCode, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task AcceptGuildInviteAsync(string guildId, string inviteCode, CancellationToken cancellationToken)
+    {
+        var @event = new GuildInviteAccepted
+        {
+            GuildId = guildId,
+            InviteCode = inviteCode,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(guildId, @event, cancellationToken);
+    }
 
-    public Task RevokeGuildInviteAsync(string guildId, string inviteCode, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task RevokeGuildInviteAsync(string guildId, string inviteCode, CancellationToken cancellationToken)
+    {
+        var @event = new GuildInviteRevoked
+        {
+            GuildId = guildId,
+            InviteCode = inviteCode,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(guildId, @event, cancellationToken);
+    }
 
-    public Task BanGuildMemberAsync(string guildId, string userId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task BanGuildMemberAsync(string guildId, string userId, CancellationToken cancellationToken)
+    {
+        var @event = new GuildMemberBanned
+        {
+            GuildId = guildId,
+            BannedUserId = userId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(guildId, @event, cancellationToken);
+    }
 
     // Social
-    public Task SendFriendRequestAsync(string targetUserId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
 
-    public Task AcceptFriendRequestAsync(string sourceUserId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task SendFriendRequestAsync(string targetUserId, CancellationToken cancellationToken)
+    {
+        var @event = new SocialFriendRequest
+        {
+            TargetUserId = targetUserId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(targetUserId, @event, cancellationToken);
+    }
 
-    public Task RejectFriendRequestAsync(string sourceUserId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task AcceptFriendRequestAsync(string sourceUserId, CancellationToken cancellationToken)
+    {
+        var @event = new SocialFriendAccepted
+        {
+            InitiatorUserId = sourceUserId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(sourceUserId, @event, cancellationToken);
+    }
 
-    public Task RemoveFriendAsync(string targetUserId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task RejectFriendRequestAsync(string sourceUserId, CancellationToken cancellationToken)
+    {
+        var @event = new SocialFriendRejected
+        {
+            InitiatorUserId = sourceUserId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(sourceUserId, @event, cancellationToken);
+    }
+
+    public async Task RemoveFriendAsync(string targetUserId, CancellationToken cancellationToken)
+    {
+        var @event = new SocialFriendRemoved
+        {
+            TargetUserId = targetUserId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(targetUserId, @event, cancellationToken);
+    }
 
     // Conversation
-    public Task CreateConversationAsync(string conversationId, IEnumerable<string> memberIds, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
 
-    public Task EditConversationAsync(string conversationId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task CreateConversationAsync(string conversationId, IEnumerable<string> memberIds, CancellationToken cancellationToken)
+    {
+        var members = memberIds.ToArray();
+        var @event = new ConversationCreated
+        {
+            ConversationId = conversationId,
+            MemberIds = members,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        foreach (var memberId in members.Where(IsFederated))
+            await SendEventAsync(memberId, @event, cancellationToken);
+    }
 
-    public Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task EditConversationAsync(string conversationId, CancellationToken cancellationToken)
+    {
+        var @event = new ConversationEdited
+        {
+            ConversationId = conversationId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(conversationId, @event, cancellationToken);
+    }
 
-    public Task AddConversationMemberAsync(string conversationId, string userId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task DeleteConversationAsync(string conversationId, CancellationToken cancellationToken)
+    {
+        var @event = new ConversationDeleted
+        {
+            ConversationId = conversationId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(conversationId, @event, cancellationToken);
+    }
 
-    public Task RemoveConversationMemberAsync(string conversationId, string userId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task AddConversationMemberAsync(string conversationId, string userId, CancellationToken cancellationToken)
+    {
+        var @event = new ConversationMemberAdded
+        {
+            ConversationId = conversationId,
+            UserId = userId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(userId, @event, cancellationToken);
+    }
 
-    public Task<object> GetUserProfileAsync(string userId, CancellationToken cancellationToken)
-        => throw new NotImplementedException();
+    public async Task RemoveConversationMemberAsync(string conversationId, string userId, CancellationToken cancellationToken)
+    {
+        var @event = new ConversationMemberLeft
+        {
+            ConversationId = conversationId,
+            UserId = userId,
+            EventId = Guid.NewGuid().ToString(),
+            OriginServerTime = DateTime.UtcNow
+        };
+        await SendEventAsync(userId, @event, cancellationToken);
+    }
 
-    private HttpClient CreateHttpClient(Uri domain)
+    private async Task SendEventAsync(string federatedId, FederationEvent @event, CancellationToken cancellationToken)
+    {
+        var domain = await _domainResolver.ResolveServerUrlAsync(federatedId, ProtocolVersion);
+
+        if (_dagService is not null)
+        {
+            var scopeKey = string.IsNullOrEmpty(@event.ChannelId) ? domain.Host : @event.ChannelId;
+            await _dagService.StampAndRecordAsync(@event, scopeKey, cancellationToken);
+        }
+
+        using var client = CreateHttpClient(domain);
+        var signed = SignedFederationEvent.Create(@event, ProtocolVersion.ToString());
+        var json = JsonSerializer.SerializeToUtf8Bytes(signed);
+        var content = new ByteArrayContent(json);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        await client.PostAsync(FederationEventsPath, content, cancellationToken);
+    }
+
+    private static bool IsFederated(string id) => id.Contains(':');
+
+    protected virtual HttpClient CreateHttpClient(Uri domain)
     {
         var client = new HttpClient { BaseAddress = domain };
         client.DefaultRequestHeaders.Add("Accept", "application/json");

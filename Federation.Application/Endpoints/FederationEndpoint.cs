@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Federation.Application.Dtos.Events;
 using Federation.Application.Providers;
 using Federation.Domain.Events;
@@ -19,27 +18,29 @@ public class FederationEndpoint
         MicroserviceContext context,
         CancellationToken cancellationToken)
     {
-        logger.LogInformation("Got event {event}", JsonSerializer.Serialize(@event));
+        logger.LogInformation("Received federation event {EventType} from {Host}", @event.Payload.GetType().Name, @event.Payload.Host);
 
         var federatedSystem = await context.FederationInstances.FirstOrDefaultAsync(i => i.Host == @event.Payload.Host, cancellationToken);
 
         if (federatedSystem is null)
         {
-            logger.LogWarning("No federated system found for host {host}", @event.Payload.Host);
+            logger.LogWarning("No federated system found for host {Host}", @event.Payload.Host);
             return Results.BadRequest();
         }
         if (federatedSystem.Status != FederationStatus.Active)
         {
-            logger.LogWarning("Federation instance {host} is not active", federatedSystem.Host);
+            logger.LogWarning("Federation instance {Host} is not active (status: {Status})", federatedSystem.Host, federatedSystem.Status);
             return Results.Forbid();
         }
         if (!@event.IsValid(federatedSystem))
         {
+            logger.LogWarning("Invalid signature on federation event {EventType} from {Host}", @event.Payload.GetType().Name, @event.Payload.Host);
             return Results.BadRequest();
         }
 
         await provider.HandleInboundEventAsync(@event.Payload, cancellationToken);
 
+        logger.LogInformation("Processed federation event {EventType} from {Host}", @event.Payload.GetType().Name, @event.Payload.Host);
         return Results.Ok();
     }
 }

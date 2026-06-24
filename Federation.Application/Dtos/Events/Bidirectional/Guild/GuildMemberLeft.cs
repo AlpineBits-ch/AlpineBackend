@@ -2,4 +2,5 @@
 
 public class GuildMemberLeft : FederationEvent
 {
+    public string GuildId { get; set; } = string.Empty;
 }

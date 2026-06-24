@@ -22,6 +22,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
+        if (optionsBuilder.IsConfigured) return;
         base.OnConfiguring(optionsBuilder);
 
         var env = Env.Database;

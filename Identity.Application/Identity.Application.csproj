@@ -36,8 +36,8 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Echo\Echo.csproj" />
-      <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
+        <ProjectReference Include="..\Echo\Echo.csproj" Aliases="EchoApi" />
+        <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Identity.Infrastructure\Identity.Infrastructure.csproj" />
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
     </ItemGroup>

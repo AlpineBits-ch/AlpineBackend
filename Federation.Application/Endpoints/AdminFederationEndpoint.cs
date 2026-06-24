@@ -17,7 +17,7 @@ public class AdminFederationEndpoint
     [WolverineGet("/api/v1/admin/federation/instances")]
     public static async Task<IResult> ListInstancesAsync(
         [NotBody] MicroserviceContext db,
-        [AsParameters] string? status,
+        string? status,
         CancellationToken cancellationToken)
     {
         var query = db.FederationInstances.AsQueryable();

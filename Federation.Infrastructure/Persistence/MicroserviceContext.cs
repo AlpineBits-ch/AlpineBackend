@@ -9,6 +9,7 @@ public class MicroserviceContext : DbContext
 {
     public DbSet<FederationInstance> FederationInstances { get; set; }
     public DbSet<FederatedEventRecord> FederatedEvents { get; set; }
+    public DbSet<FederationSettings> FederationSettings { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -19,6 +20,7 @@ public class MicroserviceContext : DbContext
         optionsBuilder.UseNpgsql(env.ConnectionString(), options =>
         {
             options.MapEnum<FederationStatus>();
+            options.MapEnum<AcceptancePolicy>();
         }).UseSnakeCaseNamingConvention();
     }
 
@@ -39,6 +41,11 @@ public class MicroserviceContext : DbContext
         modelBuilder.Entity<FederatedEventRecord>(builder =>
         {
             builder.HasKey(e => e.EventId);
+        });
+
+        modelBuilder.Entity<FederationSettings>(builder =>
+        {
+            builder.HasKey(s => s.Id);
         });
     }
     

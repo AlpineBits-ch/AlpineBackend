@@ -84,6 +84,24 @@ public static class ProxyConfig
             xHost: ForwardedTransformActions.Set,
             xFor: ForwardedTransformActions.Append,
             xProto: ForwardedTransformActions.Append),
+
+        new RouteConfig
+        {
+            RouteId = "federation-handshake-route",
+            ClusterId = "federation-cluster",
+            Match = new RouteMatch { Path = "/.well-known/federation/handshake" }
+        }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
+            xDefault: ForwardedTransformActions.Append,
+            xHost: ForwardedTransformActions.Set,
+            xFor: ForwardedTransformActions.Append,
+            xProto: ForwardedTransformActions.Append),
+
+        new RouteConfig
+        {
+            RouteId = "federation-admin-route",
+            ClusterId = "federation-cluster",
+            Match = new RouteMatch { Path = "/api/v1/admin/federation/{**catch-all}" }
+        },
     };
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

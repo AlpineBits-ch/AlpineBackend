@@ -2,6 +2,7 @@
 using AppEnvironment;
 using Federation.Application;
 using Federation.Application.Dtos.Events;
+using Federation.Application.Messages;
 using Federation.Application.Providers;
 using Federation.Application.Services;
 using Federation.Infrastructure;
@@ -70,6 +71,8 @@ builder.UseWolverine(opts =>
     opts.UseSystemTextJsonForSerialization(o =>
     {
         o.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
+        o.TypeInfoResolverChain.Insert(1, FederationMessageContext.Default);
+
     });
 });
 

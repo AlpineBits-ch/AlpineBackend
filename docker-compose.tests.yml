@@ -1,0 +1,48 @@
+﻿version: '3.8'
+
+services:
+  test-db:
+    image: postgres:16-alpine
+    container_name: alpine_identity_test_db
+    environment:
+      POSTGRES_DB: identity_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d identity_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - test-network
+
+  test-runner:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    container_name: alpine_test_runner
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - AUTH_REQUIRE_USER_EMAIL_VERIFICATION=false
+      - DATABASE_HOSTNAME=test-db
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=identity_test
+      - DATABASE_USERNAME=postgres
+      - DATABASE_PASSWORD=postgres
+    volumes:
+      - .:/src
+    working_dir: /src
+    command: >
+      bash -c "
+      echo 'Waiting for database to be ready...' &&
+      dotnet test Identity.Tests/Identity.Tests.csproj --logger 'console;verbosity=detailed'
+      "
+    depends_on:
+      test-db:
+        condition: service_healthy
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge

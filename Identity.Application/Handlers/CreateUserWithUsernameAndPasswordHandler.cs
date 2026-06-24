@@ -15,7 +15,7 @@ public class CreateUserWithUsernameAndPasswordHandler
     {
         try
         {
-            if(ctx.Users.Any(u => u.Email == request.Username))
+            if(ctx.Users.Any(u => u.Email == request.Email))
             {
                 return new CreateUserWithEmailAndPasswordResponse()
                 {

@@ -10,7 +10,7 @@
         <SixLaborsLicenseFile>./Credentials/sixlabors.lic</SixLaborsLicenseFile>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="AWSSDK.S3" Version="4.0.25.2" />
+        <PackageReference Include="AWSSDK.S3" Version="4.0.25.3" />
         <PackageReference Include="dotAPNS.AspNetCore" Version="2.2.2" />
         <PackageReference Include="Facet.Extensions" Version="6.6.8" />
         <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.8" />
@@ -23,11 +23,11 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="SixLabors.ImageSharp" Version="4.0.0" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.13.1" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="6.13.1" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.14.0" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.14.0" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.14.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
-        <PackageReference Include="WolverineFx.Http" Version="6.13.1" />
+        <PackageReference Include="WolverineFx.Http" Version="6.14.0" />
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.9" />
 
     </ItemGroup>

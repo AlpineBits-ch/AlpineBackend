@@ -4,6 +4,7 @@ using Identity.Application.Dtos.Request;
 using Identity.Contracts.Bus.Events;
 using Identity.Contracts.Bus.Response;
 using Identity.Domain.Aggregates;
+using Identity.Domain.Events.User;
 using Identity.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -111,7 +112,7 @@ public class UserRegistrationTests
 
         // UserCreatedEvent is the integration contract that Social.Application
         // consumes to create the user's Profile aggregate.
-        var evt = tracked.FindSingleTrackedMessageOfType<UserCreatedEvent>();
+        var evt = tracked.FindSingleTrackedMessageOfType<UserCreated>();
         Assert.That(evt, Is.Not.Null, "UserCreatedEvent should be published after registration");
         Assert.That(evt!.UserName, Is.EqualTo(username));
         Assert.That(evt.UserId, Is.Not.Null.And.Not.Empty);

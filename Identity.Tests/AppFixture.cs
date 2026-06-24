@@ -6,6 +6,7 @@ using JasperFx.Resources;
 using JasperFx.RuntimeCompiler;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.IdentityModel.Tokens;
 using Wolverine;
 
 namespace Identity.Tests;
@@ -56,19 +57,7 @@ public class AppFixture
                 services.RunWolverineInSoloMode();
                 services.DisableAllExternalWolverineTransports();
                 
-                services.AddDbContext<MicroserviceContext>(options =>
-                {
-                    options.EnableSensitiveDataLogging(); 
-                    options.EnableDetailedErrors();
-                });
-
-                // Add ephemeral OpenIddict keys for test environment
-                services.AddOpenIddict()
-                    .AddServer(options =>
-                    {
-                        options.AddEphemeralEncryptionKey();
-                        options.AddEphemeralSigningKey();
-                    });
+               
             });
         });
 

@@ -81,6 +81,11 @@ builder.Services.AddOpenIddict()
                 options.AddEncryptionCertificate(certificate);
             }
         }
+        else
+        {
+            options.AddDevelopmentSigningCertificate();
+            options.AddDevelopmentEncryptionCertificate();
+        }
       
     
         
@@ -114,7 +119,12 @@ builder.Services.AddHealthChecks()
 builder.UseWolverine(opts =>
 {
     opts.Discovery.IncludeAssembly(typeof(IdentityContractsModule).Assembly);
-    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(o => { });
+    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(options =>
+    {
+        options.LogTo(Console.WriteLine, Microsoft.Extensions.Logging.LogLevel.Information);
+        options.EnableSensitiveDataLogging();
+        options.EnableDetailedErrors();
+    });
 
    
     opts.ConfigureWolverine();

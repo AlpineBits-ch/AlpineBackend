@@ -1,4 +1,6 @@
-﻿namespace Identity.Contracts.Commands;
+﻿using FluentValidation.Results;
+
+namespace Identity.Contracts.Commands;
 
 public class CreateUserCommand
 {
@@ -15,4 +17,5 @@ public class CreateUserCommand
 public class CreateUserResponse
 {
     public string? UserId { get; set; }
+    public ICollection<ValidationFailure> Errors { get; set; } = new List<ValidationFailure>();
 }

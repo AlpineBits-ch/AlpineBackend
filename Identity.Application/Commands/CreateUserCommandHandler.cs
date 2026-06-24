@@ -1,4 +1,5 @@
 ﻿using AppEnvironment;
+using FluentValidation.Results;
 using Identity.Contracts.Commands;
 using Identity.Domain.Aggregates;
 using Identity.Infrastructure.Persistence;
@@ -24,6 +25,17 @@ public class CreateUserCommandHandler
         {
             user.EmailVerifiedAt = DateTime.UtcNow;
             user.EmailConfirmed = true;
+        }
+
+        if (ctx.Users.Any(u => u.Email == user.Email))
+        {
+            return new CreateUserResponse()
+            {
+                Errors = new List<ValidationFailure>()
+                {
+                    new ValidationFailure("Email", "Email already exists")
+                }
+            };
         }
 
 

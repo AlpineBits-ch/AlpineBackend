@@ -165,11 +165,7 @@ public class FederationConfiguration
         
         var privKeyB64 = GetEnvironmentVariable("FEDERATION_PRIVATE_KEY_BASE_64");
         var pubKeyB64 = GetEnvironmentVariable("FEDERATION_PUBLIC_KEY_BASE_64");
-
-        if (privKeyB64 == null || pubKeyB64 == null)
-        {
-            throw new Exception("FEDERATION_PRIVATE_KEY_BASE_64 or FEDERATION_PUBLIC_KEY_BASE_64 environment variables are not set");
-        }
+        
 
         if (!string.IsNullOrEmpty(privKeyB64) && !string.IsNullOrEmpty(pubKeyB64))
         {

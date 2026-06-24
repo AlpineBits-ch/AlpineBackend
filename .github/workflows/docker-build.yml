@@ -10,10 +10,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
   DATABASE_HOSTNAME: localhost
-  DATABASE_PORT: 5432  # Fixed port mismatch
+  DATABASE_PORT: 5432 
   DATABASE_NAME: identity_test
   DATABASE_USERNAME: postgres
-  DATABASE_PASSWORD: postgres # Matches service container password now
+  DATABASE_PASSWORD: postgres 
 
 jobs:
   test:
@@ -23,7 +23,6 @@ jobs:
     name: Run tests
     runs-on: ubuntu-latest
     
-    # Moved services inside the job where it belongs
     services:
       postgres:
         image: postgres:16
@@ -62,8 +61,7 @@ jobs:
         run: dotnet tool install --global dotnet-coverage
       
       - name: Run dotnet test with coverage
-        run: dotnet-coverage collect 'dotnet test' -f xml -o 'solution_coverage.xml'
-
+        run: dotnet-coverage collect 'dotnet test' -f cobertura -o 'solution_coverage.xml'
       - name: Run Coverage Summary
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:

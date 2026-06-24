@@ -98,7 +98,7 @@ public class SignedFederationEvent
     
         var privateKeyBytes = (Env.Federation.PrivateKey);
     
-        var key = Key.Import(algorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+        var key = Key.Import(algorithm, privateKeyBytes, KeyBlobFormat.PkixPrivateKeyText);
     
         var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var signature = algorithm.Sign(key, payloadBytes);
@@ -118,7 +118,7 @@ public class SignedFederationEvent
         
         var algorithm = SignatureAlgorithm.Ed25519;
 
-        var publicKey = PublicKey.Import(SignatureAlgorithm.Ed25519, federationPublicKey, KeyBlobFormat.RawPublicKey);
+        var publicKey = PublicKey.Import(SignatureAlgorithm.Ed25519, federationPublicKey, KeyBlobFormat.PkixPublicKeyText);
         var isValid = algorithm.Verify(publicKey, JsonSerializer.SerializeToUtf8Bytes(Payload), Signature);
         
         return isValid;

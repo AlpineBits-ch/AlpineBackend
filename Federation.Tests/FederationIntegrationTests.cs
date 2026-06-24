@@ -74,13 +74,13 @@ public class FederationIntegrationTests
         {
             ExportPolicy = KeyExportPolicies.AllowPlaintextExport
         });
-        return (key.Export(KeyBlobFormat.RawPrivateKey),
-                key.PublicKey.Export(KeyBlobFormat.RawPublicKey));
+        return (key.Export(KeyBlobFormat.PkixPrivateKeyText),
+                key.PublicKey.Export(KeyBlobFormat.PkixPublicKeyText));
     }
 
     private static ByteArrayContent BuildSignedBody(FederationEvent payload, byte[] privateKeyBytes)
     {
-        using var key    = Key.Import(Algorithm, privateKeyBytes, KeyBlobFormat.RawPrivateKey);
+        using var key    = Key.Import(Algorithm, privateKeyBytes, KeyBlobFormat.PkixPrivateKeyText);
         var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var signature    = Algorithm.Sign(key, payloadBytes);
         var signed       = new SignedFederationEvent { Payload = payload, Signature = signature };

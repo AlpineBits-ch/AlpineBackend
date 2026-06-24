@@ -38,7 +38,7 @@ public class FederationHandshakeService(IHttpClientFactory httpClientFactory)
         {
             var algorithm = SignatureAlgorithm.Ed25519;
             var publicKey = NSec.Cryptography.PublicKey.Import(
-                algorithm, request.PublicKey, KeyBlobFormat.RawPublicKey);
+                algorithm, request.PublicKey, KeyBlobFormat.PkixPublicKeyText);
             var message = Encoding.UTF8.GetBytes($"{request.Host}|{request.ProtocolVersion}");
             return algorithm.Verify(publicKey, message, request.Signature);
         }
@@ -51,7 +51,7 @@ public class FederationHandshakeService(IHttpClientFactory httpClientFactory)
     private static byte[] Sign(string host, string protocolVersion)
     {
         var algorithm = SignatureAlgorithm.Ed25519;
-        var key = Key.Import(algorithm, Env.Federation.PrivateKey, KeyBlobFormat.RawPrivateKey);
+        var key = Key.Import(algorithm, Env.Federation.PrivateKey, KeyBlobFormat.PkixPrivateKeyText);
         var message = Encoding.UTF8.GetBytes($"{host}|{protocolVersion}");
         return algorithm.Sign(key, message);
     }

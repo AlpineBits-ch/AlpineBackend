@@ -80,8 +80,8 @@ public class VentaFederationProviderTests
         {
             ExportPolicy = KeyExportPolicies.AllowPlaintextExport
         });
-        return (key.Export(KeyBlobFormat.RawPrivateKey),
-                key.PublicKey.Export(KeyBlobFormat.RawPublicKey));
+        return (key.Export(KeyBlobFormat.PkixPrivateKeyText),
+                key.PublicKey.Export(KeyBlobFormat.PkixPublicKeyText));
     }
 
     private static SignedFederationEvent DeserializeSignedEvent(byte[] body)

@@ -1,7 +1,7 @@
 ﻿using System.Security.Cryptography.X509Certificates;
-using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using AppEnvironment;
-using Identity.Application;
 using Identity.Contracts;
 using Identity.Domain.Aggregates;
 using Identity.Infrastructure;
@@ -13,9 +13,7 @@ using Messaging;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Newtonsoft.Json;
 using OpenIddict.Abstractions;
-using OpenIddict.Server.AspNetCore;
 using OpenIddict.Validation.AspNetCore;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -26,7 +24,16 @@ using Wolverine.Http.FluentValidation;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddErrorReporting();
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 
+builder.Services.AddSingleton(new JsonSerializerOptions
+{
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    Converters = { new JsonStringEnumConverter() }
+});
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
@@ -161,10 +168,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
     }
     return;
 }
-builder.Services.ConfigureHttpJsonOptions(options =>
-{
-    options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-});
+
 var app = builder.Build();
 
 var forwardedOptions = new ForwardedHeadersOptions

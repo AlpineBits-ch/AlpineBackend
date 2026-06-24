@@ -1,5 +1,6 @@
 using Alba;
 using Identity.Application.Controllers;
+using Identity.Infrastructure.Persistence;
 using JasperFx.CodeGeneration;
 using JasperFx.Resources;
 using JasperFx.RuntimeCompiler;
@@ -54,6 +55,12 @@ public class AppFixture
 
                 services.RunWolverineInSoloMode();
                 services.DisableAllExternalWolverineTransports();
+                
+                services.AddDbContext<MicroserviceContext>(options =>
+                {
+                    options.EnableSensitiveDataLogging(); 
+                    options.EnableDetailedErrors();
+                });
 
                 // Add ephemeral OpenIddict keys for test environment
                 services.AddOpenIddict()

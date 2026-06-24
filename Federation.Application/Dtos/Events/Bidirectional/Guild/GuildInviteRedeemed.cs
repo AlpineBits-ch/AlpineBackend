@@ -1,6 +1,7 @@
 ﻿namespace Federation.Application.Dtos.Events.Bidirectional.Guild;
 
-public class GuildMemberJoined : FederationEvent
+public class GuildInviteRedeemed : FederationEvent
 {
     public string GuildId { get; set; } = string.Empty;
+    public string InviteCode { get; set; } = string.Empty;
 }

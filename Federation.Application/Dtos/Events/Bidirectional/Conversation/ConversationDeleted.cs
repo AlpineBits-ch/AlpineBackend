@@ -2,5 +2,5 @@
 
 public class ConversationDeleted : FederationEvent
 {
-    
+    public string ConversationId { get; set; } = string.Empty;
 }

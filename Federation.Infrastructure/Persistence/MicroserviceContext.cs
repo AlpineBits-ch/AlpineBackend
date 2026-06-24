@@ -8,15 +8,17 @@ namespace Federation.Infrastructure.Persistence;
 public class MicroserviceContext : DbContext
 {
     public DbSet<FederationInstance> FederationInstances { get; set; }
-    
+    public DbSet<FederatedEventRecord> FederatedEvents { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
-        var env = Env.Database;
+        if (optionsBuilder.IsConfigured)
+            return;
 
+        var env = Env.Database;
         optionsBuilder.UseNpgsql(env.ConnectionString(), options =>
         {
             options.MapEnum<FederationStatus>();
-
         }).UseSnakeCaseNamingConvention();
     }
 
@@ -32,6 +34,11 @@ public class MicroserviceContext : DbContext
             builder.HasOne(x => x.Instance)
                 .WithMany(x => x.FederatedGuilds)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FederatedEventRecord>(builder =>
+        {
+            builder.HasKey(e => e.EventId);
         });
     }
     

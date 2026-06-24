@@ -5,8 +5,6 @@ using Federation.Application.Dtos.Events.Bidirectional.Conversation;
 using Federation.Application.Dtos.Events.Bidirectional.Guild;
 using Federation.Application.Dtos.Events.Bidirectional.Messaging;
 using Federation.Application.Dtos.Events.Bidirectional.Social;
-using Federation.Application.Dtos.Events.Inbound.Guild;
-using Federation.Application.Dtos.Events.Outbound.Guild;
 using Federation.Domain.Aggregates;
 using NSec.Cryptography;
 

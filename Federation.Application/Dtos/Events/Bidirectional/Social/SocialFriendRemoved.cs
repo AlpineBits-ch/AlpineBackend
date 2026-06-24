@@ -2,5 +2,5 @@
 
 public class SocialFriendRemoved : FederationEvent
 {
-    
+    public string TargetUserId { get; set; } = string.Empty;
 }

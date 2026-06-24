@@ -22,7 +22,8 @@ builder.AddErrorReporting();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 builder.Services.AddSingleton<IFederatedDomainResolver, VentaDomainResolver>();
-builder.Services.AddSingleton<IFederationProvider, VentaFederationProvider>();
+builder.Services.AddScoped<Federation.Application.Services.FederationDagService>();
+builder.Services.AddScoped<IFederationProvider, VentaFederationProvider>();
 builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(options =>
 {
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);

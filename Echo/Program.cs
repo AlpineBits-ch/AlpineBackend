@@ -1,6 +1,5 @@
 using System.Threading.RateLimiting;
 using AppEnvironment;
-using Echo.Domain.Entities;
 using Echo.Persistence;
 using Echo.Persistence.Persistance;
 using Echo.Proxy;
@@ -9,7 +8,6 @@ using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.ServiceDiscovery.Dns;
 using Microsoft.IdentityModel.Tokens;

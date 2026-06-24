@@ -8,6 +8,7 @@ using Identity.Infrastructure;
 using Identity.Infrastructure.Persistence;
 using JasperFx;
 using JasperFx.CodeGeneration;
+using JasperFx.CodeGeneration.Model;
 using Messaging;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -113,17 +114,21 @@ builder.Services.AddHealthChecks()
 builder.UseWolverine(opts =>
 {
     opts.Discovery.IncludeAssembly(typeof(IdentityContractsModule).Assembly);
-    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(opts =>
-    {
+    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(o => { });
 
-    });
+   
     opts.ConfigureWolverine();
     opts.UseFluentValidation();
 
     if (builder.Environment.IsDevelopment())
     {
-        opts.CodeGeneration.TypeLoadMode = TypeLoadMode.Auto;
+        opts.CodeGeneration.TypeLoadMode = TypeLoadMode.Dynamic;
+        opts.ServiceLocationPolicy = ServiceLocationPolicy.AllowedButWarn;
+
     }
+   
+ 
+    
 });
 
 if (args.Contains("codegen") || args.Contains("describe"))
@@ -208,4 +213,6 @@ if (await manager.FindByClientIdAsync("echo") == null)
 }
 
 await app.RunJasperFxCommands(args);
+
+public partial class Program { }
 

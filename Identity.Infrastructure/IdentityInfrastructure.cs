@@ -10,7 +10,12 @@ public static class IdentityInfrastructure
     public static void UseInfrastructure(this IApplicationBuilder builder)
     {
         var scope = builder.ApplicationServices.CreateScope();
-        scope.ServiceProvider.GetRequiredService<MicroserviceContext>().Database.Migrate();
+        var db = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+
+        if (db.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory")
+        {
+            db.Database.Migrate(); // or whatever line 14 is doing
+        }
     }
 
     public static void AddInfrastructure(this IServiceCollection services)

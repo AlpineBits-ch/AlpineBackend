@@ -173,8 +173,14 @@ public class FederationConfiguration
 
         if (!string.IsNullOrEmpty(privKeyB64) && !string.IsNullOrEmpty(pubKeyB64))
         {
-            PrivateKey = Convert.FromBase64String(privKeyB64);
-            PublicKey = Convert.FromBase64String(pubKeyB64);
+            string pemPrivText = Encoding.UTF8.GetString(Convert.FromBase64String(privKeyB64));
+            string pemPubText = Encoding.UTF8.GetString(Convert.FromBase64String(pubKeyB64));
+
+            string innerPrivB64 = pemPrivText.Replace("-----BEGIN PRIVATE KEY-----", "").Replace("-----END PRIVATE KEY-----", "").Trim();
+            string innerPubB64 = pemPubText.Replace("-----BEGIN PUBLIC KEY-----", "").Replace("-----END PUBLIC KEY-----", "").Trim();
+
+            PrivateKey = Convert.FromBase64String(innerPrivB64);
+            PublicKey = Convert.FromBase64String(innerPubB64);
         }
         
         if (PrivateKey.Length == 0 || PublicKey.Length == 0)

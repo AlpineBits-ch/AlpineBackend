@@ -64,7 +64,7 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             UserName = createUserParams.Username,
             BirthDate = createUserParams.BirthDate,
             Bio = createUserParams.Bio,
-            NormalizedUserName = createUserParams.Email.ToUpperInvariant(),
+            NormalizedUserName = createUserParams.Username.ToUpperInvariant(),
             CorrelationId = id,
             Id = id,
             UserType = UserType.Default,

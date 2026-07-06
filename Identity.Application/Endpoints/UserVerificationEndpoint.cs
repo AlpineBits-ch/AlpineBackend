@@ -13,7 +13,7 @@ public class UserVerificationEndpoint
     [WolverineGet("api/v1/user/generate-verification-code")]
     public async Task<IResult> GenerateVerificationCode([FromQuery] string email, [NotBody] IDistributedCache cache, [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService)
     {
-        var user = ctx.Users.FirstOrDefault(x => x.Email == email);
+        var user = ctx.Users.FirstOrDefault(x => x.NormalizedUserName == email.ToUpperInvariant());
         if (user == null)
         {
             return Results.Accepted();
@@ -43,7 +43,7 @@ public class UserVerificationEndpoint
     [WolverineGet("api/v1/user/verify-email")]
     public async Task<IResult> GenerateVerificationCode([FromQuery] string email, [FromQuery] string code, [NotBody] IDistributedCache cache, [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService)
     {
-        var user = ctx.Users.FirstOrDefault(x => x.Email == email);
+        var user = ctx.Users.FirstOrDefault(x => x.NormalizedUserName == email.ToUpperInvariant());
         if (user == null)
         {
             return Results.Accepted();

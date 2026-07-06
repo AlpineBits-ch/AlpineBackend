@@ -18,6 +18,10 @@ public class UserVerificationEndpoint
         {
             return Results.Accepted();
         }
+        if(user.Email == null)
+        {
+            return Results.BadRequest("User email not found");
+        }
         if(user.EmailConfirmed) return Results.BadRequest("User already verified");
         
         var verificationCode = Guid.NewGuid().ToString("N").Substring(0, 6);
@@ -34,7 +38,7 @@ public class UserVerificationEndpoint
         });
 
         
-        await emailService.SendEmailAsync(email, "Welcome to Venta.gg!", body);
+        await emailService.SendEmailAsync(user.Email, "Welcome to Venta.gg!", body);
 
         
         return Results.Ok();

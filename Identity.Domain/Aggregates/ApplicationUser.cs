@@ -61,7 +61,7 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             Email = new Email(createUserParams.Email).Value,
             NormalizedEmail = createUserParams.Email.ToUpperInvariant(),
             PhoneNumber = createUserParams.PhoneNumber,
-            UserName = createUserParams.Email,
+            UserName = createUserParams.Username,
             BirthDate = createUserParams.BirthDate,
             Bio = createUserParams.Bio,
             NormalizedUserName = createUserParams.Email.ToUpperInvariant(),

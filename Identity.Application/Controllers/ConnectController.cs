@@ -23,11 +23,10 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
 
         if (request.IsPasswordGrantType())
         {
-            user = await manager.FindByEmailAsync(request.Username);
+            user = await manager.FindByNameAsync(request.Username);
             if (user == null)
             {
                 logger.LogInformation("User not found by email: {username}", request.Username);
-                user = await manager.FindByNameAsync(request.Username);
             }
             if(user == null)
                 return NotFound();

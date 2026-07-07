@@ -35,16 +35,16 @@ public class AuthenticationController(
     public async Task<IActionResult> VerifyPassword(VerifyPasswordDto password)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
-        if (userId is null) return BadRequest();
+        if (userId is null) return BadRequest("claim not found");
         var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
         if (user is null)
         {
-            return NotFound();
+            return NotFound("user not found");
         }
 
         if (!await manager.CheckPasswordAsync(user, password.Password))
         {
-            return BadRequest();
+            return BadRequest("wrong password");
         }
 
         return Ok();

@@ -28,6 +28,17 @@ public class MlsDeviceEndpoint
         
         var existingDevice = await ctx.UserDevices.FirstOrDefaultAsync(x => x.ClientDeviceId == dto.ClientDeviceId && x.UserId == userId);
         
+        
+        
+        // check if device is registered by another user
+        var existingDeviceByAnotherUser = await ctx.UserDevices.FirstOrDefaultAsync(x => x.ClientDeviceId == dto.ClientDeviceId && x.UserId != userId);
+        if (existingDeviceByAnotherUser is not null)
+        {
+            // for now we just delete the existing device
+            ctx.UserDevices.Remove(existingDeviceByAnotherUser);
+        }
+        
+        
         if(existingDevice is not null) return (Results.Ok(existingDevice.ToFacet<UserDevice, UserDeviceDto>()), null);
 
         var device = UserDevice.Create(new CreateUserDeviceParams()

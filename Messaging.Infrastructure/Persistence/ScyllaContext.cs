@@ -36,7 +36,12 @@ public class ScyllaContext : IAsyncDisposable
             .Build();
 
         var session = await cluster.ConnectAsync();
-        session.CreateKeyspaceIfNotExists("messaging");
+        var replication = new Dictionary<string, string>
+        {
+            { "class", "NetworkTopologyStrategy" },
+            { "datacenter1", "1" } 
+        };
+        session.CreateKeyspaceIfNotExists("messaging", replication);
         session.ChangeKeyspace("messaging");
 
 

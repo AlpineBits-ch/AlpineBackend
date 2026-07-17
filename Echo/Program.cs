@@ -26,6 +26,7 @@ builder.AddErrorReporting();
 builder.Services.AddOpenApi();
 builder.Services.AddControllers();
 
+builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddControllers();
 
@@ -52,8 +53,9 @@ if (args.Contains("codegen") || args.Contains("describe"))
 }
 builder.Services.Configure<DnsServiceEndpointProviderOptions>(options =>
 {
-    options.DefaultRefreshPeriod = TimeSpan.FromSeconds(10);
+    options.DefaultRefreshPeriod = TimeSpan.FromSeconds(2);
 });
+
 
 builder.Services.AddServiceDiscovery()
     .AddDnsSrvServiceEndpointProvider();
@@ -84,8 +86,8 @@ builder.Services.AddReverseProxy()
     .LoadFromMemory(ProxyConfig.GetRoutes(), ProxyConfig.GetClusters())
     .ConfigureHttpClient((context, handler) =>
     {
-        handler.PooledConnectionLifetime = TimeSpan.FromSeconds(10);
-        handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(10);
+        handler.PooledConnectionLifetime = TimeSpan.FromSeconds(2);
+        handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(2);
         handler.EnableMultipleHttp2Connections = true;
     })
     .AddServiceDiscoveryDestinationResolver()
@@ -120,7 +122,7 @@ builder.Services.AddScoped<IGitHubClient>(s =>
     return client;
 });
 builder.Services.AddInfrastructure();
-;
+
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy());
 builder.Services.AddSignalR()
@@ -140,6 +142,7 @@ var app = builder.Build();
 app.UseCors("AlpinePolicy");
 app.MapControllers();
 app.MapReverseProxy();
+app.UseGracefulShutdownHealthCheck();
 
 app.MapHealthChecks("/health");
 

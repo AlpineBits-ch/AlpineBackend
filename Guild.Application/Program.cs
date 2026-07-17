@@ -109,6 +109,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddFacetDashboard();
+builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddScoped<GuildHydrateService>();
 builder.Services.AddScoped<GuildPermissionService>();
@@ -168,6 +169,8 @@ var app = builder.Build();
 
 app.MapHub<GuildHub>("api/v1/ws/hubs/guild");
 app.MapWolverineEndpoints();
+app.UseGracefulShutdownHealthCheck();
+
 app.MapHealthChecks("/guild/health");
 
 // Configure the HTTP request pipeline.

@@ -24,6 +24,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure();
 
 
+builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<CloudflareService>();
@@ -134,6 +135,8 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 
 app.MapControllers();
+app.UseGracefulShutdownHealthCheck();
+
 app.MapHealthChecks("/messaging/health");
 app.MapHub<MessagingHub>("api/v1/ws/hubs/messaging");
 app.MapHub<VoiceHub>("api/v1/ws/hubs/voice");

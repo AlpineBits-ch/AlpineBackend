@@ -19,6 +19,8 @@ builder.AddErrorReporting();
 builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy());
+builder.Services.AddGracefulShutdownHealthCheck();
+
 builder.Services.AddInfrastructure();
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
@@ -78,6 +80,8 @@ app.UseHttpsRedirection();
 app.MapControllers();
 
 app.MapWolverineEndpoints();
+app.UseGracefulShutdownHealthCheck();
+
 app.MapHealthChecks("/social/health");
 app.UseInfrastructure();
 

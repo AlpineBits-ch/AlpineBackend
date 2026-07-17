@@ -96,9 +96,12 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
+builder.Services.AddGracefulShutdownHealthCheck();
+
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy());
 var app = builder.Build();
+app.UseGracefulShutdownHealthCheck();
 
 app.UseInfrastructure();
 

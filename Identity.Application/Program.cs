@@ -126,8 +126,8 @@ builder.Services.AddInfrastructure();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddScoped<EmailService>();
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
+builder.Services.AddGracefulShutdownHealthCheck();
+
 builder.UseWolverine(opts =>
 {
     opts.Discovery.IncludeAssembly(typeof(IdentityContractsModule).Assembly);
@@ -186,6 +186,7 @@ forwardedOptions.ForwardLimit = null;
 
 app.UseForwardedHeaders(forwardedOptions);
 
+app.UseGracefulShutdownHealthCheck();
 
 app.MapHealthChecks("/identity/health");
 

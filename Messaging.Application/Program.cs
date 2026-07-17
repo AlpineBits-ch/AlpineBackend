@@ -85,8 +85,6 @@ if (args.Contains("codegen") || args.Contains("describe"))
 
 var scylla = await ScyllaContext.CreateAsync();
 builder.Services.AddSingleton(scylla);
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

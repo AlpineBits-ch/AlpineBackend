@@ -97,8 +97,7 @@ builder.Services.AddCors(options =>
 });
 builder.Services.AddGracefulShutdownHealthCheck();
 
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
+
 var app = builder.Build();
 app.UseGracefulShutdownHealthCheck();
 

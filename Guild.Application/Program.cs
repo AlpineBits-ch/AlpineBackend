@@ -72,8 +72,7 @@ builder.UseWolverine(opts =>
     });
     opts.ConfigureWolverine();
 });
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
+
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

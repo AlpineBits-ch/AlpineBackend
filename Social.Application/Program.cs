@@ -16,8 +16,7 @@ builder.AddErrorReporting();
 
 // Add services to the container.
 builder.Services.AddOpenApi();
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
+
 builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddInfrastructure();

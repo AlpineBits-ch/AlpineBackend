@@ -122,8 +122,6 @@ builder.Services.AddScoped<IGitHubClient>(s =>
 });
 builder.Services.AddInfrastructure();
 
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
 builder.Services.AddSignalR()
     .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
 builder.Services.AddCors(options =>

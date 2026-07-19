@@ -8,25 +8,50 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        await foreach (ChatMessage msg in chat.StreamAsync(ct))
+        var chatTask = Task.Run(async () =>
         {
-            logger.LogInformation("{UserName} with steam {Steam} wrote in chat {Text}", msg.Name, msg.Steam, msg.Text);
-        }
-        
-        await foreach (GameEvent msg in events.StreamAsync(ct))
+            try
+            {
+                await foreach (ChatMessage msg in chat.StreamAsync(ct).WithCancellation(ct))
+                {
+                    logger.LogInformation("{UserName} with steam {Steam} wrote in chat {Text}", 
+                        msg.Name, msg.Steam, msg.Text);
+                }
+            }
+            catch (OperationCanceledException) { /* Expected on shutdown */ }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error occurred in chat stream");
+            }
+        }, ct);
+
+        var eventTask = Task.Run(async () =>
         {
-            if (msg.Kind == EventKind.Death)
+            try
             {
-                logger.LogInformation("Player {Name} died", msg.Steam);
+                await foreach (GameEvent msg in events.StreamAsync(ct).WithCancellation(ct))
+                {
+                    switch (msg.Kind)
+                    {
+                        case EventKind.Death:
+                            logger.LogInformation("Player {Name} died", msg.Steam);
+                            break;
+                        case EventKind.Join:
+                            logger.LogInformation("Player {Name} joined", msg.Steam);
+                            break;
+                        case EventKind.Leave:
+                            logger.LogInformation("Player {Name} left", msg.Steam);
+                            break;
+                    }
+                }
             }
-            if(msg.Kind == EventKind.Join)
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
             {
-                logger.LogInformation("Player {Name} joined", msg.Steam);
+                logger.LogError(ex, "Error occurred in event stream");
             }
-            if(msg.Kind == EventKind.Leave)
-            {
-                logger.LogInformation("Player {Name} left", msg.Steam);
-            }
-        }
+        }, ct);
+
+        await Task.WhenAll(chatTask, eventTask);
     }
 }

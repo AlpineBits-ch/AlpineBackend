@@ -13,6 +13,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
       <ProjectReference Include="..\IsleBridge.Sdk\IsleBridge.Sdk\IsleBridge.Sdk.csproj" />
     </ItemGroup>
 

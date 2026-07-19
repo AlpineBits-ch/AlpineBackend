@@ -41,6 +41,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with: 
+          submodules: 'true'
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -141,6 +143,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with: 
+          submodules: 'true'
 
       - name: Write Secrets
         env:

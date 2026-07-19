@@ -1,0 +1,3 @@
+[submodule "IsleBridge.Sdk"]
+	path = IsleBridge.Sdk
+	url = https://github.com/AlpineBits-ch/IsleBridge.Sdk.git

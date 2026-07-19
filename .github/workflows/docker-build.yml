@@ -133,6 +133,10 @@ jobs:
             context: .
             dockerfile: Federation.Application/Dockerfile
             image: federation-application
+          - project: Isle
+            context: .
+            dockerfile: Isle.Application/Dockerfile
+            image: isle-application            
     
     steps:
       - name: Checkout

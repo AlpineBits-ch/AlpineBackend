@@ -12,13 +12,13 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
         {
             try
             {
-                await foreach (ChatMessage msg in chat.StreamAsync(ct).WithCancellation(ct))
+                await foreach (ChatMessage msg in chat.StreamAsync(ct))
                 {
                     logger.LogInformation("{UserName} with steam {Steam} wrote in chat {Text}", 
                         msg.Name, msg.Steam, msg.Text);
                 }
             }
-            catch (OperationCanceledException) { /* Expected on shutdown */ }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
                 logger.LogError(ex, "Error occurred in chat stream");
@@ -27,9 +27,10 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
 
         var eventTask = Task.Run(async () =>
         {
+            logger.LogInformation("Event stream started");
             try
             {
-                await foreach (GameEvent msg in events.StreamAsync(ct).WithCancellation(ct))
+                await foreach (GameEvent msg in events.StreamAsync(ct))
                 {
                     switch (msg.Kind)
                     {

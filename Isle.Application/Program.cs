@@ -16,6 +16,7 @@ builder.Services.AddIsleBridge(cfg =>
 
 
 builder.Services.AddHostedService<ChatWatcher>();
+builder.Services.AddHostedService<PresenceService>();
 
 
 var app = builder.Build();

@@ -8,6 +8,7 @@ public class PresenceService(IBridgeClient bridgeClient, ILogger<PresenceService
     {
         while(!stoppingToken.IsCancellationRequested)
         {
+            logger.LogInformation("Checking for online players");
             var players = await bridgeClient.GetPlayersAsync(stoppingToken);
             foreach (var player in players.Players)
             {

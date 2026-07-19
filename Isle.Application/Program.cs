@@ -1,7 +1,9 @@
+using AppEnvironment;
 using Isle.Api.Chat;
 using IsleBridge.Sdk;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddGracefulShutdownHealthCheck();
 
 // Add services to the container.
 builder.Services.AddOpenApi();
@@ -24,6 +26,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseGracefulShutdownHealthCheck();
+
+app.MapHealthChecks("/isle/health");
 app.UseHttpsRedirection();
 
 

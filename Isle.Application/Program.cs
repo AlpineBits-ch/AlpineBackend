@@ -11,7 +11,7 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddIsleBridge(cfg =>
 {
-    cfg.BaseAddress = new Uri("10.0.0.21:8080");
+    cfg.BaseAddress = new Uri("http://10.0.0.21:8080");
     cfg.SlowCommandTimeout = TimeSpan.FromSeconds(10);
 });
 

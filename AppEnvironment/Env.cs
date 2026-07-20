@@ -146,6 +146,15 @@ public class SteamConfiguration
         ?? "https://api.venta.gg";
 
     /// <summary>
+    /// Public, browser-facing path Steam redirects back to — this MUST include the YARP gateway
+    /// prefix (/api/v1/identity), which the gateway strips before the request reaches the Identity
+    /// service. The controller itself listens on /api/v1/authentication/steam/callback.
+    /// </summary>
+    public string PublicCallbackPath { get; set; } =
+        GetEnvironmentVariable("STEAM_PUBLIC_CALLBACK_PATH")
+        ?? "/api/v1/identity/authentication/steam/callback";
+
+    /// <summary>
     /// Target the callback redirects the browser to once the flow finishes (deep link or web URL).
     /// </summary>
     public string ClientReturnUrl { get; set; } =

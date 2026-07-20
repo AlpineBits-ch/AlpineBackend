@@ -16,7 +16,11 @@ public partial class SteamOpenIdService(HttpClient httpClient, ILogger<SteamOpen
     private const string OpenIdNs = "http://specs.openid.net/auth/2.0";
     private const string IdentifierSelect = "http://specs.openid.net/auth/2.0/identifier_select";
 
-    /// <summary>Callback path Steam is told to return the browser to.</summary>
+    /// <summary>
+    /// Internal route the callback controller listens on (after the YARP gateway strips the
+    /// /api/v1/identity prefix). The browser-facing return_to is built from
+    /// <see cref="AppEnvironment.SteamConfiguration.PublicCallbackPath"/> instead.
+    /// </summary>
     public const string CallbackPath = "/api/v1/authentication/steam/callback";
 
     /// <summary>Custom OpenIddict grant type used to exchange a Steam login ticket for tokens.</summary>
@@ -33,7 +37,7 @@ public partial class SteamOpenIdService(HttpClient httpClient, ILogger<SteamOpen
     private static partial Regex ClaimedIdRegex();
 
     private static string Realm => Env.Steam.PublicBaseUrl.TrimEnd('/');
-    private static string ReturnToBase => Realm + CallbackPath;
+    private static string ReturnToBase => Realm + Env.Steam.PublicCallbackPath;
 
     /// <summary>
     /// Builds the URL the browser should be sent to in order to start authentication at Steam.

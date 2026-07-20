@@ -7,7 +7,7 @@ using TheIsleEvrimaRconClient.Extensions;
 
 namespace Isle.Api.Chat.CommandController;
 
-public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, EvrimaRconClient rconClient) : BackgroundService
+public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
 {
     public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand)];
     private ICollection<ChatCommand> Commands { get; } = [];
@@ -41,8 +41,9 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                         HealthData = new DinoHealthData(),
                         PlayerSpecies = "Rex of course"
                     });
+
+                    await bridgeClient.DmAsync(text: response, steam: msg.Steam, mode: ChatMode.Global, sender: "RCON", ct: stoppingToken);
                     
-                    await rconClient.DirectMessage(msg.Steam, $"RCON: {response}");
                 
                 }
             }

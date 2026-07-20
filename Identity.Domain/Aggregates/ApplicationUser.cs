@@ -52,6 +52,8 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public ICollection<UserKeyPackage> KeyPackages { get; set; } = new List<UserKeyPackage>();
     public ICollection<UserDeviceBackup> Backups { get; set; } = new List<UserDeviceBackup>();
     
+    public string? SteamId { get; set; }
+    
     public UserType UserType { get; set; } = UserType.Default;
     public static ApplicationUser Create(CreateUserParams createUserParams)
     {

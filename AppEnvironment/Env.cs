@@ -37,8 +37,10 @@ public static class Env
     public static string FireBaseServiceAccountJsonBase64 => GetEnvironmentVariable("FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64") ?? string.Empty;
     
     public static readonly StorageConfiguration StorageConfiguration = new();
-    
+
     public static GeneralConfiguration GeneralConfiguration = new();
+
+    public static readonly SteamConfiguration Steam = new();
 
 }
 
@@ -133,6 +135,24 @@ public class GeneralConfiguration
     public bool IsUserHashGenerationEnabled { get; set; } = (GetEnvironmentVariable("IS_USER_HASH_GENERATION_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
     public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg";
 
+}
+
+public class SteamConfiguration
+{
+    /// <summary>Public base URL Steam redirects back to after authentication.</summary>
+    public string PublicBaseUrl { get; set; } =
+        GetEnvironmentVariable("STEAM_PUBLIC_BASE_URL")
+        ?? GetEnvironmentVariable("INSTANCE_URL")
+        ?? "https://api.venta.gg";
+
+    /// <summary>
+    /// Target the callback redirects the browser to once the flow finishes (deep link or web URL).
+    /// </summary>
+    public string ClientReturnUrl { get; set; } =
+        GetEnvironmentVariable("STEAM_CLIENT_RETURN_URL") ?? "venta://steam-auth";
+
+    /// <summary>Optional Steam Web API key.</summary>
+    public string WebApiKey { get; set; } = GetEnvironmentVariable("STEAM_WEB_API_KEY") ?? string.Empty;
 }
 
 public class MessagingConfiguration

@@ -2,6 +2,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AppEnvironment;
+using Identity.Application.Services.Steam;
 using Identity.Contracts;
 using Identity.Domain.Aggregates;
 using Identity.Infrastructure;
@@ -64,6 +65,7 @@ builder.Services.AddOpenIddict()
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();
+        options.AllowCustomFlow(SteamOpenIdService.SteamGrantType);
 
         if (builder.Environment.IsProduction())
         {
@@ -122,6 +124,7 @@ builder.Services.AddWolverineHttp()
 
     });
 builder.Services.AddInfrastructure();
+builder.Services.AddHttpClient<SteamOpenIdService>();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddScoped<EmailService>();
@@ -224,6 +227,7 @@ if (await manager.FindByClientIdAsync("echo") == null)
             OpenIddictConstants.Permissions.Endpoints.Token,
             OpenIddictConstants.Permissions.GrantTypes.Password,
             OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
+            OpenIddictConstants.Permissions.Prefixes.GrantType + SteamOpenIdService.SteamGrantType,
             OpenIddictConstants.Permissions.Scopes.Email,
             OpenIddictConstants.Permissions.Scopes.Profile,
             OpenIddictConstants.Permissions.Scopes.Roles,

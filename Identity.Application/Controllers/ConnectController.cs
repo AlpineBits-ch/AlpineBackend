@@ -1,8 +1,10 @@
-﻿using Identity.Domain.Aggregates;
+﻿using Identity.Application.Services.Steam;
+using Identity.Domain.Aggregates;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Distributed;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
 
@@ -11,7 +13,7 @@ namespace Identity.Application.Controllers;
 [ApiController]
 [Route("connect")]
 public class ConnectController(SignInManager<ApplicationUser> signInManager,
-    UserManager<ApplicationUser> manager, ILogger<ConnectController> logger) : ControllerBase
+    UserManager<ApplicationUser> manager, IDistributedCache cache, ILogger<ConnectController> logger) : ControllerBase
 {
     [HttpPost("token")]
     public async Task<IActionResult> Exchange()
@@ -68,6 +70,33 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 
             }
 
+        }
+        else if (request.GrantType == SteamOpenIdService.SteamGrantType)
+        {
+            var ticket = (string?)request.GetParameter(SteamOpenIdService.TicketParameter);
+            if (string.IsNullOrEmpty(ticket))
+            {
+                return BadRequest("The steam_ticket parameter is missing.");
+            }
+
+            // The ticket is single-use: consume it before issuing tokens.
+            var cacheKey = SteamOpenIdService.LoginTicketCacheKey(ticket);
+            var userId = await cache.GetStringAsync(cacheKey);
+            if (userId == null)
+            {
+                logger.LogInformation("Steam login ticket not found or expired");
+                return Unauthorized();
+            }
+            await cache.RemoveAsync(cacheKey);
+
+            user = await manager.FindByIdAsync(userId);
+            if (user == null) return NotFound();
+
+            if (!user.IsSigninAllowed())
+            {
+                logger.LogInformation("User {userId} is not allowed to sign in", userId);
+                return Forbid("User is not allowed to sign in");
+            }
         }
         else { return BadRequest("The grant type is not supported."); }
 

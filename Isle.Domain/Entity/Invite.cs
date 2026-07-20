@@ -19,6 +19,8 @@ public class Invite : BaseEntity<Invite>, IPrefixedEntity
     public string SenderPlayerId { get; set; }
     public virtual Player ReceiverPlayer { get; set; }
     public string ReceiverPlayerId { get; set; }
+    
+    public int FriendlyId { get; set; } = Random.Shared.Next(5000);
 
     public static Invite Create(CreateInviteParams parameters)
     {

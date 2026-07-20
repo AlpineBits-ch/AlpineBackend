@@ -10,5 +10,6 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     public virtual Storage Storage { get; set; }
     public long Xp { get; init; }
     public string SteamId { get; set; }
+    public string UserId { get; set; }
     
 }

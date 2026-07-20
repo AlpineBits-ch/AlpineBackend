@@ -1,5 +1,6 @@
 using AppEnvironment;
 using Isle.Api.Chat;
+using Isle.Api.Chat.CommandController;
 using IsleBridge.Sdk;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +18,7 @@ builder.Services.AddIsleBridge(cfg =>
 
 builder.Services.AddHostedService<ChatWatcher>();
 builder.Services.AddHostedService<PresenceService>();
+builder.Services.AddHostedService<CommandController>();
 
 
 var app = builder.Build();

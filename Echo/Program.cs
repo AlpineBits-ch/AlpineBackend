@@ -48,14 +48,9 @@ if (args.Contains("codegen") || args.Contains("describe"))
     await codeGenApp.RunJasperFxCommands(args);
     Environment.Exit(0);   
 }
-builder.Services.Configure<DnsServiceEndpointProviderOptions>(options =>
-{
-    options.DefaultRefreshPeriod = TimeSpan.FromSeconds(2);
-});
 
 
-builder.Services.AddServiceDiscovery()
-    .AddDnsSrvServiceEndpointProvider();
+
 var redisConnection = await ConnectionMultiplexer.ConnectAsync($"{redis.Host}:{redis.Port},password={redis.Password}");
 builder.Services.AddDataProtection()
     .SetApplicationName("yarp-proxy-cluster") // Must be the same name across all YARP instances

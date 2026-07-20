@@ -3,7 +3,6 @@ using AppEnvironment;
 using Domain;
 using JasperFx;
 using Messaging;
-using Messaging.Application.Hubs;
 using Messaging.Application.Services;
 using Messaging.Infrastructure;
 using Messaging.Infrastructure.Persistence;
@@ -136,8 +135,6 @@ app.MapControllers();
 app.UseGracefulShutdownHealthCheck();
 
 app.MapHealthChecks("/messaging/health");
-app.MapHub<MessagingHub>("api/v1/ws/hubs/messaging");
-app.MapHub<VoiceHub>("api/v1/ws/hubs/voice");
 
 app.MapWolverineEndpoints();
 

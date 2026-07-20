@@ -1,5 +1,6 @@
 using System.Text.Json;
-using Guild.Application.Hubs;
+using Echo.Realtime;
+
 using Guild.Application.Models;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
@@ -12,7 +13,7 @@ namespace Guild.Application.Services;
 public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
-    IHubContext<GuildHub> hub,
+    IHubContext<EchoRealtimeHub> hub,
     IServiceScopeFactory scopeFactory,
     ILogger<VoiceHeartbeatCleanupService> logger) : BackgroundService
 {

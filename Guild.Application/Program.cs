@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using AppEnvironment;
 using Facet.Dashboard;
-using Guild.Application.Hubs;
 using Guild.Application.Services;
 using Guild.Persistence;
 using Guild.Persistence.Persistence;
@@ -166,7 +165,6 @@ if (args.Contains("facets"))
 
 var app = builder.Build();
 
-app.MapHub<GuildHub>("api/v1/ws/hubs/guild");
 app.MapWolverineEndpoints();
 app.UseGracefulShutdownHealthCheck();
 

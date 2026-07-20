@@ -1,5 +1,5 @@
 ﻿using System.Reflection.Metadata;
-using Messaging.Application.Hubs;
+using Echo.Realtime;
 using Messaging.Application.Services;
 using Microsoft.AspNetCore.SignalR;
 using Social.Contracts.Bus.Integration.Events;
@@ -8,9 +8,9 @@ namespace Messaging.Application.Integration.Social;
 
 public class FriendRequestAcceptedHandler
 {
-    public static async Task Handle(FriendshipAcceptedEvent acceptedEvent, IHubContext<MessagingHub> hubContext, ConversationPermissionService conversationPermissionService)
+    public static async Task Handle(FriendshipAcceptedEvent acceptedEvent, IHubContext<EchoRealtimeHub> hubContext, ConversationPermissionService conversationPermissionService)
     {
-        await hubContext.Clients.User(acceptedEvent.InitiatorUserId).SendAsync("FriendRequestAccepted", acceptedEvent);
+        await hubContext.Clients.User(acceptedEvent.InitiatorUserId).SendAsync("conversation.FriendRequestAccepted", acceptedEvent);
 
         
         // FIX: this rebuilds the cache so that new conversations can be created

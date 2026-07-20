@@ -1,0 +1,149 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Connections.Features;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
+using Wolverine;
+
+namespace Echo.Realtime;
+
+/// <summary>
+/// The single per-user realtime connection, terminated on the Echo (YARP) gateway pod.
+/// It is intentionally thin: it owns no domain state and no service-local dependencies.
+/// Server-&gt;client pushes reach the connection via the Redis backplane (downstream services
+/// resolve <c>IHubContext&lt;EchoRealtimeHub&gt;</c>). Client-&gt;server invocations are forwarded as
+/// Wolverine commands to the owning microservice, which runs the domain logic and pushes results
+/// back through the same hub type.
+/// </summary>
+[Authorize]
+public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) : Hub
+{
+    /// <summary>How often (seconds) a live connection republishes a presence heartbeat.</summary>
+    private const long PresenceHeartbeatIntervalSeconds = 30;
+
+    private string Uid() =>
+        Context.UserIdentifier ?? throw new HubException("User not authenticated");
+
+    public override async Task OnConnectedAsync()
+    {
+        var userId = Context.UserIdentifier;
+        if (string.IsNullOrWhiteSpace(userId))
+            throw new HubException("User not authenticated");
+
+        logger.LogInformation("Realtime client connected, connection {ConnectionId}, user {UserId}",
+            Context.ConnectionId, userId);
+
+        await bus.PublishAsync(new UserConnected(userId));
+
+        // Keep presence fresh while the socket lives, throttled so we don't publish on every pulse.
+        var heartbeat = Context.Features.Get<IConnectionHeartbeatFeature>();
+        if (heartbeat is not null)
+        {
+            var lastBeat = new long[1];
+            heartbeat.OnHeartbeat(state =>
+            {
+                var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                if (now - Interlocked.Read(ref lastBeat[0]) < PresenceHeartbeatIntervalSeconds) return;
+                Interlocked.Exchange(ref lastBeat[0], now);
+                _ = bus.PublishAsync(new PresenceHeartbeat((string)state));
+            }, userId);
+        }
+        else
+        {
+            logger.LogWarning("Connection heartbeat feature not found for user {UserId}", userId);
+        }
+
+        await base.OnConnectedAsync();
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        var userId = Context.UserIdentifier;
+        logger.LogInformation("Realtime client disconnected, connection {ConnectionId}, user {UserId}",
+            Context.ConnectionId, userId);
+
+        if (!string.IsNullOrWhiteSpace(userId))
+            await bus.PublishAsync(new UserDisconnected(userId));
+
+        await base.OnDisconnectedAsync(exception);
+    }
+
+    // ---- Conversation / DM ----
+
+    [HubMethodName("conversation.StartTyping")]
+    public Task ConversationStartTyping(string conversationId) =>
+        bus.SendAsync(new StartConversationTypingCommand(Uid(), conversationId)).AsTask();
+
+    [HubMethodName("conversation.UpdateLastRead")]
+    public Task ConversationUpdateLastRead(UpdateConversationReadCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    // ---- 1:1 call voice ----
+
+    [HubMethodName("call.MuteChanged")]
+    public Task CallMuteChanged(CallMuteCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("call.CameraChanged")]
+    public Task CallCameraChanged(CallCameraCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("call.SpeakingChanged")]
+    public Task CallSpeakingChanged(CallSpeakingCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("call.ScreenShareStarted")]
+    public Task CallScreenShareStarted(CallScreenShareStartCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("call.ScreenShareStopped")]
+    public Task CallScreenShareStopped(CallScreenShareStopCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    // ---- Guild text ----
+
+    [HubMethodName("guild.StartTyping")]
+    public Task GuildStartTyping(string channelId) =>
+        bus.SendAsync(new StartGuildTypingCommand(Uid(), channelId)).AsTask();
+
+    [HubMethodName("guild.UpdateLastRead")]
+    public Task GuildUpdateLastRead(UpdateGuildReadCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    // ---- Guild voice ----
+
+    [HubMethodName("guild.voice.Heartbeat")]
+    public Task GuildVoiceHeartbeat() =>
+        bus.SendAsync(new GuildVoiceHeartbeatCommand(Uid())).AsTask();
+
+    [HubMethodName("guild.voice.MuteChanged")]
+    public Task GuildVoiceMuteChanged(GuildVoiceMuteCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.DeafenChanged")]
+    public Task GuildVoiceDeafenChanged(GuildVoiceDeafenCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.CameraChanged")]
+    public Task GuildVoiceCameraChanged(GuildVoiceCameraCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.ScreenShareStarted")]
+    public Task GuildVoiceScreenShareStarted(GuildVoiceScreenShareStartCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.ScreenShareStopped")]
+    public Task GuildVoiceScreenShareStopped(GuildVoiceScreenShareStopCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.ServerMute")]
+    public Task GuildVoiceServerMute(GuildVoiceServerMuteCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.ServerDeafen")]
+    public Task GuildVoiceServerDeafen(GuildVoiceServerDeafenCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
+    [HubMethodName("guild.voice.MoveUser")]
+    public Task GuildVoiceMoveUser(GuildVoiceMoveUserCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+}

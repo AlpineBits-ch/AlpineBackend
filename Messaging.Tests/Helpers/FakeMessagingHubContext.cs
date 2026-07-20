@@ -1,9 +1,10 @@
-﻿using Messaging.Application.Hubs;
+﻿using Echo.Realtime;
+
 using Microsoft.AspNetCore.SignalR;
 
 namespace Messaging.Tests.Helpers;
 
-public class FakeMessagingHubContext : IHubContext<MessagingHub>
+public class FakeMessagingHubContext : IHubContext<EchoRealtimeHub>
 {
     public IHubClients Clients { get; } = new FakeHubClients();
     public IGroupManager Groups { get; } = new FakeGroupManager();

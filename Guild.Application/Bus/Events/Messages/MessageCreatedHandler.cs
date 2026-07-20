@@ -1,4 +1,5 @@
-﻿using Guild.Application.Hubs;
+﻿using Echo.Realtime;
+
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
@@ -15,7 +16,7 @@ public class MessageCreatedHandler
     {
         return $"channel:{channelId}:guild";
     }
-    public async Task Handle(MessageCreatedForChannel message, IHubContext<GuildHub> hub, GuildHydrateService service,
+    public async Task Handle(MessageCreatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
         MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger)
     {
         var channelKey = GetChannelKey(message.ChannelId);

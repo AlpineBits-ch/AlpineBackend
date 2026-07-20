@@ -1,4 +1,4 @@
-﻿using Messaging.Application.Hubs;
+﻿using Echo.Realtime;
 using Messaging.Domain.Events.Message;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
@@ -8,7 +8,7 @@ namespace Messaging.Application.Handler.Messages;
 
 public class MessageDeletedHandler
 {
-    public async Task Handle(MessageDeleted messageDeleted, IHubContext<MessagingHub> hubContext,
+    public async Task Handle(MessageDeleted messageDeleted, IHubContext<EchoRealtimeHub> hubContext,
         MicroserviceContext ctx)
     {
         if (!string.IsNullOrWhiteSpace(messageDeleted.ConversationId))

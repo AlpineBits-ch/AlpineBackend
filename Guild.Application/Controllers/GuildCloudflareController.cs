@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
-using Guild.Application.Hubs;
+using Echo.Realtime;
+
 using Guild.Application.Models;
 using Guild.Application.Services;
 using Guild.Domain.Enums;
@@ -23,7 +24,7 @@ public record GuildCloseTracksBody(string CfSessionId, List<string> TrackNames);
 public class GuildCloudflareController(
     CloudflareService cfService,
     GuildPermissionService permissions,
-    IHubContext<GuildHub> hub,
+    IHubContext<EchoRealtimeHub> hub,
     ILogger<GuildCloudflareController> logger,
     IDistributedCache cache,
     MicroserviceContext db) : ControllerBase

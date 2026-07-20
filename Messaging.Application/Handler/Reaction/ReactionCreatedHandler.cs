@@ -1,4 +1,4 @@
-﻿using Messaging.Application.Hubs;
+﻿using Echo.Realtime;
 using Messaging.Domain.Events.Message;
 using Messaging.Domain.Events.Reactions;
 using Messaging.Infrastructure.Persistence;
@@ -10,7 +10,7 @@ namespace Messaging.Application.Handler.Reaction;
 
 public class ReactionCreatedHandler
 {
-    public static async Task Handle(ReactionCreated reactionCreated, IHubContext<MessagingHub> hubContext, IMessageBus bus, MicroserviceContext ctx)
+    public static async Task Handle(ReactionCreated reactionCreated, IHubContext<EchoRealtimeHub> hubContext, IMessageBus bus, MicroserviceContext ctx)
     {
         if (!string.IsNullOrWhiteSpace(reactionCreated.ConversationId))
         {
@@ -18,7 +18,7 @@ public class ReactionCreatedHandler
                 .Where(m => m.ConversationId == reactionCreated.ConversationId && m.UserId != reactionCreated.UserId)
                 .AsNoTracking().ToListAsync();
             
-            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("ReactionCreated", reactionCreated);
+            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.ReactionCreated", reactionCreated);
         }
     }
 }

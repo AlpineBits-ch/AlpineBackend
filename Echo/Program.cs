@@ -3,6 +3,7 @@ using AppEnvironment;
 using Echo.Persistence;
 using Echo.Persistence.Persistance;
 using Echo.Proxy;
+using Echo.Realtime;
 using Echo.RateLimiter;
 using JasperFx;
 using Messaging;
@@ -35,13 +36,10 @@ var redis = Env.Redis;
 
 builder.UseWolverine(opts =>
 {
-
     opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(opts => {});
-    if (builder.Environment.IsDevelopment())
-    {
-        return;
-    }
-
+    // The gateway must be able to SEND realtime commands (EchoRealtimeHub forwards client
+    // invocations over RabbitMQ) in every environment, so we no longer short-circuit in
+    // Development. Realtime therefore requires RabbitMQ + the target services to be running.
     opts.ConfigureWolverine(false);
 });
 
@@ -110,6 +108,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
             ValidateAudience = false,
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                // WebSocket clients can't set the Authorization header, so the unified hub
+                // accepts the JWT via ?access_token=. Only applies to the gateway's own hub
+                // path — proxied hub traffic authenticates downstream.
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    path.StartsWithSegments("/api/v1/ws/hub"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddHttpClient();
 
@@ -138,6 +153,11 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.UseCors("AlpinePolicy");
+app.UseAuthentication();
+app.UseAuthorization();
+// The single per-user realtime connection is terminated here on the gateway. Mapped before
+// the reverse proxy so YARP's catch-all routes don't swallow the hub path.
+app.MapHub<EchoRealtimeHub>("/api/v1/ws/hub");
 app.MapControllers();
 app.MapReverseProxy();
 app.UseGracefulShutdownHealthCheck();

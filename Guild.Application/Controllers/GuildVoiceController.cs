@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
-using Guild.Application.Hubs;
+using Echo.Realtime;
+
 using Guild.Application.Models;
 using Guild.Application.Services;
 using Guild.Domain.Enums;
@@ -18,7 +19,7 @@ namespace Guild.Application.Controllers;
 [Route("api/v1/guilds/{guildId}/channels/{channelId}/voice")]
 public class GuildVoiceController(
     GuildPermissionService permissions,
-    IHubContext<GuildHub> hub,
+    IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
     MicroserviceContext db) : ControllerBase
 {

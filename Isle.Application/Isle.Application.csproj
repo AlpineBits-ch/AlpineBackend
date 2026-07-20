@@ -32,6 +32,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Isle.Contracts\Isle.Contracts.csproj" />
       <ProjectReference Include="..\Isle.Domain\Isle.Domain.csproj" />
       <ProjectReference Include="..\Isle.Infrastructure\Isle.Infrastructure.csproj" />
       <ProjectReference Include="..\IsleBridge.Sdk\IsleBridge.Sdk\IsleBridge.Sdk.csproj" />

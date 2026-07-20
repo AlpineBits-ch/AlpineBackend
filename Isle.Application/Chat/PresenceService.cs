@@ -1,8 +1,9 @@
-﻿using IsleBridge.Sdk;
+﻿using Isle.Infrastructure.Persistence;
+using IsleBridge.Sdk;
 
 namespace Isle.Api.Chat;
 
-public class PresenceService(IBridgeClient bridgeClient, ILogger<PresenceService> logger) : BackgroundService
+public class PresenceService(IBridgeClient bridgeClient, ILogger<PresenceService> logger, MicroserviceContext context) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -12,8 +13,9 @@ public class PresenceService(IBridgeClient bridgeClient, ILogger<PresenceService
             foreach (var player in players.Players)
             {
                 logger.LogInformation($"Player {player} is online");
+                
             }
-            await Task.Delay(1000, stoppingToken);
+            await Task.Delay(3000, stoppingToken);
         }
         
     }

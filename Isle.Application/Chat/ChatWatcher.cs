@@ -1,10 +1,13 @@
-﻿using IsleBridge.Sdk;
+﻿using Isle.Domain.Aggregates;
+using Isle.Infrastructure.Persistence;
+using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualBasic;
 
 namespace Isle.Api.Chat;
 
-public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatcher> logger) : BackgroundService
+public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatcher> logger, MicroserviceContext ctx) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -38,8 +41,22 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
                             logger.LogInformation("Player {Name} died", msg.Steam);
                             break;
                         case EventKind.Join:
+                        {
+                            
                             logger.LogInformation("Player {Name} joined", msg.Steam);
+                            if (!await ctx.Players.AnyAsync(p => p.SteamId == msg.Steam, cancellationToken: ct))
+                            {
+                                var player = Player.Create(new CreatePlayerArgs()
+                                {
+                                    IsAdmin = false,
+                                    SteamId = msg.Steam,
+                                });
+                                await ctx.Players.AddAsync(player, ct);
+                                await ctx.SaveChangesAsync(ct);
+                            }
+                            
                             break;
+                        }
                         case EventKind.Leave:
                             logger.LogInformation("Player {Name} left", msg.Steam);
                             break;

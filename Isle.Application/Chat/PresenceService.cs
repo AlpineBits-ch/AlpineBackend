@@ -3,7 +3,7 @@ using IsleBridge.Sdk;
 
 namespace Isle.Api.Chat;
 
-public class PresenceService(IBridgeClient bridgeClient, ILogger<PresenceService> logger, MicroserviceContext context) : BackgroundService
+public class PresenceService(IBridgeClient bridgeClient, ILogger<PresenceService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

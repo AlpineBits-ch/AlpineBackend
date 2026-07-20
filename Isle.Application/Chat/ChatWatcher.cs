@@ -7,10 +7,12 @@ using Microsoft.VisualBasic;
 
 namespace Isle.Api.Chat;
 
-public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatcher> logger, MicroserviceContext ctx, IBridgeClient client) : BackgroundService
+public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatcher> logger, IServiceScopeFactory scopeFactory,IBridgeClient client) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
+        
+        
         var chatTask = Task.Run(async () =>
         {
             try
@@ -30,47 +32,52 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
 
         var eventTask = Task.Run(async () =>
         {
-            logger.LogInformation("Event stream started");
-            try
+            using (var scope = scopeFactory.CreateScope())
             {
-                await foreach (GameEvent msg in events.StreamAsync(ct))
+                var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+                logger.LogInformation("Event stream started");
+                try
                 {
-                    switch (msg.Kind)
+                    await foreach (GameEvent msg in events.StreamAsync(ct))
                     {
-                        case EventKind.Death:
-                            logger.LogInformation("Player {Name} died", msg.Steam);
-                            break;
-                        case EventKind.Join:
+                        switch (msg.Kind)
                         {
-                            
-                            logger.LogInformation("Player {Name} joined", msg.Steam);
-                            if (!await ctx.Players.AnyAsync(p => p.SteamId == msg.Steam, cancellationToken: ct))
+                            case EventKind.Death:
+                                logger.LogInformation("Player {Name} died", msg.Steam);
+                                break;
+                            case EventKind.Join:
                             {
-                                var player = Player.Create(new CreatePlayerArgs()
-                                {
-                                    IsAdmin = false,
-                                    SteamId = msg.Steam,
-                                });
-                                await ctx.Players.AddAsync(player, ct);
-                                await ctx.SaveChangesAsync(ct);
-                            }
-
-                            await client.NotifyAsync(msg.Steam, "Welome to Venta.gg!", ct);
                             
-                            await client.DmAsync ("Welcome to Venta.gg!", msg.Steam);
-                            break;
+                                logger.LogInformation("Player {Name} joined", msg.Steam);
+                                if (!await ctx.Players.AnyAsync(p => p.SteamId == msg.Steam, cancellationToken: ct))
+                                {
+                                    var player = Player.Create(new CreatePlayerArgs()
+                                    {
+                                        IsAdmin = false,
+                                        SteamId = msg.Steam,
+                                    });
+                                    await ctx.Players.AddAsync(player, ct);
+                                    await ctx.SaveChangesAsync(ct);
+                                }
+
+                                await client.NotifyAsync(msg.Steam, "Welome to Venta.gg!", ct);
+                            
+                                await client.DmAsync ("Welcome to Venta.gg!", msg.Steam);
+                                break;
+                            }
+                            case EventKind.Leave:
+                                logger.LogInformation("Player {Name} left", msg.Steam);
+                                break;
                         }
-                        case EventKind.Leave:
-                            logger.LogInformation("Player {Name} left", msg.Steam);
-                            break;
                     }
                 }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error occurred in event stream");
+                }
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error occurred in event stream");
-            }
+            
         }, ct);
 
         await Task.WhenAll(chatTask, eventTask);

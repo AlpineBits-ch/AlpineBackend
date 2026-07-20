@@ -2,6 +2,7 @@ using System.Net;
 using AppEnvironment;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
+using Isle.Infrastructure;
 using IsleBridge.Sdk;
 using StackExchange.Redis;
 using TheIsleEvrimaRconClient;
@@ -10,6 +11,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddLogging();
 builder.Services.AddDistributedMemoryCache();
+builder.Services.AddInfrastructure();
+
 var redis = Env.Redis;
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>

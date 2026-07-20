@@ -4,7 +4,7 @@ public class DebugCommand : ChatCommand
 {
     public override async Task<string> ExecuteAsync(CommandContext context)
     {
-        return $"Debug command received for ${context.PlayerName}";
+        return $"Debug command received for {context.PlayerName}";
     }
 
     public override string Name { get; } = "debug";

@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using AppEnvironment;
 using Identity.Application.Services.Steam;
+using Identity.Contracts.Bus.Events;
 using Identity.Domain.Aggregates;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Wolverine;
 
 namespace Identity.Application.Controllers;
 
@@ -18,6 +20,7 @@ public class SteamAuthenticationController(
     MicroserviceContext ctx,
     IDistributedCache cache,
     SteamOpenIdService steam,
+    IMessageBus bus,
     ILogger<SteamAuthenticationController> logger) : ControllerBase
 {
     private const string LinkMode = "link";
@@ -69,7 +72,13 @@ public class SteamAuthenticationController(
         var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null) return NotFound();
 
+        var steamId = user.SteamId;
         user.SteamId = null;
+        await bus.PublishAsync(new SteamUnlinkedEvent()
+        {
+            SteamId = steamId ?? string.Empty,
+            UserId = user.Id
+        });
         await ctx.SaveChangesAsync(ct);
         return Ok();
     }
@@ -117,6 +126,11 @@ public class SteamAuthenticationController(
         if (alreadyLinked) return ClientRedirect("already_linked");
 
         user.SteamId = steamId;
+        await bus.PublishAsync(new SteamLinkedEvent()
+        {
+            SteamId = steamId,
+            UserId = user.Id
+        });
         await ctx.SaveChangesAsync(ct);
 
         logger.LogInformation("Linked Steam {SteamId} to user {UserId}", steamId, user.Id);

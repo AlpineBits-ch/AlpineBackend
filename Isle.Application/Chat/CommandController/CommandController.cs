@@ -30,9 +30,8 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                     var text = msg.Text;
                     if(!text.StartsWith("!")) continue;
                     
-                    var command = Commands.FirstOrDefault(c => c.Name == text.Split(' ')[0]);
+                    var command = Commands.FirstOrDefault(c => c.Name == text.Split(' ')[0].Replace("!", ""));
                     if(command is null) continue;
-                    
                     
                     var response = await command.ExecuteAsync(new CommandContext()
                     {

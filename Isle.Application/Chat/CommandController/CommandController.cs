@@ -2,10 +2,12 @@
 using Isle.Domain.Entity;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
+using TheIsleEvrimaRconClient;
+using TheIsleEvrimaRconClient.Extensions;
 
 namespace Isle.Api.Chat.CommandController;
 
-public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp) : BackgroundService
+public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, EvrimaRconClient rconClient) : BackgroundService
 {
     public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand)];
     private ICollection<ChatCommand> Commands { get; } = [];
@@ -40,6 +42,8 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                         HealthData = new DinoHealthData(),
                         PlayerSpecies = "Rex of course"
                     });
+                    
+                    await rconClient.DirectMessage(msg.Steam, $"RCON: {response}");
                 
                 }
             }

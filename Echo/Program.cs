@@ -31,8 +31,7 @@ builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddControllers();
 
 var redis = Env.Redis;
-builder.Services.AddServiceDiscoveryCore();
-builder.Services.AddDnsServiceEndpointProvider();
+
 
 builder.UseWolverine(opts =>
 {
@@ -83,7 +82,6 @@ builder.Services.AddReverseProxy()
         handler.PooledConnectionIdleTimeout = TimeSpan.FromSeconds(2);
         handler.EnableMultipleHttp2Connections = true;
     })
-    .AddServiceDiscoveryDestinationResolver()
     .AddConfigFilter<RateLimitConfigFilter>();
 builder.Services.Configure<TransportFailureRateHealthPolicyOptions>(options =>
 {

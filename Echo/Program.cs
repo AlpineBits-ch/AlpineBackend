@@ -32,7 +32,8 @@ builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddControllers();
 
 var redis = Env.Redis;
-
+builder.Services.AddServiceDiscoveryCore();
+builder.Services.AddDnsServiceEndpointProvider();
 
 builder.UseWolverine(opts =>
 {

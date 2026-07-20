@@ -10,6 +10,7 @@
 
     <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5"/>
+        <PackageReference Include="TheIsleEvrimaRconClient" Version="2.1.0" />
     </ItemGroup>
 
     <ItemGroup>

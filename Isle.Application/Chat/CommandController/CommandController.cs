@@ -32,7 +32,7 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                     if(command is null) continue;
                     
                     
-                    await command.ExecuteAsync(new CommandContext()
+                    var response = await command.ExecuteAsync(new CommandContext()
                     {
                         PlayerSteam = msg.Steam,
                         PlayerName = msg.Name ?? string.Empty,

@@ -1,7 +1,9 @@
+using System.Net;
 using AppEnvironment;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
 using IsleBridge.Sdk;
+using TheIsleEvrimaRconClient;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddGracefulShutdownHealthCheck();
@@ -10,12 +12,24 @@ builder.Services.AddLogging();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
+var isleIpAddress = Environment.GetEnvironmentVariable("ISLE_IP_ADDRESS");
+
 builder.Services.AddIsleBridge(cfg =>
 {
-    cfg.BaseAddress = new Uri("http://10.0.0.21:8080");
+    cfg.BaseAddress = new Uri($"http://{isleIpAddress}:8080");
     cfg.SlowCommandTimeout = TimeSpan.FromSeconds(10);
 });
 
+var config = new EvrimaRconClientConfiguration
+{
+    Host     = IPAddress.Parse(isleIpAddress),
+    Port     = 8888,
+    Password =  Environment.GetEnvironmentVariable("RCON_PASSWORD")
+}; 
+using var rcon = new EvrimaRconClient(config);
+await rcon.ConnectAsync();
+
+builder.Services.AddSingleton(rcon);
 
 builder.Services.AddHostedService<ChatWatcher>();
 builder.Services.AddHostedService<PresenceService>();

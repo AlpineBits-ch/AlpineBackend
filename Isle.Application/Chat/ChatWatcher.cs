@@ -7,7 +7,7 @@ using Microsoft.VisualBasic;
 
 namespace Isle.Api.Chat;
 
-public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatcher> logger, MicroserviceContext ctx) : BackgroundService
+public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatcher> logger, MicroserviceContext ctx, IBridgeClient client) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -54,6 +54,9 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
                                 await ctx.Players.AddAsync(player, ct);
                                 await ctx.SaveChangesAsync(ct);
                             }
+
+                            await client.NotifyAsync(msg.Steam, "Welome to Venta.gg!", ct);
+                            
                             
                             break;
                         }

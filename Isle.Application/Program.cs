@@ -5,11 +5,13 @@ using Isle.Api.Chat.CommandController;
 using Isle.Infrastructure;
 using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
+using JasperFx;
 using Messaging;
 using StackExchange.Redis;
 using TheIsleEvrimaRconClient;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
+using Wolverine.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddGracefulShutdownHealthCheck();
@@ -64,6 +66,25 @@ builder.Services.AddHostedService<ChatWatcher>();
 builder.Services.AddHostedService<PresenceService>();
 builder.Services.AddHostedService<CommandController>();
 
+if (args.Contains("codegen") || args.Contains("describe"))
+{
+    
+    try
+    {
+        var codeGenApp = builder.Build();
+        codeGenApp.MapWolverineEndpoints(opts =>
+        {
+            opts.UseDataAnnotationsValidationProblemDetailMiddleware();
+        });
+        await codeGenApp.RunJasperFxCommands(args);
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"CODEGEN BUILD FAILED: {ex}");
+        throw;
+    }
+    return;
+}
 
 var app = builder.Build();
 app.UseInfrastructure();

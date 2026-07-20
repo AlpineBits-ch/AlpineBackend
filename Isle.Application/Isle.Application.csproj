@@ -12,11 +12,11 @@
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5"/>
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="TheIsleEvrimaRconClient" Version="2.1.0" />
-        <PackageReference Include="WolverineFx" Version="6.14.0" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.14.0" />
-        <PackageReference Include="WolverineFx.Http" Version="6.14.0" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="6.14.0" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.14.0" />
+        <PackageReference Include="WolverineFx" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.Http" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
 
         <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.9" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="10.0.9" />

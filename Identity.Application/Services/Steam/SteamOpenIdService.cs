@@ -1,6 +1,8 @@
 using System.Text.RegularExpressions;
 using AppEnvironment;
 using Microsoft.AspNetCore.WebUtilities;
+using Polly;
+using Polly.Extensions.Http;
 
 namespace Identity.Application.Services.Steam;
 
@@ -13,6 +15,22 @@ public partial class SteamOpenIdService(HttpClient httpClient, ILogger<SteamOpen
     private const string SteamLoginEndpoint = "https://steamcommunity.com/openid/login";
     private const string OpenIdNs = "http://specs.openid.net/auth/2.0";
     private const string IdentifierSelect = "http://specs.openid.net/auth/2.0/identifier_select";
+
+    /// <summary>
+    /// Steam's OpenID endpoint is prone to transient failures (5xx, timeouts, dropped connections),
+    /// so every outbound call is routed through this policy.
+    /// </summary>
+    private readonly IAsyncPolicy<HttpResponseMessage> _retryPolicy = HttpPolicyExtensions
+        .HandleTransientHttpError()
+        .WaitAndRetryAsync(
+            retryCount: 3,
+            sleepDurationProvider: attempt => TimeSpan.FromMilliseconds(200 * Math.Pow(2, attempt - 1)),
+            onRetry: (outcome, delay, attempt, _) => logger.LogWarning(
+                outcome.Exception,
+                "Transient failure calling Steam ({Status}); retry {Attempt}/3 in {Delay}ms",
+                outcome.Result?.StatusCode,
+                attempt,
+                delay.TotalMilliseconds));
 
     /// <summary>
     /// Internal route the callback controller listens on (after the YARP gateway strips the
@@ -87,8 +105,14 @@ public partial class SteamOpenIdService(HttpClient httpClient, ILogger<SteamOpen
         string body;
         try
         {
-            using var content = new FormUrlEncodedContent(form);
-            using var response = await httpClient.PostAsync(SteamLoginEndpoint, content, ct);
+            // Rebuild the content on every attempt: HttpContent is single-use and would be disposed
+            // after the first send, so the policy needs a fresh instance for each retry.
+            using var response = await _retryPolicy.ExecuteAsync(
+                async token => await httpClient.PostAsync(
+                    SteamLoginEndpoint,
+                    new FormUrlEncodedContent(form),
+                    token),
+                ct);
             response.EnsureSuccessStatusCode();
             body = await response.Content.ReadAsStringAsync(ct);
         }

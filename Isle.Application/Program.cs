@@ -3,15 +3,30 @@ using AppEnvironment;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
 using Isle.Infrastructure;
+using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
+using Messaging;
 using StackExchange.Redis;
 using TheIsleEvrimaRconClient;
+using Wolverine;
+using Wolverine.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddLogging();
 builder.Services.AddDistributedMemoryCache();
+
+builder.UseWolverine(opts =>
+{
+    if(args.Contains("facets")) return;
+    opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(opts =>
+    {
+
+    });
+    opts.ConfigureWolverine();
+});
 builder.Services.AddInfrastructure();
+
 
 var redis = Env.Redis;
 

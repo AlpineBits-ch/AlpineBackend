@@ -1,7 +1,8 @@
 ﻿using System.Security.Claims;
+using Echo.Realtime;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
-using Guild.Application.Hubs;
+
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
@@ -19,7 +20,7 @@ public class CategoryEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/categories")]
     public async Task<IResult> CreateCategory(string guildId, CreateCategoryDto dto,  [NotBody] GuildPermissionService permissionService,
         [NotBody] MicroserviceContext ctx, 
-        [NotBody] IHubContext<GuildHub> hub,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] ClaimsPrincipal user)
     {
@@ -59,7 +60,7 @@ public class CategoryEndpoint
     public async Task<IResult> DeleteChannelAsync(string categoryId,
         [NotBody] GuildPermissionService permissionService,
         [NotBody] MicroserviceContext ctx,
-        [NotBody] IHubContext<GuildHub> hub,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] ClaimsPrincipal user)
     {

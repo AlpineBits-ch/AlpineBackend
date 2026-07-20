@@ -1,7 +1,8 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
+using Echo.Realtime;
 using Messaging.Application.Dtos.Request;
-using Messaging.Application.Hubs;
+
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
@@ -19,7 +20,7 @@ namespace Messaging.Application.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/v1/voice")]
-public class VoiceController(IceServerService iceServerService, IMessageBus bus, IDistributedCache cache, IHubContext<VoiceHub> hubContext) : ControllerBase
+public class VoiceController(IceServerService iceServerService, IMessageBus bus, IDistributedCache cache, IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
     [HttpGet("ice-servers")]
     public async Task<IActionResult> GetIceServers()

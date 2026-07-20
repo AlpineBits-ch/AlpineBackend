@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
-using Messaging.Application.Hubs;
+using Echo.Realtime;
+
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
@@ -22,7 +23,7 @@ public record CloseTracksBody(string CfSessionId, List<string> TrackNames);
 [Route("api/v1/voice/calls/{callId}")]
 public class CloudflareController(
     CloudflareService cfService,
-    IHubContext<VoiceHub> hub,
+    IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()

@@ -1,10 +1,11 @@
 ﻿using System.Text;
+using Echo.Realtime;
 using FirebaseAdmin;
 using FirebaseAdmin.Messaging;
 using Guild.Contracts.Bus.Events;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
-using Messaging.Application.Hubs;
+
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
@@ -22,7 +23,7 @@ namespace Messaging.Application.Handler.Messages;
 [NonTransactional]
 public class MessageCreatedHandler
 {
-    public static async Task Handle(MessageCreated messageCreated, IHubContext<MessagingHub> hubContext, MicroserviceContext ctx, IMessageBus bus, ILogger<MessageCreatedHandler> logger)
+    public static async Task Handle(MessageCreated messageCreated, IHubContext<EchoRealtimeHub> hubContext, MicroserviceContext ctx, IMessageBus bus, ILogger<MessageCreatedHandler> logger)
     {
         if (!string.IsNullOrWhiteSpace(messageCreated.ConversationId))
         {

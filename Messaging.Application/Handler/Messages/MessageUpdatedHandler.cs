@@ -1,4 +1,5 @@
-﻿using Messaging.Application.Hubs;
+﻿using Echo.Realtime;
+
 using Messaging.Domain.Events.Message;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
@@ -8,7 +9,7 @@ namespace Messaging.Application.Handler.Messages;
 
 public class MessageUpdatedHandler
 {
-    public async Task Handle(MessageUpdated messageUpdated, IHubContext<MessagingHub> hubContext,
+    public async Task Handle(MessageUpdated messageUpdated, IHubContext<EchoRealtimeHub> hubContext,
         MicroserviceContext ctx)
     {
         if (!string.IsNullOrWhiteSpace(messageUpdated.ConversationId))

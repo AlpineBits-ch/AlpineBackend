@@ -1,6 +1,7 @@
 using System.Text.Json;
+using Echo.Realtime;
 using Messaging.Application.Handler.Conversation;
-using Messaging.Application.Hubs;
+
 using Messaging.Application.Services;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
@@ -25,7 +26,7 @@ public class ConversationCreatedHandlerTests
     private FakeDistributedCache _cache = null!;
     private TestMessagingContext _context = null!;
     private ConversationPermissionService _permissionService = null!;
-    private IHubContext<MessagingHub> _hubContext = null!;
+    private IHubContext<EchoRealtimeHub> _hubContext = null!;
 
     [SetUp]
     public void SetUp()

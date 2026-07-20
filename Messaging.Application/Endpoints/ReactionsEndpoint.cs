@@ -1,7 +1,7 @@
 ﻿using System.Security.Claims;
+using Echo.Realtime;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
-using Messaging.Application.Hubs;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
 using Messaging.Domain.Events.Reactions;
@@ -19,7 +19,7 @@ public class ReactionsEndpoint
     [Authorize]
     [WolverinePost("/api/v1/messages/{messageId}/reactions")]
     public async Task<(IResult, ReactionCreated?)> AddReaction(string messageId, CreateReactionDto dto, [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, 
-        [NotBody] IHubContext<MessagingHub> hubContext, [NotBody] IMessageBus bus)
+        [NotBody] IHubContext<EchoRealtimeHub> hubContext, [NotBody] IMessageBus bus)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
@@ -49,7 +49,7 @@ public class ReactionsEndpoint
     [Authorize]
     [WolverineDelete("/api/v1/messages/{messageId}/reactions")]
     public async Task<IResult> RemoveReaction(string messageId, RemoveReactionDto dto, [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] IHubContext<MessagingHub> hubContext, [NotBody] IMessageBus bus)
+        [NotBody] IHubContext<EchoRealtimeHub> hubContext, [NotBody] IMessageBus bus)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();

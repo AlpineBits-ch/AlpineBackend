@@ -1,4 +1,5 @@
-﻿using Guild.Application.Hubs;
+﻿using Echo.Realtime;
+
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Persistence.Persistence;
@@ -35,7 +36,7 @@ public class ReactionHandler
     {
         return $"channel:{channelId}:guild";
     }
-    public async Task Handle(ReactionCreatedEvent reactionCreatedEvent, IHubContext<GuildHub> hub, GuildHydrateService service,
+    public async Task Handle(ReactionCreatedEvent reactionCreatedEvent, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
         MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger)
     {
         var presence = await GetPresenceByChannel(reactionCreatedEvent.ChannelId, cache, context, logger, service);
@@ -44,7 +45,7 @@ public class ReactionHandler
         await hub.Clients.Users(users).SendAsync("ReactionCreated", reactionCreatedEvent);
     }
     
-    public async Task Handle(ReactionRemovedEvent reactionRemovedEvent, IHubContext<GuildHub> hub, GuildHydrateService service,
+    public async Task Handle(ReactionRemovedEvent reactionRemovedEvent, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
         MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger)
     {
         var presence = await GetPresenceByChannel(reactionRemovedEvent.ChannelId, cache, context, logger, service);

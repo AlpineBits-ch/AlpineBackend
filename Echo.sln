@@ -105,6 +105,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Isle.Infrastructure", "Isle
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IsleBridge.Sdk", "IsleBridge.Sdk\IsleBridge.Sdk\IsleBridge.Sdk.csproj", "{11E317E1-39A0-427C-B35B-414F7B3CD787}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Echo.Realtime", "Echo.Realtime\Echo.Realtime.csproj", "{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -583,6 +585,18 @@ Global
 		{11E317E1-39A0-427C-B35B-414F7B3CD787}.Release|x64.Build.0 = Release|Any CPU
 		{11E317E1-39A0-427C-B35B-414F7B3CD787}.Release|x86.ActiveCfg = Release|Any CPU
 		{11E317E1-39A0-427C-B35B-414F7B3CD787}.Release|x86.Build.0 = Release|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Debug|x64.Build.0 = Debug|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Debug|x86.Build.0 = Debug|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Release|x64.ActiveCfg = Release|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Release|x64.Build.0 = Release|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Release|x86.ActiveCfg = Release|Any CPU
+		{A5999A50-BEAF-47DA-A81D-EE3E578B4B2E}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

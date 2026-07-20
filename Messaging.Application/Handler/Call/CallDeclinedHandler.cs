@@ -1,4 +1,5 @@
-﻿using Messaging.Application.Hubs;
+﻿using Echo.Realtime;
+
 using Messaging.Application.Services;
 using Messaging.Domain.Events.Call;
 using Microsoft.AspNetCore.SignalR;
@@ -8,7 +9,7 @@ namespace Messaging.Application.Handler.Call;
 
 public class CallDeclinedHandler
 {
-    public static async Task Handle(CallDeclined @event, IHubContext<VoiceHub> hubContext, IDistributedCache cache)
+    public static async Task Handle(CallDeclined @event, IHubContext<EchoRealtimeHub> hubContext, IDistributedCache cache)
     {
         var call = await CallService.GetCallById(@event.CallId, cache);
         if (call == null)

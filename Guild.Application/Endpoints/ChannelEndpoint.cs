@@ -1,8 +1,9 @@
 ﻿using System.Security.Claims;
+using Echo.Realtime;
 using Facet.Extensions;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
-using Guild.Application.Hubs;
+
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
@@ -21,7 +22,7 @@ public class ChannelEndpoint
     public async Task<IResult> CreateChannel(string guildId, CreateChannelDto dto,
         [NotBody] GuildPermissionService permissionService,
             [NotBody] MicroserviceContext ctx, 
-        [NotBody] IHubContext<GuildHub> hub,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] ClaimsPrincipal user)
     {
@@ -71,7 +72,7 @@ public class ChannelEndpoint
     public async Task<IResult> DeleteChannelAsync(string channelId,
         [NotBody] GuildPermissionService permissionService,
         [NotBody] MicroserviceContext ctx,
-        [NotBody] IHubContext<GuildHub> hub,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] ClaimsPrincipal user)
     {
@@ -100,7 +101,7 @@ public class ChannelEndpoint
         ReorderChannelsDto dto,
         [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user,
-        [NotBody] IHubContext<GuildHub> hub,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] GuildPermissionService permissionService)
     {

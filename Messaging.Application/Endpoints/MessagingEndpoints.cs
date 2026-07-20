@@ -64,7 +64,7 @@ public class MessagingEndpoints
             Id = a.Id,
             FileName = a.FileName,
             ContentType = a.ContentType,
-            ThumbnailUrl = "https://api.alpinebits.ch/api/v1/messaging/attachments/" + a.Id + "/thumbnail",
+            ThumbnailUrl = "https://api.venta.gg/api/v1/messaging/attachments/" + a.Id + "/thumbnail",
             ThumbnailId = a.ThumbnailId
         }).ToList();
 

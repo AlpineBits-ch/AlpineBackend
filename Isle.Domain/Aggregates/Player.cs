@@ -38,5 +38,18 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         player.AddDomainEvent(PlayerCreated.FromPlayer(player));
         return player;
     }
+
+
+    public void LinkUserId(string userId)
+    {
+        this.UserId = userId;
+        this.AddDomainEvent(PlayerUserIdUnlinked.FromPlayer(this));
+    }
+
+    public void UnlinkUserId()
+    {
+        this.UserId = null;
+        this.AddDomainEvent(PlayerUserIdUnlinked.FromPlayer(this));
+    }
     
 }

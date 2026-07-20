@@ -31,8 +31,13 @@ public class Storage : Aggregate<Storage>, IPrefixedEntity
     
     public static Storage Create(string playerId)
     {
+        var id = GenerateId();
+        var date = DateTime.UtcNow;
         return new Storage
         {
+            Id = id,
+            CreatedAt = date,
+            UpdatedAt = date,
             PlayerId = playerId,
             Slots = new List<StorageSlot>()
         };

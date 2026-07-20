@@ -7,7 +7,7 @@ namespace Isle.Domain.Aggregates;
 
 public class Storage : Aggregate<Storage>, IPrefixedEntity
 {
-    public int MaxSlotCount { get; set; }
+    public int MaxSlotCount { get; set; } = 5;
     
     public virtual Player Player { get; set; }
     public virtual string PlayerId { get; set; }
@@ -27,6 +27,15 @@ public class Storage : Aggregate<Storage>, IPrefixedEntity
         if(Slots.Count >= MaxSlotCount)
             throw new StorageFullException(Id, MaxSlotCount);
         Slots.Add(slot);
+    }
+    
+    public static Storage Create(string playerId)
+    {
+        return new Storage
+        {
+            PlayerId = playerId,
+            Slots = new List<StorageSlot>()
+        };
     }
     
 }

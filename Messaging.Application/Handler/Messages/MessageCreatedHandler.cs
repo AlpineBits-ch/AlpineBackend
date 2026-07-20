@@ -30,7 +30,7 @@ public class MessageCreatedHandler
             var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageCreated.ConversationId && m.UserId != messageCreated.AuthorId).AsNoTracking().ToListAsync();
 
             var profile =await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest() { UserId = messageCreated.AuthorId });
-            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("MessageCreated", messageCreated);
+            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.MessageCreated", messageCreated);
 
             var response = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = conversationMembers.Select(m => m.UserId).ToList() });
             string body = Encoding.UTF8.GetString(messageCreated.Content);

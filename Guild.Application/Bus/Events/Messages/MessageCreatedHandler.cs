@@ -37,7 +37,7 @@ public class MessageCreatedHandler
 
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
 
-        await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("MessageCreated", message);
+        await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("guild.MessageCreated", message);
 
         var members = await context.GuildMembers
             .Where(m => m.GuildId == cachedGuildId && message.Mentions.Contains(m.UserId))

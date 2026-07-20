@@ -12,6 +12,6 @@ public class WikiCategoryUpdatedHandler
     {
         var presence = await service.GetGuildPresenceAsync(@event.GuildId);
         await hub.Clients.Users(presence.Select(p => p.UserId))
-            .SendAsync("WikiCategoryUpdated", new { CategoryId = @event.CategoryId, GuildId = @event.GuildId, ParentCategoryId = @event.ParentCategoryId });
+            .SendAsync("guild.WikiCategoryUpdated", new { CategoryId = @event.CategoryId, GuildId = @event.GuildId, ParentCategoryId = @event.ParentCategoryId });
     }
 }

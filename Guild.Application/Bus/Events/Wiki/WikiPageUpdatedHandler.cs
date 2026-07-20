@@ -12,6 +12,6 @@ public class WikiPageUpdatedHandler
     {
         var presence = await service.GetGuildPresenceAsync(@event.GuildId);
         await hub.Clients.Users(presence.Select(p => p.UserId))
-            .SendAsync("WikiPageUpdated", new { PageId = @event.PageId, GuildId = @event.GuildId });
+            .SendAsync("guild.WikiPageUpdated", new { PageId = @event.PageId, GuildId = @event.GuildId });
     }
 }

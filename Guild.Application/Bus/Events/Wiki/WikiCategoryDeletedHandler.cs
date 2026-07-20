@@ -12,6 +12,6 @@ public class WikiCategoryDeletedHandler
     {
         var presence = await service.GetGuildPresenceAsync(@event.GuildId);
         await hub.Clients.Users(presence.Select(p => p.UserId))
-            .SendAsync("WikiCategoryDeleted", new { CategoryId = @event.CategoryId, GuildId = @event.GuildId });
+            .SendAsync("guild.WikiCategoryDeleted", new { CategoryId = @event.CategoryId, GuildId = @event.GuildId });
     }
 }

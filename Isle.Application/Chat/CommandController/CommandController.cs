@@ -42,7 +42,7 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                         PlayerSpecies = "Rex of course"
                     });
 
-                    await bridgeClient.DmAsync(text: response, steam: msg.Steam, mode: ChatMode.Global, sender: "RCON", ct: stoppingToken);
+                    await bridgeClient.DmAsync(text: response, steam: msg.Steam, sender: "RCON", ct: stoppingToken);
                     
                 
                 }

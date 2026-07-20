@@ -41,7 +41,7 @@ builder.Services.AddStackExchangeRedisCache(config =>
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
-var isleIpAddress = Environment.GetEnvironmentVariable("ISLE_IP_ADDRESS");
+var isleIpAddress = Environment.GetEnvironmentVariable("ISLE_IP_ADDRESS") ?? "10.0.0.0";
 
 builder.Services.AddIsleBridge(cfg =>
 {

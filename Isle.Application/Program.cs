@@ -3,12 +3,23 @@ using AppEnvironment;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
 using IsleBridge.Sdk;
+using StackExchange.Redis;
 using TheIsleEvrimaRconClient;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddLogging();
-// Add services to the container.
+builder.Services.AddDistributedMemoryCache();
+var redis = Env.Redis;
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
+
+builder.Services.AddStackExchangeRedisCache(config =>
+{
+    
+    config.Configuration = $"{redis.Host}:{redis.Port},password={redis.Password}";
+});// Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 

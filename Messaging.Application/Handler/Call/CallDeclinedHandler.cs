@@ -17,6 +17,6 @@ public class CallDeclinedHandler
             throw new Exception("Call not found, cannot end call");
         }
         
-        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId)).SendAsync("CallDeclined", call);
+        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId)).SendAsync("call.CallDeclined", call);
     }
 }

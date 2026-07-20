@@ -17,6 +17,6 @@ public class CallAcceptedHandler
             throw new Exception("Call not found, cannot end call");
         }
         
-        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId)).SendAsync("CallAccepted", call);
+        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId)).SendAsync("call.CallAccepted", call);
     }
 }

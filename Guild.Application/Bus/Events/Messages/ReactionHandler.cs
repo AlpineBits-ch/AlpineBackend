@@ -42,7 +42,7 @@ public class ReactionHandler
         var presence = await GetPresenceByChannel(reactionCreatedEvent.ChannelId, cache, context, logger, service);
 
         var users = presence.Select(p => p.UserId).Where(u => u != reactionCreatedEvent.UserId);
-        await hub.Clients.Users(users).SendAsync("ReactionCreated", reactionCreatedEvent);
+        await hub.Clients.Users(users).SendAsync("guild.ReactionCreated", reactionCreatedEvent);
     }
     
     public async Task Handle(ReactionRemovedEvent reactionRemovedEvent, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
@@ -50,6 +50,6 @@ public class ReactionHandler
     {
         var presence = await GetPresenceByChannel(reactionRemovedEvent.ChannelId, cache, context, logger, service);
         var users = presence.Select(p => p.UserId).Where(u => u != reactionRemovedEvent.UserId);
-        await hub.Clients.Users(users).SendAsync("ReactionRemoved", reactionRemovedEvent);
+        await hub.Clients.Users(users).SendAsync("guild.ReactionRemoved", reactionRemovedEvent);
     }
 }

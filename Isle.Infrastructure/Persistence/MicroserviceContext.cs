@@ -1,5 +1,6 @@
 ﻿using AppEnvironment;
 using Isle.Domain.Aggregates;
+using Isle.Domain.Entity;
 using Microsoft.EntityFrameworkCore;
 using Persistence;
 
@@ -8,6 +9,8 @@ namespace Isle.Infrastructure.Persistence;
 public class MicroserviceContext : DbContext
 {
     public DbSet<Player> Players { get; set; }
+    public DbSet<Storage> Storages { get; set; }
+    public DbSet<StorageSlot> StorageSlots { get; set; }
     
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -23,8 +26,29 @@ public class MicroserviceContext : DbContext
         
     }
 
-    
-    
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Player>(playerBuilder =>
+        {
+        });
+
+        modelBuilder.Entity < Storage>(storageBuilder =>
+        {
+            storageBuilder.HasOne(s => s.Player)
+                .WithOne(p => p.Storage)
+                .HasForeignKey<Storage>(p => p.PlayerId);
+        });
+
+        modelBuilder.Entity<StorageSlot>(slotBuilder =>
+        {
+            slotBuilder.HasOne(s => s.Storage)
+                .WithMany(s => s.Slots)
+                .HasForeignKey(s => s.StorageId);
+            slotBuilder.OwnsOne(s => s.Mutations);
+            slotBuilder.OwnsOne(s => s.HealthData);
+        });
+    }
+
     public override int SaveChanges()
     {
         ChangeTracker.UpdateTimestamps();

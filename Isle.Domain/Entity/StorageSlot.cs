@@ -1,4 +1,5 @@
-﻿using IsleBridge.Sdk.Models;
+﻿using Isle.Domain.Aggregates;
+using IsleBridge.Sdk.Models;
 using Persistence;
 
 namespace Isle.Domain.Entity;
@@ -19,6 +20,8 @@ public class CreateStorageSlotParams
 }
 public class StorageSlot : BaseEntity<StorageSlot>, IPrefixedEntity
 {
+    public Storage Storage { get; set; }
+    public string StorageId { get; set; }
     public string Species { get; set; }
 
     public DinoHealthData HealthData { get; set; }

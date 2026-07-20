@@ -9,4 +9,5 @@ public class DebugCommand : ChatCommand
 
     public override string Name { get; } = "debug";
     public override string Description { get; } = "Debug command, to see if the game actually deals with commands";
+    public override bool IsAdminOnly { get; set; } = false;
 }

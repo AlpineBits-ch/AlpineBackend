@@ -32,8 +32,6 @@ builder.Services.AddInfrastructure();
 
 var redis = Env.Redis;
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-    ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
 
 builder.Services.AddStackExchangeRedisCache(config =>
 {

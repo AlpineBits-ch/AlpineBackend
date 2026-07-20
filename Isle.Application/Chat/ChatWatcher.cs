@@ -57,7 +57,7 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
 
                             await client.NotifyAsync(msg.Steam, "Welome to Venta.gg!", ct);
                             
-                            
+                            await client.DmAsync(msg.Steam, "Welcome to Venta.gg!");
                             break;
                         }
                         case EventKind.Leave:

@@ -1,5 +1,6 @@
 ﻿using Domain;
 using Isle.Domain.Entity;
+using Isle.Domain.Events.Player;
 using Persistence;
 
 namespace Isle.Domain.Aggregates;
@@ -24,7 +25,7 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     {
         var id = GenerateId();
         var date = DateTimeOffset.UtcNow;
-        return new Player
+        var player=  new Player
         {
             Id = id,
             CreatedAt = date,
@@ -34,6 +35,8 @@ public class Player : Aggregate<Player>, IPrefixedEntity
             IsAdmin = args.IsAdmin,
             Storage = Aggregates.Storage.Create(id)
         };
+        player.AddDomainEvent(PlayerCreated.FromPlayer(player));
+        return player;
     }
     
 }

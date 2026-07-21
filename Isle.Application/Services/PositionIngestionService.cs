@@ -29,6 +29,8 @@ public sealed class PositionIngestionService(
 
                     using var scope = scopeFactory.CreateScope();
                     var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+                    var presenceManager = scope.ServiceProvider.GetRequiredService<PlayerPresenceManager>();
+                    
 
                     await bus.InvokeAsync(new UpdatePlayerPositionCommand(
                         playerId,

@@ -13,6 +13,10 @@ public class CommandContext
     
     public ICollection<string> Arguments { get; set; }
     
+    public string PlayerId { get; set; }
+    
+    public bool IsAdmin { get; set; }
+    
 }
 
 public abstract class ChatCommand

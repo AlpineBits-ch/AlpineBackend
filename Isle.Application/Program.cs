@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using AppEnvironment;
 using Isle.Api;
 using Isle.Api.Chat;
@@ -26,6 +27,7 @@ builder.Services.AddLogging();
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddWolverineHttp();
 builder.Services.AddSingleton<VoicePlayerRegistry>();
+builder.Services.AddSingleton<VoiceTrackRegistry>();
 builder.Services.AddSingleton<PlayerPresenceManager>();
 builder.Services.AddHostedService<PositionIngestionService>();
 builder.Services.AddHostedService<PlayerJoinNotificationService>();
@@ -74,6 +76,16 @@ builder.UseWolverine(opts =>
 
 builder.Services.AddSingleton<VoiceGridConfig>();
 builder.Services.AddSingleton<VoiceCluster>();
+
+// Cloudflare Calls SFU signalling relay for proximity voice.
+builder.Services.AddScoped<CloudflareService>();
+builder.Services.AddHttpClient("CloudflareProxy", client =>
+{
+    client.BaseAddress = new Uri($"https://rtc.live.cloudflare.com/v1/apps/{Env.CloudflareConfig.AppId}/");
+    client.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
+});
+
 var redis = Env.Redis;
 
 builder.Services.AddSignalR(config =>

@@ -53,5 +53,22 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         this.UserId = null;
         this.AddDomainEvent(PlayerUserIdUnlinked.FromPlayer(this));
     }
+
+    public void SetAdmin()
+    {
+        this.IsAdmin = true;
+        this.AddDomainEvent(new PlayerPromotedToAdmin()
+        {
+            PlayerId = this.Id
+        });
+    }
     
+    public void UnsetAdmin()
+    {
+        this.IsAdmin = false;
+        this.AddDomainEvent(new PlayerRemovedFromAdmin()
+        {
+            PlayerId = this.Id
+        });
+    }
 }

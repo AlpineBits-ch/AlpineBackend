@@ -1,5 +1,6 @@
-﻿using Echo.Realtime;
+using Echo.Realtime;
 using Isle.Api;
+using Isle.Api.Voice;
 using Isle.Contracts.Events.Voice;
 using Microsoft.AspNetCore.SignalR;
 
@@ -9,28 +10,33 @@ namespace Isle.Infrastructure.Sfu;
     public class RealtimeSfuClient : ISfuClient
     {
         private readonly IHubContext<EchoRealtimeHub> _hub;
+        private readonly VoiceTrackRegistry _tracks;
 
-        public RealtimeSfuClient(IHubContext<EchoRealtimeHub> hub) => _hub = hub;
-
-        // existing media/track publish-subscribe implementations live here too...
-
-        public Task<string?> GetActiveTrackId(string playerId)
+        public RealtimeSfuClient(IHubContext<EchoRealtimeHub> hub, VoiceTrackRegistry tracks)
         {
-            throw new NotImplementedException("Wire this up against your existing SFU track registry.");
+            _hub = hub;
+            _tracks = tracks;
         }
+
+        public Task<string?> GetActiveTrackId(string playerId) =>
+            Task.FromResult(_tracks.TryGet(playerId, out var track) ? track.TrackName : null);
 
         public async Task SubscribeMutual(string playerIdA, string playerIdB)
         {
-            var trackB = await GetActiveTrackId(playerIdB);
-            var trackA = await GetActiveTrackId(playerIdA);
+            var hasB = _tracks.TryGet(playerIdB, out var trackB);
+            var hasA = _tracks.TryGet(playerIdA, out var trackA);
 
-            if (trackB is not null)
+            // Only ask a peer to pull a track that actually exists — pulling a
+            // not-yet-published remote track makes Cloudflare reject with 425.
+            if (hasB)
                 await _hub.Clients.User(playerIdA)
-                    .SendAsync(SfuSocketEvents.SubscribeMutual, new SubscribeMutualPayload(playerIdB, trackB));
+                    .SendAsync(SfuSocketEvents.SubscribeMutual,
+                        new SubscribeMutualPayload(playerIdB, trackB.CfSessionId, trackB.TrackName));
 
-            if (trackA is not null)
+            if (hasA)
                 await _hub.Clients.User(playerIdB)
-                    .SendAsync(SfuSocketEvents.SubscribeMutual, new SubscribeMutualPayload(playerIdA, trackA));
+                    .SendAsync(SfuSocketEvents.SubscribeMutual,
+                        new SubscribeMutualPayload(playerIdA, trackA.CfSessionId, trackA.TrackName));
         }
 
         public async Task UnsubscribeAll(string playerId, string cellId)

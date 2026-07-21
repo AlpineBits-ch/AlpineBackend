@@ -6,7 +6,7 @@ public class PlayerCreated : PlayerEvent
     {
         return new PlayerCreated
         {
-            Id = player.Id,
+            PlayerId = player.Id,
             SteamId = player.SteamId,
             UserId = player.UserId
         };

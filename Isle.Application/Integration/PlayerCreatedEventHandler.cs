@@ -9,7 +9,7 @@ public class PlayerCreatedEventHandler
     {
         return new PlayerCreatedEvent()
         {
-            Id = playerCreated.Id,
+            Id = playerCreated.PlayerId,
             SteamId = playerCreated.SteamId,
             UserId = playerCreated.UserId
         };

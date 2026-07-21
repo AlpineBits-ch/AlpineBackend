@@ -21,7 +21,7 @@ public static class VoiceMembershipEndpoints
     [Authorize]
     [WolverinePost("/api/v1/voice/join")]
     public static async Task<IResult> Join([NotBody] ClaimsPrincipal user,
-        MicroserviceContext db, VoicePlayerRegistry registry, IMessageBus bus, CancellationToken ct)
+        [NotBody] MicroserviceContext db, [NotBody]VoicePlayerRegistry registry,[NotBody] CancellationToken ct)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();

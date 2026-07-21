@@ -21,7 +21,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddLogging();
 builder.Services.AddDistributedMemoryCache();
-
+builder.Services.AddWolverineHttp();
 builder.UseWolverine(opts =>
 {
     if(args.Contains("facets")) return;
@@ -34,11 +34,19 @@ builder.UseWolverine(opts =>
 
 builder.Services.AddSingleton<VoiceGridConfig>();
 builder.Services.AddSingleton<VoiceCluster>();
+var redis = Env.Redis;
 
+builder.Services.AddSignalR(config =>
+    {
+        config.EnableDetailedErrors = true;
+    }).AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    })
+    .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
 builder.Services.AddInfrastructure();
 
 
-var redis = Env.Redis;
 
 
 builder.Services.AddStackExchangeRedisCache(config =>
@@ -77,6 +85,18 @@ if (args.Contains("codegen") || args.Contains("describe"))
     
     try
     {
+        builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
+        {
+            var options = new ConfigurationOptions
+            {
+                EndPoints = { "localhost:6379" },
+                AbortOnConnectFail = false,
+                AllowAdmin = false,
+                Password = null 
+            };
+
+            return ConnectionMultiplexer.Connect(options);
+        });   
         var codeGenApp = builder.Build();
         codeGenApp.MapWolverineEndpoints(opts =>
         {

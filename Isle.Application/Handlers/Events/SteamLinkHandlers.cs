@@ -4,15 +4,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Isle.Api.Handlers.Events;
 
-public class SteamLinkHandlers(MicroserviceContext context)
+public class SteamLinkHandler(MicroserviceContext context, ILogger<SteamLinkHandler> logger)
 {
-    public async Task HandleSteamLinkedEvent(SteamLinkedEvent @event)
+    public async Task Handle(SteamLinkedEvent @event)
     {
 
         var player = await context.Players.FirstOrDefaultAsync(p => p.SteamId == @event.SteamId);
         player?.LinkUserId(@event.SteamId);
+        
     }
-    public async Task HandleSteamUnlinkedEvent(SteamUnlinkedEvent @event)
+    public async Task Handle(SteamUnlinkedEvent @event)
     {
         var player = await context.Players.FirstOrDefaultAsync(p => p.SteamId == @event.SteamId);
         player?.UnlinkUserId();

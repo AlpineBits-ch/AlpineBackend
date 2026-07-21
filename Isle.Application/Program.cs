@@ -174,7 +174,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseGracefulShutdownHealthCheck();
-
+app.MapWolverineEndpoints();
 app.MapHealthChecks("/isle/health");
 app.UseHttpsRedirection();
 

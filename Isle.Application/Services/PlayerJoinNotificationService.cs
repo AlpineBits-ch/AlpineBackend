@@ -38,7 +38,10 @@ public sealed class PlayerJoinNotificationService(
                     }
 
                     if (player.UserId is null)
+                    {
+                        logger.LogWarning("Join event for player {PlayerId} with no linked account", player.Id);
                         continue; // no linked account — nowhere to route the socket message
+                    }
 
                     await hubContext.Clients.User(player.UserId).SendAsync(
                         "isle.PlayerJoined",

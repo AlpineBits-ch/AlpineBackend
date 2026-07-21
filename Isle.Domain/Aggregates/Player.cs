@@ -39,6 +39,8 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         return player;
     }
 
+    
+ 
 
     public void LinkUserId(string userId)
     {

@@ -1,5 +1,6 @@
 ﻿using Echo.Realtime;
 using Isle.Contracts.Commands;
+using Isle.Contracts.Events.Player;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
 using Microsoft.AspNetCore.SignalR;
@@ -23,17 +24,36 @@ public sealed class GameEventIngestionService(
                 {
                     using var scope = scopeFactory.CreateScope();
 
-                    
-                    
+                    var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+
+                    if (evt.Kind == EventKind.Leave)
+                    {
+                        await bus.PublishAsync(new UserLeftIsleServerEvent()
+                        {
+                            SteamId = @evt.Steam,
+                        });
+                    }
+
+                    if (evt.Kind == EventKind.Join)
+                    {
+                        await bus.PublishAsync(new UserJoinedIsleServerEvent()
+                        {
+                            SteamId = @evt.Steam,
+                        });
+                    }
+
                     if (evt.Kind != EventKind.Leave)
+                    {
+                      
                         continue; // join/death/unknown are irrelevant to voice membership
+
+                    }
 
                     if (!registry.TryGetPlayerId(evt.Steam, out var playerId))
                         continue; // wasn't opted into voice — nothing to clean up
 
                     registry.UnregisterBySteamId(evt.Steam);
 
-                    var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
                     await bus.InvokeAsync(new RemovePlayerCommand(playerId), stoppingToken);
                 }

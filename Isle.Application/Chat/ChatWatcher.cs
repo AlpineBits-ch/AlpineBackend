@@ -49,20 +49,9 @@ public class ChatWatcher(IChatStream chat, IEventStream events, ILogger<ChatWatc
                             {
                             
                                 logger.LogInformation("Player {Name} joined", msg.Steam);
-                                if (!await ctx.Players.AnyAsync(p => p.SteamId == msg.Steam, cancellationToken: ct))
-                                {
-                                    var player = Player.Create(new CreatePlayerArgs()
-                                    {
-                                        IsAdmin = false,
-                                        SteamId = msg.Steam,
-                                    });
-                                    await ctx.Players.AddAsync(player, ct);
-                                    await ctx.SaveChangesAsync(ct);
-                                }
+                              
 
-                                await client.NotifyAsync(msg.Steam, "Welome to Venta.gg!", ct);
                             
-                                await client.DmAsync ("Welcome to Venta.gg!", msg.Steam);
                                 break;
                             }
                             case EventKind.Leave:

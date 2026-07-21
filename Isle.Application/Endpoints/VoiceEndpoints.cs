@@ -9,6 +9,12 @@ using Wolverine.Http;
 
 namespace Isle.Api.Endpoints;
 
+
+public class VoiceConnectionStatusDto
+{
+    public bool IsGameConnected { get; set; }
+    public bool IsVoiceConnected { get; set; }
+}
 public static class VoiceMembershipEndpoints
 {
     [Authorize]
@@ -38,9 +44,9 @@ public static class VoiceMembershipEndpoints
     [Authorize]
     [WolverinePost("/api/v1/isle/voice/leave")]
     public static async Task<IResult> Leave(
-        HttpContext http, MicroserviceContext db, VoicePlayerRegistry registry, IMessageBus bus, CancellationToken ct)
+        [ NotBody] MicroserviceContext db, VoicePlayerRegistry registry, IMessageBus bus, CancellationToken ct, [NotBody] ClaimsPrincipal user)
     {
-        var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
 
         var player = await db.Players
@@ -55,5 +61,34 @@ public static class VoiceMembershipEndpoints
         await bus.InvokeAsync(new RemovePlayerCommand(player.Id));
 
         return Results.NoContent();
+    }
+
+
+    [Authorize]
+    [WolverineGet("/api/v1/isle/voice/status")]
+    public static async Task<IResult> GetConnectionStatus( [NotBody] ClaimsPrincipal user, [NotBody] VoicePlayerRegistry registry, MicroserviceContext context, PlayerPresenceManager presenceManager)
+    {
+        var player = await context.Players.AsNoTracking()
+            .Where(p => p.UserId == user.FindFirstValue(ClaimTypes.NameIdentifier)).FirstOrDefaultAsync();
+
+
+        if(player is null) return Results.NotFound("Player not registered");
+        
+        
+        if (registry.TryGetPlayerId(player.SteamId, out var _))
+        {
+            return Results.Ok(new VoiceConnectionStatusDto()
+            {
+                IsVoiceConnected = true,
+                IsGameConnected = true,
+            });
+        }
+        
+        return Results.Ok(new VoiceConnectionStatusDto()
+        {
+            IsVoiceConnected = false,
+            IsGameConnected = presenceManager.IsPlayerOnline(player.SteamId),
+        });
+        
     }
 }

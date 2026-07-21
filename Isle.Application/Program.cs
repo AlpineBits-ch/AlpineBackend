@@ -26,6 +26,7 @@ builder.Services.AddLogging();
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddWolverineHttp();
 builder.Services.AddSingleton<VoicePlayerRegistry>();
+builder.Services.AddSingleton<PlayerPresenceManager>();
 builder.Services.AddHostedService<PositionIngestionService>();
 builder.Services.AddHostedService<PlayerJoinNotificationService>();
 builder.Services.AddHostedService<GameEventIngestionService>();

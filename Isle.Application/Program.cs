@@ -27,6 +27,7 @@ builder.Services.AddDistributedMemoryCache();
 builder.Services.AddWolverineHttp();
 builder.Services.AddSingleton<VoicePlayerRegistry>();
 builder.Services.AddHostedService<PositionIngestionService>();
+builder.Services.AddHostedService<PlayerJoinNotificationService>();
 builder.Services.AddHostedService<GameEventIngestionService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

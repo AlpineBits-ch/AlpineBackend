@@ -16,7 +16,7 @@ public record IsleCloseTracksBody(string CfSessionId, List<string> TrackNames);
 [Authorize]
 public class VoiceCloudflareEndpoints
 {
-    [WolverinePost("/api/v1/isle/voice/cf/session")]
+    [WolverinePost("/api/v1/voice/cf/session")]
     public async Task<IResult> CreateSession(
         [NotBody] ClaimsPrincipal user,
         [NotBody] CloudflareService cf,
@@ -35,7 +35,7 @@ public class VoiceCloudflareEndpoints
         return Results.Ok(new { cfSessionId });
     }
 
-    [WolverinePost("/api/v1/isle/voice/cf/tracks/new")]
+    [WolverinePost("/api/v1/voice/cf/tracks/new")]
     public async Task<IResult> TracksNew(
         IsleTracksNewBody body,
         [NotBody] ClaimsPrincipal user,
@@ -65,7 +65,7 @@ public class VoiceCloudflareEndpoints
         return Results.Ok(result);
     }
 
-    [WolverinePut("/api/v1/isle/voice/cf/renegotiate")]
+    [WolverinePut("/api/v1/voice/cf/renegotiate")]
     public async Task<IResult> Renegotiate(
         IsleRenegotiateBody body,
         [NotBody] CloudflareService cf,
@@ -76,7 +76,7 @@ public class VoiceCloudflareEndpoints
         return Results.Ok(result);
     }
 
-    [WolverinePut("/api/v1/isle/voice/cf/tracks/close")]
+    [WolverinePut("/api/v1/voice/cf/tracks/close")]
     public async Task<IResult> CloseTracks(
         IsleCloseTracksBody body,
         [NotBody] ClaimsPrincipal user,

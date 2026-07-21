@@ -50,16 +50,17 @@ public sealed class PlayerJoinNotificationService(
                         "isle.PlayerJoined",
                         new { playerId = player.Id, steamId = player.SteamId },
                         stoppingToken);
-                     logger.LogDebug("[PlayerJoinNotificationService] Player joined notification sent to user {UserId}", player.UserId);
+                     logger.LogWarning("[PlayerJoinNotificationService] Player joined notification sent to user {UserId}", player.UserId);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
+                logger.LogWarning("[PlayerJoinNotificationService] Join notification stream dropped, reconnecting in 2s");
                 break;
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Join notification stream dropped, reconnecting in 2s");
+                logger.LogWarning("[PlayerJoinNotificationService] Join notification stream dropped, reconnecting in 2s");
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
         }

@@ -3,6 +3,7 @@ using AppEnvironment;
 using Isle.Api;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
+using Isle.Api.Services;
 using Isle.Api.Voice;
 using Isle.Domain.Aggregates;
 using Isle.Infrastructure;
@@ -11,6 +12,8 @@ using Isle.Infrastructure.Sfu;
 using IsleBridge.Sdk;
 using JasperFx;
 using Messaging;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using TheIsleEvrimaRconClient;
 using Wolverine;
@@ -22,6 +25,41 @@ builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddLogging();
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddWolverineHttp();
+builder.Services.AddSingleton<VoicePlayerRegistry>();
+builder.Services.AddHostedService<PositionIngestionService>();
+builder.Services.AddHostedService<GameEventIngestionService>();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
+        options.RequireHttpsMetadata = false;
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
+            ValidateAudience = false,
+         
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && 
+                    path.StartsWithSegments("/api/v1/ws/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            },
+          
+        };
+        
+    });
+
 builder.UseWolverine(opts =>
 {
     if(args.Contains("facets")) return;

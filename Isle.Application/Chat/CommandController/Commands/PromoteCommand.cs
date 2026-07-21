@@ -1,10 +1,11 @@
 ﻿using Isle.Contracts.Commands;
 using Isle.Infrastructure.Persistence;
+using Wolverine;
 using Wolverine.Runtime;
 
 namespace Isle.Api.Chat.CommandController.Commands;
 
-public class PromoteCommand(MicroserviceContext microserviceContext, MessageBus bus) : ChatCommand
+public class PromoteCommand(MicroserviceContext microserviceContext, IMessageBus bus) : ChatCommand
 {
     public override async Task<string> ExecuteAsync(CommandContext context)
     {
@@ -23,7 +24,8 @@ public class PromoteCommand(MicroserviceContext microserviceContext, MessageBus 
 
         await bus.PublishAsync(new ChangePlayerAdminStatusCommand()
         {
-            PlayerId = player.Id
+            PlayerId = player.Id,
+            IsAdmin = true,
         });
 
         return $"Player {steamId} promoted to admin";

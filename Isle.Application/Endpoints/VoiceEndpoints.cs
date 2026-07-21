@@ -19,7 +19,7 @@ public class VoiceConnectionStatusDto
 public static class VoiceMembershipEndpoints
 {
     [Authorize]
-    [WolverinePost("/api/v1/isle/voice/join")]
+    [WolverinePost("/api/v1/voice/join")]
     public static async Task<IResult> Join(
         HttpContext http, MicroserviceContext db, VoicePlayerRegistry registry, IMessageBus bus, CancellationToken ct)
     {
@@ -45,7 +45,7 @@ public static class VoiceMembershipEndpoints
     }
 
     [Authorize]
-    [WolverinePost("/api/v1/isle/voice/leave")]
+    [WolverinePost("/api/v1/voice/leave")]
     public static async Task<IResult> Leave(
         [NotBody] VoicePlayerRegistry registry, [NotBody] VoiceTrackRegistry tracks, [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
     {
@@ -61,7 +61,7 @@ public static class VoiceMembershipEndpoints
 
 
     [Authorize]
-    [WolverineGet("/api/v1/isle/voice/status")]
+    [WolverineGet("/api/v1/voice/status")]
     public static async Task<IResult> GetConnectionStatus( [NotBody] ClaimsPrincipal user, [NotBody] VoicePlayerRegistry registry, MicroserviceContext context, PlayerPresenceManager presenceManager)
     {
         var player = await context.Players.AsNoTracking()

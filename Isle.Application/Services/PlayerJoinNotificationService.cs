@@ -48,7 +48,7 @@ public sealed class PlayerJoinNotificationService(
 
                     await hubContext.Clients.User(player.UserId).SendAsync(
                         "isle.PlayerJoined",
-                        new { playerId = player.Id, steamId = player.SteamId },
+                        new { playerId = player.Id, steamId = player.SteamId, userId = player.UserId },
                         stoppingToken);
                      logger.LogWarning("[PlayerJoinNotificationService] Player joined notification sent to user {UserId}", player.UserId);
                 }

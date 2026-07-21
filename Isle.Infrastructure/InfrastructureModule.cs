@@ -1,5 +1,7 @@
 ﻿using AppEnvironment;
+using Isle.Api;
 using Isle.Infrastructure.Persistence;
+using Isle.Infrastructure.Sfu;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,6 +19,8 @@ public static class IsleInfrastructure
 
     public static void AddInfrastructure(this IServiceCollection services)
     {
+        services.AddScoped<ISfuClient, RealtimeSfuClient>();
+
         try
         {
             var redis = Env.Redis;

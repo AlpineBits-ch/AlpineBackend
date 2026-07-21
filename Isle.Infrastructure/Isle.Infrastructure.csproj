@@ -27,6 +27,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
       <ProjectReference Include="..\Isle.Domain\Isle.Domain.csproj" />
     </ItemGroup>
 </Project>

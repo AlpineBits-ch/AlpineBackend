@@ -39,12 +39,14 @@ namespace Isle.Infrastructure.Sfu;
                         new SubscribeMutualPayload(userIdA, trackA.CfSessionId, trackA.TrackName));
         }
 
-        public async Task UnsubscribeAll(string userId, string cellId)
+        public async Task UnsubscribePair(string userIdA, string userIdB)
         {
-            // TrackIds populated from whatever the client currently has subscribed —
-            // if your SFU service tracks this server-side, resolve it here instead of empty.
-            await _hub.Clients.User(userId)
-                .SendAsync(SfuSocketEvents.UnsubscribeAll, new UnsubscribeAllPayload(cellId, Array.Empty<string>()));
+            // Audibility is symmetric, so when one peer walks out of the other's 3x3 block (or
+            // leaves voice) the relationship ends on both sides — tell each to drop the other.
+            await _hub.Clients.User(userIdA)
+                .SendAsync(SfuSocketEvents.PeerLeft, new PeerLeftPayload(userIdB));
+            await _hub.Clients.User(userIdB)
+                .SendAsync(SfuSocketEvents.PeerLeft, new PeerLeftPayload(userIdA));
         }
 
         public async Task BroadcastPosition(string userId, IReadOnlyList<string> recipients, float x, float y, float z, float yaw)
@@ -57,5 +59,14 @@ namespace Isle.Infrastructure.Sfu;
         {
             await _hub.Clients.User(userId)
                 .SendAsync(SfuSocketEvents.SelfPosition, new SelfPositionPayload(x, y, z, yaw));
+        }
+
+        public async Task SendPeerPosition(string recipientUserId, string peerUserId, float x, float y, float z, float yaw)
+        {
+            // Reuses the PlayerPosition event so the client needs no new handler — it just
+            // receives one peer's position immediately on subscribe instead of waiting for the
+            // peer's next throttled movement broadcast (which never comes if they're standing still).
+            await _hub.Clients.User(recipientUserId)
+                .SendAsync(SfuSocketEvents.PlayerPosition, new VoicePositionPayload(peerUserId, x, y, z, yaw));
         }
     }

@@ -15,7 +15,11 @@ public class VoiceCluster
         var newCell = new MapCell { WorldX = worldX, WorldY = worldY, CellSize = _config.CellSize };
         var changes = new List<VoiceClusterChange>();
 
-        if (!_players.TryGetValue(playerId, out var player))
+        // Audible set before the move (3x3 block around the old cell).
+        _players.TryGetValue(playerId, out var player);
+        var oldAudible = player is null ? EmptySet : NeighbourhoodOf(player.CurrentCell, playerId);
+
+        if (player is null)
         {
             player = new PlayerVoiceState
             {
@@ -27,28 +31,33 @@ public class VoiceCluster
                 CurrentCell = newCell
             };
             _players[playerId] = player;
-
             AddToCell(playerId, newCell);
-            changes.Add(new VoiceClusterChange.Joined(playerId, newCell));
-            EmitPositionIfMoved(player, worldX, worldY, worldZ, yaw, changes);
-            return changes;
         }
-
-        player.PosX = worldX;
-        player.PosY = worldY;
-        player.PosZ = worldZ;
-        player.Yaw = yaw;
-
-        if (newCell != player.CurrentCell)
+        else
         {
-            var oldCell = player.CurrentCell;
-            RemoveFromCell(playerId, oldCell);
-            player.CurrentCell = newCell;
-            AddToCell(playerId, newCell);
+            player.PosX = worldX;
+            player.PosY = worldY;
+            player.PosZ = worldZ;
+            player.Yaw = yaw;
 
-            changes.Add(new VoiceClusterChange.Left(playerId, oldCell));
-            changes.Add(new VoiceClusterChange.Joined(playerId, newCell));
+            if (newCell != player.CurrentCell)
+            {
+                RemoveFromCell(playerId, player.CurrentCell);
+                player.CurrentCell = newCell;
+                AddToCell(playerId, newCell);
+            }
         }
+
+        // Diff the audible set (3x3 block).
+        var newAudible = NeighbourhoodOf(newCell, playerId);
+
+        foreach (var other in newAudible)
+            if (!oldAudible.Contains(other))
+                changes.Add(new VoiceClusterChange.PeerJoined(playerId, other));
+
+        foreach (var other in oldAudible)
+            if (!newAudible.Contains(other))
+                changes.Add(new VoiceClusterChange.PeerLeft(playerId, other));
 
         EmitPositionIfMoved(player, worldX, worldY, worldZ, yaw, changes);
         return changes;
@@ -59,14 +68,48 @@ public class VoiceCluster
         if (!_players.Remove(playerId, out var player))
             return [];
 
+        // Tell everyone who could still hear this player that they're gone.
+        var audible = NeighbourhoodOf(player.CurrentCell, playerId);
         RemoveFromCell(playerId, player.CurrentCell);
-        return [new VoiceClusterChange.Left(playerId, player.CurrentCell)];
+
+        return audible
+            .Select(other => (VoiceClusterChange)new VoiceClusterChange.PeerLeft(playerId, other))
+            .ToList();
     }
 
-    public IReadOnlyCollection<string> GetRoommates(string playerId) =>
-        _players.TryGetValue(playerId, out var player) && _cells.TryGetValue(player.CurrentCell, out var cell)
-            ? cell.GetPlayers()
+    /// <summary>Players within earshot of <paramref name="playerId"/> — the 3x3 block around their cell, excluding themselves.</summary>
+    public IReadOnlyCollection<string> GetAudiblePeers(string playerId) =>
+        _players.TryGetValue(playerId, out var player)
+            ? NeighbourhoodOf(player.CurrentCell, playerId)
             : Array.Empty<string>();
+
+    /// <summary>Last known world position + facing for a player, for seeding a newly-audible peer.</summary>
+    public bool TryGetPosition(string playerId, out (float X, float Y, float Z, float Yaw) position)
+    {
+        if (_players.TryGetValue(playerId, out var player))
+        {
+            position = (player.PosX, player.PosY, player.PosZ, player.Yaw);
+            return true;
+        }
+
+        position = default;
+        return false;
+    }
+
+    private static readonly HashSet<string> EmptySet = new();
+
+    // Union of players across the 3x3 block of cells centred on `centre`, excluding `self`.
+    private HashSet<string> NeighbourhoodOf(MapCell centre, string self)
+    {
+        var result = new HashSet<string>();
+        foreach (var coord in centre.Neighbourhood())
+            if (_cells.TryGetValue(coord, out var cell))
+                foreach (var occupant in cell.GetPlayers())
+                    if (occupant != self)
+                        result.Add(occupant);
+
+        return result;
+    }
 
     private void EmitPositionIfMoved(PlayerVoiceState player, float x, float y, float z, float yaw, List<VoiceClusterChange> changes)
     {
@@ -119,7 +162,8 @@ public class VoiceCluster
 
 public abstract record VoiceClusterChange
 {
-    public record Joined(string PlayerId, MapCell Cell) : VoiceClusterChange;
-    public record Left(string PlayerId, MapCell Cell) : VoiceClusterChange;
+    // PlayerId and OtherId can now hear / no longer hear each other. Applied mutually.
+    public record PeerJoined(string PlayerId, string OtherId) : VoiceClusterChange;
+    public record PeerLeft(string PlayerId, string OtherId) : VoiceClusterChange;
     public record Moved(string PlayerId, float WorldX, float WorldY, float WorldZ, float Yaw) : VoiceClusterChange;
 }

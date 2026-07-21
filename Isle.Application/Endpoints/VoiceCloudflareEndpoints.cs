@@ -58,8 +58,8 @@ public class VoiceCloudflareEndpoints
         {
             tracks.Publish(userId, body.CfSessionId, "audio");
 
-            foreach (var roommate in cluster.GetRoommates(userId).Where(r => r != userId))
-                await sfu.SubscribeMutual(userId, roommate);
+            foreach (var peer in cluster.GetAudiblePeers(userId).Where(p => p != userId))
+                await sfu.SubscribeMutual(userId, peer);
         }
 
         return Results.Ok(result);

@@ -1,13 +1,15 @@
 ﻿using Isle.Api.Chat.CommandController.Commands;
 using Isle.Domain.Entity;
+using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
+using Microsoft.EntityFrameworkCore;
 using TheIsleEvrimaRconClient;
 using TheIsleEvrimaRconClient.Extensions;
 
 namespace Isle.Api.Chat.CommandController;
 
-public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
+public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, MicroserviceContext context, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
 {
     public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand), typeof(CreateInviteCommand)];
     private ICollection<ChatCommand> Commands { get; } = [];
@@ -29,6 +31,10 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                 {
                     var text = msg.Text;
                     if(!text.StartsWith("!")) continue;
+                    var player = await context.Players.FirstOrDefaultAsync(p => p.SteamId == msg.Steam, stoppingToken);
+                    if(player is null) continue;
+                    
+                    
                     
                     var command = Commands.FirstOrDefault(c => c.Name == text.Split(' ')[0].Replace("!", ""));
                     if(command is null) continue;
@@ -39,10 +45,12 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                         PlayerName = msg.Name ?? string.Empty,
                         Arguments = text.Split(' ').Skip(1).ToArray(),
                         HealthData = new DinoHealthData(),
+                        PlayerId = player.Id,
+                        IsAdmin = player.IsAdmin,
                         PlayerSpecies = "Rex of course"
                     });
 
-                    await bridgeClient.DmAsync(text: response, mode: ChatMode.Spatial, steam: msg.Steam, sender: "RCON", ct: stoppingToken);
+                    await bridgeClient.DmAsync(text: response, mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
                     
                 
                 }

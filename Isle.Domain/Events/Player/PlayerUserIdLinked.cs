@@ -5,7 +5,7 @@ public class PlayerUserIdLinked : PlayerEvent
     public static PlayerUserIdLinked FromPlayer(Aggregates.Player player) =>
         new()
         {
-            Id = player.Id,
+            PlayerId = player.Id,
             SteamId = player.SteamId
         };
     

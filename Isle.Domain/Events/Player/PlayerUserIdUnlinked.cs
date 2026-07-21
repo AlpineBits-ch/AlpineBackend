@@ -5,7 +5,7 @@ public class PlayerUserIdUnlinked : PlayerEvent
     public static PlayerUserIdUnlinked FromPlayer(Aggregates.Player player) =>
         new()
         {
-            Id = player.Id,
+            PlayerId = player.Id,
             SteamId = player.SteamId
         };
 }

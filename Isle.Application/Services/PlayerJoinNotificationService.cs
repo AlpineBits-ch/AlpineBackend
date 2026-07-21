@@ -44,6 +44,7 @@ public sealed class PlayerJoinNotificationService(
                         "isle.PlayerJoined",
                         new { playerId = player.Id, steamId = player.SteamId },
                         stoppingToken);
+                    await logger.LogDebug("Player joined notification sent to user {UserId}", player.UserId);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

@@ -7,7 +7,8 @@ namespace Isle.Infrastructure.Sfu;
 // track, which the client pulls via tracks/new (location: "remote").
 public record SubscribeMutualPayload(string TargetUserId, string CfSessionId, string TrackName);
 
-public record UnsubscribeAllPayload(string CellId, IReadOnlyList<string> TrackIds);
+// A single peer (by userId) has left your earshot — tear down just their track/spatial node.
+public record PeerLeftPayload(string UserId);
 
 // Position of a peer in your voice cell — used to spatialise their audio.
 public record VoicePositionPayload(string UserId, float X, float Y, float Z, float Yaw);

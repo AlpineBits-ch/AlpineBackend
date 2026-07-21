@@ -11,6 +11,65 @@ each client whom to hear.
 
 ---
 
+## 0. Migration — what changed (2026-07-21)
+
+This round fixes the two issues you raised (the cell-border cliff and the missing
+"peer left" event). **Two things break the wire contract — you must adapt both:**
+
+### 0.1 `isle.UnsubscribeAll` is gone → replaced by `isle.PeerLeft`
+
+The old teardown was cell-scoped and only ever reached the person who *moved*. It's replaced
+by a **targeted, per-peer** event that reaches **both** sides of a broken pair:
+
+```ts
+// REMOVE this handler:
+// hub.on("isle.UnsubscribeAll", (_p) => tearDownAllRemotePeers());
+
+// ADD this one — tear down exactly one peer:
+hub.on("isle.PeerLeft", (p: { userId: string }) => tearDownPeer(p.userId));
+```
+
+`tearDownPeer(userId)` should: stop pulling that peer's Cloudflare track, disconnect and
+drop their `PannerNode`/audio element, and remove them from your `peers` map. Do **not**
+tear down everyone — only the named `userId`.
+
+**You can now delete your stale-position fade hack.** The reason you needed it (people you
+walked away from kept hearing a ghost of you) is gone: whoever loses you now gets an explicit
+`isle.PeerLeft` for you, and vice-versa. A peer whose position simply stopped updating is
+**standing still**, not gone — keep rendering them at their last position. (Still tear down
+on hub disconnect as a safety net.)
+
+### 0.2 Audibility is now a 3×3 cell block, not a single cell
+
+Previously you only heard people in your *exact* 30 m cell, so two players 1 m apart across a
+cell boundary heard nothing. Now the backend subscribes you to your cell **plus the 8
+adjacent cells** (a 3×3 block). **Your existing distance attenuation is what actually defines
+the audible edge** — it already fades to zero at 30 m (`maxDistance: 3000`), and that cutoff
+is now the real range limit in every direction, smoothly.
+
+**No code change is required for this** if your panner/gain already fades out by 30 m (§7) —
+you'll simply start receiving `isle.SubscribeMutual` for a few more peers, most of whom are
+attenuated to silence until they get close. See §1 for the one invariant that keeps this
+cliff-free.
+
+### 0.3 You now get a peer's position immediately on subscribe
+
+When someone becomes audible you receive one `isle.PlayerPosition` for them **right away**
+(seeded from their last-known position), instead of waiting for their next movement. This
+means a **stationary** peer is placed correctly the moment you subscribe. It's the same
+`isle.PlayerPosition` event you already handle — just make sure your handler tolerates a
+position arriving for a peer whose `ontrack` hasn't fired yet (the `pending` map in §7 already
+does this).
+
+### 0.4 Quick checklist
+
+- [ ] Replace the `isle.UnsubscribeAll` handler with `isle.PeerLeft` (per-peer teardown).
+- [ ] Delete any stale-position / idle-timeout fade-out logic used to hide ghosts.
+- [ ] Confirm your attenuation reaches 0 at 30 m (`maxDistance: 3000`) — it's now the real edge.
+- [ ] Confirm `isle.PlayerPosition` handling tolerates a peer arriving before their track.
+
+---
+
 ## 1. Concepts & identities
 
 There are **three** IDs. Do not mix them up.
@@ -24,12 +83,21 @@ There are **three** IDs. Do not mix them up.
 The backend keys the whole voice subsystem by `userId` and maps `userId ↔ steamId` for you.
 A player must be **fully linked** (has both `userId` and a non-empty `steamId`) to use voice.
 
-**Audibility model — grid cells, not a radius.** The world is divided into square voice
-cells of **3000 Unreal units = 30 m** (`VoiceGridConfig.CellSize`). You hear everyone in
-**your current cell**. This is a grid, not a smooth radius: two players 1 m apart but on
-opposite sides of a cell boundary will **not** hear each other, and everyone in the same
-30 m cell is audible regardless of exact distance. Use position data for volume/panning
-*within* that set; membership itself is cell-based.
+**Audibility model — a 3×3 cell block as coarse filter, distance as the real edge.** The
+world is divided into square voice cells of **3000 Unreal units = 30 m**
+(`VoiceGridConfig.CellSize`). The backend subscribes you to everyone in **your cell plus the
+8 adjacent cells** (a 3×3 block). That block is only a *coarse membership filter* — the
+**actual** audible edge is your client-side distance attenuation, which fades to zero at
+30 m (§7). So the set you receive is continuous across cell boundaries, and volume falls off
+smoothly by true distance in every direction. Two players 1 m apart across a boundary now
+hear each other; a peer 40 m away is subscribed but attenuated to silence.
+
+> **Load-bearing invariant:** this stays cliff-free only because `CellSize` (30 m) **≥** the
+> client attenuation radius (`maxDistance` = 3000 = 30 m). A 3×3 block guarantees every peer
+> within `CellSize` of any point in your cell is included, and the block's own outer edge is
+> always ≥ 30 m away — i.e. already at zero volume — so membership never changes anywhere you
+> could actually hear it. **If the backend `CellSize` is ever lowered, or you raise
+> `maxDistance` past it, the border cliff comes back.** Keep the two coupled.
 
 ---
 
@@ -138,8 +206,8 @@ type CloseTracksBody = { cfSessionId: string; trackNames: string[] };
 ```
 
 > The server registers your published mic under the track name **`"audio"`**. Publishing an
-> `audio` track is what makes you audible and triggers subscription of your current
-> roommates. (Non-audio local tracks are relayed but not part of proximity voice.)
+> `audio` track is what makes you audible and triggers subscription of everyone currently in
+> your 3×3 block. (Non-audio local tracks are relayed but not part of proximity voice.)
 
 ---
 
@@ -151,10 +219,10 @@ are camelCase.
 
 | Event | Payload | Meaning |
 |-------|---------|---------|
-| `isle.SubscribeMutual` | `{ targetUserId, cfSessionId, trackName }` | Pull this peer's audio. `cfSessionId`+`trackName` locate their remote track. Fires when you enter a shared cell (and they're already publishing) and when someone new starts publishing in your cell. |
+| `isle.SubscribeMutual` | `{ targetUserId, cfSessionId, trackName }` | Pull this peer's audio. `cfSessionId`+`trackName` locate their remote track. Fires when they come within your 3×3 block (and are already publishing) and when someone already in range starts publishing. |
 | `isle.SelfPosition` | `{ x, y, z, yaw }` | **Your own** position + facing. This is your listener origin — store it and re-place all peers whenever it changes. |
-| `isle.PlayerPosition` | `{ userId, x, y, z, yaw }` | A peer in your cell moved/turned. Update that peer's spatial position. |
-| `isle.UnsubscribeAll` | `{ cellId, trackIds }` | **You** left a cell — tear down remote pulls for that cell. (`trackIds` is currently empty; see §8.) |
+| `isle.PlayerPosition` | `{ userId, x, y, z, yaw }` | A peer's position/facing. Sent on their movement, **and once immediately when they become audible** (seed for stationary peers — §0.3). Update that peer's spatial position. |
+| `isle.PeerLeft` | `{ userId }` | This **one** peer left your earshot (walked out of your 3×3 block, or left voice). Tear down just their track + spatial node. Reaches **both** sides of the pair. |
 
 ```ts
 hub.on("isle.SubscribeMutual", (p: { targetUserId: string; cfSessionId: string; trackName: string }) =>
@@ -166,13 +234,14 @@ hub.on("isle.SelfPosition", (p: { x: number; y: number; z: number; yaw: number }
 hub.on("isle.PlayerPosition", (p: { userId: string; x: number; y: number; z: number; yaw: number }) =>
   updatePeerPosition(p.userId, p.x, p.y, p.z /* p.yaw available if you model peer facing */));
 
-hub.on("isle.UnsubscribeAll", (_p: { cellId: string; trackIds: string[] }) =>
-  tearDownAllRemotePeers());
+hub.on("isle.PeerLeft", (p: { userId: string }) =>
+  tearDownPeer(p.userId));   // stop pulling their track, drop their panner, remove from peers map
 ```
 
 > Peers are keyed by **`userId`** throughout. `isle.SelfPosition` and `isle.PlayerPosition`
 > both piggyback on the same throttled movement/turn events (§2), so your own position and
-> peers' positions arrive on the same cadence.
+> peers' positions arrive on the same cadence — except the one seed `isle.PlayerPosition` you
+> get the moment a peer becomes audible.
 
 ---
 
@@ -209,7 +278,7 @@ await pc.setRemoteDescription(res.sessionDescription); // {type:"answer", sdp}
 ```
 
 After step 3 you are audible; the backend will push `isle.SubscribeMutual` to the peers
-already in your cell.
+already within your 3×3 block.
 
 ### 6.2 Subscribe to a peer (on `isle.SubscribeMutual`)
 
@@ -249,11 +318,14 @@ pc.ontrack = (e) => {
 
 ### 6.3 Teardown
 
-- On `isle.UnsubscribeAll` or leaving voice, stop rendering peers and
+- On `isle.PeerLeft`, tear down **that one peer** (stop pulling their track, drop their
+  spatial node, remove from your `peers` map). Don't touch other peers.
+- When **you** leave voice: stop rendering all peers,
   `PUT /cf/tracks/close { cfSessionId, trackNames: ["audio"] }`, then `POST /voice/leave`.
+  (Everyone who could hear you gets their own `isle.PeerLeft` for you automatically.)
 - On reconnect (incl. after a **server restart** — the backend forgets all voice state and
   will re-drive you), re-run §6.1; the backend rebuilds your proximity list and re-emits
-  `isle.SubscribeMutual` for your current cell.
+  `isle.SubscribeMutual` for everyone currently within your 3×3 block.
 
 ---
 
@@ -278,7 +350,7 @@ function attachPeerStream(userId, stream) {
     panningModel: "HRTF",
     distanceModel: "inverse",
     refDistance: 300,      // 3 m: full volume within this
-    maxDistance: 3000,     // 30 m: cell size — inaudible beyond
+    maxDistance: 3000,     // 30 m: THE audible edge. Must stay <= backend CellSize (§1). Silent beyond.
     rolloffFactor: 1,
   });
   source.connect(panner).connect(ctx.destination);
@@ -363,34 +435,41 @@ gainNode.gain.value = gain;
 
 ## 8. Known limitations
 
-The signalling, identity, self-position and yaw paths are all wired. Two things to be aware of:
+The signalling, identity, self-position, yaw, audibility-block and per-peer-teardown paths
+are all wired. One thing to be aware of:
 
 1. **Yaw depends on the game plugin.** The server forwards `yaw` from the game's stats
    stream (`StatsSnapshot.Rot.Yaw`). If a given server/plugin build doesn't emit rotation in
    its stats, `yaw` arrives as `0` — distance attenuation is unaffected, but directional
    panning (§7.2) will be inert until the plugin reports rotation. Build for `yaw === 0`
    gracefully (fixed forward).
-2. **No explicit "peer left my cell" event.** Only the *leaver* gets `isle.UnsubscribeAll`;
-   the people they walked away from are not notified. Mitigate client-side: drop/fade a peer
-   whose `isle.PlayerPosition` has gone stale (no update for a few seconds) or on hub
-   disconnect. (When you yourself change cell you still get `isle.UnsubscribeAll` for the old
-   cell followed by fresh `isle.SubscribeMutual` for the new one.)
 
-> **Resolved since the first draft:** you now receive your own position (`isle.SelfPosition`),
-> `yaw` is delivered on both position events, peers are keyed by `userId`, and server→client
-> events address the correct connection (`Clients.User(userId)`).
+> **Resolved since earlier drafts:** the border cliff is gone (3×3 block + distance edge, §1);
+> you now get an explicit per-peer `isle.PeerLeft` on both sides instead of a mover-only
+> `isle.UnsubscribeAll`, so no more ghosts and no stale-fade hack needed; a peer's position is
+> seeded immediately on subscribe (§0.3); a **hub disconnect** (tab close / dropped socket) now
+> removes you from the grid server-side too, so peers get `isle.PeerLeft` for you instead of
+> hearing you frozen; you receive your own position (`isle.SelfPosition`); `yaw` is delivered
+> on both position events; peers are keyed by `userId`; and server→client events address the
+> correct connection (`Clients.User(userId)`).
+>
+> Because a disconnect now clears your voice state, on **reconnect you must re-run the join +
+> publish flow** (§6.1) — the backend re-drives subscriptions from there.
 
 ---
 
 ## 9. Happy-path checklist
 
-1. `hub.start()` on the shared `/api/v1/ws/hub` connection; register the four `isle.*` handlers.
+1. `hub.start()` on the shared `/api/v1/ws/hub` connection; register the four `isle.*`
+   handlers: `SubscribeMutual`, `SelfPosition`, `PlayerPosition`, `PeerLeft`.
 2. `POST /voice/join`.
 3. `POST /voice/cf/session` → `POST /voice/cf/tracks/new` (local `audio`) → apply answer.
 4. Player spawns / moves in-game → backend clusters you → you receive `isle.SubscribeMutual`
-   for each roommate → pull each (renegotiate) → `ontrack` → attach to a spatial node.
+   for each peer in your 3×3 block → pull each (renegotiate) → `ontrack` → attach to a
+   spatial node. You also get one seed `isle.PlayerPosition` per peer on subscribe.
 5. Receive `isle.SelfPosition` (your origin + facing) and `isle.PlayerPosition` (peers) →
-   reposition on every update.
-6. On cell change you get `isle.UnsubscribeAll` (old cell) then fresh `isle.SubscribeMutual` (new cell).
+   reposition on every update. Distance attenuation (§7) is the real audible edge.
+6. As people move in/out of range you get `isle.SubscribeMutual` (new peer) and
+   `isle.PeerLeft` (one peer gone) — apply per-peer, never wholesale.
 7. Leaving: `PUT /voice/cf/tracks/close` → `POST /voice/leave` → close the peer connection.
 ```

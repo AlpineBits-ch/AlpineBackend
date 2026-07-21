@@ -1,9 +1,13 @@
 using System.Net;
 using AppEnvironment;
+using Isle.Api;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
+using Isle.Api.Voice;
+using Isle.Domain.Aggregates;
 using Isle.Infrastructure;
 using Isle.Infrastructure.Persistence;
+using Isle.Infrastructure.Sfu;
 using IsleBridge.Sdk;
 using JasperFx;
 using Messaging;
@@ -27,6 +31,10 @@ builder.UseWolverine(opts =>
     });
     opts.ConfigureWolverine();
 });
+
+builder.Services.AddSingleton<VoiceGridConfig>();
+builder.Services.AddSingleton<VoiceCluster>();
+
 builder.Services.AddInfrastructure();
 
 

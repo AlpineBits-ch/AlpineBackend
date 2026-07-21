@@ -32,6 +32,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
       <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Isle.Contracts\Isle.Contracts.csproj" />
       <ProjectReference Include="..\Isle.Domain\Isle.Domain.csproj" />
@@ -44,6 +45,10 @@
       <Content Include="..\.dockerignore">
         <Link>.dockerignore</Link>
       </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Voice\" />
     </ItemGroup>
 
 </Project>

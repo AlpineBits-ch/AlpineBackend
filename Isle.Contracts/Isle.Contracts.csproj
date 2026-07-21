@@ -9,5 +9,9 @@
     <ItemGroup>
         <PackageReference Include="FluentValidation" Version="12.1.1" />
     </ItemGroup>
+    
+    <ItemGroup>
+      <ProjectReference Include="..\Isle.Domain\Isle.Domain.csproj" />
+    </ItemGroup>
 
 </Project>

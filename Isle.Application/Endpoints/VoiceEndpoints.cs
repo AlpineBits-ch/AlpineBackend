@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using Isle.Api.Services;
+using Isle.Api.Voice;
 using Isle.Contracts.Commands;
 using Isle.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -34,7 +35,9 @@ public static class VoiceMembershipEndpoints
         if (player is null || string.IsNullOrEmpty(player.SteamId))
             return Results.BadRequest("Player is not fully linked (missing userId/steamId mapping) — cannot join voice.");
 
-        registry.Register(player.Id, player.SteamId);
+        // Key the voice grid by userId (the SignalR user identifier) so server->client
+        // pushes address the right connection.
+        registry.Register(userId, player.SteamId);
 
         // No cluster membership yet — that begins the moment a StatsStream
         // snapshot for this steamId arrives (see PositionIngestionService).
@@ -44,21 +47,14 @@ public static class VoiceMembershipEndpoints
     [Authorize]
     [WolverinePost("/api/v1/isle/voice/leave")]
     public static async Task<IResult> Leave(
-        [ NotBody] MicroserviceContext db, VoicePlayerRegistry registry, IMessageBus bus, CancellationToken ct, [NotBody] ClaimsPrincipal user)
+        [NotBody] VoicePlayerRegistry registry, [NotBody] VoiceTrackRegistry tracks, [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
 
-        var player = await db.Players
-            .AsNoTracking()
-            .Where(p => p.UserId == userId)
-            .Select(p => new { p.Id })
-            .FirstOrDefaultAsync(ct);
-
-        if (player is null) return Results.NoContent();
-
-        registry.Unregister(player.Id);
-        await bus.InvokeAsync(new RemovePlayerCommand(player.Id));
+        registry.Unregister(userId);
+        tracks.Remove(userId);
+        await bus.InvokeAsync(new RemovePlayerCommand(userId));
 
         return Results.NoContent();
     }

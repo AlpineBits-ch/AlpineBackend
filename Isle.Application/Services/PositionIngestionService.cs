@@ -34,7 +34,8 @@ public sealed class PositionIngestionService(
                         playerId,
                         (float)snapshot.Pos.X,
                         (float)snapshot.Pos.Y,
-                        (float)snapshot.Pos.Z), stoppingToken);
+                        (float)snapshot.Pos.Z,
+                        (float)(snapshot.Rot?.Yaw ?? 0)), stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

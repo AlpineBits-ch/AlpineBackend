@@ -11,7 +11,7 @@ namespace Isle.Api.Chat.CommandController;
 
 public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
 {
-    public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand), typeof(CreateInviteCommand)];
+    public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand), typeof(CreateInviteCommand), typeof(PromoteCommand)];
     private ICollection<ChatCommand> Commands { get; } = [];
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

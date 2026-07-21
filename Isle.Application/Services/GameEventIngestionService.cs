@@ -1,6 +1,8 @@
-﻿using Isle.Contracts.Commands;
+﻿using Echo.Realtime;
+using Isle.Contracts.Commands;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
+using Microsoft.AspNetCore.SignalR;
 using Wolverine;
 
 namespace Isle.Api.Services;
@@ -19,6 +21,10 @@ public sealed class GameEventIngestionService(
             {
                 await foreach (var evt in eventStream.StreamAsync(stoppingToken))
                 {
+                    using var scope = scopeFactory.CreateScope();
+
+                    
+                    
                     if (evt.Kind != EventKind.Leave)
                         continue; // join/death/unknown are irrelevant to voice membership
 
@@ -27,7 +33,6 @@ public sealed class GameEventIngestionService(
 
                     registry.UnregisterBySteamId(evt.Steam);
 
-                    using var scope = scopeFactory.CreateScope();
                     var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
                     await bus.InvokeAsync(new RemovePlayerCommand(playerId), stoppingToken);

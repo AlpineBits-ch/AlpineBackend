@@ -10,7 +10,7 @@ public class VoiceCluster
 
     public VoiceCluster(VoiceGridConfig config) => _config = config;
 
-    public IReadOnlyList<VoiceClusterChange> MovePlayer(string playerId, float worldX, float worldY, float worldZ)
+    public IReadOnlyList<VoiceClusterChange> MovePlayer(string playerId, float worldX, float worldY, float worldZ, float yaw = 0f)
     {
         var newCell = new MapCell { WorldX = worldX, WorldY = worldY, CellSize = _config.CellSize };
         var changes = new List<VoiceClusterChange>();
@@ -23,19 +23,21 @@ public class VoiceCluster
                 PosX = worldX,
                 PosY = worldY,
                 PosZ = worldZ,
+                Yaw = yaw,
                 CurrentCell = newCell
             };
             _players[playerId] = player;
 
             AddToCell(playerId, newCell);
             changes.Add(new VoiceClusterChange.Joined(playerId, newCell));
-            EmitPositionIfMoved(player, worldX, worldY, worldZ, changes);
+            EmitPositionIfMoved(player, worldX, worldY, worldZ, yaw, changes);
             return changes;
         }
 
         player.PosX = worldX;
         player.PosY = worldY;
         player.PosZ = worldZ;
+        player.Yaw = yaw;
 
         if (newCell != player.CurrentCell)
         {
@@ -48,7 +50,7 @@ public class VoiceCluster
             changes.Add(new VoiceClusterChange.Joined(playerId, newCell));
         }
 
-        EmitPositionIfMoved(player, worldX, worldY, worldZ, changes);
+        EmitPositionIfMoved(player, worldX, worldY, worldZ, yaw, changes);
         return changes;
     }
 
@@ -66,7 +68,7 @@ public class VoiceCluster
             ? cell.GetPlayers()
             : Array.Empty<string>();
 
-    private void EmitPositionIfMoved(PlayerVoiceState player, float x, float y, float z, List<VoiceClusterChange> changes)
+    private void EmitPositionIfMoved(PlayerVoiceState player, float x, float y, float z, float yaw, List<VoiceClusterChange> changes)
     {
         if (player.HasEmittedPosition)
         {
@@ -75,17 +77,24 @@ public class VoiceCluster
             var dz = z - player.LastEmittedZ;
             var distSq = dx * dx + dy * dy + dz * dz;
 
-            if (distSq < _config.MovementEpsilon * _config.MovementEpsilon)
-                return; // hasn't moved enough to be worth broadcasting
+            var movedEnough = distSq >= _config.MovementEpsilon * _config.MovementEpsilon;
+            var turnedEnough = MathF.Abs(DeltaAngle(yaw, player.LastEmittedYaw)) >= _config.YawEpsilon;
+
+            if (!movedEnough && !turnedEnough)
+                return; // neither moved nor turned enough to be worth broadcasting
         }
 
         player.LastEmittedX = x;
         player.LastEmittedY = y;
         player.LastEmittedZ = z;
+        player.LastEmittedYaw = yaw;
         player.HasEmittedPosition = true;
 
-        changes.Add(new VoiceClusterChange.Moved(player.PlayerId, x, y, z));
+        changes.Add(new VoiceClusterChange.Moved(player.PlayerId, x, y, z, yaw));
     }
+
+    // Smallest signed difference between two angles in degrees, in (-180, 180].
+    private static float DeltaAngle(float a, float b) => ((a - b + 540f) % 360f) - 180f;
 
     private void AddToCell(string playerId, MapCell coord)
     {
@@ -112,5 +121,5 @@ public abstract record VoiceClusterChange
 {
     public record Joined(string PlayerId, MapCell Cell) : VoiceClusterChange;
     public record Left(string PlayerId, MapCell Cell) : VoiceClusterChange;
-    public record Moved(string PlayerId, float WorldX, float WorldY, float WorldZ) : VoiceClusterChange;
+    public record Moved(string PlayerId, float WorldX, float WorldY, float WorldZ, float Yaw) : VoiceClusterChange;
 }

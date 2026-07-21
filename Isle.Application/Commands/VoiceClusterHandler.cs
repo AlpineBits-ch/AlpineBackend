@@ -9,7 +9,7 @@ public static class VoiceClusterHandler
 {
     public static IEnumerable<object> Handle(UpdatePlayerPositionCommand command, VoiceCluster cluster)
     {
-        var changes = cluster.MovePlayer(command.PlayerId, command.WorldX, command.WorldY, command.WorldZ);
+        var changes = cluster.MovePlayer(command.PlayerId, command.WorldX, command.WorldY, command.WorldZ, command.Yaw);
         return changes.Select(ToMessage);
     }
 
@@ -29,7 +29,7 @@ public static class VoiceClusterHandler
     {
         VoiceClusterChange.Joined j => new PlayerJoinedCellEvent(j.PlayerId, j.Cell),
         VoiceClusterChange.Left l => new PlayerLeftCellEvent(l.PlayerId, l.Cell),
-        VoiceClusterChange.Moved m => new PlayerPositionUpdatedEvent(m.PlayerId, m.WorldX, m.WorldY, m.WorldZ),
+        VoiceClusterChange.Moved m => new PlayerPositionUpdatedEvent(m.PlayerId, m.WorldX, m.WorldY, m.WorldZ, m.Yaw),
         _ => throw new ArgumentOutOfRangeException(nameof(change))
     };
 }

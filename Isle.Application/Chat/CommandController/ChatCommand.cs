@@ -24,6 +24,15 @@ public abstract class ChatCommand
     public abstract Task<string> ExecuteAsync(CommandContext context);
     public abstract string Name { get; }
     public abstract string Description { get;  }
-    public abstract bool IsAdminOnly { get; set; } 
+    public abstract bool IsAdminOnly { get; set; }
+
+    public virtual bool CanRun(CommandContext context)
+    {
+        if(IsAdminOnly && !context.IsAdmin)
+            return false;
+
+        // further down the line stuff like cooldowns
+        return true;
+    }
     
 }

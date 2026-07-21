@@ -18,38 +18,44 @@ namespace Isle.Infrastructure.Sfu;
             _tracks = tracks;
         }
 
-        public Task<string?> GetActiveTrackId(string playerId) =>
-            Task.FromResult(_tracks.TryGet(playerId, out var track) ? track.TrackName : null);
+        public Task<string?> GetActiveTrackId(string userId) =>
+            Task.FromResult(_tracks.TryGet(userId, out var track) ? track.TrackName : null);
 
-        public async Task SubscribeMutual(string playerIdA, string playerIdB)
+        public async Task SubscribeMutual(string userIdA, string userIdB)
         {
-            var hasB = _tracks.TryGet(playerIdB, out var trackB);
-            var hasA = _tracks.TryGet(playerIdA, out var trackA);
+            var hasB = _tracks.TryGet(userIdB, out var trackB);
+            var hasA = _tracks.TryGet(userIdA, out var trackA);
 
             // Only ask a peer to pull a track that actually exists — pulling a
             // not-yet-published remote track makes Cloudflare reject with 425.
             if (hasB)
-                await _hub.Clients.User(playerIdA)
+                await _hub.Clients.User(userIdA)
                     .SendAsync(SfuSocketEvents.SubscribeMutual,
-                        new SubscribeMutualPayload(playerIdB, trackB.CfSessionId, trackB.TrackName));
+                        new SubscribeMutualPayload(userIdB, trackB.CfSessionId, trackB.TrackName));
 
             if (hasA)
-                await _hub.Clients.User(playerIdB)
+                await _hub.Clients.User(userIdB)
                     .SendAsync(SfuSocketEvents.SubscribeMutual,
-                        new SubscribeMutualPayload(playerIdA, trackA.CfSessionId, trackA.TrackName));
+                        new SubscribeMutualPayload(userIdA, trackA.CfSessionId, trackA.TrackName));
         }
 
-        public async Task UnsubscribeAll(string playerId, string cellId)
+        public async Task UnsubscribeAll(string userId, string cellId)
         {
             // TrackIds populated from whatever the client currently has subscribed —
             // if your SFU service tracks this server-side, resolve it here instead of empty.
-            await _hub.Clients.User(playerId)
+            await _hub.Clients.User(userId)
                 .SendAsync(SfuSocketEvents.UnsubscribeAll, new UnsubscribeAllPayload(cellId, Array.Empty<string>()));
         }
 
-        public async Task BroadcastPosition(string playerId, IReadOnlyList<string> recipients, float x, float y, float z)
+        public async Task BroadcastPosition(string userId, IReadOnlyList<string> recipients, float x, float y, float z, float yaw)
         {
-            var payload = new VoicePositionPayload(playerId, x, y, z);
+            var payload = new VoicePositionPayload(userId, x, y, z, yaw);
             await _hub.Clients.Users(recipients).SendAsync(SfuSocketEvents.PlayerPosition, payload);
+        }
+
+        public async Task SendSelfPosition(string userId, float x, float y, float z, float yaw)
+        {
+            await _hub.Clients.User(userId)
+                .SendAsync(SfuSocketEvents.SelfPosition, new SelfPositionPayload(x, y, z, yaw));
         }
     }

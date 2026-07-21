@@ -6,4 +6,5 @@ public static class SfuSocketEvents
     public const string SubscribeMutual = Prefix + "SubscribeMutual";
     public const string UnsubscribeAll  = Prefix + "UnsubscribeAll";
     public const string PlayerPosition  = Prefix + "PlayerPosition";
+    public const string SelfPosition    = Prefix + "SelfPosition";
 }

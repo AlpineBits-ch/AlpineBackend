@@ -2,9 +2,7 @@ using System.Security.Claims;
 using Isle.Api.Services;
 using Isle.Api.Voice;
 using Isle.Domain.Aggregates;
-using Isle.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.EntityFrameworkCore;
 using Wolverine.Http;
 
 namespace Isle.Api.Endpoints;
@@ -21,6 +19,9 @@ public record IsleCloseTracksBody(string CfSessionId, List<string> TrackNames);
 /// own peer connection; these endpoints forward each step to Cloudflare via
 /// <see cref="CloudflareService"/> and, once a player publishes their microphone, register
 /// the track and subscribe their current voice-cell roommates.
+///
+/// The voice grid is keyed by userId (the SignalR user identifier), which is exactly the
+/// JWT NameIdentifier — so no Player lookup is needed here.
 /// </summary>
 [Authorize]
 public class VoiceCloudflareEndpoints
@@ -30,15 +31,14 @@ public class VoiceCloudflareEndpoints
         [NotBody] ClaimsPrincipal user,
         [NotBody] CloudflareService cf,
         [NotBody] VoicePlayerRegistry registry,
-        [NotBody] MicroserviceContext db,
         CancellationToken ct)
     {
-        var playerId = await ResolvePlayerId(user, db, ct);
-        if (playerId is null) return Results.Unauthorized();
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
 
-        // Ordering guard: a player must opt into voice (register steamId<->playerId)
-        // before we hand out a Cloudflare session, so position ingestion can cluster them.
-        if (!registry.TryGetSteamId(playerId, out _))
+        // Ordering guard: a player must opt into voice (register userId<->steamId) before we
+        // hand out a Cloudflare session, so position ingestion can cluster them.
+        if (!registry.TryGetSteamId(userId, out _))
             return Results.BadRequest("Join voice before opening a Cloudflare session.");
 
         var cfSessionId = await cf.CreateSessionAsync(ct);
@@ -53,11 +53,10 @@ public class VoiceCloudflareEndpoints
         [NotBody] VoiceTrackRegistry tracks,
         [NotBody] VoiceCluster cluster,
         [NotBody] ISfuClient sfu,
-        [NotBody] MicroserviceContext db,
         CancellationToken ct)
     {
-        var playerId = await ResolvePlayerId(user, db, ct);
-        if (playerId is null) return Results.Unauthorized();
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
 
         var result = await cf.TracksNewAsync(body.CfSessionId,
             new CfTracksNewRequest(body.SessionDescription, body.Tracks), ct);
@@ -68,10 +67,10 @@ public class VoiceCloudflareEndpoints
         var audioTrack = body.Tracks.FirstOrDefault(t => t is { Location: "local", TrackName: "audio" });
         if (audioTrack is not null)
         {
-            tracks.Publish(playerId, body.CfSessionId, "audio");
+            tracks.Publish(userId, body.CfSessionId, "audio");
 
-            foreach (var roommate in cluster.GetRoommates(playerId).Where(r => r != playerId))
-                await sfu.SubscribeMutual(playerId, roommate);
+            foreach (var roommate in cluster.GetRoommates(userId).Where(r => r != userId))
+                await sfu.SubscribeMutual(userId, roommate);
         }
 
         return Results.Ok(result);
@@ -94,28 +93,16 @@ public class VoiceCloudflareEndpoints
         [NotBody] ClaimsPrincipal user,
         [NotBody] CloudflareService cf,
         [NotBody] VoiceTrackRegistry tracks,
-        [NotBody] MicroserviceContext db,
         CancellationToken ct)
     {
-        var playerId = await ResolvePlayerId(user, db, ct);
-        if (playerId is null) return Results.Unauthorized();
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
 
         await cf.CloseTracksAsync(body.CfSessionId, body.TrackNames, ct);
 
         if (body.TrackNames.Contains("audio"))
-            tracks.Remove(playerId);
+            tracks.Remove(userId);
 
         return Results.NoContent();
-    }
-
-    private static async Task<string?> ResolvePlayerId(ClaimsPrincipal user, MicroserviceContext db, CancellationToken ct)
-    {
-        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (userId is null) return null;
-
-        return await db.Players.AsNoTracking()
-            .Where(p => p.UserId == userId)
-            .Select(p => p.Id)
-            .FirstOrDefaultAsync(ct);
     }
 }

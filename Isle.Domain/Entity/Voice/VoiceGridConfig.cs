@@ -12,4 +12,8 @@ public class VoiceGridConfig
 
     // Minimum movement (UE units) before a position update is worth broadcasting
     public float MovementEpsilon { get; init; } = 25f;
+
+    // Minimum change in facing (degrees) that also triggers a position broadcast, so
+    // turning in place still updates directional audio without flooding on every twitch.
+    public float YawEpsilon { get; init; } = 4f;
 }

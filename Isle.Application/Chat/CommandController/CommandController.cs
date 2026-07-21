@@ -9,7 +9,7 @@ using TheIsleEvrimaRconClient.Extensions;
 
 namespace Isle.Api.Chat.CommandController;
 
-public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, MicroserviceContext context, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
+public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
 {
     public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand), typeof(CreateInviteCommand)];
     private ICollection<ChatCommand> Commands { get; } = [];
@@ -31,6 +31,9 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, Mi
                 {
                     var text = msg.Text;
                     if(!text.StartsWith("!")) continue;
+
+                    using var scope = sp.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
                     var player = await context.Players.FirstOrDefaultAsync(p => p.SteamId == msg.Steam, stoppingToken);
                     if(player is null) continue;
                     
@@ -38,8 +41,9 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, Mi
                     
                     var command = Commands.FirstOrDefault(c => c.Name == text.Split(' ')[0].Replace("!", ""));
                     if(command is null) continue;
-                    
-                    var response = await command.ExecuteAsync(new CommandContext()
+
+
+                    var commandContext = new CommandContext()
                     {
                         PlayerSteam = msg.Steam,
                         PlayerName = msg.Name ?? string.Empty,
@@ -48,11 +52,21 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, Mi
                         PlayerId = player.Id,
                         IsAdmin = player.IsAdmin,
                         PlayerSpecies = "Rex of course"
-                    });
+                    };
+
+                    if (!command.CanRun(commandContext))
+                    {
+                        await bridgeClient.DmAsync(text: "You are not allowed to run this command.", mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
+
+                        return ;
+                    }
+                    
+                    
+                    var response = await command.ExecuteAsync(commandContext);
 
                     await bridgeClient.DmAsync(text: response, mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
-                    
-                
+
+
                 }
             }
             catch (OperationCanceledException) { }

@@ -20,6 +20,12 @@ public static class ProxyConfig
             ClusterId = "social-cluster",
             Match = new RouteMatch { Path = "/api/v1/social/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+        new RouteConfig
+        {
+            RouteId = "isle-route",
+            ClusterId = "isle-cluster",
+            Match = new RouteMatch { Path = "/api/v1/isle/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
 
         new RouteConfig
         {
@@ -111,6 +117,7 @@ public static class ProxyConfig
         var messaging = Environment.GetEnvironmentVariable("Services__Messaging") ?? "http://_http.messaging.default.svc.cluster.local";
         var social    = Environment.GetEnvironmentVariable("Services__Social")    ?? "http://_http.social.default.svc.cluster.local";
         var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://_http.federation.default.svc.cluster.local";
+        var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://_http.isle.default.svc.cluster.local";
 
         return new[]
         {
@@ -327,7 +334,34 @@ public static class ProxyConfig
                     ReactivationPeriod = TimeSpan.FromSeconds(10)
                 },
             }
+        },
+        
+        
+        
+        new ClusterConfig
+        {
+        ClusterId = "isle-cluster",
+        Destinations = new Dictionary<string, DestinationConfig>
+        {
+            { "dest1", new DestinationConfig { Address = isle } }
+        },
+        HealthCheck = new HealthCheckConfig()
+        {
+            Active = new ActiveHealthCheckConfig()
+            {
+                Path = "isle/health",
+                Timeout = TimeSpan.FromSeconds(10),
+                Interval = TimeSpan.FromSeconds(15),
+            },
+            Passive = new PassiveHealthCheckConfig
+            {
+                Enabled = true,
+                Policy = "TransportFailureRate",
+                ReactivationPeriod = TimeSpan.FromSeconds(10)
+            },
         }
+        }
+        
         };
     }
 }

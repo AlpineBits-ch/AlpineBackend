@@ -15,15 +15,18 @@ public sealed class PlayerJoinNotificationService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        logger.LogInformation("PlayerJoinNotificationService started");
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 await foreach (var evt in eventStream.StreamAsync(stoppingToken))
                 {
+                    logger.LogInformation("[PlayerJoinNotificationService] Received event {EventKind} for steamId {SteamId}", evt.Kind, evt.Steam);
                     if (evt.Kind != EventKind.Join)
                         continue; // leave/death/unknown are irrelevant here
 
+                    logger.LogInformation("[PlayerJoinNotificationService] Processing join event for steamId {SteamId}", evt.Steam);
                     using var scope = scopeFactory.CreateScope();
                     var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
 
@@ -33,13 +36,13 @@ public sealed class PlayerJoinNotificationService(
 
                     if (player is null)
                     {
-                        logger.LogWarning("Join event for unknown steamId {SteamId}", evt.Steam);
+                        logger.LogWarning("[PlayerJoinNotificationService] Join event for unknown steamId {SteamId}", evt.Steam);
                         continue;
                     }
 
                     if (player.UserId is null)
                     {
-                        logger.LogWarning("Join event for player {PlayerId} with no linked account", player.Id);
+                        logger.LogWarning("[PlayerJoinNotificationService] Join event for player {PlayerId} with no linked account", player.Id);
                         continue; // no linked account — nowhere to route the socket message
                     }
 
@@ -47,7 +50,7 @@ public sealed class PlayerJoinNotificationService(
                         "isle.PlayerJoined",
                         new { playerId = player.Id, steamId = player.SteamId },
                         stoppingToken);
-                     logger.LogDebug("Player joined notification sent to user {UserId}", player.UserId);
+                     logger.LogDebug("[PlayerJoinNotificationService] Player joined notification sent to user {UserId}", player.UserId);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

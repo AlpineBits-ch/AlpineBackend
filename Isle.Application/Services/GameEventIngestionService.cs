@@ -30,7 +30,7 @@ public sealed class GameEventIngestionService(
                     using var scope = scopeFactory.CreateScope();
                     var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
-                    await bus.InvokeAsync(new RemovePlayer(playerId), stoppingToken);
+                    await bus.InvokeAsync(new RemovePlayerCommand(playerId), stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

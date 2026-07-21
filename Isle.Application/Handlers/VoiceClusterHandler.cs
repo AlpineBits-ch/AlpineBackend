@@ -7,7 +7,7 @@ namespace Isle.Api.Handlers;
 
 public static class VoiceClusterHandler
 {
-    public static IEnumerable<object> Handle(UpdatePlayerPosition command, VoiceCluster cluster)
+    public static IEnumerable<object> Handle(UpdatePlayerPositionCommand command, VoiceCluster cluster)
     {
         var changes = cluster.MovePlayer(command.PlayerId, command.WorldX, command.WorldY, command.WorldZ);
         return changes.Select(ToMessage);
@@ -19,10 +19,10 @@ public static class VoiceClusterHandler
         return changes.Select(ToMessage);
     }
 
-    public static RoommatesResponse Handle(GetRoommates query, VoiceCluster cluster)
+    public static RoommatesCommandResponse Handle(GetRoommatesCommand query, VoiceCluster cluster)
     {
         var roommates = cluster.GetRoommates(query.PlayerId);
-        return new RoommatesResponse(query.PlayerId, roommates);
+        return new RoommatesCommandResponse(query.PlayerId, roommates);
     }
 
     private static object ToMessage(VoiceClusterChange change) => change switch

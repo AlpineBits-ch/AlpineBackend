@@ -30,7 +30,7 @@ public sealed class PositionIngestionService(
                     using var scope = scopeFactory.CreateScope();
                     var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
-                    await bus.InvokeAsync(new UpdatePlayerPosition(
+                    await bus.InvokeAsync(new UpdatePlayerPositionCommand(
                         playerId,
                         (float)snapshot.Pos.X,
                         (float)snapshot.Pos.Y,

@@ -52,7 +52,7 @@ public static class VoiceMembershipEndpoints
         if (player is null) return Results.NoContent();
 
         registry.Unregister(player.Id);
-        await bus.InvokeAsync(new RemovePlayer(player.Id));
+        await bus.InvokeAsync(new RemovePlayerCommand(player.Id));
 
         return Results.NoContent();
     }

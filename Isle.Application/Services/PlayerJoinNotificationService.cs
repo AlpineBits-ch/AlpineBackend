@@ -1,0 +1,60 @@
+﻿using Echo.Realtime;
+using Isle.Infrastructure.Persistence;
+using IsleBridge.Sdk;
+using IsleBridge.Sdk.Models;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+
+namespace Isle.Api.Services;
+
+public sealed class PlayerJoinNotificationService(
+    IEventStream eventStream,
+    IServiceScopeFactory scopeFactory,
+    IHubContext<EchoRealtimeHub> hubContext,
+    ILogger<PlayerJoinNotificationService> logger) : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                await foreach (var evt in eventStream.StreamAsync(stoppingToken))
+                {
+                    if (evt.Kind != EventKind.Join)
+                        continue; // leave/death/unknown are irrelevant here
+
+                    using var scope = scopeFactory.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+
+                    var player = await context.Players
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(p => p.SteamId == evt.Steam, stoppingToken);
+
+                    if (player is null)
+                    {
+                        logger.LogWarning("Join event for unknown steamId {SteamId}", evt.Steam);
+                        continue;
+                    }
+
+                    if (player.UserId is null)
+                        continue; // no linked account — nowhere to route the socket message
+
+                    await hubContext.Clients.User(player.UserId).SendAsync(
+                        "isle.PlayerJoined",
+                        new { playerId = player.Id, steamId = player.SteamId },
+                        stoppingToken);
+                }
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Join notification stream dropped, reconnecting in 2s");
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+            }
+        }
+    }
+}

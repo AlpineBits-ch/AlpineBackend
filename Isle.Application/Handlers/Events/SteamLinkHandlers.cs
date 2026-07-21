@@ -10,7 +10,7 @@ public class SteamLinkHandler(MicroserviceContext context, ILogger<SteamLinkHand
     {
 
         var player = await context.Players.FirstOrDefaultAsync(p => p.SteamId == @event.SteamId);
-        player?.LinkUserId(@event.SteamId);
+        player?.LinkUserId(@event.UserId);
         
     }
     public async Task Handle(SteamUnlinkedEvent @event)

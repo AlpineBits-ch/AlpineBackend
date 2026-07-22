@@ -14,7 +14,7 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
         var slotArg = context.Arguments.FirstOrDefault();
         if (!int.TryParse(slotArg, out var slotNumber) || slotNumber < 1)
         {
-            return "Usage: !load <slot number> — see your slots with !storage";
+            return "Usage: !load slot number> — see your slots with !storage";
         }
 
         var player = await microserviceContext.Players

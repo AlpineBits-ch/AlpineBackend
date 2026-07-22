@@ -12,6 +12,7 @@ public class VoiceCluster
 
     public IReadOnlyList<VoiceClusterChange> MovePlayer(string playerId, float worldX, float worldY, float worldZ, float yaw = 0f)
     {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var newCell = new MapCell { WorldX = worldX, WorldY = worldY, CellSize = _config.CellSize };
         var changes = new List<VoiceClusterChange>();
 
@@ -28,17 +29,30 @@ public class VoiceCluster
                 PosY = worldY,
                 PosZ = worldZ,
                 Yaw = yaw,
-                CurrentCell = newCell
+                CurrentCell = newCell,
+                LastUpdateUnixMs = nowMs
+                // velocity stays 0 for the first sample — nothing to derive a delta from yet.
             };
             _players[playerId] = player;
             AddToCell(playerId, newCell);
         }
         else
         {
+            // Derive velocity (units/sec) from the delta since the last sample.
+            var dtMs = nowMs - player.LastUpdateUnixMs;
+            if (dtMs > 0)
+            {
+                var dt = dtMs / 1000f;
+                player.VelX = (worldX - player.PosX) / dt;
+                player.VelY = (worldY - player.PosY) / dt;
+                player.VelZ = (worldZ - player.PosZ) / dt;
+            }
+
             player.PosX = worldX;
             player.PosY = worldY;
             player.PosZ = worldZ;
             player.Yaw = yaw;
+            player.LastUpdateUnixMs = nowMs;
 
             if (newCell != player.CurrentCell)
             {
@@ -83,12 +97,16 @@ public class VoiceCluster
             ? NeighbourhoodOf(player.CurrentCell, playerId)
             : Array.Empty<string>();
 
-    /// <summary>Last known world position + facing for a player, for seeding a newly-audible peer.</summary>
-    public bool TryGetPosition(string playerId, out (float X, float Y, float Z, float Yaw) position)
+    /// <summary>
+    /// Last known world position + facing + velocity for a player, for seeding a newly-audible
+    /// (or reconnecting) peer so they're placed and can extrapolate immediately.
+    /// </summary>
+    public bool TryGetPosition(string playerId, out (float X, float Y, float Z, float Yaw, float Vx, float Vy, float Vz, long TimestampMs) position)
     {
         if (_players.TryGetValue(playerId, out var player))
         {
-            position = (player.PosX, player.PosY, player.PosZ, player.Yaw);
+            position = (player.PosX, player.PosY, player.PosZ, player.Yaw,
+                player.VelX, player.VelY, player.VelZ, player.LastUpdateUnixMs);
             return true;
         }
 
@@ -133,7 +151,8 @@ public class VoiceCluster
         player.LastEmittedYaw = yaw;
         player.HasEmittedPosition = true;
 
-        changes.Add(new VoiceClusterChange.Moved(player.PlayerId, x, y, z, yaw));
+        changes.Add(new VoiceClusterChange.Moved(player.PlayerId, x, y, z, yaw,
+            player.VelX, player.VelY, player.VelZ, player.LastUpdateUnixMs));
     }
 
     // Smallest signed difference between two angles in degrees, in (-180, 180].
@@ -165,5 +184,6 @@ public abstract record VoiceClusterChange
     // PlayerId and OtherId can now hear / no longer hear each other. Applied mutually.
     public record PeerJoined(string PlayerId, string OtherId) : VoiceClusterChange;
     public record PeerLeft(string PlayerId, string OtherId) : VoiceClusterChange;
-    public record Moved(string PlayerId, float WorldX, float WorldY, float WorldZ, float Yaw) : VoiceClusterChange;
+    public record Moved(string PlayerId, float WorldX, float WorldY, float WorldZ, float Yaw,
+        float Vx, float Vy, float Vz, long TimestampMs) : VoiceClusterChange;
 }

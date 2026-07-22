@@ -58,8 +58,21 @@ public class VoiceCloudflareEndpoints
         {
             tracks.Publish(userId, body.CfSessionId, "audio");
 
+            // Seed the (re)connecting client from the warm grid state so a stationary player is
+            // placed immediately — no waiting for the next throttled stats snapshot, and no need to
+            // move/rejoin.
+            if (cluster.TryGetPosition(userId, out var self))
+                await sfu.SendSelfPosition(userId, self.X, self.Y, self.Z, self.Yaw,
+                    self.Vx, self.Vy, self.Vz, self.TimestampMs);
+
             foreach (var peer in cluster.GetAudiblePeers(userId).Where(p => p != userId))
+            {
                 await sfu.SubscribeMutual(userId, peer);
+
+                if (cluster.TryGetPosition(peer, out var pos))
+                    await sfu.SendPeerPosition(userId, peer, pos.X, pos.Y, pos.Z, pos.Yaw,
+                        pos.Vx, pos.Vy, pos.Vz, pos.TimestampMs);
+            }
         }
 
         return Results.Ok(result);

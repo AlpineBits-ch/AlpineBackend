@@ -1,14 +1,14 @@
 using Echo.Realtime;
+using Isle.Api;
 using Isle.Api.Services;
 using Isle.Api.Voice;
-using Isle.Contracts.Commands;
-using Wolverine;
+using Isle.Domain.Aggregates;
 
 namespace Isle.Api.Handlers.Realtime;
 
 /// <summary>
-/// A hub disconnect (e.g. the player closes the browser tab) must also remove them from the
-/// proximity voice grid.
+/// A realtime socket drop (tab close, app restart, network blip with SignalR auto-reconnect) is not
+/// the same as leaving voice.
 /// </summary>
 public class VoiceUserDisconnectedHandler
 {
@@ -16,17 +16,21 @@ public class VoiceUserDisconnectedHandler
         UserDisconnected message,
         VoicePlayerRegistry registry,
         VoiceTrackRegistry tracks,
-        IMessageBus bus)
+        VoiceCluster cluster,
+        ISfuClient sfu)
     {
         // Skip chat-only / non-voice users — nothing to tear down.
         if (!registry.TryGetSteamId(message.UserId, out _))
             return;
 
-        await registry.UnregisterAsync(message.UserId);
+        // Not publishing (no live media to invalidate) — leave grid + registry untouched.
+        if (!tracks.TryGet(message.UserId, out _))
+            return;
+
         tracks.Remove(message.UserId);
 
-        // Removes them from the cluster, which emits PeerBecameInaudible for every remaining
-        // neighbour → isle.PeerLeft to both sides → no ghost left behind.
-        await bus.InvokeAsync(new RemovePlayerCommand(message.UserId));
+        // Tell everyone who could hear this player to drop the now-dead Cloudflare track.
+        foreach (var peer in cluster.GetAudiblePeers(message.UserId).Where(p => p != message.UserId))
+            await sfu.UnsubscribePair(message.UserId, peer);
     }
 }

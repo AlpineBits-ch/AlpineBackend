@@ -11,6 +11,52 @@ each client whom to hear.
 
 ---
 
+## 0. Migration — what changed (2026-07-22)
+
+Two fixes this round. **One is a wire-contract change you must adopt; the other is server-side
+and requires no code change but changes behaviour you should be aware of.**
+
+### 0.a Position events now carry velocity + a timestamp (wire change)
+
+`isle.PlayerPosition` and `isle.SelfPosition` gained four fields: `vx, vy, vz` (velocity in
+**UE units/second**) and `timestampMs` (server unix-ms the sample was taken). The game telemetry
+now arrives at **~1 Hz**, so placing peers at the raw points looks like a ~1 s stutter. Use the
+velocity to **extrapolate (dead-reckon)** between updates — see §7.4. Existing fields are unchanged
+and in the same order, so old handlers keep working (they just ignore the new fields and stay
+choppy). New shapes:
+
+```ts
+// isle.PlayerPosition
+{ userId: string; x: number; y: number; z: number; yaw: number;
+  vx: number; vy: number; vz: number; timestampMs: number }
+
+// isle.SelfPosition
+{ x: number; y: number; z: number; yaw: number;
+  vx: number; vy: number; vz: number; timestampMs: number }
+```
+
+### 0.b A dropped socket no longer evicts you from the grid
+
+Previously **any** hub disconnect (tab close, app restart, brief network blip under
+`withAutomaticReconnect`) tore down your entire voice state server-side — registry entry, cell
+membership, everything. On reconnect the grid was empty, so you got **0 nearby players until you
+physically moved (re-seeding your cell) and rejoined**. That's fixed: your grid presence is now
+tied to your **in-game character**, not the voice socket. A socket drop only invalidates your live
+media (your Cloudflare track), so peers get an `isle.PeerLeft` for you and stop pulling a dead
+track — but your cell + last position stay warm.
+
+**Result:** on reconnect, re-run the publish flow (§6.1) and the backend **immediately** re-seeds
+you — `isle.SubscribeMutual` **and** an `isle.PlayerPosition` for every peer already in range, plus
+your own `isle.SelfPosition` — with no need to move first. Your grid state is now cleared only by an
+in-game **leave**, an explicit `POST /voice/leave`, or the 2 h inactivity TTL.
+
+### 0.c Checklist
+
+- [ ] Read `vx/vy/vz/timestampMs` off both position events and extrapolate between updates (§7.4).
+- [ ] On reconnect, just re-run join + publish (§6.1) — expect a full immediate re-seed, no movement needed.
+
+---
+
 ## 0. Migration — what changed (2026-07-21)
 
 This round fixes the two issues you raised (the cell-border cliff and the missing
@@ -112,6 +158,10 @@ hear each other; a peer 40 m away is subscribed but attenuated to silence.
   rotation update spatial audio, but events are throttled, not continuous.
 - `yaw` is only meaningful if the game plugin reports rotation in its stats stream; when it
   doesn't, `yaw` is `0` (distance attenuation still works; directional panning won't).
+- **Velocity** `(vx, vy, vz)` is in **UE units/second** (same axes as position), derived
+  server-side from the delta between the last two samples. **`timestampMs`** is the server
+  unix-ms the sample was taken. Telemetry lands at **~1 Hz**, so extrapolate position from
+  velocity between updates for smooth motion (§7.4) rather than snapping to each point.
 
 ---
 
@@ -220,19 +270,21 @@ are camelCase.
 | Event | Payload | Meaning |
 |-------|---------|---------|
 | `isle.SubscribeMutual` | `{ targetUserId, cfSessionId, trackName }` | Pull this peer's audio. `cfSessionId`+`trackName` locate their remote track. Fires when they come within your 3×3 block (and are already publishing) and when someone already in range starts publishing. |
-| `isle.SelfPosition` | `{ x, y, z, yaw }` | **Your own** position + facing. This is your listener origin — store it and re-place all peers whenever it changes. |
-| `isle.PlayerPosition` | `{ userId, x, y, z, yaw }` | A peer's position/facing. Sent on their movement, **and once immediately when they become audible** (seed for stationary peers — §0.3). Update that peer's spatial position. |
-| `isle.PeerLeft` | `{ userId }` | This **one** peer left your earshot (walked out of your 3×3 block, or left voice). Tear down just their track + spatial node. Reaches **both** sides of the pair. |
+| `isle.SelfPosition` | `{ x, y, z, yaw, vx, vy, vz, timestampMs }` | **Your own** position + facing + velocity. This is your listener origin — store it and re-place all peers whenever it changes. Extrapolate with `vx/vy/vz` between updates (§7.4). |
+| `isle.PlayerPosition` | `{ userId, x, y, z, yaw, vx, vy, vz, timestampMs }` | A peer's position/facing + velocity. Sent on their movement, **and once immediately when they become audible or you reconnect** (seed for stationary peers — §0.3, §0.b). Update that peer's spatial position and extrapolate with `vx/vy/vz` (§7.4). |
+| `isle.PeerLeft` | `{ userId }` | This **one** peer left your earshot (walked out of your 3×3 block, or their voice socket dropped / they left voice). Tear down just their track + spatial node. Reaches **both** sides of the pair. |
 
 ```ts
 hub.on("isle.SubscribeMutual", (p: { targetUserId: string; cfSessionId: string; trackName: string }) =>
   subscribeToPeer(p.targetUserId, p.cfSessionId, p.trackName));
 
-hub.on("isle.SelfPosition", (p: { x: number; y: number; z: number; yaw: number }) =>
-  updateSelfPosition(p.x, p.y, p.z, p.yaw));
+hub.on("isle.SelfPosition", (p: { x: number; y: number; z: number; yaw: number;
+                                  vx: number; vy: number; vz: number; timestampMs: number }) =>
+  updateSelfPosition(p));
 
-hub.on("isle.PlayerPosition", (p: { userId: string; x: number; y: number; z: number; yaw: number }) =>
-  updatePeerPosition(p.userId, p.x, p.y, p.z /* p.yaw available if you model peer facing */));
+hub.on("isle.PlayerPosition", (p: { userId: string; x: number; y: number; z: number; yaw: number;
+                                    vx: number; vy: number; vz: number; timestampMs: number }) =>
+  updatePeerPosition(p));
 
 hub.on("isle.PeerLeft", (p: { userId: string }) =>
   tearDownPeer(p.userId));   // stop pulling their track, drop their panner, remove from peers map
@@ -323,9 +375,12 @@ pc.ontrack = (e) => {
 - When **you** leave voice: stop rendering all peers,
   `PUT /cf/tracks/close { cfSessionId, trackNames: ["audio"] }`, then `POST /voice/leave`.
   (Everyone who could hear you gets their own `isle.PeerLeft` for you automatically.)
-- On reconnect (incl. after a **server restart** — the backend forgets all voice state and
-  will re-drive you), re-run §6.1; the backend rebuilds your proximity list and re-emits
-  `isle.SubscribeMutual` for everyone currently within your 3×3 block.
+- On reconnect, re-run §6.1 (new Cloudflare session + republish your mic). The moment you
+  republish, the backend re-seeds you from the warm grid: `isle.SubscribeMutual` **and** an
+  `isle.PlayerPosition` for every peer currently in your 3×3 block, plus your own
+  `isle.SelfPosition` — **no movement required** (§0.b). A socket drop keeps your grid presence
+  (it's tied to your in-game character); only a **server restart** actually forgets voice state,
+  and even then the same republish re-drives you as soon as the next telemetry places you.
 
 ---
 
@@ -372,37 +427,25 @@ function ueToAudio(dxFwd, dyRight, dzUp) {
   return { x: dyRight, y: dzUp, z: -dxFwd };
 }
 
-// from isle.SelfPosition
-function updateSelfPosition(x, y, z, yaw) {
-  myPos = { x, y, z };
-  myYaw = yaw;
-  setListenerOrientation(yaw);
-  for (const id of peers.keys()) reposition(id);   // your move re-places everyone
+// from isle.SelfPosition — store position + velocity, stamped with LOCAL receive time (§7.4)
+function updateSelfPosition(p) {
+  myState = { ...p, recvAt: performance.now() };
+  myYaw = p.yaw;
+  setListenerOrientation(p.yaw);
+  // repositioning is driven by the render loop (§7.4), not one-shot here.
 }
 
 // from isle.PlayerPosition
-function updatePeerPosition(userId, x, y, z) {
-  const peer = peers.get(userId);
-  if (!peer) { pending.set(userId, { x, y, z }); return; } // may arrive before ontrack
-  peer.pos = { x, y, z };
-  reposition(userId);
-}
-
-function reposition(userId) {
-  const peer = peers.get(userId);
-  if (!peer?.pos || !myPos) return;
-  // relative vector in UE space
-  const dFwd = peer.pos.x - myPos.x;
-  const dRight = peer.pos.y - myPos.y;
-  const dUp = peer.pos.z - myPos.z;
-  const a = ueToAudio(dFwd, dRight, dUp);
-  peer.panner.positionX.value = a.x;
-  peer.panner.positionY.value = a.y;
-  peer.panner.positionZ.value = a.z;
+function updatePeerPosition(p) {
+  const peer = peers.get(p.userId);
+  const state = { ...p, recvAt: performance.now() };
+  if (!peer) { pending.set(p.userId, state); return; } // may arrive before ontrack
+  peer.state = state;
 }
 ```
 
-Keep the listener at the origin (`ctx.listener.positionX/Y/Z = 0`).
+`reposition` and the extrapolation that drives it live in §7.4. Keep the listener at the origin
+(`ctx.listener.positionX/Y/Z = 0`).
 
 ### 7.2 Orientation (directional panning)
 
@@ -431,6 +474,50 @@ const gain = Math.max(0, 1 - dist / 3000);        // linear fade to 0 at 30 m
 gainNode.gain.value = gain;
 ```
 
+### 7.4 Extrapolation (smooth motion between ~1 Hz updates)
+
+Telemetry lands at **~1 Hz**, so placing peers at the raw points looks and sounds like it jumps
+once a second. Each position event now carries a **velocity** `(vx, vy, vz)` in UE units/second;
+extrapolate from it every animation frame so motion is continuous and stays close to real time.
+
+The server clock and yours differ, so **don't** trust `timestampMs` as a wall clock — stamp each
+update with your own `performance.now()` on receipt (done in §7.1) and extrapolate from that. Use
+`timestampMs` only if you want to order/deduplicate updates. Clamp the extrapolation horizon so a
+peer who stops sending (stood still, or dropped) coasts a little and then holds, rather than
+flying off forever.
+
+```ts
+const MAX_EXTRAP_MS = 1500;   // coast at most ~1.5 s past the last sample, then hold
+
+function extrapolate(s) {     // s = { x,y,z, vx,vy,vz, recvAt }
+  const dt = Math.min(performance.now() - s.recvAt, MAX_EXTRAP_MS) / 1000; // seconds, clamped
+  return { x: s.x + s.vx * dt, y: s.y + s.vy * dt, z: s.z + s.vz * dt };
+}
+
+function reposition(userId) {
+  const peer = peers.get(userId);
+  if (!peer?.state || !myState) return;
+  const me   = extrapolate(myState);
+  const them = extrapolate(peer.state);
+  const a = ueToAudio(them.x - me.x, them.y - me.y, them.z - me.z); // relative vector, UE→WebAudio
+  peer.panner.positionX.value = a.x;
+  peer.panner.positionY.value = a.y;
+  peer.panner.positionZ.value = a.z;
+}
+
+// one render loop re-places everyone each frame (both your motion and theirs are extrapolated)
+function tick() {
+  if (myState) { setListenerOrientation(myYaw); for (const id of peers.keys()) reposition(id); }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+```
+
+> Prefer `panner.positionX.value = …` (instant) inside a per-frame loop, or
+> `positionX.setTargetAtTime(…, ctx.currentTime, 0.05)` for a little extra smoothing. Don't also
+> reposition on each event — the render loop already covers it. If a build omits velocity (all
+> zeros), this degrades gracefully to "hold at last position," i.e. today's behaviour.
+
 ---
 
 ## 8. Known limitations
@@ -447,14 +534,15 @@ are all wired. One thing to be aware of:
 > **Resolved since earlier drafts:** the border cliff is gone (3×3 block + distance edge, §1);
 > you now get an explicit per-peer `isle.PeerLeft` on both sides instead of a mover-only
 > `isle.UnsubscribeAll`, so no more ghosts and no stale-fade hack needed; a peer's position is
-> seeded immediately on subscribe (§0.3); a **hub disconnect** (tab close / dropped socket) now
-> removes you from the grid server-side too, so peers get `isle.PeerLeft` for you instead of
-> hearing you frozen; you receive your own position (`isle.SelfPosition`); `yaw` is delivered
-> on both position events; peers are keyed by `userId`; and server→client events address the
-> correct connection (`Clients.User(userId)`).
+> seeded immediately on subscribe (§0.3); a **hub disconnect** (tab close / dropped socket) drops
+> your live Cloudflare track so peers get `isle.PeerLeft` for you instead of pulling a dead track,
+> **but keeps your grid presence** so reconnect re-seeds you instantly (§0.b); position events
+> carry **velocity + timestamp** for extrapolation (§0.a, §7.4); you receive your own position
+> (`isle.SelfPosition`); `yaw` is delivered on both position events; peers are keyed by `userId`;
+> and server→client events address the correct connection (`Clients.User(userId)`).
 >
-> Because a disconnect now clears your voice state, on **reconnect you must re-run the join +
-> publish flow** (§6.1) — the backend re-drives subscriptions from there.
+> On **reconnect** just re-run the publish flow (§6.1); the backend re-drives subscriptions and
+> re-seeds positions from there — no movement or rejoin needed.
 
 ---
 

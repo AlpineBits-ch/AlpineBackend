@@ -27,7 +27,20 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     public int FriendlyIdSeq { get; set; }           
 
     public string FriendlyId => _sqids.Encode(FriendlyIdSeq);
-    
+
+    /// <summary>
+    /// Decodes a <see cref="FriendlyId"/> back to its <see cref="FriendlyIdSeq"/>, or null when the
+    /// string is not a canonical friendly id.
+    /// </summary>
+    public static int? DecodeFriendlyId(string? friendlyId)
+    {
+        if (string.IsNullOrWhiteSpace(friendlyId)) return null;
+        var decoded = _sqids.Decode(friendlyId);
+        if (decoded.Count != 1) return null;
+        var seq = decoded[0];
+        return _sqids.Encode(seq) == friendlyId ? seq : null;
+    }
+
     
     public string? InGameName { get; set; }
     

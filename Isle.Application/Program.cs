@@ -29,6 +29,8 @@ builder.Services.AddWolverineHttp();
 builder.Services.AddSingleton<VoicePlayerRegistry>();
 builder.Services.AddSingleton<VoiceTrackRegistry>();
 builder.Services.AddSingleton<PlayerPresenceManager>();
+builder.Services.AddSingleton<PlayerSpawnTracker>();
+builder.Services.AddSingleton<CommandCooldownService>();
 builder.Services.AddHostedService<PositionIngestionService>();
 builder.Services.AddHostedService<PlayerJoinNotificationService>();
 builder.Services.AddHostedService<GameEventIngestionService>();

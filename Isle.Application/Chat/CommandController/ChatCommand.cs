@@ -30,12 +30,14 @@ public abstract class ChatCommand
     public abstract string Description { get;  }
     public abstract bool IsAdminOnly { get; set; }
 
+    /// <summary>Per-player cooldown between successful runs of this command.</summary>
+    public virtual TimeSpan Cooldown => TimeSpan.Zero;
+
     public virtual bool CanRun(CommandContext context)
     {
         if(IsAdminOnly && !context.IsAdmin)
             return false;
 
-        // further down the line stuff like cooldowns
         return true;
     }
     

@@ -52,7 +52,7 @@ public sealed class GameEventIngestionService(
                     if (!registry.TryGetPlayerId(evt.Steam, out var playerId))
                         continue; // wasn't opted into voice — nothing to clean up
 
-                    registry.UnregisterBySteamId(evt.Steam);
+                    await registry.UnregisterBySteamIdAsync(evt.Steam);
 
 
                     await bus.InvokeAsync(new RemovePlayerCommand(playerId), stoppingToken);

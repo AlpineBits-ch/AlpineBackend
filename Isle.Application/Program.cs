@@ -93,6 +93,7 @@ builder.Services.AddHttpClient("CloudflareProxy", client =>
         new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
 });
 
+
 var redis = Env.Redis;
 
 builder.Services.AddSignalR(config =>
@@ -133,8 +134,10 @@ var config = new EvrimaRconClientConfiguration
 using var rcon = new EvrimaRconClient(config);
 await rcon.ConnectAsync();
 
-
 builder.Services.AddSingleton(rcon);
+
+builder.Services.AddSingleton<SpeciesPopulationLimits>();
+builder.Services.AddHostedService<PopulationLimitService>();
 
 builder.Services.AddHostedService<ChatWatcher>();
 builder.Services.AddHostedService<PresenceService>();

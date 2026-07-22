@@ -20,7 +20,7 @@ public class LinkInGameName(MicroserviceContext microserviceContext) : ChatComma
         
         player.InGameName = context.PlayerName;
         await microserviceContext.SaveChangesAsync();
-        return $"Your in-game name has been linked! Friendly id: {player.Id}, in-game name: {player.InGameName}";
+        return $"Your in-game name has been linked! Friendly id: {player.FriendlyId}, in-game name: {player.InGameName}";
     }
 
     public override string Name { get; } = "link";

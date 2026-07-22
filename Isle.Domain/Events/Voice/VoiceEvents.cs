@@ -1,4 +1,4 @@
-﻿using Isle.Api.Voice;
+﻿using Isle.Domain.Entity.Voice;
 
 namespace Isle.Domain.Events.Voice;
 

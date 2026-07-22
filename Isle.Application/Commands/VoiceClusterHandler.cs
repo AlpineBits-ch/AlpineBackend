@@ -2,7 +2,7 @@ using Isle.Contracts.Commands;
 using Isle.Contracts.Events.Voice;
 using Isle.Domain.Aggregates;
 
-namespace Isle.Api.Handlers;
+namespace Isle.Api.Commands;
 
 public static class VoiceClusterHandler
 {

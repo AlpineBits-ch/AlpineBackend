@@ -13,7 +13,6 @@ using JasperFx.CodeGeneration.Model;
 using Messaging;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
 using Wolverine;
@@ -21,7 +20,6 @@ using Wolverine.EntityFrameworkCore;
 using Wolverine.FluentValidation;
 using Wolverine.Http;
 using Wolverine.Http.FluentValidation;
-
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddErrorReporting();
@@ -238,5 +236,8 @@ if (await manager.FindByClientIdAsync("echo") == null)
 
 await app.RunJasperFxCommands(args);
 
-public partial class Program { }
+namespace Identity.Application
+{
+    public partial class Program { }
+}
 

@@ -1,7 +1,8 @@
 using System.Security.Claims;
 using Isle.Api.Services;
-using Isle.Api.Voice;
+using Isle.Domain;
 using Isle.Domain.Aggregates;
+using Isle.Domain.Entity.Voice;
 using Microsoft.AspNetCore.Authorization;
 using Wolverine.Http;
 

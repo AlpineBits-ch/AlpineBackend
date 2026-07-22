@@ -1,4 +1,5 @@
 using Isle.Contracts.Events.Voice;
+using Isle.Domain;
 using Isle.Domain.Aggregates;
 
 namespace Isle.Api.Handlers;

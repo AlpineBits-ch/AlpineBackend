@@ -3,7 +3,7 @@ using Isle.Contracts.Events.Player;
 using IsleBridge.Sdk;
 using Wolverine;
 
-namespace Isle.Api.Handlers;
+namespace Isle.Api.Handlers.Events.Player;
 
 public class CheckPlayerConnectedToVoiceHandler
 {
@@ -13,8 +13,8 @@ public class CheckPlayerConnectedToVoiceHandler
 
         return new EnsurePlayerConnectedToVoiceEvent()
         {
-            @PlayerId = @event.PlayerId,
-            @SteamId = @event.SteamId       
+            PlayerId = @event.PlayerId,
+            SteamId = @event.SteamId       
         }.DelayedFor(TimeSpan.FromSeconds(60));
     }
     

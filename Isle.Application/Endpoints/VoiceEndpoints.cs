@@ -1,7 +1,7 @@
 ﻿using System.Security.Claims;
 using Isle.Api.Services;
-using Isle.Api.Voice;
 using Isle.Contracts.Commands;
+using Isle.Domain.Entity.Voice;
 using Isle.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;

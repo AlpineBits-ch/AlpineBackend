@@ -20,7 +20,6 @@ public sealed class SpeciesPopulationLimits
     public IDictionary<string, int> Caps { get; init; } =
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
-            // Whole-map caps for a ~350-player server. Only the apex/prime species are limited;
             // everything smaller is uncapped (Unlimited).
 
             // --- Carnivores ---

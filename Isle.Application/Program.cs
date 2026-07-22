@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using TheIsleEvrimaRconClient;
+using TheIsleEvrimaRconClient.Extensions;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using Wolverine.Http;
@@ -36,6 +37,8 @@ builder.Services.AddHostedService<PlayerJoinNotificationService>();
 builder.Services.AddHostedService<GameEventIngestionService>();
 builder.Services.AddHostedService<VoicePresenceReconcileService>();
 builder.Services.AddHostedService<InviteTimeoutService>();
+builder.Services.AddSingleton<WorldCleaner>();
+builder.Services.AddHostedService<WorldCleanupService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -129,6 +132,7 @@ var config = new EvrimaRconClientConfiguration
 }; 
 using var rcon = new EvrimaRconClient(config);
 await rcon.ConnectAsync();
+
 
 builder.Services.AddSingleton(rcon);
 

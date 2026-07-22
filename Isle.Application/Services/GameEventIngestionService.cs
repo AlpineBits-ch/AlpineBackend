@@ -11,6 +11,7 @@ namespace Isle.Api.Services;
 public sealed class GameEventIngestionService(
     IEventStream eventStream,
     VoicePlayerRegistry registry,
+    PlayerSpawnTracker spawnTracker,
     IServiceScopeFactory scopeFactory,
     ILogger<GameEventIngestionService> logger) : BackgroundService
 {
@@ -40,6 +41,13 @@ public sealed class GameEventIngestionService(
                         {
                             SteamId = @evt.Steam,
                         });
+                    }
+
+                    // Approximate "spawned" from the events the bridge exposes: a fresh connect
+                    // spawns a dino, and a death is immediately followed by a respawn.
+                    if (evt.Kind is EventKind.Join or EventKind.Death)
+                    {
+                        await spawnTracker.MarkSpawnedAsync(evt.Steam, stoppingToken);
                     }
 
                     if (evt.Kind != EventKind.Leave)

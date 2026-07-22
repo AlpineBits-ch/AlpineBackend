@@ -1,4 +1,5 @@
-﻿using Isle.Api.Chat.CommandController.Commands;
+using Isle.Api.Chat.CommandController.Commands;
+using Isle.Api.Services;
 using Isle.Domain.Entity;
 using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
@@ -9,20 +10,30 @@ using TheIsleEvrimaRconClient.Extensions;
 
 namespace Isle.Api.Chat.CommandController;
 
-public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, IBridgeClient bridgeClient) : BackgroundService
+public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IServiceProvider sp, IBridgeClient bridgeClient, CommandCooldownService cooldowns) : BackgroundService
 {
-    public static  ICollection<Type> RegisteredTypes { get; } = [typeof(DebugCommand), typeof(LinkInGameName), typeof(CreateInviteCommand), typeof(PromoteCommand), typeof(StoreDinoCommand), typeof(LoadDinoCommand), typeof(BuySlotCommand), typeof(StorageInfoCommand)];
-    private ICollection<ChatCommand> Commands { get; } = [];
+    public static  ICollection<Type> RegisteredTypes { get; } =
+    [
+        typeof(DebugCommand), typeof(LinkInGameName), typeof(CreateInviteCommand), typeof(PromoteCommand),
+        typeof(StoreDinoCommand), typeof(LoadDinoCommand), typeof(BuySlotCommand), typeof(StorageInfoCommand),
+        typeof(SendFriendRequestCommand), typeof(AcceptFriendRequestCommand), typeof(RejectFriendRequestCommand),
+        typeof(WhoAmICommand)
+    ];
+
+    // Maps command name -> type. The command itself is created per message from the request scope so
+    // scoped dependencies (e.g. MicroserviceContext) are fresh each time rather than captured for the
+    // lifetime of this hosted service.
+    private readonly Dictionary<string, Type> _commandTypes = new(StringComparer.OrdinalIgnoreCase);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-
         foreach (var type in RegisteredTypes)
         {
-            var instance = ActivatorUtilities.CreateInstance(sp, type) as ChatCommand; 
-            if(instance is null) continue;
-            Commands.Add(instance);
+            // Instantiate once purely to read the command's Name for the lookup table.
+            if (ActivatorUtilities.CreateInstance(sp, type) is ChatCommand prototype)
+                _commandTypes[prototype.Name] = type;
         }
-        
+
         var commandFetchTask = Task.Run(async () =>
         {
             try
@@ -32,15 +43,15 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                     var text = msg.Text;
                     if(!text.StartsWith("!")) continue;
 
+                    var commandName = text.Split(' ')[0].Replace("!", "");
+                    if (!_commandTypes.TryGetValue(commandName, out var commandType)) continue;
+
                     using var scope = sp.CreateScope();
                     var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
                     var player = await context.Players.FirstOrDefaultAsync(p => p.SteamId == msg.Steam, stoppingToken);
                     if(player is null) continue;
-                    
-                    
-                    
-                    var command = Commands.FirstOrDefault(c => c.Name == text.Split(' ')[0].Replace("!", ""));
-                    if(command is null) continue;
+
+                    var command = (ChatCommand)ActivatorUtilities.CreateInstance(scope.ServiceProvider, commandType);
 
                     // Read the player's live dino so commands see their real species/growth/vitals.
                     // A player without a spawned pawn simply has no stats; commands handle that.
@@ -83,16 +94,25 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                     if (!command.CanRun(commandContext))
                     {
                         await bridgeClient.DmAsync(text: "You are not allowed to run this command.", mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
-
-                        return ;
+                        continue;
                     }
-                    
-                    
+
+                    if (command.Cooldown > TimeSpan.Zero)
+                    {
+                        var remaining = await cooldowns.GetRemainingAsync(player.Id, command.Name, stoppingToken);
+                        if (remaining is { } left)
+                        {
+                            await bridgeClient.DmAsync(text: $"!{command.Name} is on cooldown, try again in {Math.Ceiling(left.TotalSeconds)}s.", mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
+                            continue;
+                        }
+                    }
+
                     var response = await command.ExecuteAsync(commandContext);
 
                     await bridgeClient.DmAsync(text: response, mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
 
-
+                    if (command.Cooldown > TimeSpan.Zero)
+                        await cooldowns.StartAsync(player.Id, command.Name, command.Cooldown, stoppingToken);
                 }
             }
             catch (OperationCanceledException) { }

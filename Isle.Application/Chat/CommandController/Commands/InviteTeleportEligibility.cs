@@ -15,7 +15,7 @@ internal static class InviteTeleportEligibility
         if (growth > PlayerInvite.MaxGrowthForTeleport)
         {
             return (false,
-                $"Invite teleports are for fresh spawns only (max {PlayerInvite.MaxGrowthForTeleport:P0} growth). You're at {growth:P0}.");
+                $"Invite teleports are for fresh spawns only (max {PlayerInvite.MaxGrowthForTeleport:P0} growth). You are at {growth:P0}.");
         }
 
         if (lastSpawn is null || DateTimeOffset.UtcNow - lastSpawn.Value > PlayerInvite.SpawnWindow)

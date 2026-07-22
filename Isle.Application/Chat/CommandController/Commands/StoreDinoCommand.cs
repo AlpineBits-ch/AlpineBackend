@@ -82,7 +82,7 @@ public class StoreDinoCommand(MicroserviceContext microserviceContext, IBridgeCl
             logger.LogWarning(ex, "Stored dino for {Steam} but failed to remove the live pawn", context.PlayerSteam);
         }
 
-        return $"Stored your {slot.Species} ({slot.Growth:P0} grown). Storage: {player.Storage.Slots.Count}/{player.Storage.MaxSlotCount}.";
+        return $"Stored your {slot.FriendlySpeciesName()} ({slot.Growth:P0} grown). Storage: {player.Storage.Slots.Count}/{player.Storage.MaxSlotCount}.";
     }
 
     public override string Name { get; } = "store";

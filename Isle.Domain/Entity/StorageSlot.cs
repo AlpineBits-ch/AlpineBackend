@@ -27,6 +27,11 @@ public class StorageSlot : BaseEntity<StorageSlot>, IPrefixedEntity
     public string StorageId { get; set; }
     public string Species { get; set; }
 
+    public string FriendlySpeciesName()
+    {
+        return IsleBridge.Sdk.Species.FriendlyName(Species);
+    }
+
     /// <summary>Growth of the stored dino (0..1); re-applied when the dino is loaded back.</summary>
     public double Growth { get; set; }
 

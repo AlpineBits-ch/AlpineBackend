@@ -28,7 +28,7 @@ public class VoiceUserDisconnectedHandler
         if (!registry.TryGetSteamId(message.UserId, out _))
             return;
 
-        registry.Unregister(message.UserId);
+        await registry.UnregisterAsync(message.UserId);
         tracks.Remove(message.UserId);
 
         // Removes them from the cluster, which emits PeerBecameInaudible for every remaining

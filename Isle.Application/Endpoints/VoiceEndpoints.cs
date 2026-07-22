@@ -37,7 +37,7 @@ public static class VoiceMembershipEndpoints
 
         // Key the voice grid by userId (the SignalR user identifier) so server->client
         // pushes address the right connection.
-        registry.Register(userId, player.SteamId);
+        await registry.RegisterAsync(userId, player.SteamId);
 
         // No cluster membership yet — that begins the moment a StatsStream
         // snapshot for this steamId arrives (see PositionIngestionService).
@@ -52,7 +52,7 @@ public static class VoiceMembershipEndpoints
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
 
-        registry.Unregister(userId);
+        await registry.UnregisterAsync(userId);
         tracks.Remove(userId);
         await bus.InvokeAsync(new RemovePlayerCommand(userId));
 

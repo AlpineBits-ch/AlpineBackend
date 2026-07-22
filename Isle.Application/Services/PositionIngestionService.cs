@@ -25,6 +25,10 @@ public sealed class PositionIngestionService(
                     if (!registry.TryGetPlayerId(snapshot.Steam, out var playerId))
                         continue;
 
+                    // A fresh snapshot proves this player is still in-game — slide their voice TTL
+                    // (throttled internally, so this is a no-op most ticks and never a hot-path cost).
+                    await registry.TouchAsync(snapshot.Steam);
+
                     if (snapshot.Pos is null)
                         continue;
 

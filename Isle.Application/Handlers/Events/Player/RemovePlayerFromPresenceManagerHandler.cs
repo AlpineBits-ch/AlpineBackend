@@ -5,8 +5,8 @@ namespace Isle.Api.Handlers.Events.Player;
 
 public class RemovePlayerFromPresenceManagerHandler
 {
-    public void Handle(PlayerDisconnectedEvent @event, PlayerPresenceManager playerPresenceManager)
+    public async Task Handle(PlayerDisconnectedEvent @event, PlayerPresenceManager playerPresenceManager)
     {
-        playerPresenceManager.RemovePlayerId(@event.PlayerId);
+        await playerPresenceManager.RemovePlayerIdAsync(@event.PlayerId);
     }
 }

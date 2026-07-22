@@ -5,8 +5,8 @@ namespace Isle.Api.Handlers.Events.Player;
 
 public class AddPlayerToPresenceManagerHandler
 {
-    public void Handle(PlayerConnectedEvent @event, PlayerPresenceManager playerPresenceManager)
+    public async Task Handle(PlayerConnectedEvent @event, PlayerPresenceManager playerPresenceManager)
     {
-        playerPresenceManager.AddPlayerId(@event.PlayerId);
+        await playerPresenceManager.AddPlayerIdAsync(@event.PlayerId);
     }
 }

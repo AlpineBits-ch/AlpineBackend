@@ -39,13 +39,21 @@ public class CheckPlayerConnectedToVoiceHandler
     }
 
     public async Task<object> Handle(EnsurePlayerConnectedToVoiceEvent @event, IBridgeClient client,
-        VoicePlayerRegistry registry, EvrimaRconClient rcon)
+        VoicePlayerRegistry registry, EvrimaRconClient rcon,  MicroserviceContext context)
     {
         if (registry.TryGetPlayerId(@event.SteamId, out var playerId))
         {
             if (!string.IsNullOrWhiteSpace(playerId)) return null;
         }
-
+        var player = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == @event.PlayerId);
+        if(player is null)
+        {
+            return null;
+        }
+        if (player.IsAdmin)
+        {
+            return null;
+        }
         // Grace period is up and they still aren't on voice — remove them from the server.
         var now = DateTimeOffset.UtcNow;
         if (now >= @event.KickAt)

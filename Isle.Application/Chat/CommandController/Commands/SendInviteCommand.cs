@@ -18,7 +18,7 @@ public class SendInviteCommand(
         var identifier = string.Join(' ', context.Arguments).Trim();
         if (identifier.Length == 0)
         {
-            return "Usage: !invite <in-game name | friendly id | steam id>";
+            return "Usage: !invite in-game name | friendly id | steam id";
         }
 
         if (string.IsNullOrWhiteSpace(context.PlayerSpecies))

@@ -56,7 +56,6 @@ public sealed class PopulationLimitService(
     {
         var players = await rcon.GetPlayerData();
 
-        // Count alive dinos per species short name (Class may be a full class path).
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (var player in players)
         {
@@ -65,27 +64,28 @@ public sealed class PopulationLimitService(
             counts[species] = counts.GetValueOrDefault(species) + 1;
         }
 
-        // Full desired state: unlimited (-1) always on; otherwise on only while under the cap.
+        // Build against the FULL roster, not just the species that have a configured cap —
+        // UpdatePlayables is authoritative: anything we don't include is implicitly disabled.
         var desired = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (species, cap) in limits.Caps)
+        foreach (var species in Species.All)
         {
+            var cap = limits.Caps.TryGetValue(species, out var c) ? c : SpeciesPopulationLimits.Unlimited;
             desired[species] = cap < 0 || counts.GetValueOrDefault(species) < cap;
         }
 
-        // Nothing changed since last tick — leave the server's allowed list as-is.
         if (_lastState is not null && StateEquals(_lastState, desired)) return;
 
-        // so a partial update would disable every species we left out.
         await rcon.UpdatePlayables(desired);
 
         foreach (var (species, enabled) in desired)
         {
             if (_lastState is not null && _lastState.TryGetValue(species, out var prev) && prev == enabled)
-                continue; // only log the ones that actually flipped
+                continue;
 
+            var cap = limits.Caps.TryGetValue(species, out var c) ? c : SpeciesPopulationLimits.Unlimited;
             logger.LogInformation("Species {Species} {State} ({Count}/{Cap})",
                 species, enabled ? "enabled" : "disabled",
-                counts.GetValueOrDefault(species), limits.Caps[species]);
+                counts.GetValueOrDefault(species), cap);
         }
 
         _lastState = desired;

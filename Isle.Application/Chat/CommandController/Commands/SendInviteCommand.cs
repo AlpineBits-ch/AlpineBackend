@@ -75,7 +75,7 @@ public class SendInviteCommand(
         // Let the receiver know how to accept — they teleport to us on accept.
         var senderLabel = string.IsNullOrWhiteSpace(sender.InGameName) ? sender.FriendlyId : sender.InGameName;
         await bridgeClient.DmAsync(
-            text: $"{senderLabel} invited you to nest! Reply !accept {sender.FriendlyId} to teleport to them.",
+            text: $"{senderLabel} invited you! Reply !accept {sender.FriendlyId} to teleport to them.",
             steam: target.SteamId,
             sender: "VENTA.GG",
             mode: ChatMode.Spatial);

@@ -1,4 +1,4 @@
-﻿namespace Isle.Api.Voice;
+﻿namespace Isle.Domain.Entity.Voice;
 
 public class PlayerVoiceState
 {

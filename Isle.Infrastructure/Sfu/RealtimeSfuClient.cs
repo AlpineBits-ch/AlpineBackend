@@ -1,7 +1,6 @@
 using Echo.Realtime;
-using Isle.Api;
-using Isle.Api.Voice;
-using Isle.Contracts.Events.Voice;
+using Isle.Domain;
+using Isle.Domain.Entity.Voice;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Isle.Infrastructure.Sfu;

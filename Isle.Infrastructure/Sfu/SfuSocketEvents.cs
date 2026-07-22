@@ -1,4 +1,4 @@
-﻿namespace Isle.Contracts.Events.Voice;
+﻿namespace Isle.Infrastructure.Sfu;
 
 public static class SfuSocketEvents
 {

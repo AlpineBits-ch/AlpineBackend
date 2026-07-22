@@ -1,4 +1,4 @@
-namespace Isle.Api;
+namespace Isle.Domain;
 
 // All ids here are the caller's userId (the SignalR user identifier), which is how the
 // realtime hub addresses connections. The proximity grid keys players by this same id.

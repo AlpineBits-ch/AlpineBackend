@@ -1,8 +1,9 @@
 using Echo.Realtime;
 using Isle.Api;
 using Isle.Api.Services;
-using Isle.Api.Voice;
+using Isle.Domain;
 using Isle.Domain.Aggregates;
+using Isle.Domain.Entity.Voice;
 
 namespace Isle.Api.Handlers.Realtime;
 

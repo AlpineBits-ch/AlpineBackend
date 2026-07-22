@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Isle.Api.Voice;
+namespace Isle.Domain.Entity.Voice;
 
 /// <summary>
 /// Tracks, per player, the Cloudflare SFU session and published audio track that peers need in

@@ -51,7 +51,7 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                         HealthData = new DinoHealthData(),
                         PlayerId = player.Id,
                         IsAdmin = player.IsAdmin,
-                        PlayerSpecies = "Rex of course"
+                        PlayerSpecies = Species.Tyrannosaurus, // fixme
                     };
 
                     if (!command.CanRun(commandContext))

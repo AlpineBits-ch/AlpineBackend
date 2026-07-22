@@ -7,8 +7,12 @@ public class CommandContext
 {
     public string PlayerName { get; set; }
     public string PlayerSteam { get; set; }
-    
-    public string PlayerSpecies { get; set; }
+
+    /// <summary>Species of the player's active dino, or null when they have no live pawn.</summary>
+    public string? PlayerSpecies { get; set; }
+
+    /// <summary>Growth (0..1) of the player's active dino; 0 when they have no live pawn.</summary>
+    public double PlayerGrowth { get; set; }
     public DinoHealthData HealthData { get; set; }
     
     public ICollection<string> Arguments { get; set; }

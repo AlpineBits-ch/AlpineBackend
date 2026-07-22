@@ -20,7 +20,7 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         MinLength = 6,
     });    public static string Prefix { get; } = "player";
     public virtual Storage Storage { get; set; }
-    public long Xp { get; init; }
+    public long Xp { get; private set; }
     public string SteamId { get; set; }
     public string? UserId { get; set; }
     public bool IsAdmin { get; set; }
@@ -62,6 +62,21 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     {
         this.UserId = null;
         this.AddDomainEvent(PlayerUserIdUnlinked.FromPlayer(this));
+    }
+
+    /// <summary>Grants <paramref name="amount"/> XP. Negative amounts are ignored.</summary>
+    public void AddXp(long amount)
+    {
+        if (amount <= 0) return;
+        this.Xp += amount;
+    }
+
+    /// <summary>Attempts to spend <paramref name="amount"/> XP.</summary>
+    public bool TrySpendXp(long amount)
+    {
+        if (amount <= 0 || this.Xp < amount) return false;
+        this.Xp -= amount;
+        return true;
     }
 
     public void SetAdmin()

@@ -30,6 +30,13 @@ public class MicroserviceContext : DbContext
     {
         modelBuilder.Entity<Player>(playerBuilder =>
         {
+            modelBuilder.HasSequence<long>("player_friendly_id_seq")
+                .StartsAt(100000)
+                .IncrementsBy(1);
+
+            modelBuilder.Entity<Player>()
+                .Property(p => p.FriendlyIdSeq)
+                .HasDefaultValueSql("nextval('player_friendly_id_seq')");
         });
 
         modelBuilder.Entity < Storage>(storageBuilder =>

@@ -11,4 +11,8 @@
       <ProjectReference Include="..\IsleBridge.Sdk\IsleBridge.Sdk\IsleBridge.Sdk.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <PackageReference Include="Sqids" Version="3.2.1" />
+    </ItemGroup>
+
 </Project>

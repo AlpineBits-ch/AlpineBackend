@@ -2,6 +2,7 @@
 using Isle.Domain.Entity;
 using Isle.Domain.Events.Player;
 using Persistence;
+using Sqids;
 
 namespace Isle.Domain.Aggregates;
 
@@ -14,12 +15,21 @@ public class CreatePlayerArgs
 
 public class Player : Aggregate<Player>, IPrefixedEntity
 {
-    public static string Prefix { get; } = "player";
+    private static readonly SqidsEncoder<int> _sqids = new(new SqidsOptions
+    {
+        MinLength = 6,
+    });    public static string Prefix { get; } = "player";
     public virtual Storage Storage { get; set; }
     public long Xp { get; init; }
     public string SteamId { get; set; }
     public string? UserId { get; set; }
     public bool IsAdmin { get; set; }
+    public int FriendlyIdSeq { get; set; }           
+
+    public string FriendlyId => _sqids.Encode(FriendlyIdSeq);
+    
+    
+    public string? InGameName { get; set; }
     
     public static Player Create(CreatePlayerArgs args)
     {

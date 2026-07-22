@@ -38,7 +38,7 @@ public class CheckPlayerConnectedToVoiceHandler
         }.DelayedFor(TimeSpan.FromSeconds(60));
     }
 
-    public async Task<object> Handle(EnsurePlayerConnectedToVoiceEvent @event, IBridgeClient client,
+    public async Task<object?> Handle(EnsurePlayerConnectedToVoiceEvent @event, IBridgeClient client,
         VoicePlayerRegistry registry, EvrimaRconClient rcon,  MicroserviceContext context)
     {
         if (registry.TryGetPlayerId(@event.SteamId, out var playerId))

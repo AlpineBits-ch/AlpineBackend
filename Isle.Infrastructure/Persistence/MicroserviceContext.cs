@@ -11,7 +11,7 @@ public class MicroserviceContext : DbContext
     public DbSet<Player> Players { get; set; }
     public DbSet<Storage> Storages { get; set; }
     public DbSet<StorageSlot> StorageSlots { get; set; }
-    public DbSet<FriendRequest> FriendRequests { get; set; }
+    public DbSet<PlayerInvite> PlayerInvites { get; set; }
     
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -56,20 +56,20 @@ public class MicroserviceContext : DbContext
             slotBuilder.OwnsOne(s => s.HealthData);
         });
 
-        modelBuilder.Entity<FriendRequest>(requestBuilder =>
+        modelBuilder.Entity<PlayerInvite>(inviteBuilder =>
         {
             // Two FKs into Player; Restrict avoids the multiple-cascade-path error on delete.
-            requestBuilder.HasOne(r => r.SenderPlayer)
+            inviteBuilder.HasOne(r => r.SenderPlayer)
                 .WithMany()
                 .HasForeignKey(r => r.SenderPlayerId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            requestBuilder.HasOne(r => r.ReceiverPlayer)
+            inviteBuilder.HasOne(r => r.ReceiverPlayer)
                 .WithMany()
                 .HasForeignKey(r => r.ReceiverPlayerId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            requestBuilder.HasIndex(r => new { r.ReceiverPlayerId, r.Status });
+            inviteBuilder.HasIndex(r => new { r.ReceiverPlayerId, r.Status });
         });
     }
 

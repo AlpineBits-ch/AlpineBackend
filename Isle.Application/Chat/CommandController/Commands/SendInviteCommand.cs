@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Isle.Api.Chat.CommandController.Commands;
 
-public class SendFriendRequestCommand(
+public class SendInviteCommand(
     MicroserviceContext microserviceContext,
     IBridgeClient bridgeClient,
     PlayerPresenceManager presence,
@@ -18,16 +18,16 @@ public class SendFriendRequestCommand(
         var identifier = string.Join(' ', context.Arguments).Trim();
         if (identifier.Length == 0)
         {
-            return "Usage: !friend <in-game name | friendly id | steam id>";
+            return "Usage: !invite <in-game name | friendly id | steam id>";
         }
 
         if (string.IsNullOrWhiteSpace(context.PlayerSpecies))
         {
-            return "You need to be spawned in to send a friend request.";
+            return "You need to be spawned in to send an invite.";
         }
 
         var lastSpawn = await spawnTracker.GetLastSpawnAsync(context.PlayerSteam);
-        var (eligible, eligibilityError) = FriendTeleportEligibility.Check(context.PlayerGrowth, lastSpawn);
+        var (eligible, eligibilityError) = InviteTeleportEligibility.Check(context.PlayerGrowth, lastSpawn);
         if (!eligible)
         {
             return eligibilityError!;
@@ -37,7 +37,7 @@ public class SendFriendRequestCommand(
         switch (resolution.Outcome)
         {
             case PlayerResolver.ResolveOutcome.Ambiguous:
-                return "Multiple players share that in-game name, pls use friendly id.";
+                return "Multiple players share that in-game name, please use friendly id.";
             case PlayerResolver.ResolveOutcome.NotFound:
                 return $"No player found for \"{identifier}\".";
         }
@@ -45,7 +45,7 @@ public class SendFriendRequestCommand(
         var target = resolution.Player!;
         if (target.Id == context.PlayerId)
         {
-            return "You can't send a friend request to yourself.";
+            return "You can't send an invite to yourself.";
         }
 
         if (!presence.IsPlayerOnline(target.Id))
@@ -53,38 +53,38 @@ public class SendFriendRequestCommand(
             return $"{target.InGameName ?? "That player"} is not online right now.";
         }
 
-        var alreadyPending = await microserviceContext.FriendRequests.AnyAsync(r =>
+        var alreadyPending = await microserviceContext.PlayerInvites.AnyAsync(r =>
             r.SenderPlayerId == context.PlayerId &&
             r.ReceiverPlayerId == target.Id &&
-            r.Status == FriendRequestStatus.Pending);
+            r.Status == PlayerInviteStatus.Pending);
         if (alreadyPending)
         {
-            return $"You already have a pending request to {target.InGameName ?? "that player"}.";
+            return $"You already have a pending invite to {target.InGameName ?? "that player"}.";
         }
 
         var sender = await microserviceContext.Players.FirstOrDefaultAsync(p => p.Id == context.PlayerId);
         if (sender is null)
         {
-            return "There was an issue sending your request (404), please report that on our discord!";
+            return "There was an issue sending your invite (404), please report that on our discord!";
         }
 
-        var request = FriendRequest.Create(sender.Id, target.Id);
-        microserviceContext.FriendRequests.Add(request);
+        var invite = PlayerInvite.Create(sender.Id, target.Id);
+        microserviceContext.PlayerInvites.Add(invite);
         await microserviceContext.SaveChangesAsync();
 
         // Let the receiver know how to accept — they teleport to us on accept.
         var senderLabel = string.IsNullOrWhiteSpace(sender.InGameName) ? sender.FriendlyId : sender.InGameName;
         await bridgeClient.DmAsync(
-            text: $"{senderLabel} wants to nest with you! Reply !accept {sender.FriendlyId} to teleport to them.",
+            text: $"{senderLabel} invited you to nest! Reply !accept {sender.FriendlyId} to teleport to them.",
             steam: target.SteamId,
             sender: "VENTA.GG",
             mode: ChatMode.Spatial);
 
-        return $"Friend request sent to {target.InGameName ?? target.FriendlyId}.";
+        return $"Invite sent to {target.InGameName ?? target.FriendlyId}.";
     }
 
-    public override string Name { get; } = "friend";
-    public override string Description { get; } = "Sends a friend request; on accept your friend teleports to you";
+    public override string Name { get; } = "invite";
+    public override string Description { get; } = "Invites a player; on accept they teleport to you";
     public override bool IsAdminOnly { get; set; } = false;
     public override TimeSpan Cooldown => TimeSpan.FromSeconds(30);
 }

@@ -14,9 +14,9 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
 {
     public static  ICollection<Type> RegisteredTypes { get; } =
     [
-        typeof(DebugCommand), typeof(LinkInGameName), typeof(CreateInviteCommand), typeof(PromoteCommand),
+        typeof(DebugCommand), typeof(LinkInGameName), typeof(PromoteCommand),
         typeof(StoreDinoCommand), typeof(LoadDinoCommand), typeof(BuySlotCommand), typeof(StorageInfoCommand),
-        typeof(SendFriendRequestCommand), typeof(AcceptFriendRequestCommand), typeof(RejectFriendRequestCommand),
+        typeof(SendInviteCommand), typeof(AcceptInviteCommand), typeof(RejectInviteCommand),
         typeof(WhoAmICommand)
     ];
 

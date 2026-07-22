@@ -53,6 +53,27 @@ public class Storage : Aggregate<Storage>, IPrefixedEntity
         MaxSlotCount += 1;
     }
 
+    /// <summary>
+    /// Marks the given slot as the one currently loaded out into the world, clearing the flag on all
+    /// others (a player can only have one live dino at a time).
+    /// </summary>
+    public void MarkDeployed(string slotId)
+    {
+        foreach (var slot in Slots)
+            slot.IsDeployed = slot.Id == slotId;
+    }
+
+    /// <summary>
+    /// Removes every slot whose dino is currently deployed (i.e. just died), freeing that capacity.
+    /// </summary>
+    public int WipeDeployed()
+    {
+        var deployed = Slots.Where(s => s.IsDeployed).ToList();
+        foreach (var slot in deployed)
+            Slots.Remove(slot);
+        return deployed.Count;
+    }
+
     public static Storage Create(string playerId)
     {
         var id = GenerateId();

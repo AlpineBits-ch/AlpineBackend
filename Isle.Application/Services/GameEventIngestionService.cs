@@ -50,6 +50,13 @@ public sealed class GameEventIngestionService(
                         await spawnTracker.MarkSpawnedAsync(evt.Steam, stoppingToken);
                     }
 
+                    if (evt.Kind == EventKind.Death)
+                    {
+                        // A dino tied to a deployed storage slot just died — wipe that slot
+                        // asynchronously so it frees up for a new dino.
+                        await bus.PublishAsync(new WipeDeployedSlotsCommand { SteamId = evt.Steam });
+                    }
+
                     if (evt.Kind != EventKind.Leave)
                     {
                       

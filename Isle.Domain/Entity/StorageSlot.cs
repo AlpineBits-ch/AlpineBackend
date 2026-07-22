@@ -30,6 +30,11 @@ public class StorageSlot : BaseEntity<StorageSlot>, IPrefixedEntity
     /// <summary>Growth of the stored dino (0..1); re-applied when the dino is loaded back.</summary>
     public double Growth { get; set; }
 
+    /// <summary>
+    /// True while the dino from this slot is currently live in the world (loaded out).
+    /// </summary>
+    public bool IsDeployed { get; set; }
+
     public DinoHealthData HealthData { get; set; }
 
     public MutationsData Mutations { get; set; }

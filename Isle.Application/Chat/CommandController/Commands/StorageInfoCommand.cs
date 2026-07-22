@@ -36,7 +36,8 @@ public class StorageInfoCommand(MicroserviceContext microserviceContext) : ChatC
         for (var i = 0; i < slots.Count; i++)
         {
             var slot = slots[i];
-            sb.Append($" | {i + 1}. {slot.Species} ({slot.Growth:P0})");
+            var deployed = slot.IsDeployed ? " [out]" : string.Empty;
+            sb.Append($" | {i + 1}. {slot.Species} ({slot.Growth:P0}){deployed}");
         }
 
         return sb.ToString();

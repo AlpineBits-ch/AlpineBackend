@@ -35,13 +35,14 @@ Stores your **current dino** (species, growth, health & mutations) into a free s
 ```
 
 ### `!load <slot number>`
-Loads a stored dino back onto your **current pawn** and frees the slot. Slot numbers come from `!storage`.
+Loads a stored dino back onto your **current pawn**. The dino is now live and stays **tied to that slot** — if it **dies**, the slot is wiped and frees up for a new dino. Slot numbers come from `!storage`.
 ```
 !load 1
 ```
+> ⚠️ Taking a dino out is a risk: a stored dino is safe, but once it's live and dies, that slot's dino is gone. `!store` it again to park it safely.
 
 ### `!storage`
-Shows your **XP**, slot usage, and every stored dino with its species and growth.
+Shows your **XP**, slot usage, and every stored dino with its species and growth. A dino you currently have out is marked **`[out]`**.
 ```
 !storage
 ```

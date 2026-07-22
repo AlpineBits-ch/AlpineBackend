@@ -82,10 +82,11 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
             logger.LogWarning(ex, "Loaded {Species} for {Steam} but failed to restore mutations", slot.Species, context.PlayerSteam);
         }
 
-        player.Storage.RemoveSlot(slot.Id);
+        // Keep the slot but mark it deployed: the dino is now live and tied to this slot.
+        player.Storage.MarkDeployed(slot.Id);
         await microserviceContext.SaveChangesAsync();
 
-        return $"Loaded your {slot.Species} ({slot.Growth:P0} grown). Storage: {player.Storage.Slots.Count}/{player.Storage.MaxSlotCount}.";
+        return $"Loaded your {slot.Species} ({slot.Growth:P0} grown). It's live now — if it dies you lose this slot's dino.";
     }
 
     /// <summary>

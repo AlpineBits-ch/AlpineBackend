@@ -15,10 +15,12 @@ public static class VoiceSubscriptionHandler
         // Seed each side with the other's last-known position so a stationary peer is placed
         // correctly on subscribe, rather than sitting at the origin until they next move.
         if (cluster.TryGetPosition(@event.OtherId, out var other))
-            await sfu.SendPeerPosition(@event.PlayerId, @event.OtherId, other.X, other.Y, other.Z, other.Yaw);
+            await sfu.SendPeerPosition(@event.PlayerId, @event.OtherId, other.X, other.Y, other.Z, other.Yaw,
+                other.Vx, other.Vy, other.Vz, other.TimestampMs);
 
         if (cluster.TryGetPosition(@event.PlayerId, out var self))
-            await sfu.SendPeerPosition(@event.OtherId, @event.PlayerId, self.X, self.Y, self.Z, self.Yaw);
+            await sfu.SendPeerPosition(@event.OtherId, @event.PlayerId, self.X, self.Y, self.Z, self.Yaw,
+                self.Vx, self.Vy, self.Vz, self.TimestampMs);
     }
 
     public static async Task Handle(PeerBecameInaudibleEvent @event, ISfuClient sfu)

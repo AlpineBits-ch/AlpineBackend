@@ -32,7 +32,7 @@ public static class VoiceClusterHandler
     {
         VoiceClusterChange.PeerJoined j => new PeerBecameAudibleEvent(j.PlayerId, j.OtherId),
         VoiceClusterChange.PeerLeft l => new PeerBecameInaudibleEvent(l.PlayerId, l.OtherId),
-        VoiceClusterChange.Moved m => new PlayerPositionUpdatedEvent(m.PlayerId, m.WorldX, m.WorldY, m.WorldZ, m.Yaw),
+        VoiceClusterChange.Moved m => new PlayerPositionUpdatedEvent(m.PlayerId, m.WorldX, m.WorldY, m.WorldZ, m.Yaw, m.Vx, m.Vy, m.Vz, m.TimestampMs),
         _ => throw new ArgumentOutOfRangeException(nameof(change))
     };
 }

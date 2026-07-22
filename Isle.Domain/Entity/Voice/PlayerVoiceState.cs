@@ -12,6 +12,17 @@ public class PlayerVoiceState
     // In-game facing in degrees (Unreal yaw); drives client-side directional audio.
     public float Yaw { get; set; }
 
+    // Velocity in UE units/second, derived from the delta between the last two position
+    // samples. Sent on the wire so the client can extrapolate (dead-reckon) between the
+    // ~1 Hz position updates instead of snapping to each point a beat late.
+    public float VelX { get; set; }
+    public float VelY { get; set; }
+    public float VelZ { get; set; }
+
+    // Server unix time (ms) of the last position sample — the reference the client
+    // extrapolates from, and the divisor for the velocity derivation above.
+    public long LastUpdateUnixMs { get; set; }
+
     // Last position actually broadcast for spatialization — separate from
     // PosX/PosY above, which track raw position for cell-membership purposes.
     public float LastEmittedX { get; set; }

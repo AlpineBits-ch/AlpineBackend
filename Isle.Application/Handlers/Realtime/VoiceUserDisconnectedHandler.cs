@@ -1,20 +1,27 @@
 using Echo.Realtime;
+using Isle.Api;
 using Isle.Api.Services;
 using Isle.Api.Voice;
-using Isle.Contracts.Commands;
-using Wolverine;
+using Isle.Domain.Aggregates;
 
 namespace Isle.Api.Handlers.Realtime;
 
 /// <summary>
-/// A hub disconnect (e.g. the player closes the browser tab) must also remove them from the
-/// proximity voice grid. Otherwise the only cleanup paths are in-game leave and the explicit
-/// <c>POST /voice/leave</c>, so a dropped socket leaves the player frozen in-grid and peers keep
-/// hearing them at their last position. Mirrors <c>VoiceMembershipEndpoints.Leave</c>.
+/// A realtime socket drop (tab close, app restart, network blip with SignalR auto-reconnect) is
+/// <b>not</b> the same as leaving voice. The player's in-game character is the source of truth for
+/// grid membership — kept fresh by the stats stream, and torn down by the game <c>Leave</c> event,
+/// an explicit <c>POST /voice/leave</c>, or the 2h registry TTL reconcile. So we deliberately keep
+/// the player in <see cref="VoicePlayerRegistry"/> and <see cref="VoiceCluster"/> across a drop:
+/// their cell (and last position/velocity) stays warm, which is exactly what lets a reconnect
+/// re-seed peers instantly (see <c>VoiceCloudflareEndpoints.TracksNew</c>) instead of the old
+/// "0 nearby players until you move and rejoin" behaviour.
 ///
-/// <para><c>UserDisconnected</c> is fanned out (RabbitMQ conventional routing) to every service
-/// that handles it; this handler fires for all disconnects, so it no-ops for anyone who wasn't
-/// an Isle voice participant.</para>
+/// <para>What a drop <i>does</i> invalidate is the live media: the Cloudflare session/track dies
+/// with the client. So we drop the published track and tell current neighbours to stop pulling it,
+/// so nobody keeps a dead track open. On reconnect the client republishes and everyone re-subscribes.</para>
+///
+/// <para><c>UserDisconnected</c> is fanned out to every service that handles it; this no-ops for
+/// anyone who wasn't an Isle voice participant / wasn't publishing.</para>
 /// </summary>
 public class VoiceUserDisconnectedHandler
 {
@@ -22,18 +29,22 @@ public class VoiceUserDisconnectedHandler
         UserDisconnected message,
         VoicePlayerRegistry registry,
         VoiceTrackRegistry tracks,
-        IMessageBus bus)
+        VoiceCluster cluster,
+        ISfuClient sfu)
     {
         // Skip chat-only / non-voice users — nothing to tear down.
         if (!registry.TryGetSteamId(message.UserId, out _))
             return;
 
-        await registry.UnregisterAsync(message.UserId);
+        // Not publishing (no live media to invalidate) — leave grid + registry untouched.
+        if (!tracks.TryGet(message.UserId, out _))
+            return;
+
         tracks.Remove(message.UserId);
 
-        // Removes them from the cluster, which emits PeerBecameInaudible for every remaining
-        // neighbour → isle.PeerLeft to both sides → no ghost left behind. On reconnect the
-        // client re-runs /voice/join and rebuilds its proximity list (see frontend guide §6.3).
-        await bus.InvokeAsync(new RemovePlayerCommand(message.UserId));
+        // Tell everyone who could hear this player to drop the now-dead Cloudflare track.
+        // UnsubscribePair is symmetric; the message back to the (offline) mover is a harmless no-op.
+        foreach (var peer in cluster.GetAudiblePeers(message.UserId).Where(p => p != message.UserId))
+            await sfu.UnsubscribePair(message.UserId, peer);
     }
 }

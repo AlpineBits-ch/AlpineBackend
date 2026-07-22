@@ -11,7 +11,12 @@ public record SubscribeMutualPayload(string TargetUserId, string CfSessionId, st
 public record PeerLeftPayload(string UserId);
 
 // Position of a peer in your voice cell — used to spatialise their audio.
-public record VoicePositionPayload(string UserId, float X, float Y, float Z, float Yaw);
+// Vx/Vy/Vz: velocity in UE units/second. TimestampMs: server unix-ms the sample was taken.
+// Together they let the client extrapolate the peer's position between the ~1 Hz updates.
+public record VoicePositionPayload(string UserId, float X, float Y, float Z, float Yaw,
+    float Vx, float Vy, float Vz, long TimestampMs);
 
-// Your own position + facing — the listener origin for spatialisation.
-public record SelfPositionPayload(float X, float Y, float Z, float Yaw);
+// Your own position + facing — the listener origin for spatialisation. Carries the same
+// velocity + timestamp so your own motion can be extrapolated between updates too.
+public record SelfPositionPayload(float X, float Y, float Z, float Yaw,
+    float Vx, float Vy, float Vz, long TimestampMs);

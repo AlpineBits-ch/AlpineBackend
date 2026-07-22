@@ -46,11 +46,11 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
         var swap = await bridgeClient.SwapAsync(context.PlayerSteam, slot.Species, slot.Growth);
         if (!swap.Ok)
         {
-            logger.LogWarning("Swap failed loading {Species} for {Steam}: {Code}", slot.Species, context.PlayerSteam, swap.Code);
+            logger.LogWarning("Swap failed loading {Species} for {Steam}: {Code}", slot.FriendlySpeciesName(), context.PlayerSteam, swap.Code);
             return swap.Code switch
             {
                 ResultCode.NoPawn => "You need a live dino to load onto. Spawn in first, then try again.",
-                ResultCode.NotWhitelisted => $"{slot.Species} is not allowed on this server right now.",
+                ResultCode.NotWhitelisted => $"{slot.FriendlySpeciesName()} is not allowed on this server right now.",
                 _ => "Could not load your dino, please try again in a moment."
             };
         }
@@ -69,7 +69,7 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Loaded {Species} for {Steam} but failed to restore vitals", slot.Species, context.PlayerSteam);
+                logger.LogWarning(ex, "Loaded {Species} for {Steam} but failed to restore vitals", slot.FriendlySpeciesName(), context.PlayerSteam);
             }
         }
 
@@ -79,7 +79,7 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Loaded {Species} for {Steam} but failed to restore mutations", slot.Species, context.PlayerSteam);
+            logger.LogWarning(ex, "Loaded {Species} for {Steam} but failed to restore mutations", slot.FriendlySpeciesName(), context.PlayerSteam);
         }
 
         // Keep the slot but mark it deployed: the dino is now live and tied to this slot. If it dies
@@ -87,7 +87,7 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
         player.Storage.MarkDeployed(slot.Id);
         await microserviceContext.SaveChangesAsync();
 
-        return $"Loaded your {slot.Species} ({slot.Growth:P0} grown). It's live now — if it dies you lose this slot's dino.";
+        return $"Loaded your {slot.FriendlySpeciesName()} ({slot.Growth:P0} grown). It's live now — if it dies you lose this slot's dino.";
     }
 
     /// <summary>

@@ -25,11 +25,15 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        foreach (var type in RegisteredTypes)
+        using (var prototypeScope = sp.CreateScope())
         {
-            // Instantiate once purely to read the command's Name for the lookup table.
-            if (ActivatorUtilities.CreateInstance(sp, type) is ChatCommand prototype)
-                _commandTypes[prototype.Name] = type;
+            foreach (var type in RegisteredTypes)
+            {
+                // Instantiate once purely to read the command's Name for the lookup table; the
+                // throwaway instance (and any scoped deps it pulled) is disposed with this scope.
+                if (ActivatorUtilities.CreateInstance(prototypeScope.ServiceProvider, type) is ChatCommand prototype)
+                    _commandTypes[prototype.Name] = type;
+            }
         }
 
         var commandFetchTask = Task.Run(async () =>

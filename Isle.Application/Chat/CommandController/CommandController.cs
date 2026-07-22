@@ -17,7 +17,7 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
         typeof(DebugCommand), typeof(LinkInGameName), typeof(PromoteCommand),
         typeof(StoreDinoCommand), typeof(LoadDinoCommand), typeof(BuySlotCommand), typeof(StorageInfoCommand),
         typeof(SendInviteCommand), typeof(AcceptInviteCommand), typeof(RejectInviteCommand),
-        typeof(WhoAmICommand), typeof(WipeWorldCommand)
+        typeof(WhoAmICommand), typeof(WipeWorldCommand), typeof(HelpCommand)
     ];
 
     // Maps command name -> type. The command itself is created per message from the request scope so

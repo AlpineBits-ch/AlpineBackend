@@ -17,10 +17,7 @@ public sealed class PopulationLimitService(
     ILogger<PopulationLimitService> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
-
-    // Last state we pushed per species, so we only send RCON toggles when something actually changes.
-    // Full enabled/disabled state we last pushed. UpdatePlayables replaces the whole allowed-classes
-    // list, so we always send the complete state and only skip the RCON call when nothing changed.
+    
     private Dictionary<string, bool>? _lastState;
 
     protected override async Task ExecuteAsync(CancellationToken ct)

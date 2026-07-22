@@ -96,7 +96,7 @@ public class AcceptInviteCommand(
             context.PlayerSteam,
             initiatorPos.Pos.X,
             initiatorPos.Pos.Y,
-            initiatorPos.Pos.Z + 300,
+            initiatorPos.Pos.Z,
             initiatorPos.Rot?.Yaw);
 
         if (!teleport.Ok)

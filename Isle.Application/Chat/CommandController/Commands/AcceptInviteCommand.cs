@@ -11,6 +11,7 @@ public class AcceptInviteCommand(
     MicroserviceContext microserviceContext,
     IBridgeClient bridgeClient,
     PlayerPresenceManager presence,
+    ILogger<AcceptInviteCommand> logger,
     PlayerSpawnTracker spawnTracker) : ChatCommand
 {
     public override async Task<string> ExecuteAsync(CommandContext context)
@@ -88,6 +89,9 @@ public class AcceptInviteCommand(
             return "Couldn't locate your host to teleport to. Try again in a moment.";
         }
 
+        
+        logger.LogInformation("Teleporting {PlayerName} to {InitiatorName} {x} {y} {z}", context.PlayerName, initiator.InGameName ?? initiator.FriendlyId, initiatorPos.Pos.X, initiatorPos.Pos.Y, initiatorPos.Pos.Z);
+        
         var teleport = await bridgeClient.TeleportAsync(
             context.PlayerSteam,
             initiatorPos.Pos.X,

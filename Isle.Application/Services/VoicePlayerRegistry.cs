@@ -30,4 +30,15 @@ public sealed class VoicePlayerRegistry
 
     public bool TryGetSteamId(string playerId, out string steamId) =>
         _playerToSteam.TryGetValue(playerId, out steamId!);
+    
+    public bool IsPlayerOnline(string? playerId = null, string? steamId = null)
+    {
+        if (playerId is not null)
+            return _playerToSteam.ContainsKey(playerId);
+
+        if (steamId is not null)
+            return _steamToPlayer.ContainsKey(steamId);
+
+        throw new ArgumentException("Either playerId or steamId must be provided.");
+    }
 }

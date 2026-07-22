@@ -82,7 +82,7 @@ public static class VoiceMembershipEndpoints
         
         return Results.Ok(new VoiceConnectionStatusDto()
         {
-            IsVoiceConnected = false,
+            IsVoiceConnected = registry.IsPlayerOnline(playerId: player.Id),
             IsGameConnected = presenceManager.IsPlayerOnline(player.Id),
         });
         

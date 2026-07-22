@@ -7,7 +7,8 @@ public enum PlayerInviteStatus
 {
     Pending,
     Accepted,
-    Rejected
+    Rejected,
+    Expired
 }
 
 public class PlayerInvite : Aggregate<PlayerInvite>, IPrefixedEntity
@@ -19,6 +20,9 @@ public class PlayerInvite : Aggregate<PlayerInvite>, IPrefixedEntity
 
     /// <summary>How long after spawning a player may send or accept an invite teleport.</summary>
     public static readonly TimeSpan SpawnWindow = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long a pending invite stays valid before it times out.</summary>
+    public static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
 
     public string SenderPlayerId { get; set; }
     public virtual Player SenderPlayer { get; set; }
@@ -46,4 +50,6 @@ public class PlayerInvite : Aggregate<PlayerInvite>, IPrefixedEntity
     public void Accept() => Status = PlayerInviteStatus.Accepted;
 
     public void Reject() => Status = PlayerInviteStatus.Rejected;
+
+    public void Expire() => Status = PlayerInviteStatus.Expired;
 }

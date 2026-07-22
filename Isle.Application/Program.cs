@@ -35,6 +35,7 @@ builder.Services.AddHostedService<PositionIngestionService>();
 builder.Services.AddHostedService<PlayerJoinNotificationService>();
 builder.Services.AddHostedService<GameEventIngestionService>();
 builder.Services.AddHostedService<VoicePresenceReconcileService>();
+builder.Services.AddHostedService<InviteTimeoutService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {

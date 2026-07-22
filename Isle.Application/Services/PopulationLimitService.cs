@@ -19,7 +19,9 @@ public sealed class PopulationLimitService(
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
 
     // Last state we pushed per species, so we only send RCON toggles when something actually changes.
-    private readonly Dictionary<string, bool> _lastEnabled = new(StringComparer.OrdinalIgnoreCase);
+    // Full enabled/disabled state we last pushed. UpdatePlayables replaces the whole allowed-classes
+    // list, so we always send the complete state and only skip the RCON call when nothing changed.
+    private Dictionary<string, bool>? _lastState;
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -66,28 +68,39 @@ public sealed class PopulationLimitService(
             counts[species] = counts.GetValueOrDefault(species) + 1;
         }
 
-        // Desired enabled state: unlimited (-1) always on; otherwise on only while under the cap.
-        var changed = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        // Full desired state: unlimited (-1) always on; otherwise on only while under the cap.
+        var desired = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var (species, cap) in limits.Caps)
         {
-            var enabled = cap < 0 || counts.GetValueOrDefault(species) < cap;
-
-            if (_lastEnabled.TryGetValue(species, out var previous) && previous == enabled)
-                continue; // no change since last tick — skip
-
-            changed[species] = enabled;
+            desired[species] = cap < 0 || counts.GetValueOrDefault(species) < cap;
         }
 
-        if (changed.Count == 0) return;
+        // Nothing changed since last tick — leave the server's allowed list as-is.
+        if (_lastState is not null && StateEquals(_lastState, desired)) return;
 
-        await rcon.UpdatePlayables(changed);
+        // so a partial update would disable every species we left out.
+        await rcon.UpdatePlayables(desired);
 
-        foreach (var (species, enabled) in changed)
+        foreach (var (species, enabled) in desired)
         {
-            _lastEnabled[species] = enabled;
+            if (_lastState is not null && _lastState.TryGetValue(species, out var prev) && prev == enabled)
+                continue; // only log the ones that actually flipped
+
             logger.LogInformation("Species {Species} {State} ({Count}/{Cap})",
                 species, enabled ? "enabled" : "disabled",
                 counts.GetValueOrDefault(species), limits.Caps[species]);
         }
+
+        _lastState = desired;
+    }
+
+    private static bool StateEquals(Dictionary<string, bool> a, Dictionary<string, bool> b)
+    {
+        if (a.Count != b.Count) return false;
+        foreach (var (key, value) in a)
+        {
+            if (!b.TryGetValue(key, out var other) || other != value) return false;
+        }
+        return true;
     }
 }

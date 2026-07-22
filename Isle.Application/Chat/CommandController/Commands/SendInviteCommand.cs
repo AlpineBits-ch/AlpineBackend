@@ -45,7 +45,7 @@ public class SendInviteCommand(
         var target = resolution.Player!;
         if (target.Id == context.PlayerId)
         {
-            return "You can't send an invite to yourself.";
+            return "You can not send an invite to yourself.";
         }
 
         if (!presence.IsPlayerOnline(target.Id))

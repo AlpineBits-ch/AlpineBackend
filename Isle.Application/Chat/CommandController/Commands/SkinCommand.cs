@@ -1,9 +1,13 @@
-﻿using Isle.Infrastructure.Persistence;
+﻿using Isle.Contracts.Commands;
+using Isle.Domain.Entity;
+using Isle.Infrastructure.Persistence;
+using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
+using Wolverine;
 
 namespace Isle.Api.Chat.CommandController.Commands;
 
-public class SkinCommand(MicroserviceContext context) : ChatCommand
+public class SkinCommand(MicroserviceContext context, IMessageBus bus) : ChatCommand
 {
     public override async Task<string> ExecuteAsync(CommandContext context)
     {
@@ -21,8 +25,24 @@ public class SkinCommand(MicroserviceContext context) : ChatCommand
     private async Task<string> CreateSkinAsync(CommandContext context)
     {
         var joinedArray = String.Join(" ", context.Arguments);
-        var skin = SkinCustomizer.FromProps(joinedArray);
-        throw new NotImplementedException();
+        var skinCustomizer = SkinCustomizer.FromProps(joinedArray);
+
+        var response = await bus.InvokeAsync<CreateSkinCommandResponse>(new CreateSkinCommand()
+        {
+            Parameter = new CreateSkinParams()
+            {
+                Species = Species.Tyrannosaurus,
+                Customizer = skinCustomizer,
+                PlayerId = context.PlayerId,
+            }
+        });
+        
+        if (response.Errors.Any())
+        {
+            return string.Join("\n", response.Errors.Select(x => x.ErrorMessage));
+        }
+        
+        return "Skin has been successfully created";
     }
     private async Task<string> ManageSkinAsync(CommandContext context)
     {

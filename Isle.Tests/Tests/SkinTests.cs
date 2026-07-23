@@ -75,4 +75,20 @@ public class SkinCustomizerTests
         Assert.That(customizer.MouthColor.G, Is.EqualTo(0.39)); // Dark green default
         Assert.That(customizer.MouthColor.B, Is.EqualTo(0.0));
     }
+    
+    [Test]
+    public void FromProps_IgnoresInvalidProperties()
+    {
+        // Arrange - adding a cli command
+        var input = "generate body=808080 marks=808080 flank=808080 belly=808080 detail=808080 eyes=FFFFFF male=808080 teeth=FFFFFF claws=505050";
+
+        // Act
+        var customizer = SkinCustomizer.FromProps(input);
+
+        // Assert
+        Assert.That(customizer.MouthColor, Is.Not.Null);
+        Assert.That(customizer.MouthColor!.R, Is.EqualTo(0.0));
+        Assert.That(customizer.MouthColor.G, Is.EqualTo(0.39)); // Dark green default
+        Assert.That(customizer.MouthColor.B, Is.EqualTo(0.0));
+    }
 }

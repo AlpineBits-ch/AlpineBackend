@@ -17,7 +17,7 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
         typeof(DebugCommand), typeof(LinkInGameName), typeof(PromoteCommand),
         typeof(StoreDinoCommand), typeof(LoadDinoCommand), typeof(BuySlotCommand), typeof(StorageInfoCommand),
         typeof(SendInviteCommand), typeof(AcceptInviteCommand), typeof(RejectInviteCommand),
-        typeof(WhoAmICommand), typeof(WipeWorldCommand), typeof(HelpCommand)
+        typeof(WhoAmICommand), typeof(WipeWorldCommand), typeof(HelpCommand), typeof(SkinCommand)
     ];
 
     // Maps command name -> type.
@@ -46,7 +46,12 @@ public class CommandController(IChatStream chat, ILogger<ChatWatcher> logger, IS
                     if(!text.StartsWith("!")) continue;
 
                     var commandName = text.Split(' ')[0].Replace("!", "");
-                    if (!_commandTypes.TryGetValue(commandName, out var commandType)) continue;
+                    if (!_commandTypes.TryGetValue(commandName, out var commandType))
+                    {
+                        await bridgeClient.DmAsync(text: $"Command {commandName} not found", mode: ChatMode.Spatial, steam: msg.Steam, sender: "VENTA.GG", ct: stoppingToken);
+
+                        return;
+                    }
 
                     using var scope = sp.CreateScope();
                     var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();

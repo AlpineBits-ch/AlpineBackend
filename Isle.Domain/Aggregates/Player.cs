@@ -71,12 +71,13 @@ public class Player : Aggregate<Player>, IPrefixedEntity
             SteamId = args.SteamId,
             UserId = args.UserId,
             IsAdmin = args.IsAdmin,
+            Xp = 25000,
             Storage = Aggregates.Storage.Create(id)
         };
         player.AddDomainEvent(PlayerCreated.FromPlayer(player));
         return player;
     }
-
+    
     
  
 

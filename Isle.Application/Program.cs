@@ -4,6 +4,7 @@ using AppEnvironment;
 using Isle.Api;
 using Isle.Api.Chat;
 using Isle.Api.Chat.CommandController;
+using Isle.Api.Repositories;
 using Isle.Api.Services;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity.Voice;
@@ -107,7 +108,8 @@ builder.Services.AddSignalR(config =>
 builder.Services.AddInfrastructure();
 
 
-
+builder.Services.AddSingleton<PlayerPositionCache>();
+builder.Services.AddSingleton<IPlayerPositionProvider>(sp => sp.GetRequiredService<PlayerPositionCache>());
 
 builder.Services.AddStackExchangeRedisCache(config =>
 {

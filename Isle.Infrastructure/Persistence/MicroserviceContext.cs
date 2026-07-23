@@ -1,6 +1,7 @@
 ﻿using AppEnvironment;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity;
+using Isle.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Persistence;
 
@@ -19,7 +20,10 @@ public class MicroserviceContext : DbContext
 
         optionsBuilder.UseNpgsql(env.ConnectionString(), options =>
         {
-        
+            options.MapEnum<GameModeType>();
+            options.MapEnum<GeoFenceShape>();
+            options.MapEnum<TriggerType>();
+            options.MapEnum<RankRequirement>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)

@@ -18,7 +18,7 @@ public class SkinCommand(MicroserviceContext context, IMessageBus bus) : ChatCom
             "manage" => await ManageSkinAsync(context),
             "delete" => await DeleteSkinAsync(context),
             "apply" => await ApplySkinAsync(context),
-            _ => "Usage: skin <create|manage|delete>"
+            _ => "Usage: skin create|manage|delete"
         };
     }
     

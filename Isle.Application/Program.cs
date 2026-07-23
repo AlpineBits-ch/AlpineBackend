@@ -119,10 +119,13 @@ builder.Services.AddOpenApi();
 
 var isleIpAddress = Environment.GetEnvironmentVariable("ISLE_IP_ADDRESS") ?? "10.0.0.0";
 
+builder.Services.AddSingleton<ISkinStore, SkinStore>();
 builder.Services.AddIsleBridge(cfg =>
 {
     cfg.BaseAddress = new Uri($"http://{isleIpAddress}:8080");
     cfg.SlowCommandTimeout = TimeSpan.FromSeconds(10);
+    cfg.EnableSkinReapply = true;
+    cfg.SkinReapplyDelay = TimeSpan.FromSeconds(10);
 });
 
 var config = new EvrimaRconClientConfiguration

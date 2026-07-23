@@ -43,6 +43,18 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         return _sqids.Encode(seq) == friendlyId ? seq : null;
     }
 
+
+    public string AddSkin(CreateSkinParams @params)
+    {
+        var skin = Skin.Create(@params);
+        Skins.Add(skin);
+        AddDomainEvent(new SkinCreatedEvent()
+        {
+            SkinId = skin.Id,
+            PlayerId = Id,
+        });
+        return skin.Id;
+    }
     
     public string? InGameName { get; set; }
     

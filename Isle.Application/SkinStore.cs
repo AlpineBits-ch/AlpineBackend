@@ -11,7 +11,7 @@ public class SkinStore(IServiceScopeFactory scopeFactory) : ISkinStore
     {
         using var scope = scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
-        var player = context.Players.Include(player => player.Skins).FirstOrDefault(x => x.SteamId == steam);
+        var player = context.Players.AsNoTracking().Include(player => player.Skins).FirstOrDefault(x => x.SteamId == steam);
         if (player == null)
             return null;
         

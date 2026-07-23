@@ -25,6 +25,7 @@ public class SkinCommand(MicroserviceContext context, IMessageBus bus) : ChatCom
     private async Task<string> CreateSkinAsync(CommandContext context)
     {
         var joinedArray = String.Join(" ", context.Arguments);
+        
         var skinCustomizer = SkinCustomizer.FromProps(joinedArray);
 
         var response = await bus.InvokeAsync<CreateSkinCommandResponse>(new CreateSkinCommand()

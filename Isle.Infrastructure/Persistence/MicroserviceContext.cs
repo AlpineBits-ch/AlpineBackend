@@ -12,7 +12,7 @@ public class MicroserviceContext : DbContext
     public DbSet<Storage> Storages { get; set; }
     public DbSet<StorageSlot> StorageSlots { get; set; }
     public DbSet<PlayerInvite> PlayerInvites { get; set; }
-    
+    public DbSet<Skin> Skins { get; set; }
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -39,6 +39,34 @@ public class MicroserviceContext : DbContext
                 .Property(p => p.FriendlyIdSeq)
                 .HasDefaultValueSql("nextval('player_friendly_id_seq')");
         });
+
+
+        modelBuilder.Entity<Skin>(skinBuilder =>
+        {
+            skinBuilder.HasOne(s => s.Player)
+                .WithMany(p => p.Skins)
+                .HasForeignKey(s => s.PlayerId);
+            
+            skinBuilder.OwnsOne(s => s.Customizer, customizerBuilder =>
+            {
+                
+                
+                customizerBuilder.OwnsOne(c => c.BodyColor);
+                customizerBuilder.OwnsOne(c => c.MarkingsColor);
+                customizerBuilder.OwnsOne(c => c.FlankColor);
+                customizerBuilder.OwnsOne(c => c.UnderbellyColor);
+                customizerBuilder.OwnsOne(c => c.Detail1Color);
+                customizerBuilder.OwnsOne(c => c.EyesColor);
+                customizerBuilder.OwnsOne(c => c.MaleDisplayColor);
+
+                customizerBuilder.OwnsOne(c => c.TeethColor);
+                customizerBuilder.OwnsOne(c => c.MouthColor);
+                customizerBuilder.OwnsOne(c => c.ClawsColor);
+
+                
+            });
+        });
+        
 
         modelBuilder.Entity < Storage>(storageBuilder =>
         {

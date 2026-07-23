@@ -20,6 +20,8 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         MinLength = 6,
     });    public static string Prefix { get; } = "player";
     public virtual Storage Storage { get; set; }
+    
+    public virtual ICollection<Skin> Skins { get; set; } = [];
     public long Xp { get; private set; }
     public string SteamId { get; set; }
     public string? UserId { get; set; }

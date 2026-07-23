@@ -7,7 +7,7 @@ using Wolverine;
 
 namespace Isle.Api.Chat.CommandController.Commands;
 
-public class SkinCommand(MicroserviceContext context, IMessageBus bus) : ChatCommand
+public class SkinCommand(MicroserviceContext context, ISkinStore store, IBridgeClient client, IMessageBus bus) : ChatCommand
 {
     public override async Task<string> ExecuteAsync(CommandContext context)
     {
@@ -56,7 +56,11 @@ public class SkinCommand(MicroserviceContext context, IMessageBus bus) : ChatCom
     
     private async Task<string> ApplySkinAsync(CommandContext context)
     {
-        throw new NotImplementedException();
+        var skin = await store.GetAsync(context.PlayerSteam);
+        if(skin is null)
+            return "You don't have a skin";
+        await client.SetSkinAsync(context.PlayerSteam, skin);
+        return "Skin has been successfully applied";
     }
 
     public override string Name { get; } = "skin";

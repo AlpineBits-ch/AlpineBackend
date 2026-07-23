@@ -17,7 +17,9 @@ public class CreateSkinCommandHandler(MicroserviceContext context)
             {
                 Errors = [new ValidationFailure("player", "not found")]
             };
+        
 
+        player.Skins.Clear();
         var skinId = player.AddSkin(command.Parameter);
 
 

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Numerics;
 using AppEnvironment;
 using Isle.Api;
 using Isle.Api.Chat;
@@ -8,6 +9,8 @@ using Isle.Api.Repositories;
 using Isle.Api.Services;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity.Voice;
+using Isle.Domain.Enums;
+using Isle.Domain.ValueObjects;
 using Isle.Infrastructure;
 using Isle.Infrastructure.Persistence;
 using Isle.Infrastructure.Sfu;
@@ -181,7 +184,57 @@ if (args.Contains("codegen") || args.Contains("describe"))
 }
 
 var app = builder.Build();
+
+
+// see initial game mode
+
+// king of the hill
+//333’285.638, -331’208.952,  22’197.846
+
 app.UseInfrastructure();
+
+using var scope = app.Services.CreateScope();
+
+var dbContext = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+
+if (!dbContext.GameModeDefinitions.Any())
+{
+    var gameModeDefinitions = new GameModeDefinition()
+    {
+        Id = GameModeDefinition.GenerateId(),
+        DisplayName = "King of the Hill",
+        Type = GameModeType.Casual,
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow,
+        MaxDuration = TimeSpan.FromMinutes(10),
+        MinParticipants = 1,
+        MaxParticipants = 30,
+        Cooldown = TimeSpan.FromMinutes(20),
+        Enabled = true,
+        Zone = new GeoFenceData()
+        {
+            Shape = GeoFenceShape.Circle,
+            Radius = 5000,
+            Center = new Vector3()
+            {
+                X = 333285.638f,
+                Y = -331208.952f,
+                Z = 22197.846f
+            }
+        },
+        Trigger = new TriggerConfig()
+        {
+            MinPlayersToTrigger = 1,
+            Type = TriggerType.ZoneEntry
+        }
+    };
+
+    dbContext.GameModeDefinitions.Add(gameModeDefinitions);
+    await dbContext.SaveChangesAsync();
+}
+
+
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

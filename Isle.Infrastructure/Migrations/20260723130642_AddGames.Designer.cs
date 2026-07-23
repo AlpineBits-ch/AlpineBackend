@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Isle.Infrastructure.Migrations
 {
     [DbContext(typeof(MicroserviceContext))]
-    [Migration("20260723122154_AddGameModePersistence")]
-    partial class AddGameModePersistence
+    [Migration("20260723130642_AddGames")]
+    partial class AddGames
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -25,6 +25,7 @@ namespace Isle.Infrastructure.Migrations
                 .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "game_mode_state", new[] { "cooldown", "idle", "queuing", "resolving", "running" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "game_mode_type", new[] { "casual", "hardcore" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "geo_fence_shape", new[] { "circle", "polygon" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "rank_requirement", new[] { "all_participants", "top3", "winner" });
@@ -37,9 +38,8 @@ namespace Isle.Infrastructure.Migrations
 
             modelBuilder.Entity("Isle.Domain.Aggregates.GameModeDefinition", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
                         .HasColumnName("id");
 
                     b.Property<TimeSpan>("Cooldown")
@@ -75,10 +75,13 @@ namespace Isle.Infrastructure.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("min_participants");
 
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasColumnType("text")
+                    b.Property<GameModeType>("Type")
+                        .HasColumnType("game_mode_type")
                         .HasColumnName("type");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("Id")
                         .HasName("pk_game_mode_definitions");
@@ -206,6 +209,45 @@ namespace Isle.Infrastructure.Migrations
                     b.ToTable("storages", (string)null);
                 });
 
+            modelBuilder.Entity("Isle.Domain.Entity.GameModeRun", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DefinitionId")
+                        .HasColumnType("text")
+                        .HasColumnName("definition_id");
+
+                    b.Property<DateTime>("EndedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ended_at");
+
+                    b.Property<GameModeType>("GameModeType")
+                        .HasColumnType("game_mode_type")
+                        .HasColumnName("game_mode_type");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_game_mode_runs");
+
+                    b.HasIndex("DefinitionId")
+                        .HasDatabaseName("ix_game_mode_runs_definition_id");
+
+                    b.ToTable("game_mode_runs", (string)null);
+                });
+
             modelBuilder.Entity("Isle.Domain.Entity.Skin", b =>
                 {
                     b.Property<string>("Id")
@@ -284,8 +326,8 @@ namespace Isle.Infrastructure.Migrations
                 {
                     b.OwnsOne("Isle.Domain.ValueObjects.GeoFenceData", "Zone", b1 =>
                         {
-                            b1.Property<Guid>("GameModeDefinitionId")
-                                .HasColumnType("uuid")
+                            b1.Property<string>("GameModeDefinitionId")
+                                .HasColumnType("text")
                                 .HasColumnName("id");
 
                             b1.Property<string>("Center")
@@ -317,8 +359,8 @@ namespace Isle.Infrastructure.Migrations
 
                     b.OwnsMany("Isle.Domain.ValueObjects.RewardConfig", "Rewards", b1 =>
                         {
-                            b1.Property<Guid>("GameModeDefinitionId")
-                                .HasColumnType("uuid")
+                            b1.Property<string>("GameModeDefinitionId")
+                                .HasColumnType("text")
                                 .HasColumnName("game_mode_definition_id");
 
                             b1.Property<int>("Id")
@@ -357,8 +399,8 @@ namespace Isle.Infrastructure.Migrations
 
                     b.OwnsOne("Isle.Domain.ValueObjects.TriggerConfig", "Trigger", b1 =>
                         {
-                            b1.Property<Guid>("GameModeDefinitionId")
-                                .HasColumnType("uuid")
+                            b1.Property<string>("GameModeDefinitionId")
+                                .HasColumnType("text")
                                 .HasColumnName("id");
 
                             b1.Property<TimeSpan?>("Interval")
@@ -422,6 +464,54 @@ namespace Isle.Infrastructure.Migrations
                         .HasConstraintName("fk_storages_players_player_id");
 
                     b.Navigation("Player");
+                });
+
+            modelBuilder.Entity("Isle.Domain.Entity.GameModeRun", b =>
+                {
+                    b.HasOne("Isle.Domain.Aggregates.GameModeDefinition", "Definition")
+                        .WithMany("Runs")
+                        .HasForeignKey("DefinitionId")
+                        .HasConstraintName("fk_game_mode_runs_game_mode_definitions_definition_id");
+
+                    b.OwnsMany("Isle.Domain.Entity.ParticipantResult", "Results", b1 =>
+                        {
+                            b1.Property<string>("GameModeRunId")
+                                .HasColumnType("text")
+                                .HasColumnName("game_mode_run_id");
+
+                            b1.Property<int>("Id")
+                                .ValueGeneratedOnAdd()
+                                .HasColumnType("integer")
+                                .HasColumnName("id");
+
+                            NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b1.Property<int>("Id"));
+
+                            b1.Property<string>("PlayerId")
+                                .IsRequired()
+                                .HasColumnType("text")
+                                .HasColumnName("player_id");
+
+                            b1.Property<int>("Rank")
+                                .HasColumnType("integer")
+                                .HasColumnName("rank");
+
+                            b1.Property<int>("Score")
+                                .HasColumnType("integer")
+                                .HasColumnName("score");
+
+                            b1.HasKey("GameModeRunId", "Id")
+                                .HasName("pk_participant_result");
+
+                            b1.ToTable("participant_result", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("GameModeRunId")
+                                .HasConstraintName("fk_participant_result_game_mode_runs_game_mode_run_id");
+                        });
+
+                    b.Navigation("Definition");
+
+                    b.Navigation("Results");
                 });
 
             modelBuilder.Entity("Isle.Domain.Entity.Skin", b =>
@@ -928,6 +1018,11 @@ namespace Isle.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Storage");
+                });
+
+            modelBuilder.Entity("Isle.Domain.Aggregates.GameModeDefinition", b =>
+                {
+                    b.Navigation("Runs");
                 });
 
             modelBuilder.Entity("Isle.Domain.Aggregates.Player", b =>

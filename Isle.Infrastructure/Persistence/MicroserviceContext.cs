@@ -16,6 +16,7 @@ public class MicroserviceContext : DbContext
     public DbSet<StorageSlot> StorageSlots { get; set; }
     public DbSet<PlayerInvite> PlayerInvites { get; set; }
     public DbSet<Skin> Skins { get; set; }
+    public DbSet<GameModeRun> GameModeRuns { get; set; }
     
     public DbSet<GameModeDefinition> GameModeDefinitions { get; set; }
     
@@ -29,6 +30,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<GeoFenceShape>();
             options.MapEnum<TriggerType>();
             options.MapEnum<RankRequirement>();
+            options.MapEnum<GameModeState>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -39,6 +41,17 @@ public class MicroserviceContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
 
+        modelBuilder.Entity<GameModeRun>(runBuilder =>
+        {
+            runBuilder.HasOne(run => run.Definition)
+                .WithMany(def => def.Runs)
+                .HasForeignKey(run => run.DefinitionId);
+            
+            runBuilder.OwnsMany(run => run.Results);
+            
+        });
+        
+        
         modelBuilder.Entity<GameModeDefinition>(gameModeDefinitionBuilder =>
         {
             gameModeDefinitionBuilder.HasKey(mode => mode.Id);

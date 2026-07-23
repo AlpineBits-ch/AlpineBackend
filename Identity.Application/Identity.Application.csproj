@@ -13,18 +13,18 @@
       <PackageReference Include="Facet.Extensions" Version="6.6.8" />
       <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.8" />
       <PackageReference Include="FluentValidation" Version="12.1.1" />
-      <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
-      <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.9" />
-        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.9" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+      <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
         <PrivateAssets>all</PrivateAssets>
         <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       </PackageReference>
         <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="10.0.10" />
-      <PackageReference Include="OpenIddict.AspNetCore" Version="7.5.0" />
-      <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.5.0" />
-      <PackageReference Include="OpenIddict.Quartz" Version="7.5.0" />
-      <PackageReference Include="OpenIddict.Validation.AspNetCore" Version="7.5.0" />
+      <PackageReference Include="OpenIddict.AspNetCore" Version="7.6.0" />
+      <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.6.0" />
+      <PackageReference Include="OpenIddict.Quartz" Version="7.6.0" />
+      <PackageReference Include="OpenIddict.Validation.AspNetCore" Version="7.6.0" />
       <PackageReference Include="RazorLight" Version="2.3.1" />
       <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.21.0" />
       <PackageReference Include="WolverineFx.FluentValidation" Version="6.21.0" />
@@ -32,8 +32,8 @@
       <PackageReference Include="WolverineFx.Http.FluentValidation" Version="6.21.0" />
       <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
       <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
-        <PackageReference Include="WorkOS.net" Version="5.2.0" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+        <PackageReference Include="WorkOS.net" Version="6.0.0" />
     </ItemGroup>
 
     <ItemGroup>

@@ -9,9 +9,9 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
 
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.5"/>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="TheIsleEvrimaRconClient" Version="2.1.0" />
@@ -21,13 +21,13 @@
         <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
         <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
 
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.9" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="10.0.9" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="10.0.10" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Analyzers" Version="10.0.10" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.9">
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.10">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
@@ -51,6 +51,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Folder Include="Games\KingOfTheHill\" />
       <Folder Include="Handlers\Events\Voice\" />
       <Folder Include="Voice\" />
     </ItemGroup>

@@ -7,8 +7,8 @@ public class GeoFenceData
 {
     public GeoFenceShape Shape { get; set; }
     public Vector3 Center { get; set; }
-    public float Radius { get; set; }              // used if Shape == Circle
-    public List<Vector3> PolygonPoints { get; set; } = new(); // used if Shape == Polygon
+    public float Radius { get; set; }
+    public List<Vector3> PolygonPoints { get; set; } = new(); 
 
     public bool Contains(Vector3 position)
     {

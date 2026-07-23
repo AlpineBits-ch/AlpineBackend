@@ -51,7 +51,6 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Folder Include="Games\KingOfTheHill\" />
       <Folder Include="Handlers\Events\Voice\" />
       <Folder Include="Voice\" />
     </ItemGroup>

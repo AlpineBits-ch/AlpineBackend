@@ -1,4 +1,6 @@
-﻿using AppEnvironment;
+﻿using System.Numerics;
+using System.Text.Json;
+using AppEnvironment;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity;
 using Isle.Domain.Enums;
@@ -14,6 +16,9 @@ public class MicroserviceContext : DbContext
     public DbSet<StorageSlot> StorageSlots { get; set; }
     public DbSet<PlayerInvite> PlayerInvites { get; set; }
     public DbSet<Skin> Skins { get; set; }
+    
+    public DbSet<GameModeDefinition> GameModeDefinitions { get; set; }
+    
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -33,6 +38,54 @@ public class MicroserviceContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+
+        modelBuilder.Entity<GameModeDefinition>(gameModeDefinitionBuilder =>
+        {
+            gameModeDefinitionBuilder.HasKey(mode => mode.Id);
+
+            gameModeDefinitionBuilder.Property(mode => mode.Type)
+                .IsRequired();
+
+            gameModeDefinitionBuilder.Property(mode => mode.DisplayName)
+                .IsRequired();
+
+            gameModeDefinitionBuilder.OwnsOne(mode => mode.Zone, zone =>
+            {
+                zone.Property(z => z.Shape);
+
+                zone.Property(z => z.Center)
+                    .HasConversion(
+                        v => $"{v.X},{v.Y},{v.Z}",
+                        v => ParseVector3(v));
+
+                zone.Property(z => z.Radius);
+
+                zone.Property(z => z.PolygonPoints)
+                    .HasConversion(
+                        v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                        v => JsonSerializer.Deserialize<List<Vector3>>(v, (JsonSerializerOptions?)null) ?? new List<Vector3>());
+            });
+
+            gameModeDefinitionBuilder.OwnsOne(mode => mode.Trigger, trigger =>
+            {
+                trigger.Property(t => t.Type);
+                trigger.Property(t => t.Interval);
+                trigger.Property(t => t.MinPlayersToTrigger);
+            });
+
+           
+            gameModeDefinitionBuilder.OwnsMany(mode => mode.Rewards, reward =>
+            {
+                reward.Property(r => r.RewardType);
+                reward.Property(r => r.Amount);
+                reward.Property(r => r.CosmeticId);
+                reward.Property(r => r.AppliesTo);
+            });
+        });
+
+        
+        
+        
         modelBuilder.Entity<Player>(playerBuilder =>
         {
             modelBuilder.HasSequence<long>("player_friendly_id_seq")
@@ -103,6 +156,7 @@ public class MicroserviceContext : DbContext
 
             inviteBuilder.HasIndex(r => new { r.ReceiverPlayerId, r.Status });
         });
+       
     }
 
     public override int SaveChanges()
@@ -124,5 +178,11 @@ public class MicroserviceContext : DbContext
 
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
+    
+    private static Vector3 ParseVector3(string s)
+{
+    var parts = s.Split(',');
+    return new Vector3(float.Parse(parts[0]), float.Parse(parts[1]), float.Parse(parts[2]));
+}
     
 }

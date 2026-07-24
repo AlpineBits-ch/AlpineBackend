@@ -75,17 +75,6 @@ public sealed class PopulationLimitService(
             EvrimaRconCommand.UpdatePlayables,
             string.Join(",", desired.Where(kv => kv.Value).Select(kv => kv.Key)));
 
-        foreach (var (species, enabled) in desired)
-        {
-            if (_lastState is not null && _lastState.TryGetValue(species, out var prev) && prev == enabled)
-                continue;
-
-            var cap = limits.Caps.TryGetValue(species, out var c) ? c : SpeciesPopulationLimits.Unlimited;
-            logger.LogInformation("Species {Species} {State} ({Count}/{Cap})",
-                species, enabled ? "enabled" : "disabled",
-                counts.GetValueOrDefault(species), cap);
-        }
-
         _lastState = desired;
     }
 

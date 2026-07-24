@@ -1,10 +1,11 @@
-﻿using Isle.Domain.Enums;
+﻿using Domain;
+using Isle.Domain.Enums;
 using Isle.Domain.Interfaces;
 using Persistence;
 
 namespace Isle.Domain.Aggregates;
 
-public class GameModeInstance : BaseEntity<GameModeInstance>, IPrefixedEntity
+public class GameModeInstance : Aggregate<GameModeInstance>, IPrefixedEntity
 {
     public string InstanceId { get; } = GenerateId();
     public GameModeDefinition Definition { get; }

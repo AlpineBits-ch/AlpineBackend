@@ -31,6 +31,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<TriggerType>();
             options.MapEnum<RankRequirement>();
             options.MapEnum<GameModeState>();
+            options.MapEnum<RewardType>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -96,8 +97,34 @@ public class MicroserviceContext : DbContext
             });
         });
 
-        
-        
+
+        modelBuilder.Entity<Quest>(questBuilder =>
+        {
+            questBuilder.HasMany(q => q.Locations)
+                .WithMany(l => l.Quests);
+
+            questBuilder.OwnsMany(q => q.Rewards);
+        });
+
+        modelBuilder.Entity<QuestLocation>(locationBuilder =>
+        {
+            locationBuilder.OwnsOne(locaction => locaction.GeoFence, fence =>
+            {
+                fence.Property(z => z.Shape);
+
+                fence.Property(z => z.Center)
+                    .HasConversion(
+                        v => $"{v.X},{v.Y},{v.Z}",
+                        v => ParseVector3(v));
+
+                fence.Property(z => z.Radius);
+
+                fence.Property(z => z.PolygonPoints)
+                    .HasConversion(
+                        v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+                        v => JsonSerializer.Deserialize<List<Vector3>>(v, (JsonSerializerOptions?)null) ?? new List<Vector3>());
+            });
+        });
         
         modelBuilder.Entity<Player>(playerBuilder =>
         {

@@ -49,8 +49,8 @@ public sealed class GameEventIngestionService(
 
                     if (evt is KillfeedEvent killfeedEvent)
                     {
-                        var killerPlayerId = (await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.SteamId == killfeedEvent.KillerSteam))?.SteamId;
-                        var victimPlayerId = (await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.SteamId == killfeedEvent.VictimSteam))?.SteamId;
+                        var killerPlayerId = (await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.SteamId == killfeedEvent.KillerSteam, cancellationToken: stoppingToken))?.SteamId;
+                        var victimPlayerId = (await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.SteamId == killfeedEvent.VictimSteam, cancellationToken: stoppingToken))?.SteamId;
                         if (killerPlayerId == null || victimPlayerId == null) continue;
                         await bus.PublishAsync(new PlayerKillEvent()
                         {

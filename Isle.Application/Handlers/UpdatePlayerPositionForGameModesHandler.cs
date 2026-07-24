@@ -4,7 +4,7 @@ using Isle.Contracts.Commands;
 
 namespace Isle.Api.Handlers;
 
-public class UpdatePlayerPositionForGameModesHandler
+public static class UpdatePlayerPositionForGameModesHandler
 {
     public static void Handle(UpdatePlayerPositionCommand command, PlayerPositionCache cache)
     {

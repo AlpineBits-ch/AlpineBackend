@@ -34,12 +34,12 @@ public sealed class PositionIngestionService(
                     using var scope = scopeFactory.CreateScope();
                     var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
-                    await bus.InvokeAsync(new UpdatePlayerPositionCommand(
+                    await bus.PublishAsync(new UpdatePlayerPositionCommand(
                         playerId,
                         (float)snapshot.Pos.X,
                         (float)snapshot.Pos.Y,
                         (float)snapshot.Pos.Z,
-                        (float)(snapshot.Rot?.Yaw ?? 0)), stoppingToken);
+                        (float)(snapshot.Rot?.Yaw ?? 0)));
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)

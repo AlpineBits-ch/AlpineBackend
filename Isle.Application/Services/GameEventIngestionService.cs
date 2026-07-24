@@ -1,9 +1,11 @@
 ﻿using Echo.Realtime;
 using Isle.Contracts.Commands;
 using Isle.Contracts.Events.Player;
+using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Wolverine;
 
 namespace Isle.Api.Services;
@@ -26,6 +28,7 @@ public sealed class GameEventIngestionService(
                     using var scope = scopeFactory.CreateScope();
 
                     var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+                    var context = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
 
                     if (evt.Kind == EventKind.Leave)
                     {
@@ -43,6 +46,21 @@ public sealed class GameEventIngestionService(
                         });
                     }
 
+
+                    if (evt is KillfeedEvent killfeedEvent)
+                    {
+                        var killerPlayerId = (await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.SteamId == killfeedEvent.KillerSteam))?.SteamId;
+                        var victimPlayerId = (await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.SteamId == killfeedEvent.VictimSteam))?.SteamId;
+                        if (killerPlayerId == null || victimPlayerId == null) continue;
+                        await bus.PublishAsync(new PlayerKillEvent()
+                        {
+                            KilerId = killerPlayerId,
+                            VictimId = victimPlayerId,
+                            VictimWeightInKg = killfeedEvent.VictimWeightKg,
+                        });
+                    }
+                    
+                    
                     // Approximate "spawned" from the events the bridge exposes: a fresh connect
                     // spawns a dino, and a death is immediately followed by a respawn.
                     if (evt.Kind is EventKind.Join or EventKind.Death)

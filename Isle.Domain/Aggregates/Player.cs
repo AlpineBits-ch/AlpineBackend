@@ -26,6 +26,11 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     public string SteamId { get; set; }
     public string? UserId { get; set; }
     public bool IsAdmin { get; set; }
+    
+    public virtual ICollection<KillLog> KilledByPlayerLogs { get; set; } = [];
+    public virtual ICollection<KillLog> KilledOtherPlayerLogs { get; set; } = [];
+    
+    
     public int FriendlyIdSeq { get; set; }           
 
     public string FriendlyId => _sqids.Encode(FriendlyIdSeq);

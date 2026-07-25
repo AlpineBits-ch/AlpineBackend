@@ -17,6 +17,7 @@ public class MicroserviceContext : DbContext
     public DbSet<PlayerInvite> PlayerInvites { get; set; }
     public DbSet<Skin> Skins { get; set; }
     public DbSet<GameModeRun> GameModeRuns { get; set; }
+    public DbSet<KillLog> KillLogs { get; set; }
     
     public DbSet<GameModeDefinition> GameModeDefinitions { get; set; }
     
@@ -51,7 +52,19 @@ public class MicroserviceContext : DbContext
             runBuilder.OwnsMany(run => run.Results);
             
         });
-        
+
+        modelBuilder.Entity<KillLog>(kill =>
+        {
+            kill.HasOne(k => k.Killer)
+                .WithMany(p => p.KilledOtherPlayerLogs)
+                .HasForeignKey(k => k.KillerId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            kill.HasOne(k => k.Victim)
+                .WithMany(p => p.KilledByPlayerLogs)
+                .HasForeignKey(k => k.VictimId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
         
         modelBuilder.Entity<GameModeDefinition>(gameModeDefinitionBuilder =>
         {

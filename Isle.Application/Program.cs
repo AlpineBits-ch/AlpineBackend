@@ -90,6 +90,11 @@ builder.UseWolverine(opts =>
 builder.Services.AddSingleton(new VoiceGridConfig { CellSize = 8000f });
 builder.Services.AddSingleton<VoiceCluster>();
 
+// Re-drives the proximity subscription graph on a short interval so a dropped/mistimed
+// SubscribeMutual push converges instead of leaving one side deaf (the "I hear them, they see 0"
+// asymmetry). Idempotent and symmetric — healthy subscriptions are untouched.
+builder.Services.AddHostedService<VoiceSubscriptionReconcileService>();
+
 // Cloudflare Calls SFU signalling relay for proximity voice.
 builder.Services.AddScoped<CloudflareService>();
 builder.Services.AddHttpClient("CloudflareProxy", client =>

@@ -25,7 +25,7 @@ namespace Isle.Api.Services;
 /// </summary>
 public sealed class VoiceSubscriptionReconcileService(
     VoiceCluster cluster,
-    ISfuClient sfu,
+    IServiceScopeFactory scopeFactory,
     ILogger<VoiceSubscriptionReconcileService> logger) : BackgroundService
 {
     // Fast enough that a dropped subscribe on join is corrected within a couple of seconds of
@@ -63,6 +63,11 @@ public sealed class VoiceSubscriptionReconcileService(
         var pairs = cluster.GetAudiblePairs();
         if (pairs.Count == 0)
             return;
+
+        // ISfuClient is scoped (RealtimeSfuClient), so resolve it inside a per-tick scope
+        // rather than injecting it into this singleton hosted service.
+        using var scope = scopeFactory.CreateScope();
+        var sfu = scope.ServiceProvider.GetRequiredService<ISfuClient>();
 
         foreach (var (a, b) in pairs)
             await sfu.SubscribeMutual(a, b);

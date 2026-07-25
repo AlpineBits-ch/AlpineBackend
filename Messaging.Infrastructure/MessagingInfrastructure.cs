@@ -53,8 +53,10 @@ public static class MessagingInfrastructure
             });
             services.AddSingleton(app);
         }
-        catch (Exception _)
+        catch (Exception e)
         {
+            Console.WriteLine(e);
+            
             // Empty            
         }
 

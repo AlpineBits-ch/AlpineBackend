@@ -106,7 +106,7 @@ public class CloudflareController(
                     var shareId = isScreen ? tn["screen-".Length..]
                         : isScreenAudio ? tn["screen-audio-".Length..]
                         : (string?)null;
-                    return hub.Clients.Users(otherIds).SendAsync("TrackClosed",
+                    return hub.Clients.Users(otherIds).SendAsync("call.TrackClosed",
                         new { userId = UserId, trackName = tn, shareId }, ct);
                 });
             await Task.WhenAll(tasks);
@@ -148,13 +148,13 @@ public class CloudflareController(
 
         var joinedPayload = new { userId = UserId, cfSessionId, audioTrackName = "audio" };
         var tasks = connectedOthers
-            .Select(p => hub.Clients.User(p.UserId).SendAsync("ParticipantJoined", joinedPayload, ct))
+            .Select(p => hub.Clients.User(p.UserId).SendAsync("call.ParticipantJoined", joinedPayload, ct))
             .ToList();
 
         // Send existing participants back to the joiner
         tasks.AddRange(connectedOthers
             .Where(p => p.CfSessionId is not null)
-            .Select(p => hub.Clients.User(UserId).SendAsync("ParticipantJoined", new
+            .Select(p => hub.Clients.User(UserId).SendAsync("call.ParticipantJoined", new
             {
                 userId = p.UserId,
                 cfSessionId = p.CfSessionId,
@@ -183,7 +183,7 @@ public class CloudflareController(
             var shareId = isScreen ? trackName["screen-".Length..]
                 : isScreenAudio ? trackName["screen-audio-".Length..]
                 : null;
-            return hub.Clients.Users(otherIds).SendAsync("TrackPublished",
+            return hub.Clients.Users(otherIds).SendAsync("call.TrackPublished",
                 new { userId = UserId, cfSessionId, trackName, kind, shareId }, ct);
         });
 

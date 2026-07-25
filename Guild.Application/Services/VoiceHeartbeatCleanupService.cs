@@ -90,7 +90,7 @@ public class VoiceHeartbeatCleanupService(
                     "Evicted stale voice participant {UserId} from channel {ChannelId}",
                     participant.UserId, channelId);
 
-                await hub.Clients.Users(memberIds).SendAsync("UserLeftVoice",
+                await hub.Clients.Users(memberIds).SendAsync("guild.voice.UserLeftVoice",
                     new { userId = participant.UserId, channelId, guildId = voiceState.GuildId },
                     ct);
             }

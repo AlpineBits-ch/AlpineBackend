@@ -78,7 +78,7 @@ public class GuildVoiceController(
             ct);
 
         var onlineUserIds = await GetOnlineGuildMemberIdsAsync(guildId);
-        await hub.Clients.Users(onlineUserIds).SendAsync("UserJoinedVoice",
+        await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserJoinedVoice",
             new { userId = UserId, channelId, guildId }, ct);
 
         return Ok(ChannelVoiceStateResponse.From(voiceState));
@@ -116,7 +116,7 @@ public class GuildVoiceController(
         await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId), ct);
 
         var onlineUserIds = await GetOnlineGuildMemberIdsAsync(voiceState.GuildId);
-        await hub.Clients.Users(onlineUserIds).SendAsync("UserLeftVoice",
+        await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
             new { userId, channelId, guildId = voiceState.GuildId }, ct);
     }
 

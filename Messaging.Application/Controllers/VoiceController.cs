@@ -73,7 +73,7 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
         {
             SlidingExpiration = TimeSpan.FromMinutes(40)
         });
-        await hubContext.Clients.Users(request.Participants).SendAsync("IncomingCall", call);
+        await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
         return Accepted(call);
     }
 
@@ -175,7 +175,7 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
             await bus.PublishAsync(evt);
         }
 
-        await hubContext.Clients.Users(participantIds).SendAsync("CallEnded", new { callId });
+        await hubContext.Clients.Users(participantIds).SendAsync("call.CallEnded", new { callId });
         return Accepted(call);
     }
 }

@@ -42,7 +42,7 @@ public class CategoryEndpoint
         ctx.Categories.Add(category);
         var presence = await guildHydrateService.GetGuildPresenceAsync(category.GuildId);
 
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guildCategoryCreated", new { CategoryId = category.Id, GuildId = category.GuildId });
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.CategoryCreated", new { CategoryId = category.Id, GuildId = category.GuildId });
 
         return Results.Ok(new CategoryDto()
         {

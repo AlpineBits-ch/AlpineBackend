@@ -31,7 +31,7 @@ public sealed class SpeciesPopulationLimits
             [Species.Austroraptor] = Unlimited,
 
             // --- Herbivores ---
-            [Species.Triceratops] = 25,
+            [Species.Triceratops] = 0, // temporarely
             [Species.Stegosaurus] = 25,
             [Species.Diabloceratops] = 30,
             [Species.Kentrosaurus] = Unlimited,

@@ -85,7 +85,9 @@ builder.UseWolverine(opts =>
     opts.ConfigureWolverine();
 });
 
-builder.Services.AddSingleton<VoiceGridConfig>();
+// CellSize is the coarse audible-membership filter and must stay >= the client's
+// attenuation radius. Proximity voice range is 80 m, so 8000 UE units (cm).
+builder.Services.AddSingleton(new VoiceGridConfig { CellSize = 8000f });
 builder.Services.AddSingleton<VoiceCluster>();
 
 // Cloudflare Calls SFU signalling relay for proximity voice.

@@ -38,6 +38,11 @@ namespace Isle.Infrastructure.Sfu;
                         new SubscribeMutualPayload(userIdA, trackA.CfSessionId, trackA.TrackName));
         }
 
+        public async Task RequestRepublish(string userId)
+        {
+            await _hub.Clients.User(userId).SendAsync(SfuSocketEvents.RepublishVoice);
+        }
+
         public async Task UnsubscribePair(string userIdA, string userIdB)
         {
             // Audibility is symmetric, so when one peer walks out of the other's 3x3 block (or

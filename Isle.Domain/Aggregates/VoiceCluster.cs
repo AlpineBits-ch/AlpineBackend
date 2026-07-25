@@ -111,6 +111,13 @@ public class VoiceCluster
         }
     }
 
+    /// <summary>Every player currently in the grid (rebuilt from position telemetry after a restart).</summary>
+    public IReadOnlyCollection<string> GetPlayers()
+    {
+        lock (_gate)
+            return _players.Keys.ToArray();
+    }
+
     /// <summary>Players within earshot of <paramref name="playerId"/> — the 3x3 block around their cell, excluding themselves.</summary>
     public IReadOnlyCollection<string> GetAudiblePeers(string playerId)
     {

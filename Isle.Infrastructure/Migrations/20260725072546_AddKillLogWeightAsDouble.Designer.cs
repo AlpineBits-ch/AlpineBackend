@@ -14,8 +14,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Isle.Infrastructure.Migrations
 {
     [DbContext(typeof(MicroserviceContext))]
-    [Migration("20260725072138_AddKillLogData")]
-    partial class AddKillLogData
+    [Migration("20260725072546_AddKillLogWeightAsDouble")]
+    partial class AddKillLogWeightAsDouble
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -301,8 +301,8 @@ namespace Isle.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("victim_id");
 
-                    b.Property<int>("VictimWeightKg")
-                        .HasColumnType("integer")
+                    b.Property<double>("VictimWeightKg")
+                        .HasColumnType("double precision")
                         .HasColumnName("victim_weight_kg");
 
                     b.HasKey("Id")

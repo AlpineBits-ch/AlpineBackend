@@ -298,8 +298,8 @@ namespace Isle.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("victim_id");
 
-                    b.Property<int>("VictimWeightKg")
-                        .HasColumnType("integer")
+                    b.Property<double>("VictimWeightKg")
+                        .HasColumnType("double precision")
                         .HasColumnName("victim_weight_kg");
 
                     b.HasKey("Id")

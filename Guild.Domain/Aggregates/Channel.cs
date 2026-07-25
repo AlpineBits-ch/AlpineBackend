@@ -1,8 +1,10 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
 using Domain;
+using FluentValidation;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Domain.Events.Channel;
+using Guild.Domain.Validators;
 using Persistence;
 
 namespace Guild.Domain.Aggregates;
@@ -66,6 +68,8 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
         };
 
         channel.AddDomainEvent(new ChannelCreated() { ChannelId = id, GuildId = @params.GuildId });
+
+        new ChannelValidator().ValidateAndThrow(channel);
         
         return channel;
     }

@@ -1,6 +1,8 @@
 ﻿using System.Security.Claims;
+using Amazon.Runtime;
 using Echo.Realtime;
 using Facet.Extensions;
+using FluentValidation;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 
@@ -24,6 +26,7 @@ public class ChannelEndpoint
             [NotBody] MicroserviceContext ctx, 
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] ILogger<ChannelEndpoint> logger,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -32,39 +35,59 @@ public class ChannelEndpoint
         var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 
-        var channel = Channel.Create(new CreateChannelParams()
+        try
         {
-            Name = dto.Name,
-            Type = dto.Type,
-            Position = dto.Position,
-            Description = dto.Description,
-            GuildId = guildId,
-            CategoryId = dto.CategoryId,
-        });
+            var channel = Channel.Create(new CreateChannelParams()
+            {
+                Name = dto.Name,
+                Type = dto.Type,
+                Position = dto.Position,
+                Description = dto.Description,
+                GuildId = guildId,
+                CategoryId = dto.CategoryId,
+            });
         
-        ctx.Channels.Add(channel);
+            ctx.Channels.Add(channel);
         
-        var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
+            var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
 
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelCreated", new
-        {
-            ChannelId = channel.Id,
-            GuildId = channel.GuildId,
-        });
+            await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelCreated", new
+            {
+                ChannelId = channel.Id,
+                GuildId = channel.GuildId,
+            });
 
         
         
-        return Results.Ok(new ChannelDto()
+            return Results.Ok(new ChannelDto()
+            {
+                Type = channel.Type,
+                GuildId = guildId,
+                Id = channel.Id,
+                Name = channel.Name,
+                CreatedAt = channel.CreatedAt,
+                UpdatedAt = channel.UpdatedAt,
+                IsAgeRestricted = channel.IsAgeRestricted,
+                IsPrivate = channel.IsPrivate,
+            });
+        }
+        catch (ValidationException validationException)
         {
-            Type = channel.Type,
-            GuildId = guildId,
-            Id = channel.Id,
-            Name = channel.Name,
-            CreatedAt = channel.CreatedAt,
-            UpdatedAt = channel.UpdatedAt,
-            IsAgeRestricted = channel.IsAgeRestricted,
-            IsPrivate = channel.IsPrivate,
-        });
+            var errors = validationException.Errors
+                .GroupBy(e => e.PropertyName)
+                .ToDictionary(
+                    group => group.Key, 
+                    group => group.Select(e => e.ErrorMessage).ToArray()
+                );
+
+            return Results.ValidationProblem(errors);
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Could not create channel");
+            return Results.InternalServerError();
+        }
+        
     }
 
     [WolverineDelete("/api/v1/channels/{channelId}")]

@@ -137,7 +137,7 @@ public class GuildCloudflareController(
                 .ToList();
 
             var tasks = body.TrackNames
-                .Select(tn => hub.Clients.Users(otherIds).SendAsync("TrackClosed",
+                .Select(tn => hub.Clients.Users(otherIds).SendAsync("guild.voice.TrackClosed",
                     new { userId = UserId, trackName = tn, channelId }, ct));
             await Task.WhenAll(tasks);
         }
@@ -178,12 +178,12 @@ public class GuildCloudflareController(
 
         var joinedPayload = new { userId = UserId, cfSessionId, audioTrackName = "audio", channelId };
         var tasks = others
-            .Select(p => hub.Clients.User(p.UserId).SendAsync("ParticipantJoined", joinedPayload, ct))
+            .Select(p => hub.Clients.User(p.UserId).SendAsync("guild.voice.ParticipantJoined", joinedPayload, ct))
             .ToList();
 
         tasks.AddRange(others
             .Where(p => p.CfSessionId is not null)
-            .Select(p => hub.Clients.User(UserId).SendAsync("ParticipantJoined", new
+            .Select(p => hub.Clients.User(UserId).SendAsync("guild.voice.ParticipantJoined", new
             {
                 userId = p.UserId,
                 cfSessionId = p.CfSessionId,
@@ -196,7 +196,7 @@ public class GuildCloudflareController(
         {
             foreach (var share in p.ActiveScreenShares)
             {
-                tasks.Add(hub.Clients.User(UserId).SendAsync("ScreenShareStarted", new
+                tasks.Add(hub.Clients.User(UserId).SendAsync("guild.voice.ScreenShareStarted", new
                 {
                     userId = p.UserId,
                     shareId = share.ShareId,
@@ -212,7 +212,7 @@ public class GuildCloudflareController(
                     var shareId = isScreen ? trackName["screen-".Length..]
                         : isScreenAudio ? trackName["screen-audio-".Length..]
                         : null;
-                    return hub.Clients.User(UserId).SendAsync("TrackPublished", new
+                    return hub.Clients.User(UserId).SendAsync("guild.voice.TrackPublished", new
                     {
                         userId = p.UserId,
                         cfSessionId = p.CfSessionId,
@@ -270,7 +270,7 @@ public class GuildCloudflareController(
             var shareId = isScreen ? trackName["screen-".Length..]
                 : isScreenAudio ? trackName["screen-audio-".Length..]
                 : null;
-            return hub.Clients.Users(otherIds).SendAsync("TrackPublished",
+            return hub.Clients.Users(otherIds).SendAsync("guild.voice.TrackPublished",
                 new { userId = UserId, cfSessionId, trackName, kind, shareId, channelId }, ct);
         });
 

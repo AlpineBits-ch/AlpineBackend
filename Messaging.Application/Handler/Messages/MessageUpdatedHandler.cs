@@ -15,7 +15,7 @@ public class MessageUpdatedHandler
         if (!string.IsNullOrWhiteSpace(messageUpdated.ConversationId))
         {
             var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageUpdated.ConversationId && m.UserId != messageUpdated.AuthorId).AsNoTracking().ToListAsync();
-            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("guild.MessageUpdated", messageUpdated);
+            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.MessageUpdated", messageUpdated);
         }
     }
 

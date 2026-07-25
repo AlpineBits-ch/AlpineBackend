@@ -14,7 +14,7 @@ public class MessageDeletedHandler
         if (!string.IsNullOrWhiteSpace(messageDeleted.ConversationId))
         {
             var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageDeleted.ConversationId && m.UserId != messageDeleted.AuthorId).AsNoTracking().ToListAsync();
-            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("guild.MessageCreated", messageDeleted);
+            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.MessageDeleted", messageDeleted);
         }
     }
 

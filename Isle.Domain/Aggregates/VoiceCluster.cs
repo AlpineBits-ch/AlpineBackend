@@ -8,10 +8,16 @@ public class VoiceCluster
     private readonly Dictionary<string, PlayerVoiceState> _players = new();
     private readonly VoiceGridConfig _config;
 
+    // The grid is a shared singleton mutated from concurrent Wolverine handlers (position updates,
+    // joins, leaves, disconnects all run in parallel).
+    private readonly object _gate = new();
+
     public VoiceCluster(VoiceGridConfig config) => _config = config;
 
     public IReadOnlyList<VoiceClusterChange> MovePlayer(string playerId, float worldX, float worldY, float worldZ, float yaw = 0f)
     {
+        lock (_gate)
+        {
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var newCell = new MapCell { WorldX = worldX, WorldY = worldY, CellSize = _config.CellSize };
         var changes = new List<VoiceClusterChange>();
@@ -75,27 +81,55 @@ public class VoiceCluster
 
         EmitPositionIfMoved(player, worldX, worldY, worldZ, yaw, changes);
         return changes;
+        }
     }
 
     public IReadOnlyList<VoiceClusterChange> RemovePlayer(string playerId)
     {
-        if (!_players.Remove(playerId, out var player))
-            return [];
+        lock (_gate)
+        {
+            if (!_players.Remove(playerId, out var player))
+                return [];
 
-        // Tell everyone who could still hear this player that they're gone.
-        var audible = NeighbourhoodOf(player.CurrentCell, playerId);
-        RemoveFromCell(playerId, player.CurrentCell);
+            // Tell everyone who could still hear this player that they're gone.
+            var audible = NeighbourhoodOf(player.CurrentCell, playerId);
+            RemoveFromCell(playerId, player.CurrentCell);
 
-        return audible
-            .Select(other => (VoiceClusterChange)new VoiceClusterChange.PeerLeft(playerId, other))
-            .ToList();
+            return audible
+                .Select(other => (VoiceClusterChange)new VoiceClusterChange.PeerLeft(playerId, other))
+                .ToList();
+        }
     }
 
     /// <summary>Players within earshot of <paramref name="playerId"/> — the 3x3 block around their cell, excluding themselves.</summary>
-    public IReadOnlyCollection<string> GetAudiblePeers(string playerId) =>
-        _players.TryGetValue(playerId, out var player)
-            ? NeighbourhoodOf(player.CurrentCell, playerId)
-            : Array.Empty<string>();
+    public IReadOnlyCollection<string> GetAudiblePeers(string playerId)
+    {
+        lock (_gate)
+        {
+            return _players.TryGetValue(playerId, out var player)
+                ? NeighbourhoodOf(player.CurrentCell, playerId)
+                : Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Every unordered pair of players currently within earshot of each other, computed from a
+    /// single consistent snapshot of the grid.
+    /// </summary>
+    public IReadOnlyList<(string A, string B)> GetAudiblePairs()
+    {
+        lock (_gate)
+        {
+            var pairs = new List<(string, string)>();
+            foreach (var (playerId, player) in _players)
+                foreach (var other in NeighbourhoodOf(player.CurrentCell, playerId))
+                    // Emit each pair once: the lexicographically smaller id owns it.
+                    if (string.CompareOrdinal(playerId, other) < 0)
+                        pairs.Add((playerId, other));
+
+            return pairs;
+        }
+    }
 
     /// <summary>
     /// Last known world position + facing + velocity for a player, for seeding a newly-audible
@@ -103,15 +137,18 @@ public class VoiceCluster
     /// </summary>
     public bool TryGetPosition(string playerId, out (float X, float Y, float Z, float Yaw, float Vx, float Vy, float Vz, long TimestampMs) position)
     {
-        if (_players.TryGetValue(playerId, out var player))
+        lock (_gate)
         {
-            position = (player.PosX, player.PosY, player.PosZ, player.Yaw,
-                player.VelX, player.VelY, player.VelZ, player.LastUpdateUnixMs);
-            return true;
-        }
+            if (_players.TryGetValue(playerId, out var player))
+            {
+                position = (player.PosX, player.PosY, player.PosZ, player.Yaw,
+                    player.VelX, player.VelY, player.VelZ, player.LastUpdateUnixMs);
+                return true;
+            }
 
-        position = default;
-        return false;
+            position = default;
+            return false;
+        }
     }
 
     private static readonly HashSet<string> EmptySet = new();

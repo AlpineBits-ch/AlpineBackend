@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Isle.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class AddKillLogData : Migration
+    public partial class AddKillLogWeightAsDouble : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -18,7 +18,7 @@ namespace Isle.Infrastructure.Migrations
                     id = table.Column<string>(type: "text", nullable: false),
                     killer_id = table.Column<string>(type: "text", nullable: true),
                     victim_id = table.Column<string>(type: "text", nullable: true),
-                    victim_weight_kg = table.Column<int>(type: "integer", nullable: false),
+                    victim_weight_kg = table.Column<double>(type: "double precision", nullable: false),
                     created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
                     updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },

@@ -46,7 +46,7 @@ public class ChannelEndpoint
         
         var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
 
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("ChannelCreated", new
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelCreated", new
         {
             ChannelId = channel.Id,
             GuildId = channel.GuildId,
@@ -89,7 +89,7 @@ public class ChannelEndpoint
         
         var presence = await guildHydrateService.GetGuildPresenceAsync(channel.GuildId);
         
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("ChannelDeleted", new { ChannelId = channel.Id, GuildId = channel.GuildId });
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelDeleted", new { ChannelId = channel.Id, GuildId = channel.GuildId });
 
         return Results.NoContent();
     }
@@ -165,7 +165,7 @@ public class ChannelEndpoint
         
         var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
 
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("ChannelReordered", dto);
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelReordered", dto);
 
         return Results.NoContent();
     }

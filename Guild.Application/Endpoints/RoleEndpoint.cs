@@ -51,7 +51,7 @@ public class RoleEndpoint()
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
         
-        var role = ctx.Roles.FirstOrDefault(x => x.Id == roleId);
+        var role = Queryable.FirstOrDefault(ctx.Roles, x => x.Id == roleId);
         
         if(role == null) return (Results.NotFound(), null);
         

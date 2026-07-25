@@ -11,9 +11,12 @@ public class PlayerKillEventHandler
         logger.LogInformation("Player {PlayerId} killed {KilledPlayerId}", @event.KilerId, @event.VictimId);
 
 
+        var date = DateTime.UtcNow;
         await context.KillLogs.AddAsync(new KillLog()
         {
             Id = KillLog.GenerateId(),
+            CreatedAt = date,
+            UpdatedAt = date,
             KillerId = @event.KilerId,
             VictimId = @event.VictimId,
             VictimWeightKg = @event.VictimWeightInKg,

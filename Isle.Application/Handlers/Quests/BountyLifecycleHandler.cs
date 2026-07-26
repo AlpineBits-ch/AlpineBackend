@@ -81,11 +81,11 @@ public sealed class BountyDispatcher(
         logger.LogDebug("Marked player {PlayerId} died; giving the killfeed {Grace} to claim bounty {InstanceId}",
             playerId, KillfeedGracePeriod, instance.Id);
 
-        await bus.PublishAsync(new ResolveBountyDeathEvent
+        await bus.ScheduleAsync(new ResolveBountyDeathEvent
         {
             PlayerId = playerId,
             QuestInstanceId = instance.Id,
-        }.DelayedFor(KillfeedGracePeriod));
+        }, KillfeedGracePeriod);
     }
 
     /// <summary>Closes an open bounty with no payout — the target logged off, or an admin called it off.</summary>

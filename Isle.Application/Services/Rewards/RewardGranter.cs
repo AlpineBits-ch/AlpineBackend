@@ -6,13 +6,13 @@ using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace Isle.Api.Services.Quests;
+namespace Isle.Api.Services.Rewards;
 
-/// <summary>Pays out quest rewards.</summary>
-public sealed class QuestRewardGranter(
+/// <summary>Pays out <see cref="RewardConfig"/> rows to a player.</summary>
+public sealed class RewardGranter(
     MicroserviceContext context,
     IBridgeClient bridge,
-    ILogger<QuestRewardGranter> logger)
+    ILogger<RewardGranter> logger)
 {
     /// <summary>Growth is a 0..1 scale; a boost never pushes past fully grown.</summary>
     private const double MaxGrowth = 1.0;
@@ -57,7 +57,7 @@ public sealed class QuestRewardGranter(
             .FirstOrDefaultAsync(p => p.Id == playerId, ct);
         if (player is null)
         {
-            logger.LogWarning("Cannot grant quest rewards: player {PlayerId} not found", playerId);
+            logger.LogWarning("Cannot grant rewards: player {PlayerId} not found", playerId);
             return granted;
         }
 
@@ -71,7 +71,7 @@ public sealed class QuestRewardGranter(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Quest reward {RewardType} failed for player {PlayerId}",
+                logger.LogWarning(ex, "Reward {RewardType} failed for player {PlayerId}",
                     reward.RewardType, playerId);
             }
         }

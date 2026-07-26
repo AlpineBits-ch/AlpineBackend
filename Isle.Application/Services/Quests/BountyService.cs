@@ -1,4 +1,5 @@
 using System.Numerics;
+using Isle.Api.Services.Rewards;
 using Isle.Api.Services.World;
 using Isle.Contracts.Events.Quest;
 using Isle.Domain.Aggregates;
@@ -21,7 +22,7 @@ public sealed class BountyService(
     BountyParticipantLedger ledger,
     KillStreakTracker streaks,
     QuestAnnouncer announcer,
-    QuestRewardGranter rewards,
+    RewardGranter rewards,
     WorldRosterCache roster,
     RegionMap regions,
     IBridgeClient bridge,

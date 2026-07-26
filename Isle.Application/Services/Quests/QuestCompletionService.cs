@@ -1,3 +1,4 @@
+using Isle.Api.Services.Rewards;
 using Isle.Api.Services.World;
 using Isle.Contracts.Events.Quest;
 using Isle.Domain.Aggregates;
@@ -13,7 +14,7 @@ namespace Isle.Api.Services.Quests;
 public sealed class QuestCompletionService(
     MicroserviceContext context,
     QuestProgressLedger ledger,
-    QuestRewardGranter rewards,
+    RewardGranter rewards,
     QuestAnnouncer announcer,
     WorldRosterCache roster,
     IMessageBus bus,

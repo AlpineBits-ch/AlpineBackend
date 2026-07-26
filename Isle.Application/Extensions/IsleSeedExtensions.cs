@@ -48,6 +48,21 @@ public static class IsleSeedExtensions
                 MinPlayersToTrigger = 1,
                 Type = TriggerType.ZoneEntry,
             },
+            Rewards =
+            [
+                // Winner: also collects every Top3 and AllParticipants row below.
+                new RewardConfig { RewardType = RewardType.Xp, Amount = 5000, AppliesTo = RankRequirement.Winner },
+                new RewardConfig { RewardType = RewardType.FullHealth, AppliesTo = RankRequirement.Winner },
+                new RewardConfig { RewardType = RewardType.FullStamina, AppliesTo = RankRequirement.Winner },
+                new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 5, AppliesTo = RankRequirement.Winner },
+
+                // Runner-up tier: second and third place by control ticks.
+                new RewardConfig { RewardType = RewardType.Xp, Amount = 2000, AppliesTo = RankRequirement.Top3 },
+                new RewardConfig { RewardType = RewardType.HalfDiet, AppliesTo = RankRequirement.Top3 },
+
+                // Everyone who registered at least one control tick.
+                new RewardConfig { RewardType = RewardType.Xp, Amount = 500, AppliesTo = RankRequirement.AllParticipants },
+            ],
         });
 
         await dbContext.SaveChangesAsync();

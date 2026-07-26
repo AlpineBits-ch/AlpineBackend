@@ -1,16 +1,20 @@
 using System.Net;
 using AppEnvironment;
 using Isle.Api.Chat;
+using Isle.Api.Games.KingOfTheHill;
 using Isle.Api.Handlers.Quests;
 using Isle.Api.Services;
 using Isle.Api.Services.Hosted;
 using Isle.Api.Services.Ingestion;
+using Isle.Api.Services.KingOfTheHill;
 using Isle.Api.Services.Quests;
 using Isle.Api.Services.Rcon;
+using Isle.Api.Services.Rewards;
 using Isle.Api.Services.State;
 using Isle.Api.Services.World;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity.Voice;
+using Isle.Domain.Interfaces;
 using IsleBridge.Sdk;
 using TheIsleEvrimaRconClient;
 
@@ -28,7 +32,9 @@ public static class IsleApplicationServiceCollectionExtensions
         services.AddIsleGameServerLinks();
         services.AddIsleVoice();
         services.AddIsleWorld();
+        services.AddIsleRewards();
         services.AddIsleQuests();
+        services.AddIsleGameModes();
         services.AddIsleStreamIngestion();
         services.AddIsleBackgroundWork();
 
@@ -90,6 +96,14 @@ public static class IsleApplicationServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>The reward granter, shared by quests and every game mode. Scoped: it touches <c>MicroserviceContext</c>.</summary>
+    private static IServiceCollection AddIsleRewards(this IServiceCollection services)
+    {
+        services.AddScoped<RewardGranter>();
+
+        return services;
+    }
+
     /// <summary>The automatic quest giver and the killing-spree bounty system.</summary>
     private static IServiceCollection AddIsleQuests(this IServiceCollection services)
     {
@@ -100,11 +114,29 @@ public static class IsleApplicationServiceCollectionExtensions
 
         services.AddScoped<QuestDirector>();
         services.AddScoped<QuestSpawner>();
-        services.AddScoped<QuestRewardGranter>();
         services.AddScoped<QuestAnnouncer>();
         services.AddScoped<QuestCompletionService>();
         services.AddScoped<BountyService>();
         services.AddScoped<BountyDispatcher>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// King of the Hill, the first of what the Games readme calls out as more than one planned
+    /// mode.
+    /// </summary>
+    private static IServiceCollection AddIsleGameModes(this IServiceCollection services)
+    {
+        services.AddSingleton<KingOfTheHillControlLedger>();
+        services.AddSingleton<KingOfTheHillMatchStateStore>();
+
+        services.AddScoped<IGameMode, KingOfTheHillMode>();
+        services.AddScoped<KingOfTheHillDirector>();
+        services.AddScoped<KingOfTheHillSpawner>();
+        services.AddScoped<KingOfTheHillTickService>();
+        services.AddScoped<KingOfTheHillCompletionService>();
+        services.AddScoped<KingOfTheHillAnnouncer>();
 
         return services;
     }
@@ -147,6 +179,10 @@ public static class IsleApplicationServiceCollectionExtensions
         // Same reason, more strictly: quest presence is credited straight off the roster snapshot,
         // and crediting a stale one pays players who are no longer there.
         services.AddHostedService<QuestProgressService>();
+
+        // Same roster dependency as the quest director, one level up: it also reads WorldRosterCache
+        // directly for zone-presence checks.
+        services.AddHostedService<KingOfTheHillDirectorService>();
 
         // Re-drives the proximity subscription graph on a short interval so a dropped/mistimed
         // SubscribeMutual push converges instead of leaving one side deaf (the "I hear them, they

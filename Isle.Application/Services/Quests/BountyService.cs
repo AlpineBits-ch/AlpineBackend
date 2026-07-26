@@ -70,6 +70,14 @@ public sealed class BountyService(
     /// <summary>Fallback XP for having fought the target without landing the kill.</summary>
     public const int DefaultParticipationXp = 500;
 
+    /// <summary>What running the clock out pays the target.</summary>
+    private static readonly RewardConfig[] SurvivalRewards =
+    [
+        new() { RewardType = RewardType.FullHealth },
+        new() { RewardType = RewardType.FullDiet },
+        new() { RewardType = RewardType.FullWater },
+    ];
+
     /// <summary>Damage landed within this long before a death makes it a player's kill.</summary>
     public static readonly TimeSpan PvpAttributionWindow = TimeSpan.FromSeconds(20);
 
@@ -175,7 +183,7 @@ public sealed class BountyService(
         await announcer.AnnounceBountyAsync(instance, ct);
         await announcer.WhisperAsync(player.SteamId,
             "You have been marked. Your colours have changed and the server has been told where you were last seen. " +
-            "The marks are subtle - break line of sight, stay in cover, and they can still lose you. Survive.", ct);
+            "Survive.", ct);
 
         await bus.PublishAsync(new PlayerMarkedAsBountyEvent
         {

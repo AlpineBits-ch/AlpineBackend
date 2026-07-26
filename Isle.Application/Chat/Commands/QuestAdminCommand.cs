@@ -41,7 +41,7 @@ public class QuestAdminCommand(
     private async Task<string> BountyAsync(string[] args)
     {
         if (args.Length < 2)
-            return "Usage: !questadmin bounty <steamId|friendlyId|name> [minutes] [bonusXp]";
+            return "Usage: !questadmin bounty steamId|friendlyId|name [minutes] [bonusXp]";
 
         var resolved = await PlayerResolver.ResolveAsync(db, args[1]);
         switch (resolved.Outcome)
@@ -73,7 +73,7 @@ public class QuestAdminCommand(
     private async Task<string> SpawnAsync(string[] args)
     {
         if (args.Length < 2)
-            return "Usage: !questadmin spawn <questId|questName> [regionId|regionName]";
+            return "Usage: !questadmin spawn questId|questName [regionId|regionName]";
 
         // Names contain spaces; everything before an optional trailing region token is the quest name.
         var questName = args[1];
@@ -91,7 +91,7 @@ public class QuestAdminCommand(
     private async Task<string> EndAsync(string[] args)
     {
         if (args.Length < 2)
-            return "Usage: !questadmin end <Q-id|instanceId>";
+            return "Usage: !questadmin end Q-id|instanceId";
 
         var needle = args[1];
         var seq = QuestInstance.DecodeFriendlyId(needle);

@@ -1,12 +1,15 @@
+using ImTools;
+using Isle.Api.Services.State;
 using Isle.Api.Services.World;
 using Isle.Domain.Aggregates;
+using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
 
 namespace Isle.Api.Services.Quests;
 
 /// <summary>Every quest and bounty line players see is built here.</summary>
-public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer> logger)
+public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer> logger, PlayerPresenceManager presenceManager, MicroserviceContext context)
 {
     private const string Sender = "VENTA.GG";
 
@@ -71,9 +74,17 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
     {
         try
         {
-            var result = await bridge.DmAsync(text: message, steam: null, sender: Sender, mode: ChatMode.Global, ct: ct);
-            if (!result.Ok)
-                logger.LogWarning("Quest broadcast returned {Code}: {Message}", result.CodeRaw, result.Msg);
+            var playerIds =  presenceManager.GetAllPlayerIds();
+            var steamIds = context.Players.Where(p => playerIds.Contains(p.Id)).Select(p => p.SteamId).ToArray();
+
+            foreach (var steamId in steamIds)
+            {
+                var result = await bridge.DmAsync(text: message, steam: steamId, sender: Sender, mode: ChatMode.Global, ct: ct);
+                if (!result.Ok)
+                    logger.LogWarning("Quest broadcast returned {Code}: {Message}", result.CodeRaw, result.Msg);
+            }
+            
+          
         }
         catch (Exception ex)
         {

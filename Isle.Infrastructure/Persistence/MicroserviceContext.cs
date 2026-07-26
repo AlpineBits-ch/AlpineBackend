@@ -20,7 +20,11 @@ public class MicroserviceContext : DbContext
     public DbSet<KillLog> KillLogs { get; set; }
     
     public DbSet<GameModeDefinition> GameModeDefinitions { get; set; }
-    
+
+    public DbSet<Quest> Quests { get; set; }
+    public DbSet<QuestLocation> QuestLocations { get; set; }
+    public DbSet<QuestInstance> QuestInstances { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -33,6 +37,8 @@ public class MicroserviceContext : DbContext
             options.MapEnum<RankRequirement>();
             options.MapEnum<GameModeState>();
             options.MapEnum<RewardType>();
+            options.MapEnum<QuestType>();
+            options.MapEnum<QuestInstanceState>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -117,6 +123,30 @@ public class MicroserviceContext : DbContext
                 .WithMany(l => l.Quests);
 
             questBuilder.OwnsMany(q => q.Rewards);
+        });
+
+        modelBuilder.Entity<QuestInstance>(instanceBuilder =>
+        {
+            instanceBuilder.HasOne(instance => instance.Quest)
+                .WithMany()
+                .HasForeignKey(instance => instance.QuestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Two nullable FKs into Player; Restrict avoids the multiple-cascade-path error, and a
+            // deleted player must not take the quest history with them.
+            instanceBuilder.HasOne(instance => instance.TargetPlayer)
+                .WithMany()
+                .HasForeignKey(instance => instance.TargetPlayerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            instanceBuilder.HasOne(instance => instance.CompletedByPlayer)
+                .WithMany()
+                .HasForeignKey(instance => instance.CompletedByPlayerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Every hot query is "what is open" — the director, both chat commands and the endpoints.
+            instanceBuilder.HasIndex(instance => new { instance.State, instance.Type });
+            instanceBuilder.HasIndex(instance => instance.TargetPlayerId);
         });
 
         modelBuilder.Entity<QuestLocation>(locationBuilder =>

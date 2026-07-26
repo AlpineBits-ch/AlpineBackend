@@ -113,6 +113,7 @@ var app = builder.Build();
 app.UseInfrastructure();
 
 await app.SeedGameModeDefinitionsAsync();
+await app.SeedQuestsAsync();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Isle.Domain.Entity;
 using Isle.Domain.Enums;
@@ -110,11 +111,38 @@ public sealed class RegionMap
     public string DescribeRegion(string? regionId) => GetById(regionId)?.Name ?? UnknownPlace;
 
     /// <summary>
+    /// How the game itself prints a coordinate: grouped in thousands with a typographic apostrophe and
+    /// carried to three decimals, e.g. <c>-321’806.894</c>. The apostrophe rather than a comma matters
+    /// because a comma already separates the axes in a broadcast, and the decimals matter because they
+    /// are what make a broadcast coordinate comparable, digit for digit, against the readout a player
+    /// is looking at on their own screen.
+    /// <para>If the in-game chat font ever mangles U+2019, the fix is to swap it for an ASCII
+    /// apostrophe here — nothing else reads this.</para>
+    /// </summary>
+    private static readonly NumberFormatInfo CoordinateFormat = new()
+    {
+        NumberGroupSeparator = "’",
+        NumberDecimalSeparator = ".",
+        NumberGroupSizes = [3],
+        NegativeSign = "-",
+    };
+
+    /// <summary>
     /// Coordinate suffix appended to every broadcast, so a wrong or missing place name still leaves
     /// players something they can act on.
+    ///
+    /// <para><b>The numbers are only as good as their source.</b> A bounty's coordinates come from the
+    /// live roster or a bridge read and are real Unreal centimetres, on the ±300'000 scale a player
+    /// sees in game. A placed quest's come from <see cref="MapRegion.GetRegions"/>, and the biome
+    /// polygons there (±140'000) and the sanctuary markers (±500) are on two different scales, neither
+    /// confirmed against the real map — so a quest at a sanctuary still prints a three-digit
+    /// coordinate. That is a data problem in the region table, not a formatting one, and it goes away
+    /// when the table is rebuilt from real coordinates.</para>
     /// </summary>
     public static string FormatCoordinates(double? x, double? y) =>
-        x is null || y is null ? string.Empty : $"X: {x.Value:F0}, Y: {y.Value:F0}";
+        x is null || y is null
+            ? string.Empty
+            : $"X: {x.Value.ToString("N3", CoordinateFormat)}, Y: {y.Value.ToString("N3", CoordinateFormat)}";
 
     // A sanctuary sits inside a biome polygon; naming the sanctuary is more useful than naming the
     // biome, and a landmark beats both.

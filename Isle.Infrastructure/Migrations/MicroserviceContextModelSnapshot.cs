@@ -631,6 +631,33 @@ namespace Isle.Infrastructure.Migrations
                                 .HasConstraintName("fk_game_mode_definitions_rewards_game_mode_definitions_game_mo");
                         });
 
+                    b.OwnsOne("Isle.Domain.ValueObjects.TriggerConfig", "Trigger", b1 =>
+                        {
+                            b1.Property<string>("GameModeDefinitionId")
+                                .HasColumnType("text")
+                                .HasColumnName("id");
+
+                            b1.Property<TimeSpan?>("Interval")
+                                .HasColumnType("interval")
+                                .HasColumnName("trigger_interval");
+
+                            b1.Property<int?>("MinPlayersToTrigger")
+                                .HasColumnType("integer")
+                                .HasColumnName("trigger_min_players_to_trigger");
+
+                            b1.Property<TriggerType>("Type")
+                                .HasColumnType("trigger_type")
+                                .HasColumnName("trigger_type");
+
+                            b1.HasKey("GameModeDefinitionId");
+
+                            b1.ToTable("game_mode_definitions", (string)null);
+
+                            b1.WithOwner()
+                                .HasForeignKey("GameModeDefinitionId")
+                                .HasConstraintName("fk_game_mode_definitions_game_mode_definitions_id");
+                        });
+
                     b.OwnsOne("Isle.Domain.ValueObjects.GeoFenceData", "Zone", b1 =>
                         {
                             b1.Property<string>("GameModeDefinitionId")
@@ -657,34 +684,7 @@ namespace Isle.Infrastructure.Migrations
 
                             b1.HasKey("GameModeDefinitionId");
 
-                            b1.ToTable("game_mode_definitions");
-
-                            b1.WithOwner()
-                                .HasForeignKey("GameModeDefinitionId")
-                                .HasConstraintName("fk_game_mode_definitions_game_mode_definitions_id");
-                        });
-
-                    b.OwnsOne("Isle.Domain.ValueObjects.TriggerConfig", "Trigger", b1 =>
-                        {
-                            b1.Property<string>("GameModeDefinitionId")
-                                .HasColumnType("text")
-                                .HasColumnName("id");
-
-                            b1.Property<TimeSpan?>("Interval")
-                                .HasColumnType("interval")
-                                .HasColumnName("trigger_interval");
-
-                            b1.Property<int?>("MinPlayersToTrigger")
-                                .HasColumnType("integer")
-                                .HasColumnName("trigger_min_players_to_trigger");
-
-                            b1.Property<TriggerType>("Type")
-                                .HasColumnType("trigger_type")
-                                .HasColumnName("trigger_type");
-
-                            b1.HasKey("GameModeDefinitionId");
-
-                            b1.ToTable("game_mode_definitions");
+                            b1.ToTable("game_mode_definitions", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("GameModeDefinitionId")
@@ -900,7 +900,7 @@ namespace Isle.Infrastructure.Migrations
 
                             b1.HasKey("QuestLocationId");
 
-                            b1.ToTable("quest_locations");
+                            b1.ToTable("quest_locations", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("QuestLocationId")
@@ -938,7 +938,7 @@ namespace Isle.Infrastructure.Migrations
 
                             b1.HasKey("SkinId");
 
-                            b1.ToTable("skins");
+                            b1.ToTable("skins", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("SkinId")
@@ -972,7 +972,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("BodyColor");
 
@@ -1009,7 +1009,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("ClawsColor");
 
@@ -1046,7 +1046,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("Detail1Color");
 
@@ -1083,7 +1083,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("EyesColor");
 
@@ -1120,7 +1120,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("FlankColor");
 
@@ -1157,7 +1157,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("MaleDisplayColor");
 
@@ -1194,7 +1194,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("MarkingsColor");
 
@@ -1231,7 +1231,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("MouthColor");
 
@@ -1268,7 +1268,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("TeethColor");
 
@@ -1305,7 +1305,7 @@ namespace Isle.Infrastructure.Migrations
 
                                     b2.HasKey("SkinCustomizerSkinId");
 
-                                    b2.ToTable("skins");
+                                    b2.ToTable("skins", (string)null);
 
                                     b2.HasJsonPropertyName("UnderbellyColor");
 
@@ -1374,7 +1374,7 @@ namespace Isle.Infrastructure.Migrations
 
                             b1.HasKey("StorageSlotId");
 
-                            b1.ToTable("storage_slots");
+                            b1.ToTable("storage_slots", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("StorageSlotId")
@@ -1401,7 +1401,7 @@ namespace Isle.Infrastructure.Migrations
 
                             b1.HasKey("StorageSlotId");
 
-                            b1.ToTable("storage_slots");
+                            b1.ToTable("storage_slots", (string)null);
 
                             b1.WithOwner()
                                 .HasForeignKey("StorageSlotId")

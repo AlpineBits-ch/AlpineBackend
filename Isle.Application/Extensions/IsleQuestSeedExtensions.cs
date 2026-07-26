@@ -148,13 +148,24 @@ public static class IsleQuestSeedExtensions
                 // The top of the ladder. A claim needs eight players online, someone five kills clear
                 // of the field, and then you have to actually catch and kill them — so this is the one
                 // template that hands out a permanent storage slot.
+                //
+                // Three tiers, because a spree is almost never broken by one player: the tiers nest, so
+                // the killer collects their own rows plus the top-three rows plus the participation
+                // rows, and a hunter who put damage in and died trying still walks away with something.
+                // Participation is judged on damage dealt to the target, not on being nearby.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 2500, AppliesTo = RankRequirement.Winner },
-                    new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.FullHealth, Amount = 0, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 5, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.StorageSlot, Amount = 1, AppliesTo = RankRequirement.Winner },
+
+                    new RewardConfig { RewardType = RewardType.Xp, Amount = 750, AppliesTo = RankRequirement.Top3 },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 2, AppliesTo = RankRequirement.Top3 },
+
+                    new RewardConfig { RewardType = RewardType.Xp, Amount = 500, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.FullWater, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
                 ],
                 locations: []),
         };

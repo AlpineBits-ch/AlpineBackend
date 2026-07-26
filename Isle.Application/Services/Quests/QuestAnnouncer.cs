@@ -59,6 +59,25 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
         return BroadcastAsync($"{species} survived the hunt. The bounty has ended.", ct);
     }
 
+    /// <summary>
+    /// The target died to something that was not a player. Deliberately does not name a killer, and
+    /// deliberately does not read as a win for anyone — but it does credit the hunters, because the
+    /// wounds they put in are usually why the target drowned or starved in the first place.
+    /// </summary>
+    public Task AnnounceBountyDiedAsync(QuestInstance instance, int participants, CancellationToken ct = default)
+    {
+        var species = string.IsNullOrWhiteSpace(instance.TargetSpecies) ? "The marked dinosaur" : $"The marked {instance.TargetSpecies}";
+
+        var credit = participants switch
+        {
+            0 => "Nobody was there to claim it.",
+            1 => "The hunter who wore them down has been paid.",
+            _ => $"The {participants} hunters who wore them down have been paid.",
+        };
+
+        return BroadcastAsync($"{species} is dead, but not by anyone's jaws. {credit}", ct);
+    }
+
     public Task AnnounceQuestExpiredAsync(QuestInstance instance, CancellationToken ct = default) =>
         BroadcastAsync($"Quest ended: {instance.Title} went unclaimed.", ct);
 

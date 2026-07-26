@@ -41,7 +41,11 @@ public class PlayerMarkedAsBountyEvent
     public bool IsAdminSpawned { get; set; }
 }
 
-/// <summary>A bounty closed — claimed, survived, or cancelled. <see cref="ClaimedByPlayerId"/> is null unless someone killed the target.</summary>
+/// <summary>
+/// A bounty closed — claimed, survived, or cancelled. <see cref="ClaimedByPlayerId"/> is null unless a
+/// player killed the target, which includes the case where the bounty completed because the target
+/// died to something that was not a player.
+/// </summary>
 public class BountyResolvedEvent
 {
     public string QuestInstanceId { get; set; } = string.Empty;
@@ -49,4 +53,47 @@ public class BountyResolvedEvent
     public string TargetPlayerId { get; set; } = string.Empty;
     public string? ClaimedByPlayerId { get; set; }
     public QuestInstanceState State { get; set; }
+
+    /// <summary>Everyone who did enough damage to the target to count, hardest hitter first.</summary>
+    public List<string> ParticipantPlayerIds { get; set; } = [];
+}
+
+/// <summary>A quest instance closed with nobody fulfilling it. The counterpart to <see cref="QuestSpawnedEvent"/>.</summary>
+public class QuestInstanceExpiredEvent
+{
+    public string QuestInstanceId { get; set; } = string.Empty;
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
+    public string QuestId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public QuestType Type { get; set; }
+    public string? RegionId { get; set; }
+    public string? LocationName { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+}
+
+/// <summary>One player's cut of a resolved quest, as it was actually paid rather than as it was authored.</summary>
+public class QuestRewardGrant
+{
+    public string PlayerId { get; set; } = string.Empty;
+
+    /// <summary>The tier this player was paid at.</summary>
+    public RankRequirement Rank { get; set; }
+
+    /// <summary>The payout lines the player was shown, e.g. <c>"2,500 XP"</c>, <c>"+5% growth"</c>.</summary>
+    public List<string> Rewards { get; set; } = [];
+}
+
+/// <summary>
+/// What a resolved quest actually paid, to whom, in one message.
+///
+/// <para>Reports granted rewards rather than configured ones: a vital payout to a player who logged
+/// off in the last second does not land, and a ledger that claimed otherwise would be wrong. Anything
+/// keeping score off this — a website, a payout audit — sees only what really happened.</para>
+/// </summary>
+public class QuestRewardsGrantedEvent
+{
+    public string QuestInstanceId { get; set; } = string.Empty;
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
+    public QuestType Type { get; set; }
+    public List<QuestRewardGrant> Grants { get; set; } = [];
 }

@@ -1,0 +1,156 @@
+using StackExchange.Redis;
+
+namespace Isle.Api.Services.Quests;
+
+/// <summary>One player's contribution to bringing a marked target down.</summary>
+/// <param name="SteamId">The attacker, unresolved — the ledger never touches the database.</param>
+/// <param name="Damage">Total damage they dealt to the target over the life of the bounty.</param>
+/// <param name="LastHitAt">When they last connected, used to tell a kill from a coincidence.</param>
+public sealed record BountyParticipation(string SteamId, double Damage, DateTimeOffset LastHitAt);
+
+/// <summary>
+/// Who actually fought the marked player, and how hard.
+///
+/// <para>A bounty used to have exactly one beneficiary: whoever landed the last hit. That is a poor
+/// description of what happens on the ground — a spree gets broken by three or four players wearing
+/// the target down, and only one of them gets the killfeed line. This ledger is what lets the payout
+/// reach the rest of them, and what ranks them when a template carries <c>Top3</c> rewards.</para>
+///
+/// <para>Damage accumulates through <c>HINCRBYFLOAT</c> rather than read-modify-write, because damage
+/// handlers run concurrently under Wolverine and a lost increment would silently under-credit someone.
+/// Last-hit times live in a second hash where last-write-wins is exactly the semantics wanted.</para>
+///
+/// <para>Redis-backed for the same reason the mark registry is: a bounty outlives an API restart, and
+/// a ledger that did not would quietly pay only the players who happened to swing after the restart.
+/// Both keys carry a TTL well past the longest bounty so an abandoned server does not leak state.</para>
+/// </summary>
+public sealed class BountyParticipantLedger(IConnectionMultiplexer redis, ILogger<BountyParticipantLedger> logger)
+{
+    /// <summary>
+    /// Below this much total damage a player is a bystander, not a participant. Stops someone who took
+    /// one opportunistic nibble at a passing target from collecting the same payout as the players who
+    /// actually committed to the fight.
+    /// </summary>
+    public const double MinDamageForParticipation = 100d;
+
+    /// <summary>How many top damage dealers <see cref="Isle.Domain.Enums.RankRequirement.Top3"/> covers.</summary>
+    public const int TopTierSize = 3;
+
+    private static readonly TimeSpan KeyTtl = TimeSpan.FromHours(12);
+
+    private IDatabase Db => redis.GetDatabase();
+
+    private static string DamageKey(string questInstanceId) => $"isle:bounty:damage:{questInstanceId}";
+
+    private static string LastHitKey(string questInstanceId) => $"isle:bounty:lasthit:{questInstanceId}";
+
+    /// <summary>Credits <paramref name="attackerSteamId"/> with damage against the bounty target.</summary>
+    public async Task RecordAsync(string questInstanceId, string attackerSteamId, double damage, DateTimeOffset at)
+    {
+        if (damage <= 0)
+            return;
+
+        try
+        {
+            var damageKey = DamageKey(questInstanceId);
+            var lastHitKey = LastHitKey(questInstanceId);
+
+            await Db.HashIncrementAsync(damageKey, attackerSteamId, damage);
+            await Db.HashSetAsync(lastHitKey, attackerSteamId, at.ToUnixTimeMilliseconds());
+
+            await Db.KeyExpireAsync(damageKey, KeyTtl);
+            await Db.KeyExpireAsync(lastHitKey, KeyTtl);
+        }
+        catch (Exception ex)
+        {
+            // A missed hit costs one player some credit; it must never abort the damage handler.
+            logger.LogWarning(ex, "Could not record bounty damage by {Steam} on {InstanceId}",
+                attackerSteamId, questInstanceId);
+        }
+    }
+
+    /// <summary>
+    /// Everyone who cleared <see cref="MinDamageForParticipation"/>, hardest hitter first. The order is
+    /// the ranking a <c>Top3</c> reward pays against.
+    /// </summary>
+    public async Task<IReadOnlyList<BountyParticipation>> GetParticipantsAsync(string questInstanceId)
+    {
+        try
+        {
+            var damage = await Db.HashGetAllAsync(DamageKey(questInstanceId));
+            if (damage.Length == 0)
+                return [];
+
+            var lastHits = (await Db.HashGetAllAsync(LastHitKey(questInstanceId)))
+                .ToDictionary(e => e.Name.ToString(), e => (long)e.Value);
+
+            return damage
+                .Select(entry =>
+                {
+                    var steam = entry.Name.ToString();
+                    if (!double.TryParse(entry.Value.ToString(), out var dealt))
+                        return null;
+
+                    var at = lastHits.TryGetValue(steam, out var ms)
+                        ? DateTimeOffset.FromUnixTimeMilliseconds(ms)
+                        : DateTimeOffset.UtcNow;
+
+                    return new BountyParticipation(steam, dealt, at);
+                })
+                .OfType<BountyParticipation>()
+                .Where(p => p.Damage >= MinDamageForParticipation)
+                .OrderByDescending(p => p.Damage)
+                .ThenBy(p => p.LastHitAt)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read bounty participants for {InstanceId}", questInstanceId);
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// The most recent player to hurt the target, whatever the amount. This is the natural-death
+    /// tiebreaker: it deliberately ignores <see cref="MinDamageForParticipation"/>, because a nibble
+    /// that finished off an already-wounded animal still makes the death a player kill.
+    /// </summary>
+    public async Task<BountyParticipation?> LastAttackerAsync(string questInstanceId)
+    {
+        try
+        {
+            var lastHits = await Db.HashGetAllAsync(LastHitKey(questInstanceId));
+            if (lastHits.Length == 0)
+                return null;
+
+            var latest = lastHits.MaxBy(e => (long)e.Value);
+            var steam = latest.Name.ToString();
+
+            var dealt = await Db.HashGetAsync(DamageKey(questInstanceId), steam);
+
+            return new BountyParticipation(
+                steam,
+                dealt.HasValue && double.TryParse(dealt.ToString(), out var value) ? value : 0,
+                DateTimeOffset.FromUnixTimeMilliseconds((long)latest.Value));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the last attacker for {InstanceId}", questInstanceId);
+            return null;
+        }
+    }
+
+    /// <summary>Drops the ledger for a closed bounty. Called from the shared teardown, so it runs on every exit path.</summary>
+    public async Task ClearAsync(string questInstanceId)
+    {
+        try
+        {
+            await Db.KeyDeleteAsync(DamageKey(questInstanceId));
+            await Db.KeyDeleteAsync(LastHitKey(questInstanceId));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not clear the bounty ledger for {InstanceId}", questInstanceId);
+        }
+    }
+}

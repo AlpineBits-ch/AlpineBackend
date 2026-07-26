@@ -36,8 +36,37 @@ public sealed class QuestRewardGranter(
     private const double MaxGrowth = 1.0;
 
     /// <summary>
-    /// Grants every reward to one player. Returns the lines to show them. Each reward is independent:
-    /// a failed vital write (offline, no pawn) does not stop the XP from landing.
+    /// Which reward rows a player who finished at <paramref name="rank"/> collects.
+    ///
+    /// <para>The tiers nest downwards: the winner is also in the top three and is also a participant,
+    /// so they take every row a lesser tier would have taken. Authoring a template the other way round
+    /// — expecting <c>Winner</c> and <c>AllParticipants</c> rows to be mutually exclusive — would mean
+    /// every template had to restate the participation payout inside the winner payout.</para>
+    /// </summary>
+    public static bool Applies(RewardConfig reward, RankRequirement rank) => reward.AppliesTo switch
+    {
+        RankRequirement.AllParticipants => true,
+        RankRequirement.Top3 => rank is RankRequirement.Top3 or RankRequirement.Winner,
+        RankRequirement.Winner => rank is RankRequirement.Winner,
+        _ => false,
+    };
+
+    /// <summary>
+    /// Grants the rewards one player earned at <paramref name="rank"/>. Returns the lines to show them.
+    /// Each reward is independent: a failed vital write (offline, no pawn) does not stop the XP from
+    /// landing.
+    /// </summary>
+    public Task<IReadOnlyList<string>> GrantAsync(
+        string playerId,
+        IEnumerable<RewardConfig> rewards,
+        RankRequirement rank,
+        CancellationToken ct = default) =>
+        GrantAsync(playerId, rewards.Where(r => Applies(r, rank)), ct);
+
+    /// <summary>
+    /// Grants an already-selected set of rewards, with no rank filtering. Callers that know exactly
+    /// what they owe use this; callers holding a whole template's reward list want the overload that
+    /// takes a <see cref="RankRequirement"/>.
     /// </summary>
     public async Task<IReadOnlyList<string>> GrantAsync(
         string playerId,

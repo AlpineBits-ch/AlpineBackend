@@ -82,6 +82,25 @@ public sealed class BountyService(
     public const int DefaultParticipationXp = 500;
 
     /// <summary>
+    /// What running the clock out pays the target.
+    ///
+    /// <para>Deliberately not XP. Twenty minutes of being hunted leaves a dino hurt, starving and dry,
+    /// which is precisely the state that makes the <i>next</i> fight a loss — so the payout for
+    /// surviving is being able to carry on playing the dino that survived, rather than a number in the
+    /// database.</para>
+    ///
+    /// <para>Fixed rather than template-authored because <see cref="RankRequirement"/> has no tier
+    /// meaning "the target": every tier it does have describes someone who hunted them. These go
+    /// through the granter's unranked overload, so <c>AppliesTo</c> is never consulted.</para>
+    /// </summary>
+    private static readonly RewardConfig[] SurvivalRewards =
+    [
+        new() { RewardType = RewardType.FullHealth },
+        new() { RewardType = RewardType.FullDiet },
+        new() { RewardType = RewardType.FullWater },
+    ];
+
+    /// <summary>
     /// Damage landed within this long before a death makes it a player's kill.
     ///
     /// <para>A player kill emits a killfeed line and a death line at roughly the same moment and either
@@ -200,7 +219,7 @@ public sealed class BountyService(
         await announcer.AnnounceBountyAsync(instance, ct);
         await announcer.WhisperAsync(player.SteamId,
             "You have been marked. Your colours have changed and the server has been told where you were last seen. " +
-            "The marks are subtle - break line of sight, stay in cover, and they can still lose you. Survive.", ct);
+            "Survive.", ct);
 
         await bus.PublishAsync(new PlayerMarkedAsBountyEvent
         {

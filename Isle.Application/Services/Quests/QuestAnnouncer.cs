@@ -56,10 +56,23 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
         return BroadcastAsync($"{killerName} has put {species} down. The bounty is claimed.", ct);
     }
 
-    public Task AnnounceBountyExpiredAsync(QuestInstance instance, CancellationToken ct = default)
+    /// <summary>
+    /// The bounty ended with the target still standing. <paramref name="participants"/> is how many
+    /// hunters drew enough blood to be paid the participation share — zero on the paths where the bounty
+    /// was called off rather than outlasted, which is why the credit line is conditional.
+    /// </summary>
+    public Task AnnounceBountyExpiredAsync(QuestInstance instance, int participants = 0, CancellationToken ct = default)
     {
         var species = string.IsNullOrWhiteSpace(instance.TargetSpecies) ? "The marked dinosaur" : $"The marked {instance.TargetSpecies}";
-        return BroadcastAsync($"{species} survived the hunt. The bounty has ended.", ct);
+
+        var credit = participants switch
+        {
+            0 => string.Empty,
+            1 => " The hunter who drew blood has been paid.",
+            _ => $" The {participants} hunters who drew blood have been paid.",
+        };
+
+        return BroadcastAsync($"{species} survived the hunt. The bounty has ended.{credit}", ct);
     }
 
     /// <summary>

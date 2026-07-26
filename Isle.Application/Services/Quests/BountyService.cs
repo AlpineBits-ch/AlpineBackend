@@ -259,7 +259,7 @@ public sealed class BountyService(
 
         await EndAsync(instance, ranked, ct);
 
-        var winnerLines = await PayOutAsync(instance, ranked, ct);
+        var winnerLines = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
 
         var killer = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == killerPlayerId, ct);
         var killerName = killer?.InGameName ?? roster.FindBySteam(killer?.SteamId)?.Name ?? "Someone";
@@ -324,7 +324,7 @@ public sealed class BountyService(
         var ranked = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), winnerPlayerId: null, ct);
 
         await EndAsync(instance, ranked, ct);
-        await PayOutAsync(instance, ranked, ct);
+        await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
         await announcer.AnnounceBountyDiedAsync(instance, ranked.Count, ct);
 
         logger.LogInformation("Bounty {InstanceId} completed by natural causes, {Participants} paid",
@@ -346,7 +346,9 @@ public sealed class BountyService(
             return false;
 
         await EndAsync(instance, [], ct);
-        await announcer.AnnounceBountyExpiredAsync(instance, ct);
+
+        // Called off rather than survived, so nobody is paid — not the hunters, not the target.
+        await announcer.AnnounceBountyExpiredAsync(instance, participants: 0, ct);
 
         logger.LogInformation("Bounty {InstanceId} on {PlayerId} closed as {State}", instance.Id, playerId, state);
         return true;
@@ -356,8 +358,12 @@ public sealed class BountyService(
     /// Closes bounties whose window ran out. Driven by the quest director tick.
     ///
     /// <para>This is the one terminal path where the target won: they were named to the whole server and
-    /// were still standing when the clock hit zero, so they — and only they — are paid. See
-    /// <see cref="PaySurvivorAsync"/>.</para>
+    /// were still standing when the clock hit zero, so they are paid for it — see
+    /// <see cref="PaySurvivorAsync"/>. The hunters are paid too, at
+    /// <see cref="RankRequirement.AllParticipants"/> and no higher: committing to a fight with a marked
+    /// player is the behaviour the bounty exists to provoke, and paying nothing for it teaches the lobby
+    /// that engaging a target you might not finish is a waste of a dino. What they do not get is the
+    /// placing tiers — nobody brought the target down, so nobody placed.</para>
     /// </summary>
     public async Task<int> ExpireDueBountiesAsync(CancellationToken ct = default)
     {
@@ -372,11 +378,22 @@ public sealed class BountyService(
             if (!await TryCloseAtomicallyAsync(instance, QuestInstanceState.Expired, completedByPlayerId: null, ct))
                 continue;
 
-            // None of the hunters are paid for a target who ran out the clock alive, however much damage
-            // they landed.
-            await EndAsync(instance, [], ct);
+            // Read the ledger before the teardown drops it.
+            var hunters = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), winnerPlayerId: null, ct);
+
+            // Flattened to the participation tier: the damage ranking decides who placed in a hunt that
+            // succeeded, and this one did not.
+            var ranked = hunters
+                .Select(h => h with { Rank = RankRequirement.AllParticipants })
+                .ToList();
+
+            await EndAsync(instance, ranked, ct);
             await PaySurvivorAsync(instance, ct);
-            await announcer.AnnounceBountyExpiredAsync(instance, ct);
+            await PayOutAsync(instance, ranked, SurvivedParticipantLead, ct);
+            await announcer.AnnounceBountyExpiredAsync(instance, ranked.Count, ct);
+
+            logger.LogInformation("Bounty {InstanceId} expired with the target alive, {Participants} hunters paid",
+                instance.Id, ranked.Count);
         }
 
         return due.Count;
@@ -532,14 +549,28 @@ public sealed class BountyService(
         return ranked;
     }
 
+    /// <summary>How a hunter's payout whisper opens when the target went down.</summary>
+    private const string KilledParticipantLead = "You helped bring the marked player down";
+
+    /// <summary>
+    /// How it opens when the target outlasted the clock. Says plainly that they got away, because a
+    /// whisper congratulating a hunter on a kill that did not happen reads as a bug.
+    /// </summary>
+    private const string SurvivedParticipantLead = "The marked player got away, but you made them bleed for it";
+
     /// <summary>
     /// Pays everyone the resolved bounty owes and tells them what they got. Returns the winner's payout
     /// lines, which the claim announcement uses; participants are whispered here because nothing else
     /// would ever tell them they had been paid.
     /// </summary>
+    /// <param name="participantLead">
+    /// Opening clause of the participant whisper — the payout is the same on every path, what it means
+    /// is not. See <see cref="KilledParticipantLead"/> and <see cref="SurvivedParticipantLead"/>.
+    /// </param>
     private async Task<IReadOnlyList<string>> PayOutAsync(
         QuestInstance instance,
         IReadOnlyList<RankedParticipant> ranked,
+        string participantLead,
         CancellationToken ct)
     {
         if (ranked.Count == 0)
@@ -572,7 +603,7 @@ public sealed class BountyService(
 
             if (!string.IsNullOrWhiteSpace(participant.Player.SteamId))
                 await announcer.WhisperAsync(participant.Player.SteamId,
-                    $"You helped bring the marked player down: {string.Join(", ", granted)}.", ct);
+                    $"{participantLead}: {string.Join(", ", granted)}.", ct);
         }
 
         if (grants.Count > 0)

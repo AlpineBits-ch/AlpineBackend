@@ -3,9 +3,10 @@ using Isle.Api.Services.Quests;
 namespace Isle.Api.Services.Hosted;
 
 /// <summary>
-/// The automatic quest giver's clock. Each tick closes anything that ran out of time, then asks
-/// <see cref="QuestDirector"/> whether to place a new quest — which is where population spreading
-/// happens, since the director scores candidate locations against where the crowd currently is.
+/// The automatic quest giver's clock. Each tick settles anything that ran out of time — paying it out
+/// if it was satisfied, expiring it if it was not — then asks <see cref="QuestDirector"/> whether to
+/// place a new quest, which is where population spreading happens, since the director scores candidate
+/// locations against where the crowd currently is.
 ///
 /// <para>Bounty upkeep rides on the same tick rather than a second loop: both are quest-instance
 /// lifecycle work on the same DB scope, and a bounty expiring a couple of minutes late is harmless.</para>
@@ -52,9 +53,10 @@ public sealed class QuestDirectorService(
             using var scope = scopeFactory.CreateScope();
             var spawner = scope.ServiceProvider.GetRequiredService<QuestSpawner>();
             var director = scope.ServiceProvider.GetRequiredService<QuestDirector>();
+            var completion = scope.ServiceProvider.GetRequiredService<QuestCompletionService>();
             var bounties = scope.ServiceProvider.GetRequiredService<BountyService>();
 
-            await spawner.ExpireDueQuestsAsync(ct);
+            await completion.ResolveDueQuestsAsync(ct);
             await bounties.ExpireDueBountiesAsync(ct);
 
             if (await director.ChooseAsync(ct) is { } candidate)
@@ -62,7 +64,4 @@ public sealed class QuestDirectorService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Quest director tick failed");
-        }
-    }
-}
+            l

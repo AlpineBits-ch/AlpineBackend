@@ -106,11 +106,13 @@ public static class IsleApplicationServiceCollectionExtensions
         services.AddSingleton<KillStreakTracker>();
         services.AddSingleton<BountyRegistry>();
         services.AddSingleton<BountyParticipantLedger>();
+        services.AddSingleton<QuestProgressLedger>();
 
         services.AddScoped<QuestDirector>();
         services.AddScoped<QuestSpawner>();
         services.AddScoped<QuestRewardGranter>();
         services.AddScoped<QuestAnnouncer>();
+        services.AddScoped<QuestCompletionService>();
         services.AddScoped<BountyService>();
         services.AddScoped<BountyDispatcher>();
 
@@ -154,6 +156,11 @@ public static class IsleApplicationServiceCollectionExtensions
         // needs WorldRosterService to have landed at least one read.
         services.AddHostedService<WorldRosterService>();
         services.AddHostedService<QuestDirectorService>();
+
+        // Same reason, more strictly: quest presence is credited straight off the roster snapshot, and
+        // crediting a stale one pays players who are no longer there. It gates on the timestamp rather
+        // than trusting startup order.
+        services.AddHostedService<QuestProgressService>();
 
         // Re-drives the proximity subscription graph on a short interval so a dropped/mistimed
         // SubscribeMutual push converges instead of leaving one side deaf (the "I hear them, they

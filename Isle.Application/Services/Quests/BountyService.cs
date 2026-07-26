@@ -32,6 +32,14 @@ public sealed class BountyService(
     /// <summary>A ledger entry resolved to a player, with the tier their contribution earns.</summary>
     private sealed record RankedParticipant(Player Player, double Damage, RankRequirement Rank);
 
+    /// <summary>What a payout actually did, as opposed to what it was owed.</summary>
+    /// <param name="WinnerLines">The winner's payout lines, for the claim whisper.</param>
+    /// <param name="PaidCount">How many players actually received at least one reward.</param>
+    private sealed record Payout(IReadOnlyList<string> WinnerLines, int PaidCount)
+    {
+        public static readonly Payout Nothing = new([], 0);
+    }
+
     // --- Spree thresholds ---------------------------------------------------------------------
     // All three gates must pass.
 
@@ -228,18 +236,18 @@ public sealed class BountyService(
 
         await EndAsync(instance, ranked, ct);
 
-        var winnerLines = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
+        var payout = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
 
         var killer = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == killerPlayerId, ct);
         var killerName = killer?.InGameName ?? roster.FindBySteam(killer?.SteamId)?.Name ?? "Someone";
 
         await announcer.AnnounceBountyClaimedAsync(instance, killerName, ct);
 
-        if (killer?.SteamId is { } steam && winnerLines.Count > 0)
-            await announcer.WhisperAsync(steam, $"Bounty claimed: {string.Join(", ", winnerLines)}.", ct);
+        if (killer?.SteamId is { } steam && payout.WinnerLines.Count > 0)
+            await announcer.WhisperAsync(steam, $"Bounty claimed: {string.Join(", ", payout.WinnerLines)}.", ct);
 
-        logger.LogInformation("Bounty {InstanceId} claimed by {KillerId}, {Participants} paid",
-            instance.Id, killerPlayerId, ranked.Count);
+        logger.LogInformation("Bounty {InstanceId} claimed by {KillerId}, {Paid} of {Ranked} paid",
+            instance.Id, killerPlayerId, payout.PaidCount, ranked.Count);
         return true;
     }
 
@@ -290,11 +298,13 @@ public sealed class BountyService(
         var ranked = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), winnerPlayerId: null, ct);
 
         await EndAsync(instance, ranked, ct);
-        await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
-        await announcer.AnnounceBountyDiedAsync(instance, ranked.Count, ct);
 
-        logger.LogInformation("Bounty {InstanceId} completed by natural causes, {Participants} paid",
-            instance.Id, ranked.Count);
+        var payout = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
+
+        await announcer.AnnounceBountyDiedAsync(instance, payout.PaidCount, ct);
+
+        logger.LogInformation("Bounty {InstanceId} completed by natural causes, {Paid} of {Ranked} paid",
+            instance.Id, payout.PaidCount, ranked.Count);
         return true;
     }
 
@@ -345,11 +355,13 @@ public sealed class BountyService(
 
             await EndAsync(instance, ranked, ct);
             await PaySurvivorAsync(instance, ct);
-            await PayOutAsync(instance, ranked, SurvivedParticipantLead, ct);
-            await announcer.AnnounceBountyExpiredAsync(instance, ranked.Count, ct);
 
-            logger.LogInformation("Bounty {InstanceId} expired with the target alive, {Participants} hunters paid",
-                instance.Id, ranked.Count);
+            var payout = await PayOutAsync(instance, ranked, SurvivedParticipantLead, ct);
+
+            await announcer.AnnounceBountyExpiredAsync(instance, payout.PaidCount, ct);
+
+            logger.LogInformation("Bounty {InstanceId} expired with the target alive, {Paid} of {Ranked} hunters paid",
+                instance.Id, payout.PaidCount, ranked.Count);
         }
 
         return due.Count;
@@ -505,25 +517,30 @@ public sealed class BountyService(
     /// Opening clause of the participant whisper — the payout is the same on every path, what it
     /// means is not.
     /// </param>
-    private async Task<IReadOnlyList<string>> PayOutAsync(
+    private async Task<Payout> PayOutAsync(
         QuestInstance instance,
         IReadOnlyList<RankedParticipant> ranked,
         string participantLead,
         CancellationToken ct)
     {
         if (ranked.Count == 0)
-            return [];
+            return Payout.Nothing;
 
-        var payout = await BuildClaimRewardsAsync(instance, ct);
+        var rewardTable = await BuildClaimRewardsAsync(instance, ct);
 
         var winnerLines = new List<string>();
         var grants = new List<QuestRewardGrant>();
 
         foreach (var participant in ranked)
         {
-            var granted = await rewards.GrantAsync(participant.Player.Id, payout, participant.Rank, ct);
+            var granted = await rewards.GrantAsync(participant.Player.Id, rewardTable, participant.Rank, ct);
             if (granted.Count == 0)
+            {
+                // Ranked but paid nothing.
+                logger.LogInformation("Bounty {InstanceId}: {PlayerId} ranked {Rank} but received nothing",
+                    instance.Id, participant.Player.Id, participant.Rank);
                 continue;
+            }
 
             grants.Add(new QuestRewardGrant
             {
@@ -553,7 +570,7 @@ public sealed class BountyService(
                 Grants = grants,
             });
 
-        return winnerLines;
+        return new Payout(winnerLines, grants.Count);
     }
 
     /// <summary>

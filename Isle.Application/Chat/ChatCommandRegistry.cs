@@ -18,7 +18,8 @@ public sealed class ChatCommandRegistry
         typeof(DebugCommand), typeof(LinkInGameName), typeof(PromoteCommand),
         typeof(StoreDinoCommand), typeof(LoadDinoCommand), typeof(BuySlotCommand), typeof(StorageInfoCommand),
         typeof(SendInviteCommand), typeof(AcceptInviteCommand), typeof(RejectInviteCommand),
-        typeof(WhoAmICommand), typeof(WipeWorldCommand), typeof(HelpCommand), typeof(SkinCommand)
+        typeof(WhoAmICommand), typeof(WipeWorldCommand), typeof(HelpCommand), typeof(SkinCommand),
+        typeof(QuestsCommand), typeof(BountyCommand), typeof(QuestAdminCommand)
     ];
 
     private readonly Dictionary<string, Type> _byName = new(StringComparer.OrdinalIgnoreCase);

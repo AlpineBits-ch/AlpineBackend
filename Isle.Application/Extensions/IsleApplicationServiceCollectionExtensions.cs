@@ -1,11 +1,14 @@
 using System.Net;
 using AppEnvironment;
 using Isle.Api.Chat;
+using Isle.Api.Handlers.Quests;
 using Isle.Api.Services;
 using Isle.Api.Services.Hosted;
 using Isle.Api.Services.Ingestion;
+using Isle.Api.Services.Quests;
 using Isle.Api.Services.Rcon;
 using Isle.Api.Services.State;
+using Isle.Api.Services.World;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity.Voice;
 using IsleBridge.Sdk;
@@ -25,6 +28,8 @@ public static class IsleApplicationServiceCollectionExtensions
         services.AddIsleState();
         services.AddIsleGameServerLinks();
         services.AddIsleVoice();
+        services.AddIsleWorld();
+        services.AddIsleQuests();
         services.AddIsleStreamIngestion();
         services.AddIsleBackgroundWork();
 
@@ -76,6 +81,41 @@ public static class IsleApplicationServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Map knowledge and the whole-server roster snapshot. Registered ahead of the quest services
+    /// because both the director and the bounty announcer are built on them.
+    /// </summary>
+    private static IServiceCollection AddIsleWorld(this IServiceCollection services)
+    {
+        services.AddSingleton<RegionMap>();
+        services.AddSingleton<WorldRosterCache>();
+        services.AddSingleton<PopulationHeatmap>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// The automatic quest giver and the killing-spree bounty system.
+    ///
+    /// <para>Streak and mark state are singletons (they are Redis-backed and read from hot paths);
+    /// everything that touches the database is scoped, because a <c>MicroserviceContext</c> captured
+    /// for the process lifetime is a leak waiting to happen.</para>
+    /// </summary>
+    private static IServiceCollection AddIsleQuests(this IServiceCollection services)
+    {
+        services.AddSingleton<KillStreakTracker>();
+        services.AddSingleton<BountyRegistry>();
+
+        services.AddScoped<QuestDirector>();
+        services.AddScoped<QuestSpawner>();
+        services.AddScoped<QuestRewardGranter>();
+        services.AddScoped<QuestAnnouncer>();
+        services.AddScoped<BountyService>();
+        services.AddScoped<BountyDispatcher>();
+
+        return services;
+    }
+
     private static IServiceCollection AddIsleVoice(this IServiceCollection services)
     {
         // CellSize is the coarse audible-membership filter and must stay >= the client's
@@ -108,6 +148,11 @@ public static class IsleApplicationServiceCollectionExtensions
         services.AddHostedService<WorldCleanupService>();
         services.AddHostedService<InviteTimeoutService>();
         services.AddHostedService<VoicePresenceReconcileService>();
+
+        // Roster first: the quest director refuses to place anything against a stale snapshot, so it
+        // needs WorldRosterService to have landed at least one read.
+        services.AddHostedService<WorldRosterService>();
+        services.AddHostedService<QuestDirectorService>();
 
         // Re-drives the proximity subscription graph on a short interval so a dropped/mistimed
         // SubscribeMutual push converges instead of leaving one side deaf (the "I hear them, they

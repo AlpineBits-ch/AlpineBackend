@@ -5,6 +5,13 @@ namespace Isle.Domain.Entity;
 
 public sealed class MapRegion
 {
+    /// <summary>
+    /// Extent used for a point-like region that sets no <see cref="Radius"/> of its own. Provisional:
+    /// the sanctuary markers and the biome polygons below are on visibly different coordinate scales,
+    /// so this can only be tuned properly once the table is rebuilt from real Unreal coordinates.
+    /// </summary>
+    public const float DefaultPointRadius = 25f;
+
     public string Id { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
 
@@ -15,6 +22,20 @@ public sealed class MapRegion
     public BoundingBox Bounds { get; set; }
 
     public string[] Aliases { get; init; } = [];
+
+    /// <summary>
+    /// Fallback extent for regions whose <see cref="Polygon"/> is a point or a line rather than a
+    /// closed shape — every sanctuary below is a single marker coordinate. Those resolve as a circle
+    /// of this radius around the centroid; a real polygon (3+ points) ignores it.
+    /// </summary>
+    public float Radius { get; init; }
+
+    /// <summary>True when <see cref="Polygon"/> is too thin to enclose anything and the region falls back to <see cref="Radius"/>.</summary>
+    public bool IsPointLike => Polygon.Count < 3;
+
+    public Vector2 Center => Polygon.Count == 0
+        ? Vector2.Zero
+        : new Vector2(Polygon.Average(p => p.X), Polygon.Average(p => p.Y));
 
 
     public static IReadOnlyCollection<MapRegion> GetRegions()
@@ -164,6 +185,43 @@ public sealed class MapRegion
         ];
     }
 
+
+    /// <summary>
+    /// Whether a world position (map plane = X/Y) falls inside this region. Polygons use ray casting;
+    /// point-like regions use a circle around <see cref="Center"/>. Call <see cref="CalculateBounds"/>
+    /// first — the bounds are the cheap reject.
+    /// </summary>
+    public bool Contains(Vector2 point)
+    {
+        if (IsPointLike)
+            return Vector2.Distance(Center, point) <= EffectiveRadius;
+
+        if (!Bounds.Contains(point))
+            return false;
+
+        var inside = false;
+        for (int i = 0, j = Polygon.Count - 1; i < Polygon.Count; j = i++)
+        {
+            var pi = Polygon[i];
+            var pj = Polygon[j];
+            var crosses = (pi.Y > point.Y) != (pj.Y > point.Y) &&
+                          point.X < (pj.X - pi.X) * (point.Y - pi.Y) / (pj.Y - pi.Y) + pi.X;
+            if (crosses) inside = !inside;
+        }
+
+        return inside;
+    }
+
+    /// <summary>
+    /// Rough distance from a position to this region, used to pick a "near X" name when nothing
+    /// contains the point and to spread quests away from crowded regions. Measured centre-to-point,
+    /// so it is an ordering heuristic rather than a true edge distance.
+    /// </summary>
+    public float DistanceTo(Vector2 point) => Vector2.Distance(Center, point);
+
+    public float DistanceTo(MapRegion other) => Vector2.Distance(Center, other.Center);
+
+    private float EffectiveRadius => Radius > 0 ? Radius : DefaultPointRadius;
 
     public void CalculateBounds()
     {

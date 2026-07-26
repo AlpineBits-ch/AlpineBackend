@@ -14,7 +14,7 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
         var slotArg = context.Arguments.FirstOrDefault();
         if (!int.TryParse(slotArg, out var slotNumber) || slotNumber < 1)
         {
-            return "Usage: !load slot number> — see your slots with !storage";
+            return "Usage: !load slot number - see your slots with !storage";
         }
 
         var player = await microserviceContext.Players
@@ -86,7 +86,7 @@ public class LoadDinoCommand(MicroserviceContext microserviceContext, IBridgeCli
         player.Storage.MarkDeployed(slot.Id);
         await microserviceContext.SaveChangesAsync();
 
-        return $"Loaded your {slot.FriendlySpeciesName()} ({slot.Growth:P0} grown). It's live now — if it dies you lose this slot's dino.";
+        return $"Loaded your {slot.FriendlySpeciesName()} ({slot.Growth:P0} grown). It's live now - if it dies you lose this slot's dino.";
     }
 
     /// <summary>

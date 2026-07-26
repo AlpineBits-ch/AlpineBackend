@@ -28,7 +28,7 @@ public class RejectInviteCommand(MicroserviceContext microserviceContext) : Chat
             {
                 var senders = string.Join(", ", pending.Select(r =>
                     $"{r.SenderPlayer.InGameName ?? r.SenderPlayer.FriendlyId} ({r.SenderPlayer.FriendlyId})"));
-                return $"You have {pending.Count} invites. Reject one with !reject <friendly id>. From: {senders}";
+                return $"You have {pending.Count} invites. Reject one with !reject friendly id. From: {senders}";
             }
 
             invite = pending[0];

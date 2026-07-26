@@ -35,7 +35,7 @@ public class KothCommand(
             _ => $"{contesting} players have registered control ticks",
         };
 
-        return $"King of the Hill is live! {participation} — {holderLine}.";
+        return $"King of the Hill is live! {participation} - {holderLine}.";
     }
 
     private async Task<string> IdleStatusAsync()

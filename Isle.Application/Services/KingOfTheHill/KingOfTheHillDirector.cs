@@ -37,6 +37,14 @@ public sealed class KingOfTheHillDirector(
         var inZone = roster.Entries.Count(e => definition.Zone.Contains(e.Position));
         var minPlayers = definition.Trigger.MinPlayersToTrigger ?? 1;
 
+        // TEMP: no positive-path logging existed here at all, so a silent "not enough players"
+        // was indistinguishable from a bad roster read. Remove once KOTH triggering is confirmed working.
+        logger.LogInformation(
+            "KOTH check: {InZone}/{Min} needed, {Total} total roster entries: {Entries}",
+            inZone, minPlayers, roster.Entries.Count,
+            string.Join(", ", roster.Entries.Select(e =>
+                $"{e.Steam}@({e.Position.X:F0},{e.Position.Y:F0},{e.Position.Z:F0})[{(definition.Zone.Contains(e.Position) ? "in" : "out")}]")));
+
         return inZone >= minPlayers ? definition : null;
     }
 

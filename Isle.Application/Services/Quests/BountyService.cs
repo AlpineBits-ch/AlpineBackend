@@ -249,10 +249,22 @@ public sealed class BountyService(
     {
         var instance = await FindOpenBountyAsync(victimPlayerId, ct);
         if (instance is null)
+        {
+            // Nothing to pay out on. Either they were never marked — the overwhelmingly common case,
+            // since this runs on every kill on the server — or the bounty was closed by another path
+            // before the killfeed got here, which means a killer just went unpaid. The two are
+            // indistinguishable from here, so the check is cheap and the log is not raised above debug.
+            logger.LogDebug("No open bounty on {VictimId}; nothing for {KillerId} to claim",
+                victimPlayerId, killerPlayerId);
             return false;
+        }
 
         if (!await TryCloseAtomicallyAsync(instance, QuestInstanceState.Completed, killerPlayerId, ct))
+        {
+            logger.LogWarning("Killfeed reached bounty {InstanceId} after it was already closed; " +
+                              "{KillerId} will not be paid for the kill", instance.Id, killerPlayerId);
             return false;
+        }
 
         // Read the ledger before the teardown drops it.
         var ranked = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), killerPlayerId, ct);
@@ -290,8 +302,15 @@ public sealed class BountyService(
             return false;
 
         var lastAttacker = await ledger.LastAttackerAsync(instance.Id);
-        var killedByPlayer = lastAttacker is not null
-                             && DateTimeOffset.UtcNow - lastAttacker.LastHitAt <= PvpAttributionWindow;
+        var sinceLastHit = lastAttacker is null ? (TimeSpan?)null : DateTimeOffset.UtcNow - lastAttacker.LastHitAt;
+        var killedByPlayer = sinceLastHit <= PvpAttributionWindow;
+
+        // This is the decision that says whether anyone gets credited with the kill, and it is made off
+        // a heuristic, so it says out loud what it decided and on what evidence.
+        logger.LogInformation("Resolving death of bounty {InstanceId}: last attacker {Steam}, last hit {Age} ago, " +
+                              "attribution window {Window} — treating as {Verdict}",
+            instance.Id, lastAttacker?.SteamId ?? "(none)", sinceLastHit, PvpAttributionWindow,
+            killedByPlayer ? "a player kill" : "natural causes");
 
         if (killedByPlayer)
         {
@@ -510,12 +529,17 @@ public sealed class BountyService(
     {
         var steamIds = participants.Select(p => p.SteamId).ToList();
 
+        // Grouped rather than keyed straight into a dictionary: nothing constrains steam_id to be unique
+        // across players, and a duplicate row would throw here — after the bounty has already been
+        // closed, so the hunt would end having paid nobody at all.
         var bySteam = steamIds.Count == 0
             ? new Dictionary<string, Player>()
-            : await context.Players
-                .AsNoTracking()
-                .Where(p => steamIds.Contains(p.SteamId))
-                .ToDictionaryAsync(p => p.SteamId, ct);
+            : (await context.Players
+                    .AsNoTracking()
+                    .Where(p => steamIds.Contains(p.SteamId))
+                    .ToListAsync(ct))
+                .GroupBy(p => p.SteamId)
+                .ToDictionary(g => g.Key, g => g.First());
 
         var ranked = new List<RankedParticipant>();
         var placing = 0;

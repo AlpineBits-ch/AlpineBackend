@@ -42,6 +42,29 @@ public class PlayerMarkedAsBountyEvent
 }
 
 /// <summary>
+/// A marked player died and the bounty is waiting to be resolved. Sent to itself on a delay, and only
+/// ever when a bounty is actually open on them.
+///
+/// <para>Exists to give the killfeed right of way. A player kill produces a killfeed line <i>and</i> a
+/// death line on two independent feeds, and the bridge contract is explicit that the death feed is the
+/// unreliable one — "death events are poll-based, lagged, and lossy — use RCON/KillFeed for exact
+/// attribution". The killfeed knows who landed the kill; the death feed can only guess from the damage
+/// ledger. Resolving the death inline let the guess close the bounty first, after which the killfeed
+/// found nothing left to claim and the killer went unpaid. Deferring means the authoritative answer
+/// gets to arrive before the guess is made.</para>
+/// </summary>
+public class ResolveBountyDeathEvent
+{
+    public string PlayerId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The bounty that was open when they died. Checked again on arrival so a bounty opened during the
+    /// grace period is never resolved by a death that happened before it started.
+    /// </summary>
+    public string QuestInstanceId { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// A bounty closed — claimed, survived, or cancelled. <see cref="ClaimedByPlayerId"/> is null unless a
 /// player killed the target, which includes the case where the bounty completed because the target
 /// died to something that was not a player.

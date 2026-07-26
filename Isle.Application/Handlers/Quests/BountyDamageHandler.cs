@@ -31,10 +31,13 @@ public class BountyDamageHandler
         if (mark.SteamId == @event.AttackerSteamId)
             return;
 
-        var at = @event.OccurredAt > 0
-            ? DateTimeOffset.FromUnixTimeMilliseconds(@event.OccurredAt)
-            : DateTimeOffset.UtcNow;
-
-        await ledger.RecordAsync(mark.QuestInstanceId, @event.AttackerSteamId, @event.Damage, at);
+        // Stamped with our own clock rather than the bridge's. The only thing this time is ever
+        // compared against is DateTimeOffset.UtcNow, in BountyService.PvpAttributionWindow, so the two
+        // must come off the same clock: the bridge's ts carries no documented unit — the SDK stamps
+        // outbound ts in seconds — and reading seconds as milliseconds would put every hit in 1970 and
+        // silently make the window unmatchable. The damage feed is a buffered in-process queue, so the
+        // few milliseconds between the swing landing and this line running do not register against a
+        // twenty-second window. @event.OccurredAt stays on the contract as the bridge's own record.
+        await ledger.RecordAsync(mark.QuestInstanceId, @event.AttackerSteamId, @event.Damage, DateTimeOffset.UtcNow);
     }
 }

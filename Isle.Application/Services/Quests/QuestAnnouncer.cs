@@ -94,7 +94,7 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
 
             foreach (var steamId in steamIds)
             {
-                var result = await bridge.DmAsync(text: message, steam: steamId, sender: Sender, mode: ChatMode.Global, ct: ct);
+                var result = await bridge.DmAsync(text: message, steam: steamId, sender: Sender, mode: ChatMode.Spatial, ct: ct);
                 if (!result.Ok)
                     logger.LogWarning("Quest broadcast returned {Code}: {Message}", result.CodeRaw, result.Msg);
             }

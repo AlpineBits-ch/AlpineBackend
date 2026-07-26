@@ -59,6 +59,26 @@ public class BountyResolvedEvent
     public List<string> ParticipantPlayerIds { get; set; } = [];
 }
 
+/// <summary>A quest instance was fulfilled.</summary>
+public class QuestInstanceCompletedEvent
+{
+    public string QuestInstanceId { get; set; } = string.Empty;
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
+    public string QuestId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public QuestType Type { get; set; }
+    public string? RegionId { get; set; }
+    public string? LocationName { get; set; }
+
+    /// <summary>
+    /// The player who fulfilled it: the killer on a hunt, the first to arrive on an exploration.
+    /// </summary>
+    public string? CompletedByPlayerId { get; set; }
+
+    /// <summary>Everyone who actually received a reward, best placing first.</summary>
+    public List<string> PaidPlayerIds { get; set; } = [];
+}
+
 /// <summary>A quest instance closed with nobody fulfilling it. The counterpart to <see cref="QuestSpawnedEvent"/>.</summary>
 public class QuestInstanceExpiredEvent
 {

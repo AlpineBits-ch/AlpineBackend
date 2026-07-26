@@ -106,7 +106,7 @@ public sealed class RegionMap
     /// </summary>
     private static readonly NumberFormatInfo CoordinateFormat = new()
     {
-        NumberGroupSeparator = "’",
+        NumberGroupSeparator = "'",
         NumberDecimalSeparator = ".",
         NumberGroupSizes = [3],
         NegativeSign = "-",

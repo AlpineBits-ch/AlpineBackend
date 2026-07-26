@@ -18,7 +18,7 @@ public class QuestAdminCommand(
     PopulationHeatmap heatmap) : ChatCommand
 {
     private const string Usage =
-        "Usage: !questadmin bounty <player> [minutes] [bonusXp] | spawn <quest> [region] | end <Q-id> | list | streaks | pop";
+        "Usage: !questadmin bounty player [minutes] [bonusXp] | spawn quest [region] | end Q-id | list | streaks | pop";
 
     public override async Task<string> ExecuteAsync(CommandContext context)
     {

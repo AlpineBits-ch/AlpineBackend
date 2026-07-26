@@ -382,37 +382,12 @@ public sealed class BountyService(
     /// <summary>
     /// Claims the right to close this bounty, atomically, and returns whether this caller won.
     /// </summary>
-    private async Task<bool> TryCloseAtomicallyAsync(
+    private Task<bool> TryCloseAtomicallyAsync(
         QuestInstance instance,
         QuestInstanceState state,
         string? completedByPlayerId,
-        CancellationToken ct)
-    {
-        if (state == QuestInstanceState.Active)
-            return false;
-
-        var endedAt = DateTimeOffset.UtcNow;
-
-        var rows = await context.QuestInstances
-            .Where(i => i.Id == instance.Id && i.State == QuestInstanceState.Active)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(i => i.State, state)
-                .SetProperty(i => i.CompletedByPlayerId, completedByPlayerId)
-                .SetProperty(i => i.EndedAt, endedAt)
-                .SetProperty(i => i.UpdatedAt, endedAt), ct);
-
-        if (rows == 0)
-            return false;
-
-        // Bring the tracked entity in step with the row: the announcement and the resolved event are
-        // both built off it after this returns.
-        instance.State = state;
-        instance.CompletedByPlayerId = completedByPlayerId;
-        instance.EndedAt = endedAt;
-        instance.UpdatedAt = endedAt;
-
-        return true;
-    }
+        CancellationToken ct) =>
+        context.TryCloseQuestAtomicallyAsync(instance, state, completedByPlayerId, ct);
 
     /// <summary>
     /// Shared teardown: persist the closed state, drop the mark and the damage ledger, restore the

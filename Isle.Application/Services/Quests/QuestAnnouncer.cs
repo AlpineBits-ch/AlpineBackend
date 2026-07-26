@@ -75,6 +75,28 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
         return BroadcastAsync($"{species} is dead, but not by anyone's jaws. {credit}", ct);
     }
 
+    /// <summary>Somebody fulfilled a quest.</summary>
+    /// <param name="winnerName">The player to name, or null on a quest nobody won outright.</param>
+    public Task AnnounceQuestCompletedAsync(
+        QuestInstance instance, string? winnerName, int paidCount, CancellationToken ct = default)
+    {
+        var where = instance.LocationName ?? "an unmapped part of the island";
+
+        if (!string.IsNullOrWhiteSpace(winnerName))
+            return BroadcastAsync($"{winnerName} claimed {instance.Title} at {where}.", ct);
+
+        var body = paidCount switch
+        {
+            // Reachable only if every single player who made the trip had logged off by the time the
+            // clock ran out. Says the quest ended rather than claiming a payout that did not land.
+            0 => $"Quest ended: {instance.Title} at {where}.",
+            1 => $"Quest complete: one player answered the call at {where} and has been paid.",
+            _ => $"Quest complete: {paidCount} players answered the call at {where} and have been paid.",
+        };
+
+        return BroadcastAsync(body, ct);
+    }
+
     public Task AnnounceQuestExpiredAsync(QuestInstance instance, CancellationToken ct = default) =>
         BroadcastAsync($"Quest ended: {instance.Title} went unclaimed.", ct);
 

@@ -85,7 +85,21 @@ public sealed class QuestSpawner(
         await context.SaveChangesAsync(ct);
 
         foreach (var instance in due)
+        {
             await announcer.AnnounceQuestExpiredAsync(instance, ct);
+
+            await bus.PublishAsync(new QuestInstanceExpiredEvent
+            {
+                QuestInstanceId = instance.Id,
+                QuestInstanceFriendlyId = instance.FriendlyId,
+                QuestId = instance.QuestId,
+                Title = instance.Title,
+                Type = instance.Type,
+                RegionId = instance.RegionId,
+                LocationName = instance.LocationName,
+                ExpiresAt = instance.ExpiresAt,
+            });
+        }
 
         return due.Count;
     }

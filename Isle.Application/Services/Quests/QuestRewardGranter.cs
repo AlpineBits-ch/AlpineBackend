@@ -17,7 +17,26 @@ public sealed class QuestRewardGranter(
     /// <summary>Growth is a 0..1 scale; a boost never pushes past fully grown.</summary>
     private const double MaxGrowth = 1.0;
 
-    /// <summary>Grants every reward to one player.</summary>
+    /// <summary>
+    /// Which reward rows a player who finished at <paramref name="rank"/> collects.
+    /// </summary>
+    public static bool Applies(RewardConfig reward, RankRequirement rank) => reward.AppliesTo switch
+    {
+        RankRequirement.AllParticipants => true,
+        RankRequirement.Top3 => rank is RankRequirement.Top3 or RankRequirement.Winner,
+        RankRequirement.Winner => rank is RankRequirement.Winner,
+        _ => false,
+    };
+
+    /// <summary>Grants the rewards one player earned at <paramref name="rank"/>.</summary>
+    public Task<IReadOnlyList<string>> GrantAsync(
+        string playerId,
+        IEnumerable<RewardConfig> rewards,
+        RankRequirement rank,
+        CancellationToken ct = default) =>
+        GrantAsync(playerId, rewards.Where(r => Applies(r, rank)), ct);
+
+    /// <summary>Grants an already-selected set of rewards, with no rank filtering.</summary>
     public async Task<IReadOnlyList<string>> GrantAsync(
         string playerId,
         IEnumerable<RewardConfig> rewards,

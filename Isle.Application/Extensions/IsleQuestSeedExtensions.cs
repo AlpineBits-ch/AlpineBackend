@@ -131,10 +131,16 @@ public static class IsleQuestSeedExtensions
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 2500, AppliesTo = RankRequirement.Winner },
-                    new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.FullHealth, Amount = 0, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 5, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.StorageSlot, Amount = 1, AppliesTo = RankRequirement.Winner },
+
+                    new RewardConfig { RewardType = RewardType.Xp, Amount = 750, AppliesTo = RankRequirement.Top3 },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 2, AppliesTo = RankRequirement.Top3 },
+
+                    new RewardConfig { RewardType = RewardType.Xp, Amount = 500, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.FullWater, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
                 ],
                 locations: []),
         };

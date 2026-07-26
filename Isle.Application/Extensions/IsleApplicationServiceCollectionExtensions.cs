@@ -95,6 +95,7 @@ public static class IsleApplicationServiceCollectionExtensions
     {
         services.AddSingleton<KillStreakTracker>();
         services.AddSingleton<BountyRegistry>();
+        services.AddSingleton<BountyParticipantLedger>();
 
         services.AddScoped<QuestDirector>();
         services.AddScoped<QuestSpawner>();

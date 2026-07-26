@@ -55,6 +55,9 @@ builder.UseWolverine(opts =>
     if (args.Contains("facets")) return;
     opts.Services.AddDbContextWithWolverineIntegration<MicroserviceContext>(_ => { });
     opts.ConfigureWolverine();
+
+    // After the shared config: this overrides what that sets up for the damage feed.
+    opts.ConfigureIsleMessaging();
 });
 
 builder.Services.AddSignalR(config =>

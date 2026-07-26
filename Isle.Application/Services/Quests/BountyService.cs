@@ -18,6 +18,7 @@ namespace Isle.Api.Services.Quests;
 public sealed class BountyService(
     MicroserviceContext context,
     BountyRegistry registry,
+    BountyParticipantLedger ledger,
     KillStreakTracker streaks,
     QuestAnnouncer announcer,
     QuestRewardGranter rewards,
@@ -28,6 +29,9 @@ public sealed class BountyService(
     IMessageBus bus,
     ILogger<BountyService> logger)
 {
+    /// <summary>A ledger entry resolved to a player, with the tier their contribution earns.</summary>
+    private sealed record RankedParticipant(Player Player, double Damage, RankRequirement Rank);
+
     // --- Spree thresholds ---------------------------------------------------------------------
     // All three gates must pass.
 
@@ -56,7 +60,18 @@ public sealed class BountyService(
         new() { RewardType = RewardType.Xp, Amount = DefaultClaimXp, AppliesTo = RankRequirement.Winner },
         new() { RewardType = RewardType.FullDiet, AppliesTo = RankRequirement.Winner },
         new() { RewardType = RewardType.FullHealth, AppliesTo = RankRequirement.Winner },
+
+        // A bare template must not leave the players who wore the target down with nothing — they are
+        // the reason the spree ended.
+        new() { RewardType = RewardType.Xp, Amount = DefaultParticipationXp, AppliesTo = RankRequirement.AllParticipants },
+        new() { RewardType = RewardType.HalfDiet, AppliesTo = RankRequirement.AllParticipants },
     ];
+
+    /// <summary>Fallback XP for having fought the target without landing the kill.</summary>
+    public const int DefaultParticipationXp = 500;
+
+    /// <summary>Damage landed within this long before a death makes it a player's kill.</summary>
+    public static readonly TimeSpan PvpAttributionWindow = TimeSpan.FromSeconds(20);
 
     /// <summary>Called after every kill.</summary>
     public async Task<QuestInstance?> TryStartFromSpreeAsync(string playerId, int streak, CancellationToken ct = default)
@@ -188,29 +203,80 @@ public sealed class BountyService(
         if (instance is null)
             return false;
 
-        if (!instance.TryClose(QuestInstanceState.Completed, killerPlayerId))
+        if (!await TryCloseAtomicallyAsync(instance, QuestInstanceState.Completed, killerPlayerId, ct))
             return false;
 
-        await EndAsync(instance, ct);
+        // Read the ledger before the teardown drops it.
+        var ranked = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), killerPlayerId, ct);
 
-        var payout = await BuildClaimRewardsAsync(instance, ct);
-        var granted = await rewards.GrantAsync(killerPlayerId, payout, ct);
+        await EndAsync(instance, ranked, ct);
+
+        var winnerLines = await PayOutAsync(instance, ranked, ct);
 
         var killer = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == killerPlayerId, ct);
         var killerName = killer?.InGameName ?? roster.FindBySteam(killer?.SteamId)?.Name ?? "Someone";
 
         await announcer.AnnounceBountyClaimedAsync(instance, killerName, ct);
 
-        if (killer?.SteamId is { } steam && granted.Count > 0)
-            await announcer.WhisperAsync(steam, $"Bounty claimed: {string.Join(", ", granted)}.", ct);
+        if (killer?.SteamId is { } steam && winnerLines.Count > 0)
+            await announcer.WhisperAsync(steam, $"Bounty claimed: {string.Join(", ", winnerLines)}.", ct);
 
-        logger.LogInformation("Bounty {InstanceId} claimed by {KillerId}", instance.Id, killerPlayerId);
+        logger.LogInformation("Bounty {InstanceId} claimed by {KillerId}, {Participants} paid",
+            instance.Id, killerPlayerId, ranked.Count);
+        return true;
+    }
+
+    /// <summary>The marked player died.</summary>
+    public async Task<bool> TryResolveOnDeathAsync(string playerId, CancellationToken ct = default)
+    {
+        var instance = await FindOpenBountyAsync(playerId, ct);
+        if (instance is null)
+            return false;
+
+        var lastAttacker = await ledger.LastAttackerAsync(instance.Id);
+        var killedByPlayer = lastAttacker is not null
+                             && DateTimeOffset.UtcNow - lastAttacker.LastHitAt <= PvpAttributionWindow;
+
+        if (killedByPlayer)
+        {
+            // The claim path owns this.
+            var killer = await context.Players
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.SteamId == lastAttacker!.SteamId, ct);
+
+            if (killer is not null)
+                return await TryClaimAsync(playerId, killer.Id, ct);
+
+            logger.LogDebug("Last attacker {Steam} on bounty {InstanceId} is not a registered player; " +
+                            "resolving as a natural death", lastAttacker!.SteamId, instance.Id);
+        }
+
+        return await CompleteOnNaturalCausesAsync(instance, ct);
+    }
+
+    /// <summary>
+    /// The target went down to something that was not a player — drowned, starved, fell, broke a
+    /// leg.
+    /// </summary>
+    private async Task<bool> CompleteOnNaturalCausesAsync(QuestInstance instance, CancellationToken ct)
+    {
+        if (!await TryCloseAtomicallyAsync(instance, QuestInstanceState.Completed, completedByPlayerId: null, ct))
+            return false;
+
+        var ranked = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), winnerPlayerId: null, ct);
+
+        await EndAsync(instance, ranked, ct);
+        await PayOutAsync(instance, ranked, ct);
+        await announcer.AnnounceBountyDiedAsync(instance, ranked.Count, ct);
+
+        logger.LogInformation("Bounty {InstanceId} completed by natural causes, {Participants} paid",
+            instance.Id, ranked.Count);
         return true;
     }
 
     /// <summary>
-    /// Ends any open bounty on a player without paying anyone — they died to the environment, logged
-    /// off, or an admin called it off.
+    /// Ends any open bounty on a player without paying anyone — they logged off, or an admin called it
+    /// off. A death is not one of these: see <see cref="TryResolveOnDeathAsync"/>.
     /// </summary>
     public async Task<bool> CancelForPlayerAsync(string playerId, QuestInstanceState state, CancellationToken ct = default)
     {
@@ -218,10 +284,10 @@ public sealed class BountyService(
         if (instance is null)
             return false;
 
-        if (!instance.TryClose(state))
+        if (!await TryCloseAtomicallyAsync(instance, state, completedByPlayerId: null, ct))
             return false;
 
-        await EndAsync(instance, ct);
+        await EndAsync(instance, [], ct);
         await announcer.AnnounceBountyExpiredAsync(instance, ct);
 
         logger.LogInformation("Bounty {InstanceId} on {PlayerId} closed as {State}", instance.Id, playerId, state);
@@ -239,10 +305,11 @@ public sealed class BountyService(
 
         foreach (var instance in due)
         {
-            if (!instance.TryClose(QuestInstanceState.Expired))
+            if (!await TryCloseAtomicallyAsync(instance, QuestInstanceState.Expired, completedByPlayerId: null, ct))
                 continue;
 
-            await EndAsync(instance, ct);
+            // Nobody is paid for a target who ran out the clock alive, however much damage they took.
+            await EndAsync(instance, [], ct);
             await announcer.AnnounceBountyExpiredAsync(instance, ct);
         }
 
@@ -262,12 +329,50 @@ public sealed class BountyService(
             .ToListAsync(ct);
 
     /// <summary>
-    /// Shared teardown: persist the closed state, drop the mark, restore the player's own skin and
-    /// clear their streak so they do not immediately re-trigger on the kills that got them marked.
+    /// Claims the right to close this bounty, atomically, and returns whether this caller won.
     /// </summary>
-    private async Task EndAsync(QuestInstance instance, CancellationToken ct)
+    private async Task<bool> TryCloseAtomicallyAsync(
+        QuestInstance instance,
+        QuestInstanceState state,
+        string? completedByPlayerId,
+        CancellationToken ct)
+    {
+        if (state == QuestInstanceState.Active)
+            return false;
+
+        var endedAt = DateTimeOffset.UtcNow;
+
+        var rows = await context.QuestInstances
+            .Where(i => i.Id == instance.Id && i.State == QuestInstanceState.Active)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(i => i.State, state)
+                .SetProperty(i => i.CompletedByPlayerId, completedByPlayerId)
+                .SetProperty(i => i.EndedAt, endedAt)
+                .SetProperty(i => i.UpdatedAt, endedAt), ct);
+
+        if (rows == 0)
+            return false;
+
+        // Bring the tracked entity in step with the row: the announcement and the resolved event are
+        // both built off it after this returns.
+        instance.State = state;
+        instance.CompletedByPlayerId = completedByPlayerId;
+        instance.EndedAt = endedAt;
+        instance.UpdatedAt = endedAt;
+
+        return true;
+    }
+
+    /// <summary>
+    /// Shared teardown: persist the closed state, drop the mark and the damage ledger, restore the
+    /// player's own skin and clear their streak so they do not immediately re-trigger on the kills
+    /// that got them marked.
+    /// </summary>
+    private async Task EndAsync(QuestInstance instance, IReadOnlyList<RankedParticipant> ranked, CancellationToken ct)
     {
         await context.SaveChangesAsync(ct);
+
+        await ledger.ClearAsync(instance.Id);
 
         if (instance.TargetPlayerId is not { } targetId)
             return;
@@ -289,11 +394,115 @@ public sealed class BountyService(
             TargetPlayerId = targetId,
             ClaimedByPlayerId = instance.CompletedByPlayerId,
             State = instance.State,
+            ParticipantPlayerIds = ranked.Select(r => r.Player.Id).ToList(),
         });
     }
 
     /// <summary>
-    /// Payout for the claimer: whatever the template carries, plus any admin bonus.
+    /// Resolves the ledger's Steam ids to players and gives each one the tier their contribution
+    /// earns: hardest hitters first, the top <see cref="BountyParticipantLedger.TopTierSize"/> at
+    /// <see cref="RankRequirement.Top3"/>, everyone else at <see
+    /// cref="RankRequirement.AllParticipants"/>.
+    /// </summary>
+    private async Task<IReadOnlyList<RankedParticipant>> RankAsync(
+        IReadOnlyList<BountyParticipation> participants,
+        string? winnerPlayerId,
+        CancellationToken ct)
+    {
+        var steamIds = participants.Select(p => p.SteamId).ToList();
+
+        var bySteam = steamIds.Count == 0
+            ? new Dictionary<string, Player>()
+            : await context.Players
+                .AsNoTracking()
+                .Where(p => steamIds.Contains(p.SteamId))
+                .ToDictionaryAsync(p => p.SteamId, ct);
+
+        var ranked = new List<RankedParticipant>();
+        var placing = 0;
+
+        foreach (var participant in participants)
+        {
+            if (!bySteam.TryGetValue(participant.SteamId, out var player))
+            {
+                logger.LogDebug("Bounty participant {Steam} is not a registered player; no payout", participant.SteamId);
+                continue;
+            }
+
+            placing++;
+
+            var rank = player.Id == winnerPlayerId
+                ? RankRequirement.Winner
+                : placing <= BountyParticipantLedger.TopTierSize
+                    ? RankRequirement.Top3
+                    : RankRequirement.AllParticipants;
+
+            ranked.Add(new RankedParticipant(player, participant.Damage, rank));
+        }
+
+        if (winnerPlayerId is not null && ranked.All(r => r.Player.Id != winnerPlayerId))
+        {
+            var winner = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == winnerPlayerId, ct);
+            if (winner is not null)
+                ranked.Insert(0, new RankedParticipant(winner, 0, RankRequirement.Winner));
+        }
+
+        return ranked;
+    }
+
+    /// <summary>Pays everyone the resolved bounty owes and tells them what they got.</summary>
+    private async Task<IReadOnlyList<string>> PayOutAsync(
+        QuestInstance instance,
+        IReadOnlyList<RankedParticipant> ranked,
+        CancellationToken ct)
+    {
+        if (ranked.Count == 0)
+            return [];
+
+        var payout = await BuildClaimRewardsAsync(instance, ct);
+
+        var winnerLines = new List<string>();
+        var grants = new List<QuestRewardGrant>();
+
+        foreach (var participant in ranked)
+        {
+            var granted = await rewards.GrantAsync(participant.Player.Id, payout, participant.Rank, ct);
+            if (granted.Count == 0)
+                continue;
+
+            grants.Add(new QuestRewardGrant
+            {
+                PlayerId = participant.Player.Id,
+                Rank = participant.Rank,
+                Rewards = granted.ToList(),
+            });
+
+            if (participant.Rank == RankRequirement.Winner)
+            {
+                // The claim path whispers them alongside the announcement, so no second message.
+                winnerLines.AddRange(granted);
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(participant.Player.SteamId))
+                await announcer.WhisperAsync(participant.Player.SteamId,
+                    $"You helped bring the marked player down: {string.Join(", ", granted)}.", ct);
+        }
+
+        if (grants.Count > 0)
+            await bus.PublishAsync(new QuestRewardsGrantedEvent
+            {
+                QuestInstanceId = instance.Id,
+                QuestInstanceFriendlyId = instance.FriendlyId,
+                Type = instance.Type,
+                Grants = grants,
+            });
+
+        return winnerLines;
+    }
+
+    /// <summary>
+    /// The full reward table for a resolved bounty — every tier, not one player's share.
     /// </summary>
     private async Task<IReadOnlyList<RewardConfig>> BuildClaimRewardsAsync(QuestInstance instance, CancellationToken ct)
     {

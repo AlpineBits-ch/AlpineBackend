@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 using Isle.Domain.Entity;
 using Isle.Domain.Enums;
@@ -100,11 +101,25 @@ public sealed class RegionMap
     public string DescribeRegion(string? regionId) => GetById(regionId)?.Name ?? UnknownPlace;
 
     /// <summary>
+    /// How the game itself prints a coordinate: grouped in thousands with a typographic apostrophe
+    /// and carried to three decimals, e.g. <c>-321’806.894</c>.
+    /// </summary>
+    private static readonly NumberFormatInfo CoordinateFormat = new()
+    {
+        NumberGroupSeparator = "’",
+        NumberDecimalSeparator = ".",
+        NumberGroupSizes = [3],
+        NegativeSign = "-",
+    };
+
+    /// <summary>
     /// Coordinate suffix appended to every broadcast, so a wrong or missing place name still leaves
     /// players something they can act on.
     /// </summary>
     public static string FormatCoordinates(double? x, double? y) =>
-        x is null || y is null ? string.Empty : $"X: {x.Value:F0}, Y: {y.Value:F0}";
+        x is null || y is null
+            ? string.Empty
+            : $"X: {x.Value.ToString("N3", CoordinateFormat)}, Y: {y.Value.ToString("N3", CoordinateFormat)}";
 
     // A sanctuary sits inside a biome polygon; naming the sanctuary is more useful than naming the
     // biome, and a landmark beats both.

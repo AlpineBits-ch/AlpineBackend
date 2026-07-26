@@ -1,3 +1,4 @@
+using Isle.Api.Services.Quests;
 using Isle.Api.Services.World;
 using Isle.Domain.Enums;
 using Isle.Infrastructure.Persistence;
@@ -13,7 +14,7 @@ namespace Isle.Api.Chat.Commands;
 /// to each other or to an admin about a specific run — the underlying ksuid is not something anyone
 /// can read out loud.</para>
 /// </summary>
-public class QuestsCommand(MicroserviceContext db) : ChatCommand
+public class QuestsCommand(MicroserviceContext db, QuestProgressLedger presence) : ChatCommand
 {
     public override async Task<string> ExecuteAsync(CommandContext context)
     {
@@ -29,14 +30,23 @@ public class QuestsCommand(MicroserviceContext db) : ChatCommand
         if (active.Count == 0)
             return "No quests are running right now. Check back shortly.";
 
-        var lines = active.Select(instance =>
+        var lines = new List<string>(active.Count);
+
+        foreach (var instance in active)
         {
             var where = instance.LocationName ?? "an unmapped area";
             var coords = RegionMap.FormatCoordinates(instance.WorldX, instance.WorldY);
             var minutes = Math.Max(0, (int)Math.Ceiling((instance.ExpiresAt - now).TotalMinutes));
             var place = string.IsNullOrEmpty(coords) ? where : $"{where} ({coords})";
-            return $"[{instance.FriendlyId}] {instance.Title} at {place} - {minutes}m left";
-        });
+
+            // Anyone the presence sampler has seen there, not only those who have stayed long enough to
+            // qualify. Players use this to check the quest is registering them at all, and a headcount
+            // that reads 0 until you have stood still for a minute answers the wrong question.
+            var here = await presence.VisitorCountAsync(instance.Id);
+            var crowd = here == 0 ? string.Empty : $", {here} there";
+
+            lines.Add($"[{instance.FriendlyId}] {instance.Title} at {place} - {minutes}m left{crowd}");
+        }
 
         return string.Join(" | ", lines);
     }

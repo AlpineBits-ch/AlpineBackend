@@ -1,5 +1,6 @@
 using Isle.Api.Services.KingOfTheHill;
 using Isle.Domain.Aggregates;
+using Isle.Domain.Enums;
 using Isle.Domain.Interfaces;
 using Isle.Domain.ValueObjects;
 using Isle.Infrastructure.Persistence;
@@ -73,6 +74,25 @@ public class KingOfTheHillMode(
         return ranked;
     }
 
-    /// <summary>No mode-specific bonus rows for v1 — <c>Definition.Rewards</c> is the whole reward table.</summary>
-    public IReadOnlyList<RewardConfig> GetRewards(GameModeInstance instance, ParticipantStanding standing) => [];
+    /// <summary>XP the winner earns per other contestant who fought for the hill, on top of <c>Definition.Rewards</c>.</summary>
+    private const int DefenseBonusXpPerContestant = 300;
+
+    /// <summary>
+    /// The winner's held-the-hill bonus: scales with how many other players actually contested the
+    /// zone, so seeing off a crowded hill pays more than winning an empty one. Blocking on the ledger
+    /// read is safe for the same reason <see cref="GetStandings"/>'s blocking read is — this runs once,
+    /// from a background-service scope with no captured synchronization context.
+    /// </summary>
+    public IReadOnlyList<RewardConfig> GetRewards(GameModeInstance instance, ParticipantStanding standing)
+    {
+        if (standing.Rank != 1)
+            return [];
+
+        var contestants = ledger.GetContestantCountAsync(instance.InstanceId).GetAwaiter().GetResult();
+        var others = Math.Max(0, contestants - 1);
+        if (others == 0)
+            return [];
+
+        return [new RewardConfig { RewardType = RewardType.Xp, Amount = DefenseBonusXpPerContestant * others, AppliesTo = RankRequirement.Winner }];
+    }
 }

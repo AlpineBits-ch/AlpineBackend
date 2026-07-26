@@ -21,10 +21,7 @@ public class BountyDamageHandler
         if (mark.SteamId == @event.AttackerSteamId)
             return;
 
-        var at = @event.OccurredAt > 0
-            ? DateTimeOffset.FromUnixTimeMilliseconds(@event.OccurredAt)
-            : DateTimeOffset.UtcNow;
-
-        await ledger.RecordAsync(mark.QuestInstanceId, @event.AttackerSteamId, @event.Damage, at);
+        // Stamped with our own clock rather than the bridge's.
+        await ledger.RecordAsync(mark.QuestInstanceId, @event.AttackerSteamId, @event.Damage, DateTimeOffset.UtcNow);
     }
 }

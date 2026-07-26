@@ -1,3 +1,4 @@
+using System.Globalization;
 using StackExchange.Redis;
 
 namespace Isle.Api.Services.Quests;
@@ -64,11 +65,11 @@ public sealed class BountyParticipantLedger(IConnectionMultiplexer redis, ILogge
             var lastHits = (await Db.HashGetAllAsync(LastHitKey(questInstanceId)))
                 .ToDictionary(e => e.Name.ToString(), e => (long)e.Value);
 
-            return damage
+            var attackers = damage
                 .Select(entry =>
                 {
                     var steam = entry.Name.ToString();
-                    if (!double.TryParse(entry.Value.ToString(), out var dealt))
+                    if (!TryParseDamage(entry.Value, out var dealt))
                         return null;
 
                     var at = lastHits.TryGetValue(steam, out var ms)
@@ -78,10 +79,24 @@ public sealed class BountyParticipantLedger(IConnectionMultiplexer redis, ILogge
                     return new BountyParticipation(steam, dealt, at);
                 })
                 .OfType<BountyParticipation>()
+                .ToList();
+
+            var participants = attackers
                 .Where(p => p.Damage >= MinDamageForParticipation)
                 .OrderByDescending(p => p.Damage)
                 .ThenBy(p => p.LastHitAt)
                 .ToList();
+
+            // The participation bar is a guess at the bridge's damage scale, and a bounty that pays
+            // nobody looks identical whether nobody fought the target or everybody fell short of it.
+            // Logging both counts and the totals is what tells the two apart.
+            if (attackers.Count != participants.Count)
+                logger.LogDebug("Bounty {InstanceId}: {Qualified} of {Total} attackers cleared {Threshold} " +
+                                "damage. Totals: {Totals}",
+                    questInstanceId, participants.Count, attackers.Count, MinDamageForParticipation,
+                    string.Join(", ", attackers.Select(a => $"{a.SteamId}={a.Damage:F0}")));
+
+            return participants;
         }
         catch (Exception ex)
         {
@@ -106,7 +121,7 @@ public sealed class BountyParticipantLedger(IConnectionMultiplexer redis, ILogge
 
             return new BountyParticipation(
                 steam,
-                dealt.HasValue && double.TryParse(dealt.ToString(), out var value) ? value : 0,
+                TryParseDamage(dealt, out var value) ? value : 0,
                 DateTimeOffset.FromUnixTimeMilliseconds((long)latest.Value));
         }
         catch (Exception ex)
@@ -114,6 +129,14 @@ public sealed class BountyParticipantLedger(IConnectionMultiplexer redis, ILogge
             logger.LogWarning(ex, "Could not read the last attacker for {InstanceId}", questInstanceId);
             return null;
         }
+    }
+
+    /// <summary>Reads a <c>HINCRBYFLOAT</c> total.</summary>
+    private static bool TryParseDamage(RedisValue value, out double damage)
+    {
+        damage = 0;
+        return value.HasValue
+               && double.TryParse(value.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out damage);
     }
 
     /// <summary>Drops the ledger for a closed bounty. Called from the shared teardown, so it runs on every exit path.</summary>

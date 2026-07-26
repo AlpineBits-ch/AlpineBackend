@@ -37,6 +37,15 @@ public class PlayerMarkedAsBountyEvent
     public bool IsAdminSpawned { get; set; }
 }
 
+/// <summary>A marked player died and the bounty is waiting to be resolved.</summary>
+public class ResolveBountyDeathEvent
+{
+    public string PlayerId { get; set; } = string.Empty;
+
+    /// <summary>The bounty that was open when they died.</summary>
+    public string QuestInstanceId { get; set; } = string.Empty;
+}
+
 /// <summary>A bounty closed — claimed, survived, or cancelled.</summary>
 public class BountyResolvedEvent
 {

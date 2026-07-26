@@ -58,8 +58,10 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
 
     /// <summary>
     /// The bounty ended with the target still standing. <paramref name="participants"/> is how many
-    /// hunters drew enough blood to be paid the participation share — zero on the paths where the bounty
-    /// was called off rather than outlasted, which is why the credit line is conditional.
+    /// hunters <i>actually received</i> a reward — not how many qualified for one. Pass the payout's own
+    /// count, never the ranked count: a hunter who logged off before the clock ran out ranks but cannot
+    /// be paid, and crediting them here tells the whole lobby about money nobody got. Zero on the paths
+    /// where the bounty was called off rather than outlasted, which is why the credit line is conditional.
     /// </summary>
     public Task AnnounceBountyExpiredAsync(QuestInstance instance, int participants = 0, CancellationToken ct = default)
     {
@@ -79,6 +81,12 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
     /// The target died to something that was not a player. Deliberately does not name a killer, and
     /// deliberately does not read as a win for anyone — but it does credit the hunters, because the
     /// wounds they put in are usually why the target drowned or starved in the first place.
+    ///
+    /// <para><paramref name="participants"/> is how many hunters <i>actually received</i> a reward, not
+    /// how many earned one. The two diverge whenever the granter finds no live pawn to write to — which
+    /// on this path is common, since the hunters who wore down a target that then drowned may well be
+    /// dead themselves. Zero reads as "nobody was there to claim it", which is the honest line when the
+    /// payout reached no one.</para>
     /// </summary>
     public Task AnnounceBountyDiedAsync(QuestInstance instance, int participants, CancellationToken ct = default)
     {

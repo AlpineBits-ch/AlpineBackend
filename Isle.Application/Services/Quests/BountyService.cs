@@ -38,6 +38,22 @@ public sealed class BountyService(
     /// <summary>A ledger entry resolved to a player, with the tier their contribution earns.</summary>
     private sealed record RankedParticipant(Player Player, double Damage, RankRequirement Rank);
 
+    /// <summary>
+    /// What a payout actually did, as opposed to what it was owed.
+    ///
+    /// <para>The two are not the same, and the difference is what the lobby gets told. Being ranked as a
+    /// participant only means the ledger credited you with damage; whether anything reached you depends
+    /// on the granter finding a live pawn, the template carrying rows for your tier, and every write
+    /// landing. Announcing the ranked count rather than this one is how the server ends up telling
+    /// everyone that three hunters were paid when none of them received a thing.</para>
+    /// </summary>
+    /// <param name="WinnerLines">The winner's payout lines, for the claim whisper. Empty on every other path.</param>
+    /// <param name="PaidCount">How many players actually received at least one reward.</param>
+    private sealed record Payout(IReadOnlyList<string> WinnerLines, int PaidCount)
+    {
+        public static readonly Payout Nothing = new([], 0);
+    }
+
     // --- Spree thresholds ---------------------------------------------------------------------
     // All three gates must pass. The floor alone is not enough: on a quiet server three players
     // trading a kill each are not a spree, and two players neck-and-neck are a fight rather than one
@@ -271,18 +287,18 @@ public sealed class BountyService(
 
         await EndAsync(instance, ranked, ct);
 
-        var winnerLines = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
+        var payout = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
 
         var killer = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == killerPlayerId, ct);
         var killerName = killer?.InGameName ?? roster.FindBySteam(killer?.SteamId)?.Name ?? "Someone";
 
         await announcer.AnnounceBountyClaimedAsync(instance, killerName, ct);
 
-        if (killer?.SteamId is { } steam && winnerLines.Count > 0)
-            await announcer.WhisperAsync(steam, $"Bounty claimed: {string.Join(", ", winnerLines)}.", ct);
+        if (killer?.SteamId is { } steam && payout.WinnerLines.Count > 0)
+            await announcer.WhisperAsync(steam, $"Bounty claimed: {string.Join(", ", payout.WinnerLines)}.", ct);
 
-        logger.LogInformation("Bounty {InstanceId} claimed by {KillerId}, {Participants} paid",
-            instance.Id, killerPlayerId, ranked.Count);
+        logger.LogInformation("Bounty {InstanceId} claimed by {KillerId}, {Paid} of {Ranked} paid",
+            instance.Id, killerPlayerId, payout.PaidCount, ranked.Count);
         return true;
     }
 
@@ -343,11 +359,13 @@ public sealed class BountyService(
         var ranked = await RankAsync(await ledger.GetParticipantsAsync(instance.Id), winnerPlayerId: null, ct);
 
         await EndAsync(instance, ranked, ct);
-        await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
-        await announcer.AnnounceBountyDiedAsync(instance, ranked.Count, ct);
 
-        logger.LogInformation("Bounty {InstanceId} completed by natural causes, {Participants} paid",
-            instance.Id, ranked.Count);
+        var payout = await PayOutAsync(instance, ranked, KilledParticipantLead, ct);
+
+        await announcer.AnnounceBountyDiedAsync(instance, payout.PaidCount, ct);
+
+        logger.LogInformation("Bounty {InstanceId} completed by natural causes, {Paid} of {Ranked} paid",
+            instance.Id, payout.PaidCount, ranked.Count);
         return true;
     }
 
@@ -408,11 +426,13 @@ public sealed class BountyService(
 
             await EndAsync(instance, ranked, ct);
             await PaySurvivorAsync(instance, ct);
-            await PayOutAsync(instance, ranked, SurvivedParticipantLead, ct);
-            await announcer.AnnounceBountyExpiredAsync(instance, ranked.Count, ct);
 
-            logger.LogInformation("Bounty {InstanceId} expired with the target alive, {Participants} hunters paid",
-                instance.Id, ranked.Count);
+            var payout = await PayOutAsync(instance, ranked, SurvivedParticipantLead, ct);
+
+            await announcer.AnnounceBountyExpiredAsync(instance, payout.PaidCount, ct);
+
+            logger.LogInformation("Bounty {InstanceId} expired with the target alive, {Paid} of {Ranked} hunters paid",
+                instance.Id, payout.PaidCount, ranked.Count);
         }
 
         return due.Count;
@@ -583,33 +603,44 @@ public sealed class BountyService(
     private const string SurvivedParticipantLead = "The marked player got away, but you made them bleed for it";
 
     /// <summary>
-    /// Pays everyone the resolved bounty owes and tells them what they got. Returns the winner's payout
-    /// lines, which the claim announcement uses; participants are whispered here because nothing else
-    /// would ever tell them they had been paid.
+    /// Pays everyone the resolved bounty owes and tells them what they got. Participants are whispered
+    /// here because nothing else would ever tell them they had been paid; the winner's lines go back to
+    /// the caller, which whispers them alongside the claim announcement.
+    ///
+    /// <para>Returns what the payout actually did rather than what it was owed — see <see cref="Payout"/>
+    /// for why the caller must announce that number and not <c>ranked.Count</c>.</para>
     /// </summary>
     /// <param name="participantLead">
     /// Opening clause of the participant whisper — the payout is the same on every path, what it means
     /// is not. See <see cref="KilledParticipantLead"/> and <see cref="SurvivedParticipantLead"/>.
     /// </param>
-    private async Task<IReadOnlyList<string>> PayOutAsync(
+    private async Task<Payout> PayOutAsync(
         QuestInstance instance,
         IReadOnlyList<RankedParticipant> ranked,
         string participantLead,
         CancellationToken ct)
     {
         if (ranked.Count == 0)
-            return [];
+            return Payout.Nothing;
 
-        var payout = await BuildClaimRewardsAsync(instance, ct);
+        var rewardTable = await BuildClaimRewardsAsync(instance, ct);
 
         var winnerLines = new List<string>();
         var grants = new List<QuestRewardGrant>();
 
         foreach (var participant in ranked)
         {
-            var granted = await rewards.GrantAsync(participant.Player.Id, payout, participant.Rank, ct);
+            var granted = await rewards.GrantAsync(participant.Player.Id, rewardTable, participant.Rank, ct);
             if (granted.Count == 0)
+            {
+                // Ranked but paid nothing. Almost always the granter finding no live pawn — the hunter
+                // died or logged off between the last hit and the resolution — but it also covers a
+                // template that carries no rows for their tier. Either way they are not counted as paid,
+                // and they get no whisper claiming they were.
+                logger.LogInformation("Bounty {InstanceId}: {PlayerId} ranked {Rank} but received nothing",
+                    instance.Id, participant.Player.Id, participant.Rank);
                 continue;
+            }
 
             grants.Add(new QuestRewardGrant
             {
@@ -639,7 +670,7 @@ public sealed class BountyService(
                 Grants = grants,
             });
 
-        return winnerLines;
+        return new Payout(winnerLines, grants.Count);
     }
 
     /// <summary>

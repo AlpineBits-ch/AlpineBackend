@@ -18,6 +18,13 @@ public sealed class QuestRewardGranter(
     private const double MaxGrowth = 1.0;
 
     /// <summary>
+    /// <c>getstats</c> reports nutrient levels but no maxima the way it does for hunger or thirst, so
+    /// the contract's 0..100 scale is the only ceiling on offer — the same one <c>setstats</c> documents,
+    /// where <c>carb: 100</c> is a full bar.
+    /// </summary>
+    private const double NutrientMax = 100.0;
+
+    /// <summary>
     /// Which reward rows a player who finished at <paramref name="rank"/> collects.
     /// </summary>
     public static bool Applies(RewardConfig reward, RankRequirement rank) => reward.AppliesTo switch
@@ -117,17 +124,48 @@ public sealed class QuestRewardGranter(
         }
     }
 
-    /// <summary>Hunger + food to <paramref name="fraction"/> of their maxima. Both channels or nothing.</summary>
+    /// <summary>
+    /// Hunger, food and the three macronutrients (α carbohydrates, β protein, γ lipids) to
+    /// <paramref name="fraction"/> of their maxima.
+    /// </summary>
     private async Task<bool> SetDietAsync(string steam, double fraction, CancellationToken ct)
     {
-        var stats = await ReadVitalsAsync(steam, ct);
-        if (stats is null) return false;
+        var snapshot = await ReadSnapshotAsync(steam, ct);
+        if (snapshot is null) return false;
 
-        var hunger = await RaiseVitalAsync(steam, VitalName.Hunger, stats.Hunger, stats.HungerMax, fraction, ct);
-        var food = await RaiseVitalAsync(steam, VitalName.Food, stats.Food, stats.FoodMax, fraction, ct);
+        var fed = false;
 
-        return hunger || food;
+        // |= rather than || throughout: every channel is written, a refusal never skips the next one.
+        if (snapshot.Vitals is { } vitals)
+        {
+            fed |= await RaiseVitalAsync(steam, VitalName.Hunger, vitals.Hunger, vitals.HungerMax, fraction, ct);
+            fed |= await RaiseVitalAsync(steam, VitalName.Food, vitals.Food, vitals.FoodMax, fraction, ct);
+        }
+        else
+        {
+            logger.LogDebug("No vitals for {Steam}; feeding nutrients only", steam);
+        }
+
+        if (snapshot.Nutrients is { } nutrients)
+        {
+            foreach (var (name, current) in Macronutrients(nutrients))
+                fed |= await RaiseVitalAsync(steam, name, current, NutrientMax, fraction, ct);
+        }
+        else
+        {
+            logger.LogDebug("No nutrients for {Steam}; feeding hunger and food only", steam);
+        }
+
+        return fed;
     }
+
+    /// <summary>The macronutrient channels a diet reward tops up, paired with their current levels.</summary>
+    private static (string Name, double Current)[] Macronutrients(Nutrients n) =>
+    [
+        (NutrientName.Carb, n.Carb),
+        (NutrientName.Protein, n.Protein),
+        (NutrientName.Lipid, n.Lipid),
+    ];
 
     private async Task<bool> SetThirstAsync(string steam, double fraction, CancellationToken ct)
     {
@@ -208,8 +246,9 @@ public sealed class QuestRewardGranter(
     }
 
     /// <summary>
-    /// Writes <paramref name="name"/> up to <paramref name="fraction"/> of <paramref name="max"/>,
-    /// skipping the write when the player is already at or above that.
+    /// Writes <paramref name="name"/> — a vital or a nutrient, both of which <c>setvital</c> takes
+    /// — up to <paramref name="fraction"/> of <paramref name="max"/>, skipping the write when the
+    /// player is already at or above that.
     /// </summary>
     private async Task<bool> RaiseVitalAsync(
         string steam, string name, double current, double max, double fraction, CancellationToken ct)
@@ -234,18 +273,29 @@ public sealed class QuestRewardGranter(
 
     private async Task<Vitals?> ReadVitalsAsync(string steam, CancellationToken ct)
     {
+        var snapshot = await ReadSnapshotAsync(steam, ct);
+        if (snapshot is null) return null;
+
+        if (snapshot.Vitals is null)
+            logger.LogDebug("No vitals for {Steam}; skipping vital reward", steam);
+
+        return snapshot.Vitals;
+    }
+
+    /// <summary>
+    /// One read for the whole payout — the diet reward needs vitals and nutrients out of the same
+    /// snapshot, and a second <c>getstats</c> would only invite the two halves to disagree.
+    /// </summary>
+    private async Task<StatsSnapshot?> ReadSnapshotAsync(string steam, CancellationToken ct)
+    {
         try
         {
-            var snapshot = await bridge.GetStatsAsync(steam, ct);
-            if (snapshot.Vitals is null)
-                logger.LogDebug("No vitals for {Steam}; skipping vital reward", steam);
-
-            return snapshot.Vitals;
+            return await bridge.GetStatsAsync(steam, ct);
         }
         catch (Exception ex)
         {
             // Offline or no live pawn — normal, not an error worth escalating.
-            logger.LogDebug(ex, "Could not read vitals for {Steam}; skipping vital reward", steam);
+            logger.LogDebug(ex, "Could not read stats for {Steam}; skipping vital reward", steam);
             return null;
         }
     }

@@ -12,7 +12,7 @@ public class PromoteCommand(MicroserviceContext microserviceContext, IMessageBus
         var steamId = context.Arguments.FirstOrDefault();
         if (steamId == null)
         {
-            return "Usage: Promote <steamId>";
+            return "Usage: Promote steamId";
         }
 
         var player = microserviceContext.Players.FirstOrDefault(x => x.SteamId == steamId);

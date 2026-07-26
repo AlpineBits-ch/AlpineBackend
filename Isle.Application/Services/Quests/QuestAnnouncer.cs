@@ -102,6 +102,38 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
         return BroadcastAsync($"{species} is dead, but not by anyone's jaws. {credit}", ct);
     }
 
+    /// <summary>
+    /// Somebody fulfilled a quest. Reads differently depending on what was asked: a hunt has one winner
+    /// and naming them is the point, while an exploration is a crowd who all made the trip and the
+    /// headcount is the story.
+    ///
+    /// <para><paramref name="paidCount"/> is how many players <i>actually received</i> a reward, never
+    /// how many earned one — the same contract as the two bounty announcements, and for the same
+    /// reason: a player who logged off between qualifying and resolution has no live pawn for the
+    /// granter to write to, and counting them tells the whole lobby about a payout that never
+    /// happened.</para>
+    /// </summary>
+    /// <param name="winnerName">The player to name, or null on a quest nobody won outright.</param>
+    public Task AnnounceQuestCompletedAsync(
+        QuestInstance instance, string? winnerName, int paidCount, CancellationToken ct = default)
+    {
+        var where = instance.LocationName ?? "an unmapped part of the island";
+
+        if (!string.IsNullOrWhiteSpace(winnerName))
+            return BroadcastAsync($"{winnerName} claimed {instance.Title} at {where}.", ct);
+
+        var body = paidCount switch
+        {
+            // Reachable only if every single player who made the trip had logged off by the time the
+            // clock ran out. Says the quest ended rather than claiming a payout that did not land.
+            0 => $"Quest ended: {instance.Title} at {where}.",
+            1 => $"Quest complete: one player answered the call at {where} and has been paid.",
+            _ => $"Quest complete: {paidCount} players answered the call at {where} and have been paid.",
+        };
+
+        return BroadcastAsync(body, ct);
+    }
+
     public Task AnnounceQuestExpiredAsync(QuestInstance instance, CancellationToken ct = default) =>
         BroadcastAsync($"Quest ended: {instance.Title} went unclaimed.", ct);
 

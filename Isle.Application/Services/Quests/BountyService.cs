@@ -451,51 +451,16 @@ public sealed class BountyService(
             .ToListAsync(ct);
 
     /// <summary>
-    /// Claims the right to close this bounty, atomically, and returns whether this caller won.
-    ///
-    /// <para>A player kill produces a killfeed event and a death event, and Wolverine hands them to two
-    /// handlers in two scopes with two <c>MicroserviceContext</c>s. <see cref="QuestInstance.TryClose"/>
-    /// guards one in-memory instance and cannot see the other scope, so both could pass it — which used
-    /// to mean the state was written twice and paid once, and now that both paths pay would mean paid
-    /// twice. This is the real gate: a conditional UPDATE that only matches while the row is still
-    /// active, so exactly one caller gets a row back and everyone else walks away. Under Postgres read
-    /// committed the loser blocks on the row lock, re-evaluates the predicate after the winner commits,
-    /// and matches nothing.</para>
-    ///
-    /// <para>The non-bounty quest paths keep using <see cref="QuestInstance.TryClose"/> directly: their
-    /// only writer is the director tick, so there is no second scope to race.</para>
+    /// Claims the right to close this bounty, atomically, and returns whether this caller won. See
+    /// <see cref="QuestInstanceCloser.TryCloseQuestAtomicallyAsync"/> for why a plain
+    /// <see cref="QuestInstance.TryClose"/> is not enough here.
     /// </summary>
-    private async Task<bool> TryCloseAtomicallyAsync(
+    private Task<bool> TryCloseAtomicallyAsync(
         QuestInstance instance,
         QuestInstanceState state,
         string? completedByPlayerId,
-        CancellationToken ct)
-    {
-        if (state == QuestInstanceState.Active)
-            return false;
-
-        var endedAt = DateTimeOffset.UtcNow;
-
-        var rows = await context.QuestInstances
-            .Where(i => i.Id == instance.Id && i.State == QuestInstanceState.Active)
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(i => i.State, state)
-                .SetProperty(i => i.CompletedByPlayerId, completedByPlayerId)
-                .SetProperty(i => i.EndedAt, endedAt)
-                .SetProperty(i => i.UpdatedAt, endedAt), ct);
-
-        if (rows == 0)
-            return false;
-
-        // Bring the tracked entity in step with the row: the announcement and the resolved event are
-        // both built off it after this returns.
-        instance.State = state;
-        instance.CompletedByPlayerId = completedByPlayerId;
-        instance.EndedAt = endedAt;
-        instance.UpdatedAt = endedAt;
-
-        return true;
-    }
+        CancellationToken ct) =>
+        context.TryCloseQuestAtomicallyAsync(instance, state, completedByPlayerId, ct);
 
     /// <summary>
     /// Shared teardown: persist the closed state, drop the mark and the damage ledger, restore the

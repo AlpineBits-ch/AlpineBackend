@@ -81,6 +81,34 @@ public class BountyResolvedEvent
     public List<string> ParticipantPlayerIds { get; set; } = [];
 }
 
+/// <summary>
+/// A quest instance was fulfilled. The counterpart to <see cref="QuestInstanceExpiredEvent"/>: between
+/// them every non-bounty instance ends in exactly one of the two. Bounties report through
+/// <see cref="BountyResolvedEvent"/> instead, which carries the target and the mark.
+/// </summary>
+public class QuestInstanceCompletedEvent
+{
+    public string QuestInstanceId { get; set; } = string.Empty;
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
+    public string QuestId { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public QuestType Type { get; set; }
+    public string? RegionId { get; set; }
+    public string? LocationName { get; set; }
+
+    /// <summary>
+    /// The player who fulfilled it: the killer on a hunt, the first to arrive on an exploration. Null
+    /// only if the winner could not be resolved back to a registered player.
+    /// </summary>
+    public string? CompletedByPlayerId { get; set; }
+
+    /// <summary>
+    /// Everyone who actually received a reward, best placing first. Deliberately not everyone who
+    /// qualified — see <see cref="QuestRewardsGrantedEvent"/> for why the two differ.
+    /// </summary>
+    public List<string> PaidPlayerIds { get; set; } = [];
+}
+
 /// <summary>A quest instance closed with nobody fulfilling it. The counterpart to <see cref="QuestSpawnedEvent"/>.</summary>
 public class QuestInstanceExpiredEvent
 {

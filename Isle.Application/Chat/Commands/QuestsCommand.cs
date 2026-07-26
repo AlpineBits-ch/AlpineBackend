@@ -8,6 +8,10 @@ namespace Isle.Api.Chat.Commands;
 /// <summary>
 /// Lists what is currently running. Coordinates are included for the same reason the broadcasts carry
 /// them: the region names come from a placeholder table and cannot be trusted yet.
+///
+/// <para>Each line leads with the quest's friendly id, which is the handle players use when they talk
+/// to each other or to an admin about a specific run — the underlying ksuid is not something anyone
+/// can read out loud.</para>
 /// </summary>
 public class QuestsCommand(MicroserviceContext db) : ChatCommand
 {
@@ -31,7 +35,7 @@ public class QuestsCommand(MicroserviceContext db) : ChatCommand
             var coords = RegionMap.FormatCoordinates(instance.WorldX, instance.WorldY);
             var minutes = Math.Max(0, (int)Math.Ceiling((instance.ExpiresAt - now).TotalMinutes));
             var place = string.IsNullOrEmpty(coords) ? where : $"{where} ({coords})";
-            return $"{instance.Title} at {place} - {minutes}m left";
+            return $"[{instance.FriendlyId}] {instance.Title} at {place} - {minutes}m left";
         });
 
         return string.Join(" | ", lines);

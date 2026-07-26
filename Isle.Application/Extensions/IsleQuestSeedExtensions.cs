@@ -19,6 +19,12 @@ public static class IsleQuestSeedExtensions
     ///
     /// <para>One template must be <see cref="QuestType.Bounty"/>: the killing-spree system spawns
     /// against it, and without it no bounty can ever open.</para>
+    ///
+    /// <para>Every template pays in at least three things, and never in XP alone. XP is a number that
+    /// goes up; what makes a player cross the map is the condition they arrive in — fed, watered,
+    /// healed — and, on the harder templates, something that outlives the run: growth on the dino they
+    /// brought, or a storage slot they keep. The amounts here are the starting point an admin tunes,
+    /// not a balance decision that has been tested against a live server.</para>
     /// </summary>
     public static async Task SeedQuestsAsync(this WebApplication app)
     {
@@ -62,10 +68,14 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.FromMinutes(45),
                 minOnline: 4,
                 weight: 3,
+                // A long walk across open ground: it pays for the trip out, and a little growth for
+                // having made it at all.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 1500, AppliesTo = RankRequirement.AllParticipants },
                     new RewardConfig { RewardType = RewardType.HalfDiet, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.HalfWater, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 2, AppliesTo = RankRequirement.AllParticipants },
                 ],
                 locations:
                 [
@@ -84,9 +94,12 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.FromMinutes(40),
                 minOnline: 2,
                 weight: 2,
+                // The cheap, frequent one. Low XP on purpose — the water and the wind back are the
+                // reward, and it should not out-earn the templates that ask for something.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.FullWater, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.FullStamina, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 750, AppliesTo = RankRequirement.AllParticipants },
                 ],
                 locations:
@@ -105,10 +118,14 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.FromMinutes(50),
                 minOnline: 4,
                 weight: 2,
+                // Winner-takes-all and genuinely dangerous, so it pays the claimer back into a state
+                // where they can keep hunting, plus growth they carry off the map.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.FullHealth, Amount = 0, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 2000, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 3, AppliesTo = RankRequirement.Winner },
                 ],
                 locations:
                 [
@@ -128,10 +145,16 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.Zero,
                 minOnline: 1,
                 weight: 1,
+                // The top of the ladder. A claim needs eight players online, someone five kills clear
+                // of the field, and then you have to actually catch and kill them — so this is the one
+                // template that hands out a permanent storage slot.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 2500, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.FullHealth, Amount = 0, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 5, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.StorageSlot, Amount = 1, AppliesTo = RankRequirement.Winner },
                 ],
                 locations: []),
         };

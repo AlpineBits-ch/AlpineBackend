@@ -27,7 +27,7 @@ public class BountyCommand(BountyService bounties) : ChatCommand
             var coords = RegionMap.FormatCoordinates(instance.WorldX, instance.WorldY);
             var minutes = Math.Max(0, (int)Math.Ceiling((instance.ExpiresAt - now).TotalMinutes));
             var place = string.IsNullOrEmpty(coords) ? where : $"{where} ({coords})";
-            return $"{species} last seen at {place} - {minutes}m left";
+            return $"[{instance.FriendlyId}] {species} last seen at {place} - {minutes}m left";
         });
 
         return string.Join(" | ", lines);

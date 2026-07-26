@@ -54,6 +54,7 @@ public sealed class QuestSpawner(
         await bus.PublishAsync(new QuestSpawnedEvent
         {
             QuestInstanceId = instance.Id,
+            QuestInstanceFriendlyId = instance.FriendlyId,
             QuestId = instance.QuestId,
             Title = instance.Title,
             Type = instance.Type,

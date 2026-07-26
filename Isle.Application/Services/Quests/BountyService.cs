@@ -53,8 +53,21 @@ public sealed class BountyService(
 
     public static readonly TimeSpan DefaultDuration = TimeSpan.FromMinutes(20);
 
-    /// <summary>Default payout for putting a marked player down, when the bounty template carries no rewards.</summary>
+    /// <summary>Default XP for putting a marked player down, when the bounty template carries no rewards.</summary>
     public const int DefaultClaimXp = 2500;
+
+    /// <summary>
+    /// Fallback payout, used only when the bounty template was authored without rewards. Killing a
+    /// marked player is the hardest thing on offer here, so even the fallback pays in more than one
+    /// currency: XP to bank, a full belly and full health so the claimer can keep hunting on the dino
+    /// they just risked.
+    /// </summary>
+    private static readonly RewardConfig[] DefaultClaimRewards =
+    [
+        new() { RewardType = RewardType.Xp, Amount = DefaultClaimXp, AppliesTo = RankRequirement.Winner },
+        new() { RewardType = RewardType.FullDiet, AppliesTo = RankRequirement.Winner },
+        new() { RewardType = RewardType.FullHealth, AppliesTo = RankRequirement.Winner },
+    ];
 
     /// <summary>
     /// Called after every kill. Applies the spree gates and marks the killer if they pass. Returns the
@@ -164,11 +177,13 @@ public sealed class BountyService(
 
         await announcer.AnnounceBountyAsync(instance, ct);
         await announcer.WhisperAsync(player.SteamId,
-            "You have been marked. Your skin has changed and the whole server has been told where you are. Survive.", ct);
+            "You have been marked. Your colours have changed and the server has been told where you were last seen. " +
+            "The marks are subtle - break line of sight, stay in cover, and they can still lose you. Survive.", ct);
 
         await bus.PublishAsync(new PlayerMarkedAsBountyEvent
         {
             QuestInstanceId = instance.Id,
+            QuestInstanceFriendlyId = instance.FriendlyId,
             TargetPlayerId = playerId,
             TargetSteamId = player.SteamId,
             TargetSpecies = species,
@@ -292,6 +307,7 @@ public sealed class BountyService(
         await bus.PublishAsync(new BountyResolvedEvent
         {
             QuestInstanceId = instance.Id,
+            QuestInstanceFriendlyId = instance.FriendlyId,
             TargetPlayerId = targetId,
             ClaimedByPlayerId = instance.CompletedByPlayerId,
             State = instance.State,
@@ -299,8 +315,8 @@ public sealed class BountyService(
     }
 
     /// <summary>
-    /// Payout for the claimer: whatever the template carries, plus any admin bonus. Falls back to a
-    /// default XP grant so a template authored without rewards still pays something.
+    /// Payout for the claimer: whatever the template carries, plus any admin bonus. Falls back to
+    /// <see cref="DefaultClaimRewards"/> so a template authored without rewards still pays properly.
     /// </summary>
     private async Task<IReadOnlyList<RewardConfig>> BuildClaimRewardsAsync(QuestInstance instance, CancellationToken ct)
     {
@@ -311,7 +327,7 @@ public sealed class BountyService(
         var payout = template?.Rewards.ToList() ?? [];
 
         if (payout.Count == 0)
-            payout.Add(new RewardConfig { RewardType = RewardType.Xp, Amount = DefaultClaimXp, AppliesTo = RankRequirement.Winner });
+            payout.AddRange(DefaultClaimRewards);
 
         if (instance.BonusXp is > 0)
             payout.Add(new RewardConfig { RewardType = RewardType.Xp, Amount = instance.BonusXp.Value, AppliesTo = RankRequirement.Winner });

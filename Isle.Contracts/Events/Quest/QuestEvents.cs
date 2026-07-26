@@ -10,6 +10,10 @@ namespace Isle.Contracts.Events.Quest;
 public class QuestSpawnedEvent
 {
     public string QuestInstanceId { get; set; } = string.Empty;
+
+    /// <summary>The short id players see in chat — carried so a subscriber can match a run to what was announced.</summary>
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
+
     public string QuestId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public QuestType Type { get; set; }
@@ -24,6 +28,7 @@ public class QuestSpawnedEvent
 public class PlayerMarkedAsBountyEvent
 {
     public string QuestInstanceId { get; set; } = string.Empty;
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
     public string TargetPlayerId { get; set; } = string.Empty;
     public string TargetSteamId { get; set; } = string.Empty;
     public string? TargetSpecies { get; set; }
@@ -40,6 +45,7 @@ public class PlayerMarkedAsBountyEvent
 public class BountyResolvedEvent
 {
     public string QuestInstanceId { get; set; } = string.Empty;
+    public string QuestInstanceFriendlyId { get; set; } = string.Empty;
     public string TargetPlayerId { get; set; } = string.Empty;
     public string? ClaimedByPlayerId { get; set; }
     public QuestInstanceState State { get; set; }

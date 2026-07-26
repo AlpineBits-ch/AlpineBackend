@@ -1,3 +1,4 @@
+using Isle.Api.Services.Rewards;
 using Isle.Api.Services.World;
 using Isle.Contracts.Events.Quest;
 using Isle.Domain.Aggregates;
@@ -39,7 +40,7 @@ namespace Isle.Api.Services.Quests;
 public sealed class QuestCompletionService(
     MicroserviceContext context,
     QuestProgressLedger ledger,
-    QuestRewardGranter rewards,
+    RewardGranter rewards,
     QuestAnnouncer announcer,
     WorldRosterCache roster,
     IMessageBus bus,
@@ -463,7 +464,7 @@ public sealed class QuestCompletionService(
     /// <summary>
     /// The full reward table for a resolved quest — every tier, not one player's share. Whatever the
     /// template carries, plus any admin bonus, falling back to the type's defaults so a template
-    /// authored without rewards still pays. <see cref="QuestRewardGranter"/> narrows it per player.
+    /// authored without rewards still pays. <see cref="RewardGranter"/> narrows it per player.
     /// </summary>
     private async Task<IReadOnlyList<RewardConfig>> BuildRewardsAsync(QuestInstance instance, CancellationToken ct)
     {

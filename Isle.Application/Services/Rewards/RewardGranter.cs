@@ -6,15 +6,12 @@ using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace Isle.Api.Services.Quests;
+namespace Isle.Api.Services.Rewards;
 
 /// <summary>
-/// Pays out quest rewards.
-///
-/// <para>Does not go through <c>IRewardFactory</c>/<c>IReward</c>: those are unimplemented stubs whose
-/// <c>GrantAsync(Guid playerId)</c> signature does not match this service's string ksuid ids, and they
-/// are shaped around game-mode standings rather than a single recipient. Reworking them is a
-/// game-mode concern; when that happens this granter is the behaviour to lift.</para>
+/// Pays out <see cref="RewardConfig"/> rows to a player. Shared by every feature that resolves a
+/// standing into a payout — quests today, game modes (King of the Hill and whatever follows it) as
+/// well — since none of the logic here is specific to how the reward was earned.
 ///
 /// <para>Vital payouts read the player's live maxima before writing, because the engine's scales are
 /// not guaranteed to be 0..1 across every channel and a hardcoded "full" would be a guess. Half
@@ -27,10 +24,10 @@ namespace Isle.Api.Services.Quests;
 /// just logged off is skipped and logged rather than queued. XP and slots are database state and land
 /// either way — which is the point of having them in the mix.</para>
 /// </summary>
-public sealed class QuestRewardGranter(
+public sealed class RewardGranter(
     MicroserviceContext context,
     IBridgeClient bridge,
-    ILogger<QuestRewardGranter> logger)
+    ILogger<RewardGranter> logger)
 {
     /// <summary>Growth is a 0..1 scale; a boost never pushes past fully grown.</summary>
     private const double MaxGrowth = 1.0;
@@ -88,7 +85,7 @@ public sealed class QuestRewardGranter(
             .FirstOrDefaultAsync(p => p.Id == playerId, ct);
         if (player is null)
         {
-            logger.LogWarning("Cannot grant quest rewards: player {PlayerId} not found", playerId);
+            logger.LogWarning("Cannot grant rewards: player {PlayerId} not found", playerId);
             return granted;
         }
 
@@ -102,7 +99,7 @@ public sealed class QuestRewardGranter(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Quest reward {RewardType} failed for player {PlayerId}",
+                logger.LogWarning(ex, "Reward {RewardType} failed for player {PlayerId}",
                     reward.RewardType, playerId);
             }
         }

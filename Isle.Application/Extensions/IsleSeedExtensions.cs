@@ -12,9 +12,11 @@ public static class IsleSeedExtensions
     /// <summary>
     /// Seeds the built-in game mode definitions on first boot.
     ///
-    /// <para>King of the Hill is still unfinished — <c>KingOfTheHillMode</c> has no behaviour yet —
-    /// but the definition carries the zone and trigger config the mode will run on, so it is seeded
-    /// ahead of the implementation rather than being configured by hand later.</para>
+    /// <para>The definition carries the zone, trigger and reward config <c>KingOfTheHillMode</c> runs
+    /// on. Rewards mirror the quest system's own tiering: rows nest downward, so the winner also
+    /// collects every <see cref="RankRequirement.Top3"/> and <see cref="RankRequirement.AllParticipants"/>
+    /// row below them (see <c>RewardGranter.Applies</c>) — there is no need to restate the
+    /// participation payout inside the winner's.</para>
     /// </summary>
     public static async Task SeedGameModeDefinitionsAsync(this WebApplication app)
     {
@@ -54,6 +56,21 @@ public static class IsleSeedExtensions
                 MinPlayersToTrigger = 1,
                 Type = TriggerType.ZoneEntry,
             },
+            Rewards =
+            [
+                // Winner: also collects every Top3 and AllParticipants row below.
+                new RewardConfig { RewardType = RewardType.Xp, Amount = 5000, AppliesTo = RankRequirement.Winner },
+                new RewardConfig { RewardType = RewardType.FullHealth, AppliesTo = RankRequirement.Winner },
+                new RewardConfig { RewardType = RewardType.FullStamina, AppliesTo = RankRequirement.Winner },
+                new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 5, AppliesTo = RankRequirement.Winner },
+
+                // Runner-up tier: second and third place by control ticks.
+                new RewardConfig { RewardType = RewardType.Xp, Amount = 2000, AppliesTo = RankRequirement.Top3 },
+                new RewardConfig { RewardType = RewardType.HalfDiet, AppliesTo = RankRequirement.Top3 },
+
+                // Everyone who registered at least one control tick.
+                new RewardConfig { RewardType = RewardType.Xp, Amount = 500, AppliesTo = RankRequirement.AllParticipants },
+            ],
         });
 
         await dbContext.SaveChangesAsync();

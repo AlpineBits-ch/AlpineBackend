@@ -1,4 +1,5 @@
 using System.Numerics;
+using Isle.Api.Services.Rewards;
 using Isle.Api.Services.World;
 using Isle.Contracts.Events.Quest;
 using Isle.Domain.Aggregates;
@@ -27,7 +28,7 @@ public sealed class BountyService(
     BountyParticipantLedger ledger,
     KillStreakTracker streaks,
     QuestAnnouncer announcer,
-    QuestRewardGranter rewards,
+    RewardGranter rewards,
     WorldRosterCache roster,
     RegionMap regions,
     IBridgeClient bridge,
@@ -706,7 +707,7 @@ public sealed class BountyService(
     /// <summary>
     /// The full reward table for a resolved bounty — every tier, not one player's share. Whatever the
     /// template carries, plus any admin bonus, falling back to <see cref="DefaultClaimRewards"/> so a
-    /// template authored without rewards still pays properly. <c>QuestRewardGranter</c> is what narrows
+    /// template authored without rewards still pays properly. <c>RewardGranter</c> is what narrows
     /// this down per player.
     /// </summary>
     private async Task<IReadOnlyList<RewardConfig>> BuildClaimRewardsAsync(QuestInstance instance, CancellationToken ct)

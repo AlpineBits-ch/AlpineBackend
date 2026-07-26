@@ -14,7 +14,11 @@ public class GeoFenceData
     {
         return Shape switch
         {
-            GeoFenceShape.Circle => Vector3.Distance(Center, position) <= Radius,
+            // X,Y only: this is the same ground-plane convention RegionMap.Resolve and the world roster
+            // use. A full 3D distance would count elevation against zone membership, which is wrong for
+            // a zone meant to cover an area of terrain regardless of height.
+            GeoFenceShape.Circle => Vector2.Distance(
+                new Vector2(Center.X, Center.Y), new Vector2(position.X, position.Y)) <= Radius,
             GeoFenceShape.Polygon => IsInPolygon(position, PolygonPoints),
             _ => false
         };

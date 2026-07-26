@@ -1,4 +1,5 @@
 ﻿using System.Net.Http.Headers;
+using Echo.Realtime.Sfu;
 using AppEnvironment;
 using Domain;
 using JasperFx;
@@ -26,7 +27,6 @@ builder.Services.AddInfrastructure();
 builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddScoped<FileService>();
-builder.Services.AddScoped<CloudflareService>();
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 var redis = Env.Redis;
@@ -64,12 +64,7 @@ builder.Services.AddHttpClient("CloudflareRtc", client =>
     client.BaseAddress = new Uri("https://rtc.live.cloudflare.com/");
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
 });
-builder.Services.AddHttpClient("CloudflareProxy", client =>
-{
-    client.BaseAddress = new Uri($"https://rtc.live.cloudflare.com/v1/apps/{AppEnvironment.Env.CloudflareConfig.AppId}/");
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
-    
-});
+builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 builder.Services.AddScoped<ConversationPermissionService>();
 builder.Services.AddScoped<IceServerService>();
 if (args.Contains("codegen") || args.Contains("describe"))

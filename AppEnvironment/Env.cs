@@ -42,6 +42,8 @@ public static class Env
 
     public static readonly SteamConfiguration Steam = new();
 
+    public static readonly IsleConfiguration Isle = new();
+
 }
 
 public class RabbitMQConfig
@@ -169,6 +171,21 @@ public class SteamConfiguration
     /// profile enrichment (persona name, avatar).
     /// </summary>
     public string WebApiKey { get; set; } = GetEnvironmentVariable("STEAM_WEB_API_KEY") ?? string.Empty;
+}
+
+public class IsleConfiguration
+{
+    /// <summary>Host running the Isle dedicated server; serves both the bridge plugin and RCON.</summary>
+    public string IpAddress { get; set; } = GetEnvironmentVariable("ISLE_IP_ADDRESS") ?? "10.0.0.0";
+
+    /// <summary>HTTP port of the IsleBridge plugin (chat / event / stats streams and commands).</summary>
+    public int BridgePort { get; set; } = int.Parse(GetEnvironmentVariable("ISLE_BRIDGE_PORT") ?? "8080");
+
+    public int RconPort { get; set; } = int.Parse(GetEnvironmentVariable("ISLE_RCON_PORT") ?? "8888");
+
+    public string RconPassword { get; set; } = GetEnvironmentVariable("RCON_PASSWORD") ?? string.Empty;
+
+    public string BridgeBaseAddress => $"http://{IpAddress}:{BridgePort}";
 }
 
 public class MessagingConfiguration

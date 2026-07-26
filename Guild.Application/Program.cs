@@ -1,3 +1,4 @@
+using Echo.Realtime.Sfu;
 using System.Net.Http.Headers;
 using AppEnvironment;
 using Facet.Dashboard;
@@ -111,15 +112,9 @@ builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddScoped<GuildHydrateService>();
 builder.Services.AddScoped<GuildPermissionService>();
-builder.Services.AddScoped<CloudflareService>();
 builder.Services.AddScoped<GuildThumbnailService>();
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
-builder.Services.AddHttpClient("CloudflareProxy", client =>
-{
-    client.BaseAddress = new Uri($"https://rtc.live.cloudflare.com/v1/apps/{Env.CloudflareConfig.AppId}/");
-    client.DefaultRequestHeaders.Authorization =
-        new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
-});
+builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 if (args.Contains("codegen") || args.Contains("describe"))
 {
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 

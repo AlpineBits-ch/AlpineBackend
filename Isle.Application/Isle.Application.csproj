@@ -50,9 +50,4 @@
       </Content>
     </ItemGroup>
 
-    <ItemGroup>
-      <Folder Include="Handlers\Events\Voice\" />
-      <Folder Include="Voice\" />
-    </ItemGroup>
-
 </Project>

@@ -352,7 +352,13 @@ public sealed class BountyService(
         return true;
     }
 
-    /// <summary>Closes bounties whose window ran out. Driven by the quest director tick.</summary>
+    /// <summary>
+    /// Closes bounties whose window ran out. Driven by the quest director tick.
+    ///
+    /// <para>This is the one terminal path where the target won: they were named to the whole server and
+    /// were still standing when the clock hit zero, so they — and only they — are paid. See
+    /// <see cref="PaySurvivorAsync"/>.</para>
+    /// </summary>
     public async Task<int> ExpireDueBountiesAsync(CancellationToken ct = default)
     {
         var now = DateTimeOffset.UtcNow;
@@ -366,8 +372,10 @@ public sealed class BountyService(
             if (!await TryCloseAtomicallyAsync(instance, QuestInstanceState.Expired, completedByPlayerId: null, ct))
                 continue;
 
-            // Nobody is paid for a target who ran out the clock alive, however much damage they took.
+            // None of the hunters are paid for a target who ran out the clock alive, however much damage
+            // they landed.
             await EndAsync(instance, [], ct);
+            await PaySurvivorAsync(instance, ct);
             await announcer.AnnounceBountyExpiredAsync(instance, ct);
         }
 
@@ -577,6 +585,71 @@ public sealed class BountyService(
             });
 
         return winnerLines;
+    }
+
+    /// <summary>
+    /// Pays the target for outlasting the bounty and tells them they made it — the only message that
+    /// ever reaches them about the outcome, since the expiry broadcast is written for the lobby.
+    ///
+    /// <para>Runs after <see cref="EndAsync"/>, so the mark is out of the registry and the marker skin is
+    /// already off them: by the time they are told they are safe, they look it.</para>
+    ///
+    /// <para>Reported as <see cref="RankRequirement.Winner"/> in the payout event because on this path
+    /// they are the winner — nobody else is paid at all.</para>
+    /// </summary>
+    private async Task PaySurvivorAsync(QuestInstance instance, CancellationToken ct)
+    {
+        if (instance.TargetPlayerId is not { } targetId)
+            return;
+
+        var target = await context.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == targetId, ct);
+        if (target is null)
+        {
+            logger.LogWarning("Bounty {InstanceId} expired but its target {PlayerId} is unknown; no survival payout",
+                instance.Id, targetId);
+            return;
+        }
+
+        var granted = await rewards.GrantAsync(targetId, SurvivalRewards, ct);
+
+        if (!string.IsNullOrWhiteSpace(target.SteamId))
+        {
+            // An empty payout means the granter found no live pawn to write to, so the whisper will not
+            // land either — but it costs nothing to send, and it must not claim rewards that never
+            // happened.
+            var body = granted.Count == 0
+                ? "You survived the bounty. The mark is gone and your colours are your own again."
+                : $"You survived the bounty. The mark is gone, your colours are your own again, and you " +
+                  $"have been patched up: {string.Join(", ", granted)}.";
+
+            await announcer.WhisperAsync(target.SteamId, body, ct);
+        }
+
+        if (granted.Count == 0)
+        {
+            logger.LogDebug("Bounty {InstanceId} survived by {PlayerId} but nothing could be granted",
+                instance.Id, targetId);
+            return;
+        }
+
+        await bus.PublishAsync(new QuestRewardsGrantedEvent
+        {
+            QuestInstanceId = instance.Id,
+            QuestInstanceFriendlyId = instance.FriendlyId,
+            Type = instance.Type,
+            Grants =
+            [
+                new QuestRewardGrant
+                {
+                    PlayerId = targetId,
+                    Rank = RankRequirement.Winner,
+                    Rewards = granted.ToList(),
+                },
+            ],
+        });
+
+        logger.LogInformation("Bounty {InstanceId} survived by {PlayerId}; paid {Rewards}",
+            instance.Id, targetId, string.Join(", ", granted));
     }
 
     /// <summary>

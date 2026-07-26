@@ -28,7 +28,7 @@ public class QuestsCommand(MicroserviceContext db) : ChatCommand
             var coords = RegionMap.FormatCoordinates(instance.WorldX, instance.WorldY);
             var minutes = Math.Max(0, (int)Math.Ceiling((instance.ExpiresAt - now).TotalMinutes));
             var place = string.IsNullOrEmpty(coords) ? where : $"{where} ({coords})";
-            return $"{instance.Title} at {place} - {minutes}m left";
+            return $"[{instance.FriendlyId}] {instance.Title} at {place} - {minutes}m left";
         });
 
         return string.Join(" | ", lines);

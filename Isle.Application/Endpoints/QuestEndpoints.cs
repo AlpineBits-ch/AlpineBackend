@@ -10,6 +10,10 @@ namespace Isle.Api.Endpoints;
 public sealed class QuestInstanceDto
 {
     public string Id { get; init; } = string.Empty;
+
+    /// <summary>The short id shown in game chat, so a page and the chat box can name the same run.</summary>
+    public string FriendlyId { get; init; } = string.Empty;
+
     public string QuestId { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public QuestType Type { get; init; }
@@ -100,6 +104,7 @@ public static class QuestEndpoints
     private static QuestInstanceDto Project(QuestInstance i) => new()
     {
         Id = i.Id,
+        FriendlyId = i.FriendlyId,
         QuestId = i.QuestId,
         Title = i.Title,
         Type = i.Type,

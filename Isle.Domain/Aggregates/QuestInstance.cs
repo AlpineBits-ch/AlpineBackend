@@ -1,6 +1,7 @@
 using Domain;
 using Isle.Domain.Enums;
 using Persistence;
+using Sqids;
 
 namespace Isle.Domain.Aggregates;
 
@@ -38,7 +39,52 @@ public class SpawnQuestInstanceArgs
 /// <summary>One live (or historical) run of a <see cref="Quest"/> template.</summary>
 public class QuestInstance : Aggregate<QuestInstance>, IPrefixedEntity
 {
-    public static string Prefix { get; } = "quest_instance";
+    /// <summary>Deliberately terse.</summary>
+    public static string Prefix { get; } = "qi";
+
+    /// <summary>
+    /// Chat-safe alphabet: uppercase only, and without the glyphs that get misread when someone
+    /// copies an id out of the chat box by eye (0/O, 1/I/L).
+    /// </summary>
+    private static readonly SqidsEncoder<int> _sqids = new(new SqidsOptions
+    {
+        Alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ",
+        MinLength = 5,
+    });
+
+    /// <summary>Marks a quest id as a quest id, so it is not mistaken for a player's friendly id.</summary>
+    public const string FriendlyIdPrefix = "Q-";
+
+    /// <summary>
+    /// Assigned by a database sequence on insert — see the default in <c>MicroserviceContext</c>.
+    /// </summary>
+    public int FriendlyIdSeq { get; set; }
+
+    /// <summary>
+    /// The id players and admins actually use: <c>Q-7KMPQ</c> rather than the ksuid.
+    /// </summary>
+    public string FriendlyId => FriendlyIdPrefix + _sqids.Encode(FriendlyIdSeq);
+
+    /// <summary>
+    /// Decodes a <see cref="FriendlyId"/> back to its <see cref="FriendlyIdSeq"/>, or null when the
+    /// string is not one.
+    /// </summary>
+    public static int? DecodeFriendlyId(string? friendlyId)
+    {
+        if (string.IsNullOrWhiteSpace(friendlyId)) return null;
+
+        var body = friendlyId.Trim();
+        if (body.StartsWith(FriendlyIdPrefix, StringComparison.OrdinalIgnoreCase))
+            body = body[FriendlyIdPrefix.Length..];
+
+        body = body.ToUpperInvariant();
+
+        var decoded = _sqids.Decode(body);
+        if (decoded.Count != 1) return null;
+
+        var seq = decoded[0];
+        return _sqids.Encode(seq) == body ? seq : null;
+    }
 
     public string QuestId { get; set; } = string.Empty;
     public virtual Quest? Quest { get; set; }

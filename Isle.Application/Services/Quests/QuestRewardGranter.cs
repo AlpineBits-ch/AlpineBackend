@@ -14,6 +14,9 @@ public sealed class QuestRewardGranter(
     IBridgeClient bridge,
     ILogger<QuestRewardGranter> logger)
 {
+    /// <summary>Growth is a 0..1 scale; a boost never pushes past fully grown.</summary>
+    private const double MaxGrowth = 1.0;
+
     /// <summary>Grants every reward to one player.</summary>
     public async Task<IReadOnlyList<string>> GrantAsync(
         string playerId,
@@ -22,7 +25,10 @@ public sealed class QuestRewardGranter(
     {
         var granted = new List<string>();
 
-        var player = await context.Players.FirstOrDefaultAsync(p => p.Id == playerId, ct);
+        // Storage comes along because the slot reward mutates it; the rest of the payouts ignore it.
+        var player = await context.Players
+            .Include(p => p.Storage)
+            .FirstOrDefaultAsync(p => p.Id == playerId, ct);
         if (player is null)
         {
             logger.LogWarning("Cannot grant quest rewards: player {PlayerId} not found", playerId);
@@ -68,6 +74,18 @@ public sealed class QuestRewardGranter(
             case RewardType.HalfWater:
                 return await SetThirstAsync(player.SteamId, 0.5, ct) ? "half-full water" : null;
 
+            case RewardType.FullHealth:
+                return await FillVitalAsync(player.SteamId, VitalName.Health, ct) ? "full health" : null;
+
+            case RewardType.FullStamina:
+                return await FillVitalAsync(player.SteamId, VitalName.Stamina, ct) ? "full stamina" : null;
+
+            case RewardType.GrowthBoost:
+                return await GrowAsync(player.SteamId, reward.Amount, ct);
+
+            case RewardType.StorageSlot:
+                return GrantStorageSlots(player, reward.Amount);
+
             case RewardType.CosmeticUnlock:
                 // No cosmetic unlock store exists yet; log it rather than silently dropping the payout.
                 logger.LogInformation("Cosmetic reward {CosmeticId} for {PlayerId} is not implemented yet",
@@ -98,6 +116,76 @@ public sealed class QuestRewardGranter(
         if (stats is null) return false;
 
         return await RaiseVitalAsync(steam, VitalName.Thirst, stats.Thirst, stats.ThirstMax, fraction, ct);
+    }
+
+    /// <summary>One vital to its maximum.</summary>
+    private async Task<bool> FillVitalAsync(string steam, string name, CancellationToken ct)
+    {
+        var stats = await ReadVitalsAsync(steam, ct);
+        if (stats is null) return false;
+
+        var (current, max) = name switch
+        {
+            VitalName.Health => (stats.Hp, stats.HpMax),
+            VitalName.Stamina => (stats.Stamina, stats.StaminaMax),
+            _ => (0d, 0d),
+        };
+
+        return await RaiseVitalAsync(steam, name, current, max, 1.0, ct);
+    }
+
+    /// <summary>
+    /// Adds <paramref name="percentagePoints"/> of growth on top of whatever the player currently
+    /// has.
+    /// </summary>
+    private async Task<string?> GrowAsync(string steam, int percentagePoints, CancellationToken ct)
+    {
+        if (percentagePoints <= 0)
+        {
+            logger.LogWarning("Growth reward for {Steam} has a non-positive amount; skipping", steam);
+            return null;
+        }
+
+        double growth;
+        try
+        {
+            growth = (await bridge.GetStatsAsync(steam, ct)).Growth;
+        }
+        catch (Exception ex)
+        {
+            // Offline or no live pawn — same normal case as the vitals read.
+            logger.LogDebug(ex, "Could not read growth for {Steam}; skipping growth reward", steam);
+            return null;
+        }
+
+        var target = Math.Min(growth + percentagePoints / 100.0, MaxGrowth);
+        if (target <= growth)
+            return null;
+
+        var result = await bridge.SetGrowthAsync(steam, target, ct);
+        if (result.Ok)
+            return $"+{(target - growth) * 100:F0}% growth";
+
+        logger.LogWarning("Setting growth for {Steam} returned {Code}", steam, result.CodeRaw);
+        return null;
+    }
+
+    /// <summary>Widens the player's dino storage.</summary>
+    private string? GrantStorageSlots(Player player, int amount)
+    {
+        if (player.Storage is null)
+        {
+            logger.LogWarning("Cannot grant a storage slot to {PlayerId}: no storage row", player.Id);
+            return null;
+        }
+
+        // An authored zero means "a slot", not "nothing" — a reward row that pays nothing is a typo.
+        var slots = Math.Max(1, amount);
+
+        for (var i = 0; i < slots; i++)
+            player.Storage.PurchaseSlot();
+
+        return slots == 1 ? "a storage slot" : $"{slots} storage slots";
     }
 
     /// <summary>

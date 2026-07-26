@@ -52,10 +52,14 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.FromMinutes(45),
                 minOnline: 4,
                 weight: 3,
+                // A long walk across open ground: it pays for the trip out, and a little growth for
+                // having made it at all.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 1500, AppliesTo = RankRequirement.AllParticipants },
                     new RewardConfig { RewardType = RewardType.HalfDiet, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.HalfWater, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 2, AppliesTo = RankRequirement.AllParticipants },
                 ],
                 locations:
                 [
@@ -74,9 +78,11 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.FromMinutes(40),
                 minOnline: 2,
                 weight: 2,
+                // The cheap, frequent one.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.FullWater, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
+                    new RewardConfig { RewardType = RewardType.FullStamina, Amount = 0, AppliesTo = RankRequirement.AllParticipants },
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 750, AppliesTo = RankRequirement.AllParticipants },
                 ],
                 locations:
@@ -95,10 +101,14 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.FromMinutes(50),
                 minOnline: 4,
                 weight: 2,
+                // Winner-takes-all and genuinely dangerous, so it pays the claimer back into a state
+                // where they can keep hunting, plus growth they carry off the map.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.FullHealth, Amount = 0, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 2000, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 3, AppliesTo = RankRequirement.Winner },
                 ],
                 locations:
                 [
@@ -117,10 +127,14 @@ public static class IsleQuestSeedExtensions
                 cooldown: TimeSpan.Zero,
                 minOnline: 1,
                 weight: 1,
+                // The top of the ladder.
                 rewards:
                 [
                     new RewardConfig { RewardType = RewardType.Xp, Amount = 2500, AppliesTo = RankRequirement.Winner },
                     new RewardConfig { RewardType = RewardType.FullDiet, Amount = 0, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.FullHealth, Amount = 0, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.GrowthBoost, Amount = 5, AppliesTo = RankRequirement.Winner },
+                    new RewardConfig { RewardType = RewardType.StorageSlot, Amount = 1, AppliesTo = RankRequirement.Winner },
                 ],
                 locations: []),
         };

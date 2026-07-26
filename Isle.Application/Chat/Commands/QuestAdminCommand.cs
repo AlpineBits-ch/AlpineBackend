@@ -1,6 +1,7 @@
 using System.Globalization;
 using Isle.Api.Services.Quests;
 using Isle.Api.Services.World;
+using Isle.Domain.Aggregates;
 using Isle.Domain.Enums;
 using Isle.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -17,7 +18,7 @@ public class QuestAdminCommand(
     PopulationHeatmap heatmap) : ChatCommand
 {
     private const string Usage =
-        "Usage: !questadmin bounty <player> [minutes] [bonusXp] | spawn <quest> [region] | end <instanceId> | list | streaks | pop";
+        "Usage: !questadmin bounty <player> [minutes] [bonusXp] | spawn <quest> [region] | end <Q-id> | list | streaks | pop";
 
     public override async Task<string> ExecuteAsync(CommandContext context)
     {
@@ -65,7 +66,7 @@ public class QuestAdminCommand(
             return $"Could not mark {target.InGameName ?? target.FriendlyId}. They may already be marked, or no bounty template is configured.";
 
         var payout = bonusXp is > 0 ? $", bonus {bonusXp:N0} XP" : string.Empty;
-        return $"Marked {target.InGameName ?? target.FriendlyId} for {duration.TotalMinutes:F0}m{payout}. Instance {instance.Id}.";
+        return $"Marked {target.InGameName ?? target.FriendlyId} for {duration.TotalMinutes:F0}m{payout}. Instance {instance.FriendlyId}.";
     }
 
     /// <summary>!questadmin spawn &lt;questIdOrName&gt; [regionIdOrName]</summary>
@@ -83,32 +84,38 @@ public class QuestAdminCommand(
             return $"No quest matches '{questName}', or it has no location with a mapped region.";
 
         var instance = await spawner.SpawnAsync(candidate, adminSpawned: true);
-        return $"Spawned '{candidate.Quest.Name}' at {candidate.Region.Name}. Instance {instance.Id}.";
+        return $"Spawned '{candidate.Quest.Name}' at {candidate.Region.Name}. Instance {instance.FriendlyId}.";
     }
 
-    /// <summary>!questadmin end &lt;instanceId&gt;</summary>
+    /// <summary>!questadmin end &lt;Q-id&gt;</summary>
     private async Task<string> EndAsync(string[] args)
     {
         if (args.Length < 2)
-            return "Usage: !questadmin end <instanceId>";
+            return "Usage: !questadmin end <Q-id|instanceId>";
 
-        var instance = await db.QuestInstances.FirstOrDefaultAsync(i => i.Id == args[1]);
+        var needle = args[1];
+        var seq = QuestInstance.DecodeFriendlyId(needle);
+
+        var instance = seq is not null
+            ? await db.QuestInstances.FirstOrDefaultAsync(i => i.FriendlyIdSeq == seq.Value)
+            : await db.QuestInstances.FirstOrDefaultAsync(i => i.Id == needle);
+
         if (instance is null)
-            return $"No quest instance {args[1]}.";
+            return $"No quest instance {needle}.";
 
         if (!instance.IsOpen)
-            return $"Instance {instance.Id} is already {instance.State}.";
+            return $"Instance {instance.FriendlyId} is already {instance.State}.";
 
         // Bounties need the full teardown (unmark, restore skin), not just a state flip.
         if (instance.Type == QuestType.Bounty && instance.TargetPlayerId is { } targetId)
         {
             await bounties.CancelForPlayerAsync(targetId, QuestInstanceState.Cancelled);
-            return $"Bounty {instance.Id} cancelled and target unmarked.";
+            return $"Bounty {instance.FriendlyId} cancelled and target unmarked.";
         }
 
         instance.TryClose(QuestInstanceState.Cancelled);
         await db.SaveChangesAsync();
-        return $"Instance {instance.Id} cancelled.";
+        return $"Instance {instance.FriendlyId} cancelled.";
     }
 
     private async Task<string> ListAsync()
@@ -125,7 +132,7 @@ public class QuestAdminCommand(
 
         var now = DateTimeOffset.UtcNow;
         return string.Join(" | ", open.Select(i =>
-            $"{i.Id} {i.Type} '{i.Title}' @ {i.LocationName ?? "?"} {Math.Max(0, (int)(i.ExpiresAt - now).TotalMinutes)}m"));
+            $"{i.FriendlyId} {i.Type} '{i.Title}' @ {i.LocationName ?? "?"} {Math.Max(0, (int)(i.ExpiresAt - now).TotalMinutes)}m"));
     }
 
     /// <summary>Shows the live streak board, so the spree thresholds can be tuned against real numbers.</summary>

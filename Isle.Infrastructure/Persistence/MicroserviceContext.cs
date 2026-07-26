@@ -144,6 +144,18 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey(instance => instance.CompletedByPlayerId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Player-facing short id, same mechanism as the player one: a database sequence keeps the
+            // numbers dense so the encoded form stays short, and the encoding happens on read.
+            modelBuilder.HasSequence<long>("quest_instance_friendly_id_seq")
+                .StartsAt(1000)
+                .IncrementsBy(1);
+
+            instanceBuilder.Property(instance => instance.FriendlyIdSeq)
+                .HasDefaultValueSql("nextval('quest_instance_friendly_id_seq')");
+
+            // !questadmin end takes a friendly id, so this is a lookup key, not just a display field.
+            instanceBuilder.HasIndex(instance => instance.FriendlyIdSeq).IsUnique();
+
             // Every hot query is "what is open" — the director, both chat commands and the endpoints.
             instanceBuilder.HasIndex(instance => new { instance.State, instance.Type });
             instanceBuilder.HasIndex(instance => instance.TargetPlayerId);

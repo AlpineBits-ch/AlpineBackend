@@ -45,8 +45,18 @@ public sealed class BountyService(
 
     public static readonly TimeSpan DefaultDuration = TimeSpan.FromMinutes(20);
 
-    /// <summary>Default payout for putting a marked player down, when the bounty template carries no rewards.</summary>
+    /// <summary>Default XP for putting a marked player down, when the bounty template carries no rewards.</summary>
     public const int DefaultClaimXp = 2500;
+
+    /// <summary>
+    /// Fallback payout, used only when the bounty template was authored without rewards.
+    /// </summary>
+    private static readonly RewardConfig[] DefaultClaimRewards =
+    [
+        new() { RewardType = RewardType.Xp, Amount = DefaultClaimXp, AppliesTo = RankRequirement.Winner },
+        new() { RewardType = RewardType.FullDiet, AppliesTo = RankRequirement.Winner },
+        new() { RewardType = RewardType.FullHealth, AppliesTo = RankRequirement.Winner },
+    ];
 
     /// <summary>Called after every kill.</summary>
     public async Task<QuestInstance?> TryStartFromSpreeAsync(string playerId, int streak, CancellationToken ct = default)
@@ -149,11 +159,13 @@ public sealed class BountyService(
 
         await announcer.AnnounceBountyAsync(instance, ct);
         await announcer.WhisperAsync(player.SteamId,
-            "You have been marked. Your skin has changed and the whole server has been told where you are. Survive.", ct);
+            "You have been marked. Your colours have changed and the server has been told where you were last seen. " +
+            "The marks are subtle - break line of sight, stay in cover, and they can still lose you. Survive.", ct);
 
         await bus.PublishAsync(new PlayerMarkedAsBountyEvent
         {
             QuestInstanceId = instance.Id,
+            QuestInstanceFriendlyId = instance.FriendlyId,
             TargetPlayerId = playerId,
             TargetSteamId = player.SteamId,
             TargetSpecies = species,
@@ -273,6 +285,7 @@ public sealed class BountyService(
         await bus.PublishAsync(new BountyResolvedEvent
         {
             QuestInstanceId = instance.Id,
+            QuestInstanceFriendlyId = instance.FriendlyId,
             TargetPlayerId = targetId,
             ClaimedByPlayerId = instance.CompletedByPlayerId,
             State = instance.State,
@@ -291,7 +304,7 @@ public sealed class BountyService(
         var payout = template?.Rewards.ToList() ?? [];
 
         if (payout.Count == 0)
-            payout.Add(new RewardConfig { RewardType = RewardType.Xp, Amount = DefaultClaimXp, AppliesTo = RankRequirement.Winner });
+            payout.AddRange(DefaultClaimRewards);
 
         if (instance.BonusXp is > 0)
             payout.Add(new RewardConfig { RewardType = RewardType.Xp, Amount = instance.BonusXp.Value, AppliesTo = RankRequirement.Winner });

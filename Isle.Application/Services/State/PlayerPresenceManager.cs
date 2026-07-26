@@ -96,7 +96,7 @@ public sealed class PlayerPresenceManager(IConnectionMultiplexer redis, ILogger<
             logger.LogWarning(ex, "Presence reconcile failed");
         }
     }
-
+    public IReadOnlyCollection<string> GetAllPlayerIds() => _playerIds.Keys.ToArray();
     private async IAsyncEnumerable<string> ReadAllAsync()
     {
         var server = redis.GetServer(redis.GetEndPoints().First());

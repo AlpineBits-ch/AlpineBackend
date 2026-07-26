@@ -45,9 +45,10 @@ public sealed class QuestDirectorService(
             using var scope = scopeFactory.CreateScope();
             var spawner = scope.ServiceProvider.GetRequiredService<QuestSpawner>();
             var director = scope.ServiceProvider.GetRequiredService<QuestDirector>();
+            var completion = scope.ServiceProvider.GetRequiredService<QuestCompletionService>();
             var bounties = scope.ServiceProvider.GetRequiredService<BountyService>();
 
-            await spawner.ExpireDueQuestsAsync(ct);
+            await completion.ResolveDueQuestsAsync(ct);
             await bounties.ExpireDueBountiesAsync(ct);
 
             if (await director.ChooseAsync(ct) is { } candidate)
@@ -55,7 +56,4 @@ public sealed class QuestDirectorService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Quest director tick failed");
-        }
-    }
-}
+            l

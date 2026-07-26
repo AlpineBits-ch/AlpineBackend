@@ -84,7 +84,7 @@ public sealed class KingOfTheHillCompletionService(
         GameModeInstance instance, IReadOnlyList<ParticipantStanding> standings, CancellationToken ct)
     {
         var rewardTable = instance.Definition.Rewards;
-        if (rewardTable.Count == 0 || standings.Count == 0)
+        if (standings.Count == 0)
             return [];
 
         var paid = new List<string>();
@@ -97,7 +97,18 @@ public sealed class KingOfTheHillCompletionService(
                     ? RankRequirement.Top3
                     : RankRequirement.AllParticipants;
 
-            var granted = await rewards.GrantAsync(standing.PlayerId, rewardTable, rank, ct);
+            // The definition's own tiered rows, plus whatever mode-specific bonus this standing earns
+            // (e.g. KOTH's held-the-hill bonus) — the bonus is pre-computed for this exact standing, so
+            // it is granted as-is rather than filtered through RewardGranter.Applies a second time.
+            var rewardRows = rewardTable
+                .Where(r => RewardGranter.Applies(r, rank))
+                .Concat(instance.Behavior.GetRewards(instance, standing))
+                .ToList();
+
+            if (rewardRows.Count == 0)
+                continue;
+
+            var granted = await rewards.GrantAsync(standing.PlayerId, rewardRows, ct);
             if (granted.Count == 0)
             {
                 // Placed but paid nothing — almost always the granter finding no live pawn, because the

@@ -53,7 +53,14 @@ public sealed class KingOfTheHillDirectorService(
         try
         {
             if (roster.IsStale(MaxRosterAge))
+            {
+                // Silent before this: a live match just sat un-credited for the cycle with nothing
+                // in the log to explain why the standings came up empty later.
+                if (await stateStore.ReadAsync() is { } liveMarker)
+                    logger.LogWarning("KOTH tick skipped for {InstanceId}: roster snapshot is stale", liveMarker.InstanceId);
+
                 return;
+            }
 
             using var scope = scopeFactory.CreateScope();
             var services = scope.ServiceProvider;

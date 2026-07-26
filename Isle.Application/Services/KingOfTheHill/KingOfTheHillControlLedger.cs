@@ -17,12 +17,19 @@ public sealed class KingOfTheHillControlLedger(IConnectionMultiplexer redis, ILo
     private static string FirstSeenKey(string instanceId) => $"isle:koth:firstseen:{instanceId}";
     private static string HolderKey(string instanceId) => $"isle:koth:holder:{instanceId}";
     private static string HolderSinceKey(string instanceId) => $"isle:koth:holdersince:{instanceId}";
+    private static string ContestantsKey(string instanceId) => $"isle:koth:contestants:{instanceId}";
 
     /// <summary>Applies one tick's zone presence.</summary>
     public async Task ApplyPresenceAsync(string instanceId, IReadOnlyList<string> steamIdsInZone)
     {
         try
         {
+            if (steamIdsInZone.Count > 0)
+            {
+                await Db.SetAddAsync(ContestantsKey(instanceId), steamIdsInZone.Select(s => (RedisValue)s).ToArray());
+                await Db.KeyExpireAsync(ContestantsKey(instanceId), KeyTtl);
+            }
+
             if (steamIdsInZone.Count != 1)
             {
                 await ClearHolderAsync(instanceId);
@@ -143,6 +150,23 @@ public sealed class KingOfTheHillControlLedger(IConnectionMultiplexer redis, ILo
         }
     }
 
+    /// <summary>
+    /// How many distinct players ever set foot in the zone this match, winner included — the basis for
+    /// the winner's held-the-hill bonus in <see cref="Isle.Api.Games.KingOfTheHill.KingOfTheHillMode.GetRewards"/>.
+    /// </summary>
+    public async Task<int> GetContestantCountAsync(string instanceId)
+    {
+        try
+        {
+            return (int)await Db.SetLengthAsync(ContestantsKey(instanceId));
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the KOTH contestant count for {InstanceId}", instanceId);
+            return 0;
+        }
+    }
+
     /// <summary>Drops every key for a resolved/cancelled match. Called from the shared teardown, so it runs on every exit path.</summary>
     public async Task ClearAsync(string instanceId)
     {
@@ -152,6 +176,7 @@ public sealed class KingOfTheHillControlLedger(IConnectionMultiplexer redis, ILo
             await Db.KeyDeleteAsync(FirstSeenKey(instanceId));
             await Db.KeyDeleteAsync(HolderKey(instanceId));
             await Db.KeyDeleteAsync(HolderSinceKey(instanceId));
+            await Db.KeyDeleteAsync(ContestantsKey(instanceId));
         }
         catch (Exception ex)
         {

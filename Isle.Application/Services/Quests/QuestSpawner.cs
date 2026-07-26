@@ -3,17 +3,12 @@ using Isle.Api.Services.World;
 using Isle.Contracts.Events.Quest;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity;
-using Isle.Domain.Enums;
 using Isle.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Wolverine;
 
 namespace Isle.Api.Services.Quests;
 
-/// <summary>
-/// Turns a director choice into a live, announced <see cref="QuestInstance"/>, and closes instances
-/// whose window has run out.
-/// </summary>
+/// <summary>Turns a director choice into a live, announced <see cref="QuestInstance"/>.</summary>
 public sealed class QuestSpawner(
     MicroserviceContext context,
     QuestAnnouncer announcer,
@@ -65,43 +60,6 @@ public sealed class QuestSpawner(
         });
 
         return instance;
-    }
-
-    /// <summary>Closes every non-bounty instance past its window.</summary>
-    public async Task<int> ExpireDueQuestsAsync(CancellationToken ct = default)
-    {
-        var now = DateTimeOffset.UtcNow;
-
-        var due = await context.QuestInstances
-            .Where(i => i.State == QuestInstanceState.Active && i.Type != QuestType.Bounty && i.ExpiresAt <= now)
-            .ToListAsync(ct);
-
-        if (due.Count == 0)
-            return 0;
-
-        foreach (var instance in due)
-            instance.TryClose(QuestInstanceState.Expired);
-
-        await context.SaveChangesAsync(ct);
-
-        foreach (var instance in due)
-        {
-            await announcer.AnnounceQuestExpiredAsync(instance, ct);
-
-            await bus.PublishAsync(new QuestInstanceExpiredEvent
-            {
-                QuestInstanceId = instance.Id,
-                QuestInstanceFriendlyId = instance.FriendlyId,
-                QuestId = instance.QuestId,
-                Title = instance.Title,
-                Type = instance.Type,
-                RegionId = instance.RegionId,
-                LocationName = instance.LocationName,
-                ExpiresAt = instance.ExpiresAt,
-            });
-        }
-
-        return due.Count;
     }
 
     /// <summary>Coordinates to print in the broadcast.</summary>

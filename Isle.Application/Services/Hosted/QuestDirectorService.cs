@@ -56,4 +56,7 @@ public sealed class QuestDirectorService(
         }
         catch (Exception ex)
         {
-            l
+            logger.LogWarning(ex, "Quest director tick failed");
+        }
+    }
+}

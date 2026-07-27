@@ -42,6 +42,14 @@ node smoke-test.mjs
 - `client.user`/`client.guilds` populate correctly from our READY + GUILD_CREATE dispatch.
 - If a message is sent in a channel the bot can see within the 20s listen window after READY,
   `messageCreate` fires with the right channel/author/content - confirming MESSAGE_CREATE dispatch.
+- If the bot is installed somewhere: registers a real slash command via
+  `client.application.commands.create(...)`, invokes it itself through the native
+  `/api/v1/bots/guilds/{guildId}/channels/{channelId}/interactions` endpoint (standing in for a
+  human typing "/" - there's no separate Discord client in this system, see
+  `Bots.Tests/Gateway/GatewayLiveE2ETests.cs` for why), and calls `interaction.reply(...)` when
+  discord.js's `interactionCreate` fires - proving the full slash-command round trip works with
+  the real library, not just the hand-rolled test client.
 
 A bot that isn't installed in any guild yet still passes (0 guilds is a valid state) - the point
-is the handshake itself, not guild membership.
+is the handshake itself, not guild membership. The slash-command check is skipped (not failed) in
+that case too.

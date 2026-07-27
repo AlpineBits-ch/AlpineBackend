@@ -63,7 +63,35 @@ const timeout = setTimeout(() => {
     process.exit(1);
 }, 30_000);
 
-client.once('ready', () => {
+// Fetches a real JWT for the bot - the native command-invoke endpoint below is a normal
+// venta-JWT-authed endpoint, not Discord-compat, so the packed "Bot" token doesn't apply there.
+// Mirrors what BotTokenTranslator does server-side.
+async function getBotJwt() {
+    const response = await fetch(`${baseUrl}/connect/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ grant_type: 'client_credentials', client_id: clientId, client_secret: clientSecret }),
+    });
+    if (!response.ok) throw new Error(`/connect/token failed: ${response.status}`);
+    const body = await response.json();
+    return body.access_token;
+}
+
+// Invokes a command using the bot's own JWT to stand in for "a human invoked this" - the native
+// endpoint only checks the caller has SendMessages in the channel, which the bot itself does once
+// installed, so this exercises the exact same dispatch path a real human invocation would without
+// needing a separate human test account.
+async function invokeCommand(guildId, channelId, commandName) {
+    const jwt = await getBotJwt();
+    const response = await fetch(`${baseUrl}/api/v1/bots/guilds/${guildId}/channels/${channelId}/interactions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botUserId: clientId, commandName, options: [] }),
+    });
+    if (!response.ok) throw new Error(`invoke failed: ${response.status} ${await response.text()}`);
+}
+
+client.once('ready', async () => {
     clearTimeout(timeout);
     console.log(`READY as ${client.user.tag} (id=${client.user.id})`);
     console.log(`Guilds visible: ${client.guilds.cache.size}`);
@@ -75,7 +103,32 @@ client.once('ready', () => {
         console.log(`MESSAGE_CREATE: #${message.channel.id} ${message.author.tag}: ${message.content}`);
     });
 
-    console.log('Listening for messages for 20s (send one in an installed guild to verify MESSAGE_CREATE) ...');
+    const guild = client.guilds.cache.first();
+    const textChannel = guild?.channels.cache.find((c) => c.isTextBased() && !c.isThread());
+
+    if (!guild || !textChannel) {
+        console.log('Bot is not installed in any guild with a text channel - skipping the slash-command check.');
+    } else {
+        try {
+            const commandName = `e2e-ping-${Date.now()}`.slice(0, 20);
+            console.log(`Registering global command "${commandName}" ...`);
+            await client.application.commands.create({ name: commandName, description: 'E2E test command' });
+
+            client.on('interactionCreate', async (interaction) => {
+                if (!interaction.isChatInputCommand() || interaction.commandName !== commandName) return;
+                console.log(`INTERACTION_CREATE: ${interaction.commandName} in #${interaction.channelId}`);
+                await interaction.reply('pong from discord.js e2e smoke test');
+                console.log('Replied to the interaction - check the channel for the message.');
+            });
+
+            console.log('Invoking the command via the native REST endpoint (simulating a user typing "/")...');
+            await invokeCommand(guild.id, textChannel.id, commandName);
+        } catch (error) {
+            console.error('Slash-command check failed:', error);
+        }
+    }
+
+    console.log('Listening for 20s (send a message, or check the channel for the command reply) ...');
     setTimeout(() => {
         client.destroy();
         process.exit(0);

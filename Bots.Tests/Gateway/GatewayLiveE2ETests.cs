@@ -117,15 +117,15 @@ public class GatewayLiveE2ETests
         using var socket = new ClientWebSocket();
         await ConnectAndIdentifyAsync(socket, baseUrl, clientId, clientSecret);
 
-        var channelId = await FindTextChannelFromGuildCreatesAsync(socket, TimeSpan.FromSeconds(10));
-        if (channelId is null)
+        var location = await FindTextChannelFromGuildCreatesAsync(socket, TimeSpan.FromSeconds(10));
+        if (location is null)
         {
             Assert.Ignore("Bot isn't installed in any guild with a text channel - install it somewhere first to run this check.");
             return;
         }
 
         var marker = $"e2e-check-{Guid.NewGuid():N}";
-        await PostMessageAsync(baseUrl, clientId, clientSecret, channelId, marker);
+        await PostMessageAsync(baseUrl, clientId, clientSecret, location.Value.ChannelId, marker);
 
         var messageCreate = await FindDispatchAsync(socket, "MESSAGE_CREATE", TimeSpan.FromSeconds(15));
         Assert.That(messageCreate, Is.Not.Null, "never received a MESSAGE_CREATE dispatch for the message we just sent");
@@ -134,9 +134,120 @@ public class GatewayLiveE2ETests
         Assert.Multiple(() =>
         {
             Assert.That(payload.Content, Is.EqualTo(marker));
-            Assert.That(payload.ChannelId, Is.EqualTo(channelId));
+            Assert.That(payload.ChannelId, Is.EqualTo(location.Value.ChannelId));
             Assert.That(payload.Author.Id, Is.EqualTo(clientId));
         });
+
+        using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "test complete", closeCts.Token);
+    }
+
+    /// <summary>
+    /// Full slash-command round trip, immediate response: register a command via the Discord-
+    /// compat surface, invoke it via the native endpoint (using the bot's own JWT to stand in for
+    /// "a human invoked this" - the dispatch path doesn't care whose user id it is), assert
+    /// INTERACTION_CREATE arrives with the right shape, then respond immediately (type 4) and
+    /// assert the real message shows up as MESSAGE_CREATE - same pattern as the message round
+    /// trip, extended one hop further.
+    /// </summary>
+    [Test]
+    public async Task RegisterCommand_Invoke_ReceivesInteractionCreate_ThenImmediateCallbackCreatesMessage()
+    {
+        var (clientId, clientSecret, baseUrl) = LocalE2ECredentials.Load();
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            Assert.Ignore("Set BOTS_E2E_CLIENT_ID/BOTS_E2E_CLIENT_SECRET or populate Bots.Tests/.e2e-credentials.local.json to run this against a live deployment.");
+            return;
+        }
+
+        using var socket = new ClientWebSocket();
+        await ConnectAndIdentifyAsync(socket, baseUrl, clientId, clientSecret);
+
+        var location = await FindTextChannelFromGuildCreatesAsync(socket, TimeSpan.FromSeconds(10));
+        if (location is null)
+        {
+            Assert.Ignore("Bot isn't installed in any guild with a text channel - install it somewhere first to run this check.");
+            return;
+        }
+
+        var commandName = $"e2e-ping-{Guid.NewGuid():N}"[..20];
+        await RegisterGlobalCommandAsync(baseUrl, clientId, clientSecret, commandName, "E2E test command");
+
+        var jwt = await GetBotJwtAsync(baseUrl, clientId, clientSecret);
+        await InvokeCommandAsync(baseUrl, jwt, location.Value.GuildId, location.Value.ChannelId, clientId, commandName);
+
+        var interactionCreate = await FindDispatchAsync(socket, "INTERACTION_CREATE", TimeSpan.FromSeconds(15));
+        Assert.That(interactionCreate, Is.Not.Null, "never received an INTERACTION_CREATE dispatch for the command we just invoked");
+
+        var interaction = interactionCreate!.D!.Value.Deserialize<InteractionPayload>()!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(interaction.Data.Name, Is.EqualTo(commandName));
+            Assert.That(interaction.ChannelId, Is.EqualTo(location.Value.ChannelId));
+            Assert.That(interaction.GuildId, Is.EqualTo(location.Value.GuildId));
+        });
+
+        var marker = $"e2e-reply-{Guid.NewGuid():N}";
+        await PostInteractionCallbackAsync(baseUrl, interaction.Id, interaction.Token, type: 4, content: marker);
+
+        var messageCreate = await FindDispatchAsync(socket, "MESSAGE_CREATE", TimeSpan.FromSeconds(15));
+        Assert.That(messageCreate, Is.Not.Null, "never received a MESSAGE_CREATE dispatch for the interaction response");
+
+        var message = messageCreate!.D!.Value.Deserialize<MessageCreatePayload>()!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(message.Content, Is.EqualTo(marker));
+            Assert.That(message.ChannelId, Is.EqualTo(location.Value.ChannelId));
+            Assert.That(message.Author.Id, Is.EqualTo(clientId));
+        });
+
+        using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "test complete", closeCts.Token);
+    }
+
+    /// <summary>Same round trip, but the bot defers (type 5) first and posts the real response
+    /// later via the followup webhook endpoint - proves the flow real-world commands that do
+    /// actual work (can't answer within Discord's 3s window) depend on.</summary>
+    [Test]
+    public async Task RegisterCommand_Invoke_DeferThenFollowUp_CreatesMessage()
+    {
+        var (clientId, clientSecret, baseUrl) = LocalE2ECredentials.Load();
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            Assert.Ignore("Set BOTS_E2E_CLIENT_ID/BOTS_E2E_CLIENT_SECRET or populate Bots.Tests/.e2e-credentials.local.json to run this against a live deployment.");
+            return;
+        }
+
+        using var socket = new ClientWebSocket();
+        await ConnectAndIdentifyAsync(socket, baseUrl, clientId, clientSecret);
+
+        var location = await FindTextChannelFromGuildCreatesAsync(socket, TimeSpan.FromSeconds(10));
+        if (location is null)
+        {
+            Assert.Ignore("Bot isn't installed in any guild with a text channel - install it somewhere first to run this check.");
+            return;
+        }
+
+        var commandName = $"e2e-defer-{Guid.NewGuid():N}"[..20];
+        await RegisterGlobalCommandAsync(baseUrl, clientId, clientSecret, commandName, "E2E deferred test command");
+
+        var jwt = await GetBotJwtAsync(baseUrl, clientId, clientSecret);
+        await InvokeCommandAsync(baseUrl, jwt, location.Value.GuildId, location.Value.ChannelId, clientId, commandName);
+
+        var interactionCreate = await FindDispatchAsync(socket, "INTERACTION_CREATE", TimeSpan.FromSeconds(15));
+        Assert.That(interactionCreate, Is.Not.Null, "never received an INTERACTION_CREATE dispatch for the command we just invoked");
+        var interaction = interactionCreate!.D!.Value.Deserialize<InteractionPayload>()!;
+
+        await PostInteractionCallbackAsync(baseUrl, interaction.Id, interaction.Token, type: 5, content: null);
+
+        var marker = $"e2e-followup-{Guid.NewGuid():N}";
+        await PostFollowupAsync(baseUrl, clientId, interaction.Token, marker);
+
+        var messageCreate = await FindDispatchAsync(socket, "MESSAGE_CREATE", TimeSpan.FromSeconds(15));
+        Assert.That(messageCreate, Is.Not.Null, "never received a MESSAGE_CREATE dispatch for the deferred follow-up");
+
+        var message = messageCreate!.D!.Value.Deserialize<MessageCreatePayload>()!;
+        Assert.That(message.Content, Is.EqualTo(marker));
 
         using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "test complete", closeCts.Token);
@@ -176,8 +287,8 @@ public class GatewayLiveE2ETests
     }
 
     /// <summary>Drains dispatches for up to <paramref name="timeout"/> looking for the first
-    /// GUILD_CREATE that has at least one text channel, returning that channel's id.</summary>
-    private static async Task<string?> FindTextChannelFromGuildCreatesAsync(ClientWebSocket socket, TimeSpan timeout)
+    /// GUILD_CREATE that has at least one text channel, returning its guild + channel id.</summary>
+    private static async Task<(string GuildId, string ChannelId)?> FindTextChannelFromGuildCreatesAsync(ClientWebSocket socket, TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
         try
@@ -189,7 +300,7 @@ public class GatewayLiveE2ETests
 
                 var guild = envelope.D!.Value.Deserialize<GuildCreatePayload>()!;
                 var textChannel = guild.Channels.FirstOrDefault(c => c.Type == DiscordChannelType.GuildText);
-                if (textChannel is not null) return textChannel.Id;
+                if (textChannel is not null) return (guild.Id, textChannel.Id);
             }
         }
         catch (OperationCanceledException)
@@ -228,6 +339,72 @@ public class GatewayLiveE2ETests
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bot", compatToken);
 
         var response = await http.PostAsJsonAsync($"{baseUrl}/api/discord/v10/channels/{channelId}/messages", new { content });
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task RegisterGlobalCommandAsync(string baseUrl, string clientId, string clientSecret, string name, string description)
+    {
+        using var http = new HttpClient();
+        var compatToken = DiscordCompatToken.Pack(clientId, clientSecret);
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bot", compatToken);
+
+        var request = new HttpRequestMessage(HttpMethod.Put, $"{baseUrl}/api/discord/v10/applications/{clientId}/commands")
+        {
+            Content = JsonContent.Create(new[] { new { name, description } }),
+        };
+        var response = await http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Fetches a real JWT for the bot, the same client_credentials exchange
+    /// BotTokenTranslator does server-side - needed because the native invoke endpoint is a
+    /// normal venta-JWT-authed endpoint, not a Discord-compat one, so the packed "Bot" token
+    /// doesn't apply there.</summary>
+    private static async Task<string> GetBotJwtAsync(string baseUrl, string clientId, string clientSecret)
+    {
+        using var http = new HttpClient();
+        var response = await http.PostAsync($"{baseUrl}/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["grant_type"] = "client_credentials",
+            ["client_id"] = clientId,
+            ["client_secret"] = clientSecret,
+        }));
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return body.GetProperty("access_token").GetString()!;
+    }
+
+    /// <summary>Invokes a command using the bot's own JWT to stand in for "a human invoked this" -
+    /// the native endpoint just checks the caller has SendMessages in the channel, which the bot
+    /// itself does once installed, so this exercises the exact same dispatch path a real human
+    /// invocation would without needing a separate human test account.</summary>
+    private static async Task InvokeCommandAsync(string baseUrl, string jwt, string guildId, string channelId, string botUserId, string commandName)
+    {
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", jwt);
+
+        var response = await http.PostAsJsonAsync(
+            $"{baseUrl}/api/v1/bots/guilds/{guildId}/channels/{channelId}/interactions",
+            new { botUserId, commandName, options = Array.Empty<object>() });
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task PostInteractionCallbackAsync(string baseUrl, string interactionId, string token, int type, string? content)
+    {
+        using var http = new HttpClient();
+        object body = content is null
+            ? new { type }
+            : new { type, data = new { content, flags = 0 } };
+
+        var response = await http.PostAsJsonAsync($"{baseUrl}/api/discord/v10/interactions/{interactionId}/{token}/callback", body);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private static async Task PostFollowupAsync(string baseUrl, string applicationId, string token, string content)
+    {
+        using var http = new HttpClient();
+        var response = await http.PostAsJsonAsync($"{baseUrl}/api/discord/v10/webhooks/{applicationId}/{token}", new { content, flags = 0 });
         response.EnsureSuccessStatusCode();
     }
 

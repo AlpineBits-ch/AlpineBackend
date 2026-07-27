@@ -13,6 +13,7 @@ public class CreateGuildParams
     public string? Description { get; init; }
     public string OwnerId { get; init; }
     public required string OwnerSearchValue { get; init; }
+    public string? OwnerNickname { get; init; }
 }
 
 public class Guild : Aggregate<Guild>, IPrefixedEntity
@@ -60,6 +61,7 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
                 UserId = parameters.OwnerId,
                 JoinedAt = date,
                 GuildId = id,
+                Nickname = parameters.OwnerNickname,
                 SearchValue = parameters.OwnerSearchValue,
             }],
             Roles = [Role.CreateEveryoneRole(id, memberId)]

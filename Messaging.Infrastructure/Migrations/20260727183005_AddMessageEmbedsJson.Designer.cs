@@ -5,17 +5,20 @@ using Messaging.Domain.Enums;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
-namespace Messaging.Persistence.Migrations
+namespace Messaging.Infrastructure.Migrations
 {
     [DbContext(typeof(MicroserviceContext))]
-    partial class MicroserviceContextModelSnapshot : ModelSnapshot
+    [Migration("20260727183005_AddMessageEmbedsJson")]
+    partial class AddMessageEmbedsJson
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

@@ -8,8 +8,10 @@ using Messaging.Application.Commands;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 using Messaging.Contracts.Bus.Commands;
+using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
+using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -121,33 +123,45 @@ public class MessagingEndpoints
     }
 
     [WolverineDelete("/api/v1/messaging/{messageId}")]
-    public async Task<(IResult, MessageDeleted?)> DeleteMessage(string messageId, [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user)
+    public async Task<(IResult, MessageDeleted?)> DeleteMessage(string messageId, [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user)
     {
-        var message = await ctx.Mapper.FirstOrDefaultAsync<Message>("WHERE message_id = ?", messageId);
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return (Results.Unauthorized(), null);
+
+        var message = await repo.GetMessageAsync(messageId);
         if (message is null) return (Results.NotFound(), null);
-        if (message.AuthorId != user.FindFirstValue(ClaimTypes.NameIdentifier))
+        if (message.AuthorId != userId)
         {
             return (Results.Forbid(), null);
         }
 
-        await ctx.Mapper.DeleteAsync(message);
-        return (Results.Accepted(), new MessageDeleted() { MessageId = messageId });
+        await repo.DeleteMessageAsync(message);
+        return (Results.Accepted(), new MessageDeleted()
+        {
+            MessageId = messageId,
+            ChannelId = message.ChannelId,
+            ConversationId = message.ConversationId,
+            AuthorId = message.AuthorId,
+        });
     }
-    
-    [WolverinePut("/api/v1/messaging/{messageId}")]
-    public async Task<(IResult, MessageDeleted?)> UpdateMessageAsync(string messageId, UpdateMessageDto dto, [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user)
-    {
-        var message = await ctx.Mapper.FirstOrDefaultAsync<Message>("WHERE message_id = ?", messageId);
-        if (message is null) return (Results.NotFound(), null);
-        if (message.AuthorId != user.FindFirstValue(ClaimTypes.NameIdentifier))
-        {
-            return (Results.Forbid(), null);
-        }
 
-        message.Content = Encoding.UTF8.GetBytes(dto.Content);
-        message.UpdatedAt = DateTime.UtcNow;
-        await ctx.Mapper.UpdateAsync(message);
-        return (Results.Accepted(), new MessageDeleted() { MessageId = messageId });
+    [WolverinePut("/api/v1/messaging/{messageId}")]
+    public async Task<IResult> UpdateMessageAsync(string messageId, UpdateMessageDto dto, [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var result = await bus.InvokeAsync<UpdateMessageResponse>(new UpdateMessageCommand
+        {
+            MessageId = messageId,
+            RequestingAuthorId = userId,
+            Content = Encoding.UTF8.GetBytes(dto.Content),
+        });
+
+        if (result.NotFound) return Results.NotFound();
+        if (result.Forbidden) return Results.Forbid();
+
+        return Results.Accepted(value: new { messageId, content = dto.Content });
     }
     
     

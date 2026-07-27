@@ -11,13 +11,12 @@ using Wolverine;
 namespace Bots.Application.Gateway.Handlers;
 
 /// <summary>
-/// Translates Guild.Application's re-published MessageCreatedForBots (see that project's
-/// MessageCreatedHandler, which resolves the GuildId this needs) into a Gateway MESSAGE_CREATE
-/// dispatch for every bot installed in the guild.
+/// Translates Guild.Application's re-published MessageUpdatedForBots into a Gateway MESSAGE_UPDATE
+/// dispatch for every bot installed in the guild - mirrors MessageCreatedForBotsHandler.
 /// </summary>
-public class MessageCreatedForBotsHandler
+public class MessageUpdatedForBotsHandler
 {
-    public static async Task Handle(MessageCreatedForBots message, MicroserviceContext ctx, GatewayConnectionRegistry registry,
+    public static async Task Handle(MessageUpdatedForBots message, MicroserviceContext ctx, GatewayConnectionRegistry registry,
         IMessageBus bus)
     {
         var botUserIds = await InstalledBotsLookup.GetBotUserIdsInGuildAsync(ctx, message.GuildId);
@@ -31,27 +30,20 @@ public class MessageCreatedForBotsHandler
             Bot = authorResponse.User?.IsBot ?? false,
         };
 
-        var content = message.EncryptionState == MessageEncryptionState.Plain
-            ? Encoding.UTF8.GetString(message.Content)
-            : ""; // encrypted content can't be decoded for a compat client - see class remarks
-
         var payload = new MessageCreatePayload
         {
             Id = message.MessageId,
             ChannelId = message.ChannelId,
             GuildId = message.GuildId,
-            Content = content,
+            Content = Encoding.UTF8.GetString(message.Content),
             Author = author,
             Timestamp = DateTimeOffset.UtcNow,
             Embeds = DeserializeEmbeds(message.EmbedsJson),
         };
 
-        // Real Discord dispatches MESSAGE_CREATE to the author bot for its own messages too -
-        // filtering "is this my own message" is a client-side concern (every bot framework's
-        // well-known `if message.author.bot: return` pattern), not something the server does.
         foreach (var botUserId in botUserIds)
         {
-            await registry.PublishAsync(botUserId, "MESSAGE_CREATE", payload);
+            await registry.PublishAsync(botUserId, "MESSAGE_UPDATE", payload);
         }
     }
 

@@ -63,6 +63,7 @@ public class MessageCreatedHandler
                 MentionsEveryone = messageCreated.MentionsEveryone,
                 MentionsHere = messageCreated.MentionsHere,
                 EncryptionState = MessageEncryptionState.Plain,
+                EmbedsJson = messageCreated.EmbedsJson,
                 Attachments = messageCreated.Attachments.Select(a => new MinimalAttachmentForChannel()
                 {
                     Id = a.Id,

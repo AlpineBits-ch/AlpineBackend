@@ -110,4 +110,9 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
         await context.Mapper.UpdateAsync(message);
         return message;
     }
+
+    public async Task DeleteMessageAsync(Message message)
+    {
+        await context.Mapper.DeleteAsync(message);
+    }
 }

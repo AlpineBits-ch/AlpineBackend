@@ -26,4 +26,5 @@ public class MessageCreated : DomainEvent
     public bool MentionsHere { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     public required ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
+    public string? EmbedsJson { get; set; }
 }

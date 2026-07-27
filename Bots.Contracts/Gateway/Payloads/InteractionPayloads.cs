@@ -129,9 +129,64 @@ public class InteractionResponseDataPayload
     [JsonPropertyName("content")]
     public string? Content { get; set; }
 
+    /// <summary>venta has no native embed/rich-card concept in its message model - these get
+    /// flattened into plain text (see DiscordInteractionEndpoint) rather than dropped, since a
+    /// LOT of real bots (like most status/health-check commands) reply with embeds and no
+    /// `content` at all - silently posting an empty message would look broken with no indication
+    /// why.</summary>
+    [JsonPropertyName("embeds")]
+    public List<EmbedPayload> Embeds { get; set; } = new();
+
     /// <summary>64 = EPHEMERAL. Accepted but not enforced in v1 - posts as a normal channel
     /// message, since there's no "only visible to the invoker" concept in venta's channel model
     /// today. A known, deliberate limitation, not an oversight.</summary>
     [JsonPropertyName("flags")]
     public int Flags { get; set; }
+}
+
+/// <summary>Subset of Discord's real embed object - just enough to render a readable plain-text
+/// fallback (see class remarks on InteractionResponseDataPayload.Embeds).</summary>
+public class EmbedPayload
+{
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("url")]
+    public string? Url { get; set; }
+
+    [JsonPropertyName("author")]
+    public EmbedAuthorPayload? Author { get; set; }
+
+    [JsonPropertyName("fields")]
+    public List<EmbedFieldPayload> Fields { get; set; } = new();
+
+    [JsonPropertyName("footer")]
+    public EmbedFooterPayload? Footer { get; set; }
+}
+
+public class EmbedAuthorPayload
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+}
+
+public class EmbedFieldPayload
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("value")]
+    public string Value { get; set; } = "";
+
+    [JsonPropertyName("inline")]
+    public bool Inline { get; set; }
+}
+
+public class EmbedFooterPayload
+{
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = "";
 }

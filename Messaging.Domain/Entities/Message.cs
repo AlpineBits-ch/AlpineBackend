@@ -25,20 +25,32 @@ public class CreateMessageParams
     public string? InReplyTo { get; set; }
     
     public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
-    
+
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
+
+    /// <summary>Raw JSON array of structured Discord-shaped embeds (see Bots.Contracts'
+    /// EmbedPayload), stored opaquely here - same convention as BotCommand.OptionsJson. Null/empty
+    /// when the message has no embeds.</summary>
+    public string? EmbedsJson { get; set; }
 }
 public class Message : BaseEntity<Message>, IPrefixedEntity
 {
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public string ContextId { get; set; }
-    public MessageEncryptionState EncryptionState { get; set; } 
+    public MessageEncryptionState EncryptionState { get; set; }
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
     public string? SenderDeviceId { get; set; }
     public string? ChannelId { get; set; }
     public string? ConversationId { get; set; }
+
+    /// <summary>Structured embed data (title/description/fields/etc.), stored as a raw JSON string
+    /// rather than modeled as owned entities/UDTs - keeps it storable identically across both the
+    /// Scylla (Cassandra text column) and Postgres (EF Core, self-hosted) backing stores without
+    /// needing two different mapping strategies. Clients JSON.parse this to render rich cards;
+    /// Content still carries a plain-text fallback for any unmodified consumer.</summary>
+    public string? EmbedsJson { get; set; }
     
     public string? InReplyTo { get; set; }
     
@@ -86,6 +98,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             MlsSequenceNumber = createMessageParams.MlsSequenceNumber,
             SenderDeviceId = createMessageParams.SenderDeviceId,
             AuthorIdType = createMessageParams.AuthorIdType,
+            EmbedsJson = createMessageParams.EmbedsJson,
         };
         
         return message;

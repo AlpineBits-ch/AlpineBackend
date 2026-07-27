@@ -36,6 +36,7 @@ public class CreateMessageCommandHandler
             EncryptionState = encryptionState,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
+            EmbedsJson = command.EmbedsJson,
             Attachments = command.Attachments.Select(a => MinimalAttachment.Create(new CreateMinimalAttachmentParams()
             {
                 Id = a.Id,
@@ -69,6 +70,7 @@ public class CreateMessageCommandHandler
             MlsSequenceNumber = command.MlsSequenceNumber,
             SenderDeviceId = command.SenderDeviceId,
             InReplyTo = command.InReplyTo,
+            EmbedsJson = command.EmbedsJson,
         });
     }
 }

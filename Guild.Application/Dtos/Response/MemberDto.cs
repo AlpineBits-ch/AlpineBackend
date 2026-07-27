@@ -43,7 +43,7 @@ public partial class FlatRoleDto
 
 
 
-[Facet(typeof(GuildMember), Include = ["Id", "CreatedAt", "UpdatedAt", "UserId", "GuildId", "SearchValue"], NestedFacets = [typeof(FlatRoleDto)])]
+[Facet(typeof(GuildMember), Include = ["Id", "CreatedAt", "UpdatedAt", "UserId", "GuildId", "SearchValue", "Nickname"], NestedFacets = [typeof(FlatRoleDto)])]
 public partial class FlatMemberDto
 {
     

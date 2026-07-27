@@ -24,8 +24,8 @@ public abstract class BaseEntity<T> :IBaseEntity where T : BaseEntity<T>, IPrefi
 
     public static string GenerateId()
     {
-        return Ksuid.Generate(T.Prefix + "_").ToUpperInvariant();
+        return T.Prefix + "_" + Ksuid.Generate().ToString().ToUpperInvariant();
+        
     }
- 
   
 }

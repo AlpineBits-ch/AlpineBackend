@@ -137,6 +137,7 @@ public class InviteEndpoint
             UserId = userId,
             JoinedAt = DateTime.UtcNow,
             InviteId = inviteId,
+            Nickname = profileResponse.Profile.UserName,
             SearchValue = searchValue.ToUpperInvariant()
         };
         

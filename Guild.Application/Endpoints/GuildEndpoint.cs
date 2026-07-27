@@ -40,7 +40,8 @@ public class GuildEndpoint
             Name = dto.Name,
             Description = dto.Description,
             OwnerId = user.FindFirstValue(ClaimTypes.NameIdentifier)!,
-            OwnerSearchValue = searchValue.ToUpperInvariant()
+            OwnerSearchValue = searchValue.ToUpperInvariant(),
+            OwnerNickname = profileResponse.Profile.UserName,
         });
         
         ctx.Guilds.Add(guild);

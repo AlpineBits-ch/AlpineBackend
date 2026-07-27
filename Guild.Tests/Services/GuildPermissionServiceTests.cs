@@ -1312,4 +1312,325 @@ public class GuildPermissionServiceTests
             Assert.That(perms.HasFlag(Permissions.AttachFiles), Is.False, "AttachFiles revoked");
         });
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CanGrantPermissionsAsync — privilege-escalation guard
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task CanGrantPermissions_Owner_CanGrantAnything()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanGrantPermissionsAsync(UserId, GuildId, Permissions.Superadmin);
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task CanGrantPermissions_NonOwner_CannotGrantPermissionTheyDontHold()
+    {
+        await SeedWithRolePermission(Permissions.ViewChannel);
+
+        var result = await _service.CanGrantPermissionsAsync(UserId, GuildId, Permissions.Superadmin);
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public async Task CanGrantPermissions_NonOwner_CanGrantSubsetOfOwnPermissions()
+    {
+        await SeedWithRolePermission(Permissions.ViewChannel | Permissions.SendMessages | Permissions.ManagePermissions);
+
+        var result = await _service.CanGrantPermissionsAsync(UserId, GuildId, Permissions.ViewChannel | Permissions.SendMessages);
+
+        Assert.That(result, Is.True);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Role hierarchy — GetHighestRolePositionAsync / CanManageRoleAsync / CanModerateTargetAsync
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task GetHighestRolePosition_Owner_ReturnsMaxValue()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        await _context.SaveChangesAsync();
+
+        var position = await _service.GetHighestRolePositionAsync(UserId, GuildId);
+
+        Assert.That(position, Is.EqualTo(int.MaxValue));
+    }
+
+    [Test]
+    public async Task GetHighestRolePosition_MemberWithNoRoles_ReturnsMinValue()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(MakeGuildMember());
+        await _context.SaveChangesAsync();
+
+        var position = await _service.GetHighestRolePositionAsync(UserId, GuildId);
+
+        Assert.That(position, Is.EqualTo(int.MinValue));
+    }
+
+    [Test]
+    public async Task GetHighestRolePosition_ReturnsMaxAcrossHeldRoles()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(MakeGuildMember());
+        var lowRole = MakeRole(id: "role-low");
+        var highRole = MakeRole(id: "role-high");
+        lowRole.Position = 1;
+        highRole.Position = 5;
+        _context.Roles.Add(lowRole);
+        _context.Roles.Add(highRole);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", "role-low", MemberId));
+        _context.RoleMembers.Add(MakeRoleMember("rm-2", "role-high", MemberId));
+        await _context.SaveChangesAsync();
+
+        var position = await _service.GetHighestRolePositionAsync(UserId, GuildId);
+
+        Assert.That(position, Is.EqualTo(5));
+    }
+
+    [Test]
+    public async Task CanManageRole_Owner_CanManageAnyRole()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        _context.Roles.Add(MakeRole());
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanManageRoleAsync(UserId, GuildId, RoleId);
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task CanManageRole_NonOwner_CannotManageRoleAtOrAboveOwnPosition()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(MakeGuildMember());
+        var actorRole = MakeRole(id: "actor-role");
+        var targetRole = MakeRole(id: "target-role");
+        _context.Roles.Add(actorRole);
+        _context.Roles.Add(targetRole);
+        await _context.SaveChangesAsync();
+        actorRole.Position = 2;
+        targetRole.Position = 2;
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", "actor-role", MemberId));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanManageRoleAsync(UserId, GuildId, "target-role");
+
+        Assert.That(result, Is.False, "equal position must not be manageable");
+    }
+
+    [Test]
+    public async Task CanManageRole_NonOwner_CanManageStrictlyLowerRole()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(MakeGuildMember());
+        var actorRole = MakeRole(id: "actor-role");
+        var targetRole = MakeRole(id: "target-role");
+        _context.Roles.Add(actorRole);
+        _context.Roles.Add(targetRole);
+        await _context.SaveChangesAsync();
+        actorRole.Position = 5;
+        targetRole.Position = 1;
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", "actor-role", MemberId));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanManageRoleAsync(UserId, GuildId, "target-role");
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task CanModerateTarget_NobodyCanModerateOwner()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: "target-owner"));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanModerateTargetAsync(UserId, "target-owner", GuildId);
+
+        Assert.That(result, Is.False);
+    }
+
+    [Test]
+    public async Task CanModerateTarget_Owner_CanModerateAnyNonOwner()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        _context.GuildMembers.Add(MakeGuildMember(id: "target-member", userId: "target-user"));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanModerateTargetAsync(UserId, "target-user", GuildId);
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task CanModerateTarget_HigherRoleCanModerateLowerRole()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(MakeGuildMember(id: MemberId, userId: UserId));
+        _context.GuildMembers.Add(MakeGuildMember(id: "target-member", userId: "target-user"));
+        var actorRole = MakeRole(id: "actor-role");
+        var targetRole = MakeRole(id: "target-role");
+        _context.Roles.Add(actorRole);
+        _context.Roles.Add(targetRole);
+        await _context.SaveChangesAsync();
+        actorRole.Position = 5;
+        targetRole.Position = 1;
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", "actor-role", MemberId));
+        _context.RoleMembers.Add(MakeRoleMember("rm-2", "target-role", "target-member"));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanModerateTargetAsync(UserId, "target-user", GuildId);
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task CanModerateTarget_EqualOrLowerRoleCannotModerate()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(MakeGuildMember(id: MemberId, userId: UserId));
+        _context.GuildMembers.Add(MakeGuildMember(id: "target-member", userId: "target-user"));
+        var actorRole = MakeRole(id: "actor-role");
+        var targetRole = MakeRole(id: "target-role");
+        _context.Roles.Add(actorRole);
+        _context.Roles.Add(targetRole);
+        await _context.SaveChangesAsync();
+        actorRole.Position = 1;
+        targetRole.Position = 5;
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", "actor-role", MemberId));
+        _context.RoleMembers.Add(MakeRoleMember("rm-2", "target-role", "target-member"));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanModerateTargetAsync(UserId, "target-user", GuildId);
+
+        Assert.That(result, Is.False);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Mute (MutedUntil) — permission stripping
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Muted_StripsSendMessagesAndConnect_ButKeepsViewChannel()
+    {
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages | Permissions.Connect | Permissions.AddReactions;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        var member = MakeGuildMember();
+        member.MutedUntil = DateTimeOffset.UtcNow.AddMinutes(10);
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(perms.HasFlag(Permissions.ViewChannel), Is.True, "ViewChannel untouched by mute");
+            Assert.That(perms.HasFlag(Permissions.SendMessages), Is.False, "SendMessages stripped while muted");
+            Assert.That(perms.HasFlag(Permissions.Connect), Is.False, "Connect stripped while muted");
+            Assert.That(perms.HasFlag(Permissions.AddReactions), Is.False, "AddReactions stripped while muted");
+        });
+    }
+
+    [Test]
+    public async Task ExpiredMute_DoesNotStripPermissions()
+    {
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        var member = MakeGuildMember();
+        member.MutedUntil = DateTimeOffset.UtcNow.AddMinutes(-10); // expired
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.That(perms.HasFlag(Permissions.SendMessages), Is.True, "expired mute must not strip permissions");
+    }
+
+    [Test]
+    public async Task Muted_Owner_KeepsAllPermissions()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        _context.Channels.Add(MakeChannel());
+        var member = MakeGuildMember();
+        member.MutedUntil = DateTimeOffset.UtcNow.AddMinutes(10);
+        _context.GuildMembers.Add(member);
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanUserPerformActionAsync(UserId, ChannelId, Permissions.SendMessages);
+
+        Assert.That(result, Is.True, "owner short-circuit bypasses mute entirely");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Threads — inherit parent's resolved permissions; SendMessages checks
+    // substitute SendMessagesInThreads for Thread-type channels.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private const string ThreadId = "thread-1";
+
+    private static Channel MakeThread(string parentChannelId = ChannelId, string id = ThreadId, string guildId = GuildId) => new()
+    {
+        Id = id, GuildId = guildId, Name = "test-thread", Description = "",
+        Type = ChannelType.Thread, ParentChannelId = parentChannelId,
+        CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+    };
+
+    [Test]
+    public async Task Thread_InheritsParentChannelOverwrite()
+    {
+        // Role alone would not grant ViewChannel, but a channel-level overwrite on the
+        // parent grants it — the thread must see the same resolved result as its parent.
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Channels.Add(MakeThread());
+        _context.Roles.Add(MakeRole(permissions: Permissions.None));
+        _context.GuildMembers.Add(MakeGuildMember());
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        _context.Set<ChannelPermission>().Add(MakePermission("perm-1", channelId: ChannelId, roleId: RoleId, allow: Permissions.ViewChannel));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.ComputePermissionsForUserAsync(UserId, GuildId);
+        var threadPerms = result.Permissions.First(p => p.ChannelId == ThreadId).Permissions;
+        var parentPerms = result.Permissions.First(p => p.ChannelId == ChannelId).Permissions;
+
+        Assert.That(threadPerms, Is.EqualTo(parentPerms));
+        Assert.That(threadPerms.HasFlag(Permissions.ViewChannel), Is.True);
+    }
+
+    [Test]
+    public async Task Thread_SendMessagesCheck_SubstitutesSendMessagesInThreads()
+    {
+        // Role grants SendMessagesInThreads but not plain SendMessages — posting in the
+        // thread must still be allowed.
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Channels.Add(MakeThread());
+        _context.Roles.Add(MakeRole(permissions: Permissions.ViewChannel | Permissions.SendMessagesInThreads));
+        _context.GuildMembers.Add(MakeGuildMember());
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var canPostInThread = await _service.CanUserPerformActionAsync(UserId, ThreadId, Permissions.SendMessages);
+        var canPostInParent = await _service.CanUserPerformActionAsync(UserId, ChannelId, Permissions.SendMessages);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(canPostInThread, Is.True, "SendMessagesInThreads must satisfy a SendMessages check on a thread");
+            Assert.That(canPostInParent, Is.False, "the parent channel itself still requires plain SendMessages");
+        });
+    }
 }

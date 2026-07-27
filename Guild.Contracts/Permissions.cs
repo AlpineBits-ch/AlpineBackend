@@ -98,7 +98,24 @@ public enum ExternalPermission
     ManagePermissions,
  
     CreateInvite,
-    
+
+    // ── Moderation (members) ─────────────────────────────────────────────────
+
+    /// <summary>Remove a member from the guild; they may rejoin with a new invite.</summary>
+    KickMembers,
+
+    /// <summary>Remove a member from the guild and block them from rejoining.</summary>
+    BanMembers,
+
+    /// <summary>Temporarily restrict a member from sending messages/reacting/connecting (timeout).</summary>
+    ModerateMembers,
+
+    /// <summary>Manage guild-level settings: name, description, deletion.</summary>
+    ManageGuild,
+
+    /// <summary>View the guild's moderation audit log.</summary>
+    ViewAuditLog,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
  
     /// <summary>

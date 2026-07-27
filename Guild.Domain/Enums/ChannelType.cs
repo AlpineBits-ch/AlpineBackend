@@ -6,5 +6,6 @@ public enum ChannelType
     Voice,
     Forum,
     Ticket,
-    Announcement
+    Announcement,
+    Thread
 }

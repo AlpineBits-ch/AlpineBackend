@@ -14,6 +14,9 @@ public class CreateMessageCommand
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     
     public List<string> Mentions { get; set; } = new List<string>();
+    public List<string> RoleMentions { get; set; } = new List<string>();
+    public bool MentionsEveryone { get; set; }
+    public bool MentionsHere { get; set; }
     public List<MinimalAttachmentContract> Attachments { get; set; } = new List<MinimalAttachmentContract>();
 }
 

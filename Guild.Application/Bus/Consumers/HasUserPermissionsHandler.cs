@@ -57,8 +57,13 @@ public  class HasUserPermissionsHandler
             ExternalPermission.ManagePermissions   => Permissions.ManagePermissions,
             ExternalPermission.Superadmin          => Permissions.Superadmin,
             ExternalPermission.CreateInvite          => Permissions.CreateInvite,
+            ExternalPermission.KickMembers            => Permissions.KickMembers,
+            ExternalPermission.BanMembers             => Permissions.BanMembers,
+            ExternalPermission.ModerateMembers        => Permissions.ModerateMembers,
+            ExternalPermission.ManageGuild            => Permissions.ManageGuild,
+            ExternalPermission.ViewAuditLog           => Permissions.ViewAuditLog,
 
- 
+
             // Throws on unknown values rather than silently defaulting to None,
             // which would incorrectly deny every permission check for new enum
             // members added to the contract but not yet mapped here.

@@ -9,6 +9,7 @@ using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Social.Contracts.Bus.Integration.Events;
 
 namespace Guild.Application.Bus.Events.Realtime;
 
@@ -18,15 +19,19 @@ namespace Guild.Application.Bus.Events.Realtime;
 /// </summary>
 public class GuildLifecycleHandler
 {
+    // A brand-new connection defaults to Online (matches Discord's default) — there is no
+    // prior presence entry to preserve a status from.
     public Task Handle(UserConnected message, MicroserviceContext microserviceContext, GuildHydrateService service)
-        => RefreshPresenceAsync(message.UserId, microserviceContext, service);
+        => RefreshPresenceAsync(message.UserId, microserviceContext, service, defaultStatus: nameof(OnlineStatus.Online));
 
     // The gateway hub republishes this while the connection is alive (throttled), replacing the
-    // old IConnectionHeartbeatFeature per-pulse refresh.
+    // old IConnectionHeartbeatFeature per-pulse refresh. Previously this also hardcoded Online,
+    // which silently clobbered any status the user had explicitly set (Idle/DoNotDisturb/Hidden)
+    // back to Online on the next ~30s tick — preserve whatever is already cached instead.
     public Task Handle(PresenceHeartbeat message, MicroserviceContext microserviceContext, GuildHydrateService service)
-        => RefreshPresenceAsync(message.UserId, microserviceContext, service);
+        => RefreshPresenceAsync(message.UserId, microserviceContext, service, defaultStatus: null);
 
-    private static async Task RefreshPresenceAsync(string userId, MicroserviceContext ctx, GuildHydrateService service)
+    private static async Task RefreshPresenceAsync(string userId, MicroserviceContext ctx, GuildHydrateService service, string? defaultStatus)
     {
         var members = await ctx.GuildMembers
             .AsNoTracking()
@@ -36,13 +41,47 @@ public class GuildLifecycleHandler
 
         foreach (var m in members)
         {
+            var existing = await service.GetPresenceStateForMemberAsync(m.Id);
+            var status = existing?.Status ?? defaultStatus ?? nameof(OnlineStatus.Online);
+
             await service.AddPresenceStateAsync(m.GuildId, new MemberPresenceState
             {
                 MemberId = m.Id,
                 UserId = m.UserId,
-                Status = nameof(OnlineStatus.Online),
+                Status = status,
+                Activity = existing?.Activity,
+                ClientStatus = existing?.ClientStatus,
                 HeartbeatTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             });
+        }
+    }
+
+    public async Task Handle(UserStatusChanged message, MicroserviceContext microserviceContext,
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub)
+    {
+        var members = await microserviceContext.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.UserId == message.UserId)
+            .Select(m => new { m.Id, m.UserId, m.GuildId })
+            .ToListAsync();
+
+        foreach (var m in members)
+        {
+            var existing = await service.GetPresenceStateForMemberAsync(m.Id);
+
+            await service.AddPresenceStateAsync(m.GuildId, new MemberPresenceState
+            {
+                MemberId = m.Id,
+                UserId = m.UserId,
+                Status = message.Status,
+                Activity = existing?.Activity,
+                ClientStatus = existing?.ClientStatus,
+                HeartbeatTimestamp = existing?.HeartbeatTimestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            });
+
+            var presence = await service.GetGuildPresenceAsync(m.GuildId);
+            await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.PresenceChanged",
+                new { UserId = message.UserId, GuildId = m.GuildId, Status = message.Status });
         }
     }
 

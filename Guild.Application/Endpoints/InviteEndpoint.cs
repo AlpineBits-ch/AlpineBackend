@@ -47,32 +47,21 @@ public class InviteEndpoint
             return Results.Forbid();
         }
         
-        var id = GuildInvite.GenerateId();
-        var invite = new GuildInvite()
+        var invite = GuildInvite.Create(new CreateGuildInviteParams
         {
-            Id = id,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
             GuildId = guildId,
             Type = createInviteDto.Type,
-            State = InviteState.Active
-        };
-        
-        ctx.GuildInvites.Add(invite);
-        
-        
-        
-        return Results.Ok(new InviteDto()
-        {
-            Id = invite.Id,
-            Type = invite.Type,
-            State = invite.State,
-            CreatedAt = invite.CreatedAt,
-            UpdatedAt = invite.UpdatedAt,
-            GuildId = invite.GuildId,
-            Guild = default!
+            ExpiresAt = createInviteDto.ExpiresAt,
+            MaxUses = createInviteDto.MaxUses,
+            ChannelId = createInviteDto.ChannelId,
         });
-        
+        invite.Id = GuildInvite.GenerateId();
+        invite.CreatedAt = DateTime.UtcNow;
+        invite.UpdatedAt = DateTime.UtcNow;
+
+        ctx.GuildInvites.Add(invite);
+
+        return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
     }
 
 
@@ -80,6 +69,14 @@ public class InviteEndpoint
     public async Task<IResult> GetInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx)
     {
         var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Id == inviteId);
+        if(invite is null) return Results.NotFound();
+        return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
+    }
+
+    [WolverineGet("/api/v1/invites/code/{code}")]
+    public async Task<IResult> GetInviteByCodeAsync(string code, [NotBody] MicroserviceContext ctx)
+    {
+        var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Code == code);
         if(invite is null) return Results.NotFound();
         return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
     }
@@ -116,11 +113,17 @@ public class InviteEndpoint
 
         var invite = await ctx.GuildInvites.FirstOrDefaultAsync(i => i.Id == inviteId);
         if (invite is null) return Results.NotFound();
-        
+
         if(invite.State == InviteState.Expired) return Results.BadRequest("Invite has expired");
-        
-        if(invite.Type == InviteType.OneTime) invite.State = InviteState.Expired;
-        
+        if(invite.IsExpired(DateTimeOffset.UtcNow)) return Results.BadRequest("Invite has expired");
+        if(invite.IsExhausted()) return Results.BadRequest("Invite has reached its maximum number of uses");
+
+        var isBanned = await ctx.Set<GuildBan>().AnyAsync(b => b.GuildId == invite.GuildId && b.BannedUserId == userId);
+        if (isBanned) return Results.Forbid();
+
+        invite.UseCount++;
+        if(invite.Type == InviteType.OneTime || invite.IsExhausted()) invite.State = InviteState.Expired;
+
         var guild = await ctx.Guilds.Include(guild => guild.Channels).Include(guild => guild.Roles).FirstOrDefaultAsync(g => g.Id == invite.GuildId);
         if(guild is null) return Results.NotFound();
 

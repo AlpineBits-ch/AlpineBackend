@@ -16,6 +16,9 @@ public class CreateMessageParams
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     public MessageType Type { get; set; } = MessageType.Message;
     public List<string> Mentions { get; set; } = [];
+    public List<string> RoleMentions { get; set; } = [];
+    public bool MentionsEveryone { get; set; }
+    public bool MentionsHere { get; set; }
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
     public string? SenderDeviceId { get; set; }
@@ -44,8 +47,11 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
     
     public List<string> Mentions { get; set; } = new();
+    public List<string> RoleMentions { get; set; } = new();
+    public bool MentionsEveryone { get; set; }
+    public bool MentionsHere { get; set; }
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
-    
+
     public Message()
     {
     }
@@ -71,6 +77,9 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             EncryptionState = createMessageParams.EncryptionState,
             Type = createMessageParams.Type,
             Mentions = createMessageParams.Mentions.ToList(),
+            RoleMentions = createMessageParams.RoleMentions.ToList(),
+            MentionsEveryone = createMessageParams.MentionsEveryone,
+            MentionsHere = createMessageParams.MentionsHere,
             Attachments = createMessageParams.Attachments.ToList(),
             InReplyTo = createMessageParams.InReplyTo,
             MlsEpoch = createMessageParams.MlsEpoch,

@@ -27,7 +27,7 @@ public class Role : Aggregate<Role>, IPrefixedEntity
     public Permissions Permissions { get; set; } = Permissions.None;
     [NotMapped] public static string Prefix { get; } = "role";
 
-    public int Position { get; init; } = 0;
+    public int Position { get; set; } = 0;
     
     public ICollection<RoleMember> Members { get; set; } = new List<RoleMember>();
     

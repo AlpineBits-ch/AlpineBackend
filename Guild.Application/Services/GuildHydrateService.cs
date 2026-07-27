@@ -126,6 +126,16 @@ public class GuildHydrateService(
         return results;
     }
 
+    public async Task<MemberPresenceState?> GetPresenceStateForMemberAsync(string memberId)
+    {
+        string presenceKey = $"presence:user:{memberId}";
+        RedisValue stateJson = await _db.HashGetAsync(presenceKey, "state");
+
+        if (stateJson.IsNullOrEmpty) return null;
+
+        return JsonSerializer.Deserialize<MemberPresenceState>((string)stateJson!);
+    }
+
     public async Task AddPresenceStateAsync(string guildId, MemberPresenceState memberPresence)
     {
         string presenceKey = $"presence:user:{memberPresence.MemberId}";

@@ -5,4 +5,6 @@ public enum OnlineStatus
     Offline,
     Hidden,
     Online,
+    Idle,
+    DoNotDisturb,
 }

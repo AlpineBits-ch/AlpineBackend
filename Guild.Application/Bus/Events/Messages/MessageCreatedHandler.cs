@@ -39,15 +39,45 @@ public class MessageCreatedHandler
 
         await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("guild.MessageCreated", message);
 
-        var members = await context.GuildMembers
-            .Where(m => m.GuildId == cachedGuildId && message.Mentions.Contains(m.UserId))
-            .ToListAsync();
-        
-        
-        foreach (var mention in message.Mentions)
+        // Union of everyone whose mention count should bump: direct @user mentions, members
+        // holding an @role-mentioned role, everyone in the guild (@everyone), or everyone
+        // currently present (@here) — each resolved locally since Guild already owns this data.
+        var mentionedMemberIds = new HashSet<string>();
+
+        if (message.Mentions.Count > 0)
         {
-            var memberId = members.FirstOrDefault(m => m.UserId == mention)?.Id;
-            if(memberId is null) continue;
+            var directMemberIds = await context.GuildMembers
+                .Where(m => m.GuildId == cachedGuildId && message.Mentions.Contains(m.UserId))
+                .Select(m => m.Id)
+                .ToListAsync();
+            mentionedMemberIds.UnionWith(directMemberIds);
+        }
+
+        if (message.RoleMentions.Count > 0)
+        {
+            var roleMemberIds = await context.RoleMembers
+                .Where(rm => message.RoleMentions.Contains(rm.RoleId))
+                .Select(rm => rm.MemberId)
+                .ToListAsync();
+            mentionedMemberIds.UnionWith(roleMemberIds);
+        }
+
+        if (message.MentionsEveryone)
+        {
+            var allMemberIds = await context.GuildMembers
+                .Where(m => m.GuildId == cachedGuildId)
+                .Select(m => m.Id)
+                .ToListAsync();
+            mentionedMemberIds.UnionWith(allMemberIds);
+        }
+
+        if (message.MentionsHere)
+        {
+            mentionedMemberIds.UnionWith(presence.Select(p => p.MemberId));
+        }
+
+        foreach (var memberId in mentionedMemberIds)
+        {
             var readState = await context.ReadStates
                 .Where(rs => rs.ChannelId == message.ChannelId && rs.MemberId == memberId)
                 .FirstOrDefaultAsync();
@@ -68,6 +98,6 @@ public class MessageCreatedHandler
             }
             readState.MentionCount++;
         }
-        
+
     }
 }

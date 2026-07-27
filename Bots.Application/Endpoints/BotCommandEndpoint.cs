@@ -113,6 +113,7 @@ public class BotCommandEndpoint
                 }).ToList(),
             },
             GuildId = guildId,
+            Channel = new InteractionChannelPayload { Id = channelId, Type = DiscordChannelType.GuildText },
             ChannelId = channelId,
             Member = memberResponse.Member is null ? null : new GatewayMemberPayload
             {

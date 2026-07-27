@@ -13,7 +13,6 @@ public class CreateGuildMemberParams
     public string? Bio { get; init; }
     public string? InviteId { get; init; }
     public string Username { get; init; }
-    public string Hash { get; set; }
 }
 
 public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
@@ -54,7 +53,7 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     public static GuildMember CreateForUser(CreateGuildMemberParams parameters)
     {
         var id = GenerateId();
-        var searchValue = parameters.Username + "#" + parameters.Hash;
+        var searchValue = parameters.Username;
 
         return new GuildMember
         {

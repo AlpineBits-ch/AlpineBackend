@@ -34,6 +34,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddSingleton<BotTokenTranslator>();
 builder.Services.AddSingleton<GatewayConnectionRegistry>();
 builder.Services.AddScoped<GatewayHandshakeService>();
+builder.Services.AddSingleton<PendingInteractionStore>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

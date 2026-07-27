@@ -32,7 +32,6 @@ public class CreateBotGuildMemberHandler
             Type = MemberType.Bot,
             Username = command.BotDisplayName,
             Nickname = command.BotDisplayName,
-            Hash = "0000",
         });
         member.AllowPermissions = (Permissions)command.GrantedPermissions;
 

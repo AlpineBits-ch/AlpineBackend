@@ -9,6 +9,7 @@ public class MicroserviceContext : DbContext
 {
     public DbSet<BotApplication> BotApplications { get; set; }
     public DbSet<BotInstallation> BotInstallations { get; set; }
+    public DbSet<BotCommand> BotCommands { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -35,6 +36,22 @@ public class MicroserviceContext : DbContext
         modelBuilder.Entity<BotInstallation>(install =>
         {
             install.HasIndex(x => new { x.BotApplicationId, x.GuildId }).IsUnique();
+        });
+
+        // Postgres treats every NULL as distinct in a unique index, so a single
+        // (BotApplicationId, GuildId, Name) index would never actually enforce uniqueness among
+        // global commands (GuildId == null) - split into two filtered indexes instead.
+        modelBuilder.Entity<BotCommand>(command =>
+        {
+            command.HasIndex(x => new { x.BotApplicationId, x.Name })
+                .HasDatabaseName("IX_bot_commands_global_unique")
+                .IsUnique()
+                .HasFilter("guild_id IS NULL");
+
+            command.HasIndex(x => new { x.BotApplicationId, x.GuildId, x.Name })
+                .HasDatabaseName("IX_bot_commands_guild_unique")
+                .IsUnique()
+                .HasFilter("guild_id IS NOT NULL");
         });
     }
 

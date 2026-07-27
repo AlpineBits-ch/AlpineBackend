@@ -155,6 +155,9 @@ public class EmbedPayload
     [JsonPropertyName("url")]
     public string? Url { get; set; }
 
+    [JsonPropertyName("color")]
+    public string? Color { get; set; }
+
     [JsonPropertyName("author")]
     public EmbedAuthorPayload? Author { get; set; }
 

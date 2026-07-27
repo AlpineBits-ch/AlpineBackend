@@ -18,6 +18,21 @@ namespace Bots.Application.Endpoints;
 [Authorize]
 public class BotInstallEndpoint
 {
+    // Backs the bot portal's guild picker - most people installing a bot have no idea what
+    // their guild's raw id is, so let them pick from guilds they actually manage instead of
+    // requiring them to type/paste one.
+    [WolverineGet("/api/v1/guilds/manageable")]
+    public async Task<IResult> GetManageableGuildsAsync([NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var response = await bus.InvokeAsync<ListManageableGuildsForUserResponse>(
+            new ListManageableGuildsForUserRequest { UserId = userId });
+
+        return Results.Ok(response.Guilds);
+    }
+
     [WolverineGet("/api/v1/oauth2/authorize")]
     public async Task<IResult> GetAuthorizeInfoAsync(string clientId, ulong permissions, string guildId,
         [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx, [NotBody] IMessageBus bus)

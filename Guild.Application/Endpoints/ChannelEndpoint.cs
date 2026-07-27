@@ -7,12 +7,14 @@ using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Guild.Application.Endpoints;
@@ -31,6 +33,7 @@ public class ChannelEndpoint
             [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] IMessageBus bus,
         [NotBody] ILogger<ChannelEndpoint> logger,
         [NotBody] ClaimsPrincipal user)
     {
@@ -65,8 +68,18 @@ public class ChannelEndpoint
                 GuildId = channel.GuildId,
             });
 
-        
-        
+            await bus.SendAsync(new ChannelCreatedForBots
+            {
+                ChannelId = channel.Id,
+                GuildId = channel.GuildId,
+                Name = channel.Name,
+                Type = channel.Type.ToString(),
+                Position = channel.Position,
+                CategoryId = channel.CategoryId,
+            });
+
+
+
             return Results.Ok(new ChannelDto()
             {
                 Type = channel.Type,
@@ -106,6 +119,7 @@ public class ChannelEndpoint
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] AuditLogService auditLog,
+        [NotBody] IMessageBus bus,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -125,6 +139,8 @@ public class ChannelEndpoint
 
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelDeleted", new { ChannelId = channel.Id, GuildId = channel.GuildId });
 
+        await bus.SendAsync(new ChannelDeletedForBots { ChannelId = channel.Id, GuildId = channel.GuildId });
+
         return Results.NoContent();
     }
 
@@ -135,6 +151,7 @@ public class ChannelEndpoint
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] AuditLogService auditLog,
+        [NotBody] IMessageBus bus,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -170,6 +187,16 @@ public class ChannelEndpoint
 
         var presence = await guildHydrateService.GetGuildPresenceAsync(channel.GuildId);
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelUpdated", new { ChannelId = channel.Id, GuildId = channel.GuildId });
+
+        await bus.SendAsync(new ChannelUpdatedForBots
+        {
+            ChannelId = channel.Id,
+            GuildId = channel.GuildId,
+            Name = channel.Name,
+            Type = channel.Type.ToString(),
+            Position = channel.Position,
+            CategoryId = channel.CategoryId,
+        });
 
         return Results.Ok(new ChannelDto
         {

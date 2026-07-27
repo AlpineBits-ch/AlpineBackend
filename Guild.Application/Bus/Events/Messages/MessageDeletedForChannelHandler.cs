@@ -1,0 +1,42 @@
+using Guild.Contracts.Bus.Events;
+using Guild.Persistence.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Wolverine;
+
+namespace Guild.Application.Bus.Events.Messages;
+
+/// <summary>
+/// Mirrors MessageCreatedHandler's channel->guild resolution, but for deletes - Bots.Application
+/// needs GuildId to know which installed bots to dispatch MESSAGE_DELETE to, and the raw
+/// MessageDeletedForChannel event (published by Messaging) doesn't carry it.
+/// </summary>
+public class MessageDeletedForChannelHandler
+{
+    private string GetChannelKey(string channelId) => $"channel:{channelId}:guild";
+
+    public async Task Handle(MessageDeletedForChannel message, MicroserviceContext context, IDistributedCache cache,
+        IMessageBus bus, ILogger<MessageDeletedForChannelHandler> logger)
+    {
+        var channelKey = GetChannelKey(message.ChannelId);
+        var guildId = await cache.GetStringAsync(channelKey);
+
+        if (string.IsNullOrWhiteSpace(guildId))
+        {
+            guildId = await context.Channels.Where(c => c.Id == message.ChannelId).Select(c => c.GuildId).FirstOrDefaultAsync();
+            if (guildId is null)
+            {
+                logger.LogWarning($"Channel with ID {message.ChannelId} not found in context");
+                return;
+            }
+            await cache.SetStringAsync(channelKey, guildId);
+        }
+
+        await bus.SendAsync(new MessageDeletedForBots
+        {
+            GuildId = guildId,
+            ChannelId = message.ChannelId,
+            MessageId = message.MessageId,
+        });
+    }
+}

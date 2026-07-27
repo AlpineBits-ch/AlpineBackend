@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Live bot credentials for the opt-in Gateway E2E tests/scripts (Bots.Tests/Gateway/GatewayLiveE2ETests.cs,
+# Bots.Tests/e2e-discordjs/) - holds a real client secret, must never be committed.
+*.e2e-credentials.local.json
+
 # User-specific files
 *.rsuser
 *.suo

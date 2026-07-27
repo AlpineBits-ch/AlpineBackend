@@ -14,6 +14,10 @@ public static class IntegrationProfileDtoExtensions
             Bio = profileDto.Bio,
             Relationships = profileDto.Relationships.Select(r => r.ToIntegrationRelationship()).ToList(),
             UserId = profileDto.UserId,
+            AvatarUrl = $"https://api.venta.gg/api/v1/social/profiles/{profileDto.Id}/avatar",
+            BannerUrl = $"https://api.venta.gg/api/v1/social/profiles/{profileDto.Id}/banner",
+            AccentColor = profileDto.AccentColor,
+            Font = profileDto.Font.ToString(),
         };
 
         return profile;

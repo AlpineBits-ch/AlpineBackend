@@ -9,10 +9,12 @@ public class ProfileMapConfig : IFacetMapConfiguration<Profile, ProfileDto>
     public static void Map(Profile source, ProfileDto target)
     {
         target.AvatarUrl = $"https://api.venta.gg/api/v1/social/profiles/{source.Id}/avatar";
+        target.BannerUrl = $"https://api.venta.gg/api/v1/social/profiles/{source.Id}/banner";
     }
 }
 [Facet(typeof(Profile), NestedFacets = [typeof(NestedRelationshipDto)], MaxDepth = 1, Configuration = typeof(ProfileMapConfig))]
 public partial class ProfileDto
 {
     public string AvatarUrl { get; set; }
+    public string BannerUrl { get; set; }
 }

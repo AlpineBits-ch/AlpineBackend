@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Text.RegularExpressions;
 using Facet.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -15,8 +16,11 @@ namespace Social.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/profiles")]
-public class ProfileController(MicroserviceContext ctx, ILogger<ProfileController> logger, IMessageBus bus) : ControllerBase
+public partial class ProfileController(MicroserviceContext ctx, ILogger<ProfileController> logger, IMessageBus bus) : ControllerBase
 {
+    [GeneratedRegex("^#[0-9A-Fa-f]{6}$")]
+    private static partial Regex HexColorRegex();
+
     // Statuses a client may explicitly choose. Offline is never client-settable — it's
     // purely a function of connection state (see UserActiveHandler/UserInactiveHandler);
     // "invisible" is expressed by choosing Hidden while still connected.
@@ -40,6 +44,38 @@ public class ProfileController(MicroserviceContext ctx, ILogger<ProfileControlle
         await ctx.SaveChangesAsync();
 
         await bus.PublishAsync(new UserStatusChanged { UserId = userId, Status = status.ToString() });
+
+        return Ok(profile.ToFacet<Profile, ProfileDto>());
+    }
+
+    // Bio/AccentColor: null leaves the field unchanged, "" clears it. Font: null leaves it
+    // unchanged, any non-null value must name a valid ProfileFont.
+    [Authorize]
+    [HttpPatch("me")]
+    public async Task<IActionResult> UpdateProfileAsync(UpdateProfileDto dto)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Unauthorized();
+
+        if (dto.AccentColor is { Length: > 0 } && !HexColorRegex().IsMatch(dto.AccentColor))
+            return BadRequest("AccentColor must be a hex color like #5865F2.");
+
+        ProfileFont? font = null;
+        if (dto.Font is not null)
+        {
+            if (!Enum.TryParse<ProfileFont>(dto.Font, ignoreCase: true, out var parsedFont))
+                return BadRequest($"Font must be one of: {string.Join(", ", Enum.GetNames<ProfileFont>())}");
+            font = parsedFont;
+        }
+
+        var profile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (profile is null) return NotFound();
+
+        if (dto.Bio is not null) profile.Bio = dto.Bio.Length == 0 ? null : dto.Bio;
+        if (dto.AccentColor is not null) profile.AccentColor = dto.AccentColor.Length == 0 ? null : dto.AccentColor;
+        if (font is not null) profile.Font = font.Value;
+
+        await ctx.SaveChangesAsync();
 
         return Ok(profile.ToFacet<Profile, ProfileDto>());
     }

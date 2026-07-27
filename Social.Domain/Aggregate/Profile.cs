@@ -19,6 +19,12 @@ public class Profile : BaseEntity<Profile>, IPrefixedEntity
     
     public string? FederatedServerId { get; set; }
 
+    // Hex color (e.g. "#5865F2"), used client-side as the banner fallback color and profile
+    // accent trim when no BannerUrl image is set. Validated at the API boundary, not here.
+    public string? AccentColor { get; set; }
+
+    public ProfileFont Font { get; set; } = ProfileFont.Default;
+
     public virtual ICollection<Relationship> Relationships { get; set; } = new List<Relationship>();
     
     public virtual ICollection<Relationship> InvolvedRelationships { get; set; } = new List<Relationship>();

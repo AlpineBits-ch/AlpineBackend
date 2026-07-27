@@ -100,6 +100,42 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
         
     }
 
+    /// <summary>
+    /// Creates a bot account. The id is caller-supplied (not self-generated) so that the
+    /// Bots service can mint it up front and safely retry the create-application flow if
+    /// the cross-service write partially fails. Skips email/age-verification/welcome-email
+    /// machinery entirely - none of that applies to a non-human account.
+    /// </summary>
+    public static ApplicationUser CreateBot(string botUserId, string name)
+    {
+        var date = DateTime.UtcNow;
+        return new ApplicationUser
+        {
+            Id = botUserId,
+            CorrelationId = botUserId,
+            UserName = name,
+            NormalizedUserName = name.ToUpperInvariant(),
+            UserType = UserType.Bot,
+            CreatedAt = date,
+            UpdatedAt = date,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            Status = UserStatus.Active,
+            AgeVerification = new AgeVerification
+            {
+                Level = AgeVertificationLevel.None,
+            },
+            UserPreferences = new UserPreferences
+            {
+                Id = UserPreferences.GenerateId(),
+                CreatedAt = date,
+                UpdatedAt = date,
+                Data = "{}",
+                DirectMessageSettings = DirectMessageSettings.FilterNonFriends,
+                PrivacySettings = PrivacySettings.None,
+            },
+        };
+    }
+
     public void SetPasswordHash(string passwordHash)
     {
         this.PasswordHash = passwordHash;

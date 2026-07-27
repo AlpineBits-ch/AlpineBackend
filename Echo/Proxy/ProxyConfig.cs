@@ -47,6 +47,37 @@ public static class ProxyConfig
             ClusterId = "federation-cluster",
             Match = new RouteMatch { Path = "/api/v1/federation/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+
+        new RouteConfig
+        {
+            RouteId = "bots-route",
+            ClusterId = "bots-cluster",
+            Match = new RouteMatch { Path = "/api/v1/bots/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+
+        // Bot developer portal (static page served from the Bots service's own wwwroot).
+        new RouteConfig
+        {
+            RouteId = "bots-portal-root-route",
+            ClusterId = "bots-cluster",
+            Match = new RouteMatch { Path = "/bots-portal" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/")),
+
+        new RouteConfig
+        {
+            RouteId = "bots-portal-route",
+            ClusterId = "bots-cluster",
+            Match = new RouteMatch { Path = "/bots-portal/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/{**catch-all}")),
+
+        // Discord-compat surface keeps Discord's own path shape (no service-segment rewrite)
+        // so a minimally-modified Discord bot library can point its base URL here directly.
+        new RouteConfig
+        {
+            RouteId = "discord-compat-route",
+            ClusterId = "bots-cluster",
+            Match = new RouteMatch { Path = "/api/discord/v10/{**catch-all}" }
+        },
         new RouteConfig
         {
             RouteId = "identity-connect-route",
@@ -118,6 +149,7 @@ public static class ProxyConfig
         var social    = Environment.GetEnvironmentVariable("Services__Social")    ?? "http://_http.social.default.svc.cluster.local";
         var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://federation.default.svc.cluster.local";
         var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://isle.default.svc.cluster.local:8080";
+        var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://_http.bots.default.svc.cluster.local";
 
         return new[]
         {
@@ -360,8 +392,32 @@ public static class ProxyConfig
                 ReactivationPeriod = TimeSpan.FromSeconds(10)
             },
         }
+        },
+
+        new ClusterConfig
+        {
+            ClusterId = "bots-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = bots } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "bots/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
         }
-        
+
         };
     }
 }

@@ -461,8 +461,20 @@ public class GuildPermissionService(
     /// </summary>
     public async Task<bool> CanGrantPermissionsAsync(string actorUserId, string guildId, Permissions requestedPermissions)
     {
+        var clamped = await ClampToGrantableAsync(actorUserId, guildId, requestedPermissions);
+        return clamped == requestedPermissions;
+    }
+
+    /// <summary>
+    /// Same escalation guard as <see cref="CanGrantPermissionsAsync"/>, but returns the
+    /// clamped bitmask (requested &amp; actor's own base permissions) instead of a bool -
+    /// used where the caller wants to silently downgrade an over-broad request (e.g. a bot
+    /// install requesting more permissions than the installer holds) rather than reject it.
+    /// </summary>
+    public async Task<Permissions> ClampToGrantableAsync(string actorUserId, string guildId, Permissions requested)
+    {
         var actorPermissions = await ComputePermissionsForUserAsync(actorUserId, guildId);
-        return (requestedPermissions & ~actorPermissions.BasePermissions) == Permissions.None;
+        return requested & actorPermissions.BasePermissions;
     }
 
     /// <summary>

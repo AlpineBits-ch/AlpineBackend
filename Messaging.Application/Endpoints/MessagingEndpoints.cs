@@ -28,7 +28,8 @@ public class MessagingEndpoints
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return (Results.Unauthorized(), null);
 
-        
+        var authorIdType = user.FindFirstValue("user_type") == "Bot" ? AuthorIdType.Bot : AuthorIdType.User;
+
         if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
 
 
@@ -79,6 +80,7 @@ public class MessagingEndpoints
         var message = await bus.InvokeAsync<Message>(new CreateMessageCommand()
         {
             AuthorId = userId,
+            AuthorIdType = authorIdType,
             Content = Encoding.UTF8.GetBytes(dto.Content),
             ChannelId = dto.ChannelId,
             ConversationId = dto.ConversationId,

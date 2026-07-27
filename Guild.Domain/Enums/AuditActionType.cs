@@ -22,4 +22,6 @@ public enum AuditActionType
     GuildDeleted,
     InviteCreated,
     InviteDeleted,
+    BotInstalled,
+    BotUninstalled,
 }

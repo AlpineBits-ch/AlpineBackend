@@ -64,6 +64,7 @@ builder.Services.AddOpenIddict()
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();
+        options.AllowClientCredentialsFlow();
         options.AllowCustomFlow(SteamOpenIdService.SteamGrantType);
 
         if (builder.Environment.IsProduction())

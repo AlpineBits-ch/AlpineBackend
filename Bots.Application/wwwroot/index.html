@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>venta.gg — Bot Developer Portal</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --border: #dcdfe4;
+    --text: #1b1f24;
+    --muted: #5b6472;
+    --accent: #4f5bd5;
+    --accent-text: #ffffff;
+    --danger: #c4342f;
+    --ok: #1a7f37;
+    --mono-bg: #f0f1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --surface: #1d2026;
+      --border: #30343c;
+      --text: #e7e9ec;
+      --muted: #9aa2ad;
+      --accent: #7b86f0;
+      --accent-text: #10121a;
+      --danger: #ff6b64;
+      --ok: #4ada85;
+      --mono-bg: #12141a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); margin: 0 0 28px; font-size: 13px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 14px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  label:first-child { margin-top: 0; }
+  input[type=text], input[type=password], input[type=number], textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  textarea { resize: vertical; min-height: 50px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 160px; }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 14px;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.danger { color: var(--danger); border-color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button + button { margin-left: 8px; }
+  .actions { margin-top: 14px; }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--mono-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    word-break: break-all;
+    font-size: 12.5px;
+  }
+  .credential { margin-top: 10px; }
+  .credential .mono { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .credential .mono button { flex-shrink: 0; padding: 3px 9px; font-size: 12px; }
+  .warning {
+    color: var(--danger);
+    font-size: 12.5px;
+    margin: 10px 0 0;
+  }
+  .status { font-size: 13px; margin-top: 10px; white-space: pre-wrap; }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .bot-item {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .bot-item .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .bot-item .name { font-weight: 600; }
+  .bot-item .id { color: var(--muted); font-size: 12px; }
+  .badge {
+    font-size: 11px;
+    border-radius: 999px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+  }
+  .badge.enabled { color: var(--ok); border-color: var(--ok); }
+  .badge.disabled { color: var(--danger); border-color: var(--danger); }
+  .empty { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bot Developer Portal</h1>
+  <p class="subtitle">Create and manage bot applications for venta.gg. Bot tokens work with the Discord-compat REST surface at <code>/api/discord/v10</code>.</p>
+
+  <section class="card">
+    <h2>Your access token</h2>
+    <label for="access-token">Bearer access token</label>
+    <input type="password" id="access-token" placeholder="Paste the access token from your venta.gg login" autocomplete="off" />
+    <div class="actions">
+      <button class="primary" id="save-token">Save</button>
+      <button id="clear-token">Clear</button>
+    </div>
+    <p class="status" id="token-status"></p>
+  </section>
+
+  <section class="card">
+    <h2>Create a bot</h2>
+    <label for="bot-name">Name</label>
+    <input type="text" id="bot-name" placeholder="Captain Hook" />
+    <label for="bot-description">Description (optional)</label>
+    <textarea id="bot-description" placeholder="What does this bot do?"></textarea>
+    <div class="row">
+      <div>
+        <label for="bot-icon">Icon URL (optional)</label>
+        <input type="text" id="bot-icon" placeholder="https://..." />
+      </div>
+      <div>
+        <label for="bot-permissions">Default permissions (bitmask)</label>
+        <input type="number" id="bot-permissions" value="0" min="0" />
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="create-bot">Create bot</button>
+    </div>
+    <p class="status" id="create-status"></p>
+    <div id="new-credentials"></div>
+  </section>
+
+  <section class="card">
+    <div class="row" style="align-items:center;">
+      <h2 style="margin:0;">Your bots</h2>
+      <div style="flex:0; margin-left:auto;"><button id="refresh-bots">Refresh</button></div>
+    </div>
+    <p class="status" id="list-status"></p>
+    <div id="bot-list"></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  const TOKEN_KEY = "venta_bots_portal_access_token";
+
+  const el = (id) => document.getElementById(id);
+  const tokenInput = el("access-token");
+  const tokenStatus = el("token-status");
+
+  function getToken() {
+    return localStorage.getItem(TOKEN_KEY) || "";
+  }
+
+  function setStatus(node, message, kind) {
+    node.textContent = message || "";
+    node.className = "status" + (kind ? " " + kind : "");
+  }
+
+  tokenInput.value = getToken();
+  if (getToken()) setStatus(tokenStatus, "Token loaded from this browser's storage.", "ok");
+
+  el("save-token").addEventListener("click", () => {
+    localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+    setStatus(tokenStatus, "Saved.", "ok");
+  });
+
+  el("clear-token").addEventListener("click", () => {
+    localStorage.removeItem(TOKEN_KEY);
+    tokenInput.value = "";
+    setStatus(tokenStatus, "Cleared.", "");
+  });
+
+  async function api(path, options) {
+    const token = getToken();
+    if (!token) throw new Error("Save an access token above first.");
+
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        "Authorization": "Bearer " + token,
+        "Content-Type": "application/json",
+        ...(options && options.headers),
+      },
+    });
+
+    if (response.status === 204) return null;
+
+    let body = null;
+    const text = await response.text();
+    if (text) {
+      try { body = JSON.parse(text); } catch { body = text; }
+    }
+
+    if (!response.ok) {
+      const message = (body && body.title) || (typeof body === "string" ? body : null) || response.statusText;
+      throw new Error(`${response.status}: ${message}`);
+    }
+
+    return body;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  function copyButton(value) {
+    const button = document.createElement("button");
+    button.textContent = "Copy";
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(value);
+      button.textContent = "Copied";
+      setTimeout(() => (button.textContent = "Copy"), 1200);
+    });
+    return button;
+  }
+
+  function credentialRow(label, value) {
+    const wrap = document.createElement("div");
+    wrap.className = "credential";
+    const labelEl = document.createElement("label");
+    labelEl.textContent = label;
+    const row = document.createElement("div");
+    row.className = "mono";
+    const span = document.createElement("span");
+    span.textContent = value;
+    row.appendChild(span);
+    row.appendChild(copyButton(value));
+    wrap.appendChild(labelEl);
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  // ── Create bot ──────────────────────────────────────────────────────────
+
+  el("create-bot").addEventListener("click", async () => {
+    const status = el("create-status");
+    const credentialsBox = el("new-credentials");
+    credentialsBox.innerHTML = "";
+    setStatus(status, "Creating...", "");
+
+    const name = el("bot-name").value.trim();
+    if (!name) { setStatus(status, "Name is required.", "error"); return; }
+
+    try {
+      const created = await api("/api/v1/bots/applications", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          description: el("bot-description").value.trim() || null,
+          iconUrl: el("bot-icon").value.trim() || null,
+          defaultPermissions: Number(el("bot-permissions").value) || 0,
+        }),
+      });
+
+      setStatus(status, "Bot created. Copy the credentials now — the secret is never shown again.", "ok");
+      credentialsBox.appendChild(credentialRow("Client ID", created.clientId));
+      credentialsBox.appendChild(credentialRow("Client secret", created.clientSecret));
+      credentialsBox.appendChild(credentialRow("Discord-compat token (Authorization: Bot <token>)", created.compatToken));
+      const warn = document.createElement("p");
+      warn.className = "warning";
+      warn.textContent = "This is the only time the secret and compat token are shown. If you lose them, use \"Reset secret\" below.";
+      credentialsBox.appendChild(warn);
+
+      el("bot-name").value = "";
+      el("bot-description").value = "";
+      el("bot-icon").value = "";
+      el("bot-permissions").value = "0";
+
+      loadBots();
+    } catch (err) {
+      setStatus(status, err.message, "error");
+    }
+  });
+
+  // ── List / manage bots ──────────────────────────────────────────────────
+
+  async function loadBots() {
+    const status = el("list-status");
+    const list = el("bot-list");
+    setStatus(status, "Loading...", "");
+
+    try {
+      const bots = await api("/api/v1/bots/applications");
+      list.innerHTML = "";
+
+      if (!bots || bots.length === 0) {
+        list.innerHTML = '<p class="empty">No bots yet — create one above.</p>';
+        setStatus(status, "", "");
+        return;
+      }
+
+      for (const bot of bots) {
+        list.appendChild(renderBotItem(bot));
+      }
+      setStatus(status, "", "");
+    } catch (err) {
+      setStatus(status, err.message, "error");
+    }
+  }
+
+  function renderBotItem(bot) {
+    const item = document.createElement("div");
+    item.className = "bot-item";
+
+    const top = document.createElement("div");
+    top.className = "top";
+    top.innerHTML = `
+      <div>
+        <div class="name">${escapeHtml(bot.name)}</div>
+        <div class="id">${escapeHtml(bot.botUserId)}</div>
+      </div>
+      <span class="badge ${bot.isEnabled ? "enabled" : "disabled"}">${bot.isEnabled ? "Enabled" : "Disabled"}</span>
+    `;
+    item.appendChild(top);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const resetButton = document.createElement("button");
+    resetButton.textContent = "Reset secret";
+    resetButton.addEventListener("click", () => resetSecret(bot.id, item));
+    actions.appendChild(resetButton);
+
+    const disableButton = document.createElement("button");
+    disableButton.className = "danger";
+    disableButton.textContent = "Disable";
+    disableButton.disabled = !bot.isEnabled;
+    disableButton.addEventListener("click", () => disableBot(bot.id, item));
+    actions.appendChild(disableButton);
+
+    item.appendChild(actions);
+
+    const resultBox = document.createElement("div");
+    resultBox.className = "reset-result";
+    item.appendChild(resultBox);
+
+    return item;
+  }
+
+  async function resetSecret(applicationId, item) {
+    const resultBox = item.querySelector(".reset-result");
+    resultBox.innerHTML = "";
+    try {
+      const reset = await api(`/api/v1/bots/applications/${applicationId}/reset-secret`, { method: "POST" });
+      resultBox.appendChild(credentialRow("New client secret", reset.clientSecret));
+      resultBox.appendChild(credentialRow("New Discord-compat token", reset.compatToken));
+    } catch (err) {
+      const p = document.createElement("p");
+      p.className = "status error";
+      p.textContent = err.message;
+      resultBox.appendChild(p);
+    }
+  }
+
+  async function disableBot(applicationId, item) {
+    if (!confirm("Disable this bot? It will no longer be able to authenticate.")) return;
+    try {
+      await api(`/api/v1/bots/applications/${applicationId}`, { method: "DELETE" });
+      loadBots();
+    } catch (err) {
+      const p = document.createElement("p");
+      p.className = "status error";
+      p.textContent = err.message;
+      item.appendChild(p);
+    }
+  }
+
+  el("refresh-bots").addEventListener("click", loadBots);
+
+  if (getToken()) loadBots();
+})();
+</script>
+</body>
+</html>

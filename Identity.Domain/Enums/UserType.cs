@@ -4,5 +4,6 @@ public enum UserType
 {
     Default,
     Moderator,
-    Admin
+    Admin,
+    Bot
 }

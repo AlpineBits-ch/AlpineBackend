@@ -1,0 +1,12 @@
+{
+  "name": "bots-gateway-discordjs-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Opt-in, manually-triggered smoke test that connects to venta's Discord Gateway compat layer using the real discord.js library - the actual acceptance bar for 'an existing bot can just change its base URL'.",
+  "scripts": {
+    "test": "node smoke-test.mjs"
+  },
+  "dependencies": {
+    "discord.js": "^14.27.0"
+  }
+}

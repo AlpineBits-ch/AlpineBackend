@@ -7,6 +7,7 @@ using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Wolverine;
 
 namespace Guild.Application.Bus.Events.Messages;
 
@@ -17,7 +18,7 @@ public class MessageCreatedHandler
         return $"channel:{channelId}:guild";
     }
     public async Task Handle(MessageCreatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger)
+        MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -38,6 +39,19 @@ public class MessageCreatedHandler
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
 
         await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("guild.MessageCreated", message);
+
+        // Bots.Application can't join the SignalR/Redis backplane the hub broadcast above rides
+        // on, so it gets its own event - carrying the GuildId this handler just resolved, since
+        // the raw MessageCreatedForChannel event doesn't have it.
+        await bus.SendAsync(new MessageCreatedForBots
+        {
+            GuildId = cachedGuildId,
+            ChannelId = message.ChannelId,
+            MessageId = message.MessageId,
+            Content = message.Content,
+            AuthorId = message.AuthorId,
+            EncryptionState = message.EncryptionState,
+        });
 
         // Union of everyone whose mention count should bump: direct @user mentions, members
         // holding an @role-mentioned role, everyone in the guild (@everyone), or everyone

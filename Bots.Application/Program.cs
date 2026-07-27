@@ -1,4 +1,5 @@
 using AppEnvironment;
+using Bots.Application.Gateway;
 using Bots.Application.Middleware;
 using Bots.Contracts;
 using Bots.Infrastructure;
@@ -7,6 +8,7 @@ using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using Wolverine.Http;
@@ -24,7 +26,14 @@ builder.Services.AddStackExchangeRedisCache(config =>
     config.Configuration = $"{redis.Host}:{redis.Port},password={redis.Password}";
 });
 
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
+
 builder.Services.AddHttpClient();
+
+builder.Services.AddSingleton<BotTokenTranslator>();
+builder.Services.AddSingleton<GatewayConnectionRegistry>();
+builder.Services.AddScoped<GatewayHandshakeService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -85,6 +94,15 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseWebSockets();
+
+// The Gateway WebSocket upgrade sits before everything else, including
+// DiscordBotTokenTranslationMiddleware/UseAuthentication() - Gateway auth isn't HTTP-header-based
+// at all, it happens inside the OP 2 Identify payload (see GatewayConnection).
+app.UseWhen(
+    ctx => ctx.WebSockets.IsWebSocketRequest && ctx.Request.Path.StartsWithSegments("/api/discord/v10/gateway"),
+    branch => branch.UseMiddleware<GatewayWebSocketMiddleware>());
+
 app.UseWhen(
     ctx => ctx.Request.Path.StartsWithSegments("/api/discord/v10"),
     branch => branch.UseMiddleware<DiscordBotTokenTranslationMiddleware>());
@@ -93,5 +111,17 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapWolverineEndpoints();
+
+app.Services.GetRequiredService<GatewayConnectionRegistry>().Start();
+
+// Converts a pod drain into a clean, library-expected reconnect instead of a hard connection
+// drop - pairs with AddGracefulShutdownHealthCheck() already pulling this pod out of Service
+// rotation for *new* connections while these existing ones get told to reconnect elsewhere.
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    var registry = app.Services.GetRequiredService<GatewayConnectionRegistry>();
+    var sendTasks = registry.LocalConnections.Select(c => c.SendReconnectAsync()).ToArray();
+    Task.WaitAll(sendTasks, TimeSpan.FromSeconds(5));
+});
 
 await app.RunJasperFxCommands(args);

@@ -1,18 +1,13 @@
-using System.Net.Http.Json;
-using System.Text.Json.Serialization;
-using Microsoft.Extensions.Caching.Distributed;
+using Bots.Application.Gateway;
 
 namespace Bots.Application.Middleware;
 
 /// <summary>
 /// Bridges Discord's static, long-lived bot tokens onto our short-lived OpenIddict JWTs.
 /// </summary>
-public class DiscordBotTokenTranslationMiddleware(RequestDelegate next, IHttpClientFactory httpClientFactory)
+public class DiscordBotTokenTranslationMiddleware(RequestDelegate next)
 {
-    private static readonly string IdentityBaseUrl =
-        Environment.GetEnvironmentVariable("Services__Identity") ?? "http://_http.identity.default.svc.cluster.local";
-
-    public async Task InvokeAsync(HttpContext context, IDistributedCache cache)
+    public async Task InvokeAsync(HttpContext context, BotTokenTranslator translator)
     {
         var authHeader = context.Request.Headers.Authorization.ToString();
         if (!authHeader.StartsWith("Bot ", StringComparison.Ordinal))
@@ -21,53 +16,14 @@ public class DiscordBotTokenTranslationMiddleware(RequestDelegate next, IHttpCli
             return;
         }
 
-        if (!DiscordCompatToken.TryUnpack(authHeader["Bot ".Length..], out var clientId, out var clientSecret))
+        var result = await translator.AuthenticateAsync(authHeader["Bot ".Length..]);
+        if (!result.Success)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
 
-        var cacheKey = $"bot-jwt:{clientId}";
-        var jwt = await cache.GetStringAsync(cacheKey);
-
-        if (jwt is null)
-        {
-            var httpClient = httpClientFactory.CreateClient();
-            var response = await httpClient.PostAsync($"{IdentityBaseUrl}/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["grant_type"] = "client_credentials",
-                ["client_id"] = clientId,
-                ["client_secret"] = clientSecret,
-            }));
-
-            if (!response.IsSuccessStatusCode)
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return;
-            }
-
-            var payload = await response.Content.ReadFromJsonAsync<TokenResponse>();
-            if (payload?.AccessToken is null)
-            {
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return;
-            }
-
-            jwt = payload.AccessToken;
-            var ttl = TimeSpan.FromSeconds(Math.Max(payload.ExpiresIn - 60, 30));
-            await cache.SetStringAsync(cacheKey, jwt, new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl });
-        }
-
-        context.Request.Headers.Authorization = $"Bearer {jwt}";
+        context.Request.Headers.Authorization = $"Bearer {result.Jwt}";
         await next(context);
-    }
-
-    private class TokenResponse
-    {
-        [JsonPropertyName("access_token")]
-        public string? AccessToken { get; set; }
-
-        [JsonPropertyName("expires_in")]
-        public int ExpiresIn { get; set; }
     }
 }

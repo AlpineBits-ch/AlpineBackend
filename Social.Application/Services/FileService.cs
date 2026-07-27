@@ -64,7 +64,7 @@ public class FileService(IAmazonS3 s3Client)
     {
         if (string.IsNullOrEmpty(id))
             return null;
-        
+
         var config = Env.StorageConfiguration;
 
         var request = new GetPreSignedUrlRequest
@@ -76,6 +76,70 @@ public class FileService(IAmazonS3 s3Client)
         };
 
         // Generates the presigned URL dynamically matching the user's host endpoint
+        return s3Client.GetPreSignedURL(request);
+    }
+
+    // Banners use a "banner/" key prefix, distinct from the bare profileId key avatars use, so
+    // the two images never collide in the shared bucket.
+    private static string GetBannerKey(string profileId) => $"banner/{profileId}";
+
+    public async Task<UploadedFile> UploadBannerAsync(IFormFile file, string profileId)
+    {
+        var config = Env.StorageConfiguration;
+        string publicUrlBase = config.PublicUrl.TrimEnd('/');
+        string key = GetBannerKey(profileId);
+
+        try
+        {
+            await s3Client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = config.BucketName,
+                Key = key
+            });
+        }
+        catch (Exception)
+        {
+            // empty :D
+        }
+
+        using var stream = file.OpenReadStream();
+        var putRequest = new PutObjectRequest
+        {
+            BucketName = config.BucketName,
+            Key = key,
+            ContentType = file.ContentType,
+            InputStream = stream
+        };
+
+        await s3Client.PutObjectAsync(putRequest);
+
+        string fileUrl = $"{publicUrlBase}/{config.BucketName}/{key}";
+
+        return new UploadedFile
+        {
+            Id = profileId,
+            Url = fileUrl,
+            FileName = file.FileName,
+            SizeBytes = file.Length,
+            ContentType = file.ContentType
+        };
+    }
+
+    public async Task<string?> GetPresignedUrlForBanner(string id)
+    {
+        if (string.IsNullOrEmpty(id))
+            return null;
+
+        var config = Env.StorageConfiguration;
+
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = config.BucketName,
+            Key = GetBannerKey(id),
+            Expires = DateTime.UtcNow.AddMinutes(10),
+            Verb = HttpVerb.GET
+        };
+
         return s3Client.GetPreSignedURL(request);
     }
 }

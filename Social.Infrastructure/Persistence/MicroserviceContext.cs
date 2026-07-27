@@ -19,6 +19,7 @@ public class MicroserviceContext : DbContext
         {
             options.MapEnum<RelationshipStatus>();
             options.MapEnum<OnlineStatus>();
+            options.MapEnum<ProfileFont>();
         }).UseSnakeCaseNamingConvention();
     }
     

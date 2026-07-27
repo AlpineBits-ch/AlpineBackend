@@ -123,8 +123,17 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         {
             if (presenceMap.TryGetValue(member.Id, out var presence))
             {
-                var status = Enum.Parse<OnlineStatus>(presence.Status);
-                member.Status = status;
+                if (Enum.TryParse<OnlineStatus>(presence.Status, out var status))
+                {
+                    member.Status = status;
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Unrecognized presence status {Status} for member {MemberId}; defaulting to Offline",
+                        presence.Status, member.Id);
+                    member.Status = OnlineStatus.Offline;
+                }
             }
         }
         

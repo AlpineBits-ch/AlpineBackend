@@ -36,16 +36,6 @@ public class GuildHydrateService(
         return 1
     ";
 
-    public async Task<GuildDto> HydrateGuildForUserIdAsync(string guildId, string userId)
-    {
-        return new GuildDto();
-    }
-
-    public async Task<GuildDto> GetHydratedGuildAsync(string guildId, string userId)
-    {
-        return new GuildDto();
-    }
-    
     public async Task<IReadOnlyDictionary<string, MemberPresenceState>> GetPresenceByMemberIdsAsync(
         string guildId, 
         IEnumerable<string> memberIds)
@@ -149,6 +139,21 @@ public class GuildHydrateService(
             [new RedisKey(presenceKey), new RedisKey(guildZsetKey)],
             [memberPresence.MemberId, serializedState, expiryTimestamp]
         );
+    }
+
+    // Called on explicit disconnect so a member's guild presence disappears immediately instead
+    // of waiting out the 300s fallback TTL on the hash key / ZSET score (the "ghost presence" window).
+    public async Task RemovePresenceStateAsync(string guildId, string memberId)
+    {
+        string presenceKey = $"presence:user:{memberId}";
+        string guildZsetKey = $"guild:presence:{guildId}";
+
+        IBatch batch = _db.CreateBatch();
+        Task deleteTask = batch.KeyDeleteAsync(presenceKey);
+        Task zremTask = batch.SortedSetRemoveAsync(guildZsetKey, memberId);
+        batch.Execute();
+
+        await Task.WhenAll(deleteTask, zremTask);
     }
 
     public async Task PruneExpiredMembersAsync(string guildId)

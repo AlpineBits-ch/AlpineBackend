@@ -63,6 +63,7 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             JoinedAt = DateTime.UtcNow,
+            GuildId = parameters.GuildId,
             UserId = parameters.UserId,
             Bio = parameters.Bio,
             Nickname = parameters.Nickname,

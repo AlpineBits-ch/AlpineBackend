@@ -19,7 +19,7 @@ namespace Messaging.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "attachment_state", new[] { "complete", "pending" });
@@ -276,6 +276,14 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("text[]")
                         .HasColumnName("mentions");
 
+                    b.Property<bool>("MentionsEveryone")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mentions_everyone");
+
+                    b.Property<bool>("MentionsHere")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mentions_here");
+
                     b.Property<long?>("MlsEpoch")
                         .HasColumnType("bigint")
                         .HasColumnName("mls_epoch");
@@ -283,6 +291,11 @@ namespace Messaging.Persistence.Migrations
                     b.Property<long?>("MlsSequenceNumber")
                         .HasColumnType("bigint")
                         .HasColumnName("mls_sequence_number");
+
+                    b.PrimitiveCollection<List<string>>("RoleMentions")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("role_mentions");
 
                     b.Property<string>("SenderDeviceId")
                         .HasColumnType("text")

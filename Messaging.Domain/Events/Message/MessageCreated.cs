@@ -21,6 +21,9 @@ public class MessageCreated : DomainEvent
     public long? MlsSequenceNumber { get; set; }
     public string? SenderDeviceId { get; set; }
     public ICollection<string> Mentions { get; set; } = new List<string>();
+    public ICollection<string> RoleMentions { get; set; } = new List<string>();
+    public bool MentionsEveryone { get; set; }
+    public bool MentionsHere { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     public required ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
 }

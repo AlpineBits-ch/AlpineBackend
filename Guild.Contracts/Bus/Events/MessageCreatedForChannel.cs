@@ -15,7 +15,11 @@ public class MessageCreatedForChannel
     public MessageEncryptionState EncryptionState { get; set; }
     
     public ICollection<string> Mentions { get; set; } = new List<string>();
-    
+    public ICollection<string> RoleMentions { get; set; } = new List<string>();
+    public bool MentionsEveryone { get; set; }
+    public bool MentionsHere { get; set; }
+
+
     public ICollection<MinimalAttachmentForChannel> Attachments { get; set; } = new List<MinimalAttachmentForChannel>();
 }
 

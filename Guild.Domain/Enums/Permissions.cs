@@ -56,7 +56,14 @@ public enum Permissions : ulong
     ManageWikiStructure         = 1ul << 29,
     ModerateWikiComments        = 1ul << 30,
     PublishWikiPublicly         = 1ul << 31,
-    
+
+    // ── Moderation (members) ─────────────────────────────────────────────────
+    KickMembers             = 1ul << 32,
+    BanMembers              = 1ul << 33,
+    ModerateMembers         = 1ul << 34,
+    ManageGuild             = 1ul << 35,
+    ViewAuditLog            = 1ul << 36,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
     Superadmin              = 1ul << 63,
 }

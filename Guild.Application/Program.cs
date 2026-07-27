@@ -112,6 +112,7 @@ builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddScoped<GuildHydrateService>();
 builder.Services.AddScoped<GuildPermissionService>();
 builder.Services.AddScoped<GuildThumbnailService>();
+builder.Services.AddScoped<AuditLogService>();
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 if (args.Contains("codegen") || args.Contains("describe"))

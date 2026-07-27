@@ -59,7 +59,7 @@ public class GuildPermissionService(
             .FirstOrDefaultAsync();
     }
 
-    private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny)> GetMembershipAsync(
+    private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, DateTimeOffset? mutedUntil)> GetMembershipAsync(
         string userId, string guildId)
     {
         var isOwner = await ctx.Guilds
@@ -69,12 +69,13 @@ public class GuildPermissionService(
         var memberRow = await ctx.GuildMembers
             .AsNoTracking()
             .Where(m => m.UserId == userId && m.GuildId == guildId)
-            .Select(m => new { m.Id, m.AllowPermissions, m.DenyPermissions })
+            .Select(m => new { m.Id, m.AllowPermissions, m.DenyPermissions, m.MutedUntil })
             .FirstOrDefaultAsync();
 
         var memberId = memberRow?.Id;
         var memberAllow = memberRow?.AllowPermissions ?? Permissions.None;
         var memberDeny = memberRow?.DenyPermissions ?? Permissions.None;
+        var mutedUntil = memberRow?.MutedUntil;
 
         var roleIds = memberId == null
             ? []
@@ -84,7 +85,7 @@ public class GuildPermissionService(
                 .Select(rm => rm.RoleId)
                 .ToListAsync();
 
-        return (isOwner, roleIds, memberId, memberAllow, memberDeny);
+        return (isOwner, roleIds, memberId, memberAllow, memberDeny, mutedUntil);
     }
 
     public async Task<bool> CanUserPerformActionAsync(
@@ -102,7 +103,7 @@ public class GuildPermissionService(
             return false;
         }
 
-        var (isOwner, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return true;
 
         var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
@@ -119,6 +120,15 @@ public class GuildPermissionService(
         }
         
         logger.LogDebug("User {UserId} has permissions {Permissions} on channel {ChannelId} in guild {GuildId}", userId, channelPermission.Permissions, channelId, guildId);
+
+        // Threads inherit their parent's resolved permission set (see ComputePermissionsForUserAsync),
+        // but "can post" on a thread is governed by SendMessagesInThreads, not SendMessages.
+        if (requiredPermission == Permissions.SendMessages)
+        {
+            var channelType = await ctx.Channels.AsNoTracking().Where(c => c.Id == channelId).Select(c => c.Type).FirstOrDefaultAsync();
+            if (channelType == ChannelType.Thread)
+                requiredPermission = Permissions.SendMessagesInThreads;
+        }
 
         return (channelPermission.Permissions & requiredPermission) == requiredPermission;
     }
@@ -137,7 +147,7 @@ public class GuildPermissionService(
             return JsonSerializer.Deserialize<GuildPermissionsForUser>(cachedData)!;
         }
 
-        var (isOwner, userRoleIds, memberId, memberAllow, memberDeny) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, userRoleIds, memberId, memberAllow, memberDeny, mutedUntil) = await GetMembershipAsync(userId, guildId);
 
         if (isOwner)
         {
@@ -193,6 +203,7 @@ public class GuildPermissionService(
                 c.GuildId,
                 c.CategoryId,
                 c.Type,
+                c.ParentChannelId,
             })
             .ToListAsync();
 
@@ -224,7 +235,12 @@ public class GuildPermissionService(
 
         var channelPermissions = new List<GuildChannelPermission>(channels.Count);
 
-        foreach (var channel in channels)
+        // Threads have no independent overwrites in this pass — resolve them in a second
+        // pass so their parent (processed in the loop below) is already computed.
+        var nonThreadChannels = channels.Where(c => c.Type != ChannelType.Thread || c.ParentChannelId == null).ToList();
+        var threadChannels = channels.Where(c => c.Type == ChannelType.Thread && c.ParentChannelId != null).ToList();
+
+        foreach (var channel in nonThreadChannels)
         {
             Permissions resolvedPermissions = basePermissions;
 
@@ -260,17 +276,45 @@ public class GuildPermissionService(
             });
         }
 
+        foreach (var thread in threadChannels)
+        {
+            var parentResult = channelPermissions.FirstOrDefault(p => p.ChannelId == thread.ParentChannelId);
+
+            channelPermissions.Add(new GuildChannelPermission
+            {
+                UserId = userId,
+                ChannelId = thread.Id,
+                GuildId = guildId,
+                Permissions = parentResult?.Permissions ?? ExpandImpliedPermissions(basePermissions)
+            });
+        }
+
+        var expandedBase = ExpandImpliedPermissions(basePermissions);
+
+        // A muted (timed-out) member keeps their other permissions but loses the ability to speak:
+        // sending messages, reacting, starting threads, or connecting to voice.
+        if (mutedUntil is not null && mutedUntil > DateTimeOffset.UtcNow && !expandedBase.HasFlag(Permissions.Superadmin))
+        {
+            expandedBase &= ~MuteStrippedPermissions;
+            foreach (var channelPermission in channelPermissions)
+                channelPermission.Permissions &= ~MuteStrippedPermissions;
+        }
+
         var result = new GuildPermissionsForUser
         {
             GuildId = guildId,
             UserId = userId,
-            BasePermissions = ExpandImpliedPermissions(basePermissions),
+            BasePermissions = expandedBase,
             Permissions = channelPermissions
         };
 
         await CachePermissionsAsync(cacheKey, result);
         return result;
     }
+
+    private const Permissions MuteStrippedPermissions =
+        Permissions.SendMessages | Permissions.SendMessagesInThreads | Permissions.AddReactions |
+        Permissions.CreateThreads | Permissions.Connect;
 
     private Permissions ApplyOverwrites(
         Permissions initial,
@@ -403,5 +447,64 @@ public class GuildPermissionService(
     {
         var cacheKey = GuildPermissionsForUser.GetCacheKey(guildId, userId);
         await cache.RemoveAsync(cacheKey);
+    }
+
+    /// <summary>
+    /// Guards against privilege escalation: an actor may only grant permission bits they themselves
+    /// currently hold (guild owner is exempt, matching the Superadmin short-circuit already used
+    /// throughout this service).
+    /// </summary>
+    public async Task<bool> CanGrantPermissionsAsync(string actorUserId, string guildId, Permissions requestedPermissions)
+    {
+        var actorPermissions = await ComputePermissionsForUserAsync(actorUserId, guildId);
+        return (requestedPermissions & ~actorPermissions.BasePermissions) == Permissions.None;
+    }
+
+    /// <summary>Highest role Position the user holds in this guild.</summary>
+    public async Task<int> GetHighestRolePositionAsync(string userId, string guildId)
+    {
+        var (isOwner, roleIds, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        if (isOwner) return int.MaxValue;
+
+        if (roleIds.Count == 0) return int.MinValue;
+
+        return await ctx.Roles
+            .AsNoTracking()
+            .Where(r => roleIds.Contains(r.Id))
+            .MaxAsync(r => r.Position);
+    }
+
+    /// <summary>
+    /// True if the actor's highest role outranks the target role (or the actor is guild owner).
+    /// </summary>
+    public async Task<bool> CanManageRoleAsync(string actorUserId, string guildId, string targetRoleId)
+    {
+        var actorPosition = await GetHighestRolePositionAsync(actorUserId, guildId);
+        if (actorPosition == int.MaxValue) return true;
+
+        var targetPosition = await ctx.Roles
+            .AsNoTracking()
+            .Where(r => r.Id == targetRoleId && r.GuildId == guildId)
+            .Select(r => (int?)r.Position)
+            .FirstOrDefaultAsync();
+
+        if (targetPosition is null) return false;
+
+        return actorPosition > targetPosition.Value;
+    }
+
+    /// <summary>True if the actor outranks the target member (or is guild owner).</summary>
+    public async Task<bool> CanModerateTargetAsync(string actorUserId, string targetUserId, string guildId)
+    {
+        var isTargetOwner = await ctx.Guilds
+            .AsNoTracking()
+            .AnyAsync(g => g.Id == guildId && g.OwnerId == targetUserId);
+        if (isTargetOwner) return false;
+
+        var actorPosition = await GetHighestRolePositionAsync(actorUserId, guildId);
+        if (actorPosition == int.MaxValue) return true;
+
+        var targetPosition = await GetHighestRolePositionAsync(targetUserId, guildId);
+        return actorPosition > targetPosition;
     }
 }

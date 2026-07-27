@@ -25,6 +25,8 @@ public class MicroserviceContext : DbContext
     public DbSet<WikiRevision> WikiRevisions { get; set; }
     
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
+    public DbSet<GuildAuditLogEntry> AuditLogEntries { get; set; }
+    public DbSet<GuildBan> GuildBans { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -40,6 +42,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<InviteState>();
             options.MapEnum<RoleType>();
             options.MapEnum<WikiVisibility>();
+            options.MapEnum<AuditActionType>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -114,9 +117,13 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired(false);
             channelBuilder.HasOne(x => x.Guild).WithMany(x => x.Channels).HasForeignKey(x => x.GuildId).OnDelete(DeleteBehavior.Cascade);
-            
-           
-            
+
+            channelBuilder.HasOne(c => c.ParentChannel)
+                .WithMany()
+                .HasForeignKey(c => c.ParentChannelId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .IsRequired(false);
+
         });
         
         modelBuilder.Entity<GuildInvite>(guildInviteBuilder =>
@@ -125,6 +132,14 @@ public class MicroserviceContext : DbContext
                 .WithMany(x => x.Invites)
                 .HasForeignKey(x => x.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            guildInviteBuilder.HasOne(x => x.Channel)
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+
+            guildInviteBuilder.HasIndex(x => x.Code).IsUnique();
         });
 
         modelBuilder.Entity<ChannelPermission>(channelPermissionBuilder =>
@@ -172,7 +187,8 @@ public class MicroserviceContext : DbContext
         {
             guildMemberBuilder.HasOne(m => m.Guild)
                 .WithMany(g => g.Members)
-                .HasForeignKey(m => m.GuildId);
+                .HasForeignKey(m => m.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
             
             guildMemberBuilder.HasOne(m => m.Invite)
                 .WithMany(i => i.Members)
@@ -238,6 +254,26 @@ public class MicroserviceContext : DbContext
                 .WithMany()
                 .HasForeignKey(c => c.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GuildAuditLogEntry>(auditLogBuilder =>
+        {
+            auditLogBuilder.HasOne(x => x.Guild)
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            auditLogBuilder.HasIndex(x => new { x.GuildId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<GuildBan>(banBuilder =>
+        {
+            banBuilder.HasOne(x => x.Guild)
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            banBuilder.HasIndex(x => new { x.GuildId, x.BannedUserId }).IsUnique();
         });
     }
     

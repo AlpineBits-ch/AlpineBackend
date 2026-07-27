@@ -19,10 +19,11 @@ namespace Guild.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "forum", "text", "ticket", "voice" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "category_created", "category_deleted", "channel_created", "channel_deleted", "channel_permission_changed", "channel_updated", "guild_deleted", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_unbanned", "member_unmuted", "role_created", "role_deleted", "role_positions_changed", "role_updated" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "forum", "text", "thread", "ticket", "voice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "encryption_state", new[] { "encrypted", "encrypted_without_fallback_key", "plain" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_state", new[] { "active", "expired" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_type", new[] { "one_time", "permanent" });
@@ -46,6 +47,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("CreatedByUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_user_id");
+
                     b.Property<string>("Description")
                         .HasColumnType("text")
                         .HasColumnName("description");
@@ -63,6 +68,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_age_restricted");
 
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_archived");
+
                     b.Property<bool>("IsPrivate")
                         .HasColumnType("boolean")
                         .HasColumnName("is_private");
@@ -72,9 +81,17 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
+                    b.Property<string>("ParentChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("parent_channel_id");
+
                     b.Property<int>("Position")
                         .HasColumnType("integer")
                         .HasColumnName("position");
+
+                    b.Property<int>("SlowModeSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("slow_mode_seconds");
 
                     b.Property<ChannelType>("Type")
                         .HasColumnType("channel_type")
@@ -92,6 +109,9 @@ namespace Guild.Persistence.Migrations
 
                     b.HasIndex("GuildId")
                         .HasDatabaseName("ix_channels_guild_id");
+
+                    b.HasIndex("ParentChannelId")
+                        .HasDatabaseName("ix_channels_parent_channel_id");
 
                     b.ToTable("channels", (string)null);
                 });
@@ -291,11 +311,20 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("channel_permissions", (string)null);
                 });
 
-            modelBuilder.Entity("Guild.Domain.Entity.GuildInvite", b =>
+            modelBuilder.Entity("Guild.Domain.Entity.GuildAuditLogEntry", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text")
                         .HasColumnName("id");
+
+                    b.Property<AuditActionType>("ActionType")
+                        .HasColumnType("audit_action_type")
+                        .HasColumnName("action_type");
+
+                    b.Property<string>("ActorUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("actor_user_id");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -305,6 +334,102 @@ namespace Guild.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("guild_id");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("text")
+                        .HasColumnName("metadata");
+
+                    b.Property<string>("TargetId")
+                        .HasColumnType("text")
+                        .HasColumnName("target_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_audit_log_entries");
+
+                    b.HasIndex("GuildId", "CreatedAt")
+                        .HasDatabaseName("ix_audit_log_entries_guild_id_created_at");
+
+                    b.ToTable("audit_log_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildBan", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BannedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("banned_by_user_id");
+
+                    b.Property<string>("BannedUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("banned_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_bans");
+
+                    b.HasIndex("GuildId", "BannedUserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_guild_bans_guild_id_banned_user_id");
+
+                    b.ToTable("guild_bans", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildInvite", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<int?>("MaxUses")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_uses");
 
                     b.Property<InviteState>("State")
                         .HasColumnType("invite_state")
@@ -318,8 +443,19 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
+                    b.Property<int>("UseCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("use_count");
+
                     b.HasKey("Id")
                         .HasName("pk_guild_invites");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_guild_invites_channel_id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_guild_invites_code");
 
                     b.HasIndex("GuildId")
                         .HasDatabaseName("ix_guild_invites_guild_id");
@@ -365,6 +501,10 @@ namespace Guild.Persistence.Migrations
                     b.Property<DateTime>("JoinedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("joined_at");
+
+                    b.Property<DateTimeOffset?>("MutedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("muted_until");
 
                     b.Property<string>("Nickname")
                         .HasColumnType("text")
@@ -771,9 +911,17 @@ namespace Guild.Persistence.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_channels_guilds_guild_id");
 
+                    b.HasOne("Guild.Domain.Aggregates.Channel", "ParentChannel")
+                        .WithMany()
+                        .HasForeignKey("ParentChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_channels_channels_parent_channel_id");
+
                     b.Navigation("Category");
 
                     b.Navigation("Guild");
+
+                    b.Navigation("ParentChannel");
                 });
 
             modelBuilder.Entity("Guild.Domain.Aggregates.Guild", b =>
@@ -846,14 +994,46 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildAuditLogEntry", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_audit_log_entries_guilds_guild_id");
+
+                    b.Navigation("Guild");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildBan", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_bans_guilds_guild_id");
+
+                    b.Navigation("Guild");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildInvite", b =>
                 {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_guild_invites_channels_channel_id");
+
                     b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
                         .WithMany("Invites")
                         .HasForeignKey("GuildId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_guild_invites_guilds_guild_id");
+
+                    b.Navigation("Channel");
 
                     b.Navigation("Guild");
                 });

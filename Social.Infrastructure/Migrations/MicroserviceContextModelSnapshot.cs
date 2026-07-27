@@ -18,10 +18,10 @@ namespace Social.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.8")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "online_status", new[] { "hidden", "offline", "online" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "online_status", new[] { "do_not_disturb", "hidden", "idle", "offline", "online" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "relationship_status", new[] { "blocked", "friends", "none", "pending_incoming", "pending_outgoing" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 

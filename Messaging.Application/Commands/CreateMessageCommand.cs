@@ -28,6 +28,9 @@ public class CreateMessageCommandHandler
             ChannelId = command.ChannelId,
             InReplyTo = command.InReplyTo,
             Mentions = command.Mentions,
+            RoleMentions = command.RoleMentions,
+            MentionsEveryone = command.MentionsEveryone,
+            MentionsHere = command.MentionsHere,
             AuthorId = command.AuthorId,
             SenderDeviceId = command.SenderDeviceId,
             EncryptionState = encryptionState,
@@ -51,6 +54,9 @@ public class CreateMessageCommandHandler
             ConversationId = command.ConversationId,
             Content = command.Content,
             Mentions = command.Mentions,
+            RoleMentions = command.RoleMentions,
+            MentionsEveryone = command.MentionsEveryone,
+            MentionsHere = command.MentionsHere,
             AuthorId = command.AuthorId,
             Attachments = command.Attachments.Select(a => new MinimalAttachment
             {

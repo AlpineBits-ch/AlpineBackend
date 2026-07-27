@@ -59,6 +59,9 @@ public class MessageCreatedHandler
                 MessageId = messageCreated.MessageId,
                 Content = messageCreated.Content,
                 Mentions = messageCreated.Mentions,
+                RoleMentions = messageCreated.RoleMentions,
+                MentionsEveryone = messageCreated.MentionsEveryone,
+                MentionsHere = messageCreated.MentionsHere,
                 EncryptionState = MessageEncryptionState.Plain,
                 Attachments = messageCreated.Attachments.Select(a => new MinimalAttachmentForChannel()
                 {

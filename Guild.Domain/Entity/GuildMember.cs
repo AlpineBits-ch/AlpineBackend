@@ -41,6 +41,11 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     public Permissions AllowPermissions { get; set; } = Permissions.None;
     public Permissions DenyPermissions { get; set; } = Permissions.None;
 
+    /// <summary>Text-chat timeout: while in the future, message/reaction/thread/voice-connect
+    /// permissions are stripped regardless of role/overwrite grants (see
+    /// GuildPermissionService.ComputePermissionsForUserAsync).</summary>
+    public DateTimeOffset? MutedUntil { get; set; }
+
     public virtual ICollection<RoleMember> RoleMembers { get; set; } = [];
     public virtual ICollection<ChannelPermission> PermissionOverwrites { get; set; } = [];
     public virtual ICollection<ReadState> ReadStates { get; set; } = [];

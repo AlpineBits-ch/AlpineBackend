@@ -20,10 +20,15 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class ChannelEndpoint
 {
+    // Only these types can be created through the general endpoint — Forum/Ticket/Announcement
+    // have no behavior implemented behind them, and Thread is only created via its own
+    // endpoint (POST /api/v1/channels/{channelId}/threads) since it requires a parent.
+    private static readonly HashSet<ChannelType> CreatableTypes = [ChannelType.Text, ChannelType.Voice];
+
     [WolverinePost("/api/v1/guilds/{guildId}/channels")]
     public async Task<IResult> CreateChannel(string guildId, CreateChannelDto dto,
         [NotBody] GuildPermissionService permissionService,
-            [NotBody] MicroserviceContext ctx, 
+            [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] ILogger<ChannelEndpoint> logger,
@@ -31,6 +36,9 @@ public class ChannelEndpoint
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!CreatableTypes.Contains(dto.Type))
+            return Results.BadRequest($"Channel type '{dto.Type}' is not creatable directly.");
 
         var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
@@ -97,24 +105,83 @@ public class ChannelEndpoint
         [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] AuditLogService auditLog,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
-        
+
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return Results.NotFound();
-        
+
         var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, channel.GuildId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
-        
+
         ctx.Channels.Remove(channel);
-        
+
+        auditLog.Log(channel.GuildId, userId, AuditActionType.ChannelDeleted, channelId);
+
         var presence = await guildHydrateService.GetGuildPresenceAsync(channel.GuildId);
-        
+
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelDeleted", new { ChannelId = channel.Id, GuildId = channel.GuildId });
 
         return Results.NoContent();
+    }
+
+    [WolverinePatch("/api/v1/channels/{channelId}")]
+    public async Task<IResult> UpdateChannelAsync(string channelId, UpdateChannelDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] AuditLogService auditLog,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return Results.NotFound();
+
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, channel.GuildId, Permissions.ManageChannel);
+        if (!canManage) return Results.Forbid();
+
+        try
+        {
+            channel.Update(new Channel.UpdateChannelParams
+            {
+                Name = dto.Name,
+                Description = dto.Description,
+                IsAgeRestricted = dto.IsAgeRestricted,
+                IsPrivate = dto.IsPrivate,
+                SlowModeSeconds = dto.SlowModeSeconds,
+            });
+        }
+        catch (ValidationException validationException)
+        {
+            var errors = validationException.Errors
+                .GroupBy(e => e.PropertyName)
+                .ToDictionary(group => group.Key, group => group.Select(e => e.ErrorMessage).ToArray());
+
+            return Results.ValidationProblem(errors);
+        }
+
+        auditLog.Log(channel.GuildId, userId, AuditActionType.ChannelUpdated, channelId);
+
+        var presence = await guildHydrateService.GetGuildPresenceAsync(channel.GuildId);
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelUpdated", new { ChannelId = channel.Id, GuildId = channel.GuildId });
+
+        return Results.Ok(new ChannelDto
+        {
+            Type = channel.Type,
+            GuildId = channel.GuildId,
+            Id = channel.Id,
+            Name = channel.Name,
+            CreatedAt = channel.CreatedAt,
+            UpdatedAt = channel.UpdatedAt,
+            IsAgeRestricted = channel.IsAgeRestricted,
+            IsPrivate = channel.IsPrivate,
+        });
     }
 
 

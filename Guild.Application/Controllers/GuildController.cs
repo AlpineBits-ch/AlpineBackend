@@ -165,6 +165,30 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
 
     }
 
+    [HttpGet("{guildId}/audit-log")]
+    public async Task<IActionResult> GetAuditLogAsync(string guildId, [FromQuery] int skip = 0, [FromQuery] int take = 50)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId == null)
+        {
+            return Unauthorized();
+        }
+
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewAuditLog))
+        {
+            return Forbid();
+        }
+
+        var entries = await ctx.Set<GuildAuditLogEntry>()
+            .Where(e => e.GuildId == guildId)
+            .OrderByDescending(e => e.CreatedAt)
+            .Skip(skip)
+            .Take(Math.Min(take, 100))
+            .ToFacetsAsync<GuildAuditLogEntry, AuditLogEntryDto>();
+
+        return Ok(entries);
+    }
+
     [HttpGet("{guildId}/channels")]
     public async Task<IActionResult> GetChannelsAsync(string guildId)
     {

@@ -5,10 +5,14 @@ using Social.Contracts.Dtos;
 
 namespace Guild.Application.Dtos.Response;
 
+/// <summary>Mirrors Social.Domain.Enums.OnlineStatus.</summary>
 public enum OnlineStatus
 {
     Offline,
+    Hidden,
     Online,
+    Idle,
+    DoNotDisturb,
 }
 
 [Facet(typeof(GuildMember), nameof(GuildMember.Guild),  NestedFacets = [typeof(InviteDto), typeof(RoleMemberDto), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]

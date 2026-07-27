@@ -66,7 +66,21 @@ public class ThreadEndpoint
                 Name = thread.Name,
             });
 
-            return Results.Ok(thread.ToFacet<Channel, ChannelDto>());
+            return Results.Ok(new ChannelDto
+            {
+                Type = thread.Type,
+                GuildId = thread.GuildId,
+                Id = thread.Id,
+                Name = thread.Name,
+                Description = thread.Description,
+                CreatedAt = thread.CreatedAt,
+                UpdatedAt = thread.UpdatedAt,
+                IsAgeRestricted = thread.IsAgeRestricted,
+                IsPrivate = thread.IsPrivate,
+                ParentChannelId = thread.ParentChannelId,
+                CreatedByUserId = thread.CreatedByUserId,
+                IsArchived = thread.IsArchived,
+            });
         }
         catch (ValidationException validationException)
         {

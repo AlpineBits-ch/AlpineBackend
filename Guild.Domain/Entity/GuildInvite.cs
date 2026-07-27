@@ -40,8 +40,12 @@ public class GuildInvite : BaseEntity<GuildInvite>, IPrefixedEntity
 
     public static GuildInvite Create(CreateGuildInviteParams parameters)
     {
+        var date = DateTime.UtcNow;
         return new GuildInvite
         {
+            Id = GenerateId(),
+            CreatedAt = date,
+            UpdatedAt = date,
             GuildId = parameters.GuildId,
             Type = parameters.Type,
             State = InviteState.Active,

@@ -34,4 +34,10 @@
       <ProjectReference Include="..\Bots.Application\Bots.Application.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+      <None Update=".e2e-credentials.local.json">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
 </Project>

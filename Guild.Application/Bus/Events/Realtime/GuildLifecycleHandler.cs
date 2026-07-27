@@ -4,12 +4,14 @@ using Guild.Application.Controllers;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Models;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Social.Contracts.Bus.Integration.Events;
+using Wolverine;
 
 namespace Guild.Application.Bus.Events.Realtime;
 
@@ -113,7 +115,7 @@ public class GuildLifecycleHandler
     // presence hash/ZSET entry to expire (previously the only mechanism — see the ghost-presence
     // stress test), then falls through to the pre-existing voice-cleanup logic below.
     public async Task Handle(UserDisconnected message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub)
+        GuildHydrateService service, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
     {
         var userId = message.UserId;
 
@@ -159,6 +161,8 @@ public class GuildLifecycleHandler
 
                 await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
                     new { userId, channelId = location.ChannelId, guildId = location.GuildId });
+
+                await bus.PublishAsync(new VoiceStateForBots { GuildId = location.GuildId, UserId = userId, ChannelId = null });
             }
         }
 

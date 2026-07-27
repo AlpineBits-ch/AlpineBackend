@@ -57,7 +57,7 @@ public class MemberEndpoint
         var audience = presence.Select(p => p.UserId).Append(dto.UserId).Distinct();
         await hub.Clients.Users(audience).SendAsync("guild.MemberBanned", new { GuildId = guildId, UserId = dto.UserId, dto.Reason });
 
-        await bus.SendAsync(new MemberRemovedForBots { GuildId = guildId, UserId = dto.UserId, Reason = "Banned" });
+        await bus.PublishAsync(new MemberRemovedForBots { GuildId = guildId, UserId = dto.UserId, Reason = "Banned" });
 
         return Results.Ok(ban.ToFacet<GuildBan, GuildBanDto>());
     }
@@ -129,7 +129,7 @@ public class MemberEndpoint
         var audience = presence.Select(p => p.UserId).Append(member.UserId).Distinct();
         await hub.Clients.Users(audience).SendAsync("guild.MemberKicked", new { GuildId = guildId, UserId = member.UserId });
 
-        await bus.SendAsync(new MemberRemovedForBots { GuildId = guildId, UserId = member.UserId, Reason = "Kicked" });
+        await bus.PublishAsync(new MemberRemovedForBots { GuildId = guildId, UserId = member.UserId, Reason = "Kicked" });
 
         return Results.NoContent();
     }
@@ -138,7 +138,8 @@ public class MemberEndpoint
     public async Task<IResult> MuteMemberAsync(string guildId, string memberId, MuteMemberDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService)
+        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] IMessageBus bus)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -165,6 +166,8 @@ public class MemberEndpoint
         var audience = presence.Select(p => p.UserId).Append(member.UserId).Distinct();
         await hub.Clients.Users(audience).SendAsync("guild.MemberMuted", new { GuildId = guildId, UserId = member.UserId, MutedUntil = member.MutedUntil });
 
+        await bus.PublishAsync(new MemberUpdatedForBots { GuildId = guildId, UserId = member.UserId });
+
         return Results.NoContent();
     }
 
@@ -172,7 +175,8 @@ public class MemberEndpoint
     public async Task<IResult> UnmuteMemberAsync(string guildId, string memberId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService)
+        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] IMessageBus bus)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -192,6 +196,8 @@ public class MemberEndpoint
         var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
         var audience = presence.Select(p => p.UserId).Append(member.UserId).Distinct();
         await hub.Clients.Users(audience).SendAsync("guild.MemberUnmuted", new { GuildId = guildId, UserId = member.UserId });
+
+        await bus.PublishAsync(new MemberUpdatedForBots { GuildId = guildId, UserId = member.UserId });
 
         return Results.NoContent();
     }
@@ -221,7 +227,7 @@ public class MemberEndpoint
         var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.MemberLeft", new { GuildId = guildId, UserId = userId });
 
-        await bus.SendAsync(new MemberRemovedForBots { GuildId = guildId, UserId = userId, Reason = "Left" });
+        await bus.PublishAsync(new MemberRemovedForBots { GuildId = guildId, UserId = userId, Reason = "Left" });
 
         return Results.NoContent();
     }

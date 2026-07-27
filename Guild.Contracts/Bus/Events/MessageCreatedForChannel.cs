@@ -6,6 +6,17 @@ public enum MessageEncryptionState
     Encrypted
 }
 
+/// <summary>Mirrors Messaging.Domain.Enums.MessageType - GuildMemberJoin/GuildMemberLeave carry no
+/// real Content, clients render one of a fixed set of localized copy variants using
+/// SystemMessageVariant instead (same convention as Discord's system messages).</summary>
+public enum MessageType
+{
+    Message,
+    Invite,
+    GuildMemberJoin,
+    GuildMemberLeave,
+}
+
 public class MessageCreatedForChannel
 {
     public string ChannelId { get; set; }
@@ -13,7 +24,7 @@ public class MessageCreatedForChannel
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; }
-    
+
     public ICollection<string> Mentions { get; set; } = new List<string>();
     public ICollection<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }
@@ -21,6 +32,9 @@ public class MessageCreatedForChannel
 
     /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
     public string? EmbedsJson { get; set; }
+
+    public MessageType Type { get; set; } = MessageType.Message;
+    public int? SystemMessageVariant { get; set; }
 
     public ICollection<MinimalAttachmentForChannel> Attachments { get; set; } = new List<MinimalAttachmentForChannel>();
 }

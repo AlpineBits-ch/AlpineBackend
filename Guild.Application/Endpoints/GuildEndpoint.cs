@@ -111,6 +111,15 @@ public class GuildEndpoint
         guild.Name = dto.Name;
         guild.Description = dto.Description;
 
+        if (dto.SystemChannelId is not null)
+        {
+            var channel = guild.Channels.FirstOrDefault(c => c.Id == dto.SystemChannelId);
+            if (channel is null || (channel.Type != ChannelType.Text && channel.Type != ChannelType.Announcement))
+                return Results.BadRequest("System channel must be a text or announcement channel in this guild");
+
+            guild.SystemChannelId = dto.SystemChannelId;
+        }
+
         auditLog.Log(id, userId, AuditActionType.GuildUpdated, id);
 
         var presence = await guildHydrateService.GetGuildPresenceAsync(id);

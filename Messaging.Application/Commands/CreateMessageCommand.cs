@@ -5,6 +5,8 @@ using Messaging.Domain.Events.Message;
 using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence;
 using MessageEncryptionState = Messaging.Domain.Enums.MessageEncryptionState;
+using DomainMessageType = Messaging.Domain.Enums.MessageType;
+using ContractMessageType = Messaging.Contracts.Bus.Commands.MessageType;
 
 namespace Messaging.Application.Commands;
 
@@ -20,7 +22,15 @@ public class CreateMessageCommandHandler
         {
             encryptionState = MessageEncryptionState.Encrypted;
         }
-        
+
+        var type = command.Type switch
+        {
+            ContractMessageType.Invite => DomainMessageType.Invite,
+            ContractMessageType.GuildMemberJoin => DomainMessageType.GuildMemberJoin,
+            ContractMessageType.GuildMemberLeave => DomainMessageType.GuildMemberLeave,
+            _ => DomainMessageType.Message,
+        };
+
         var message = Message.Create(new CreateMessageParams()
         {
             Content = command.Content,
@@ -34,6 +44,7 @@ public class CreateMessageCommandHandler
             AuthorId = command.AuthorId,
             SenderDeviceId = command.SenderDeviceId,
             EncryptionState = encryptionState,
+            Type = type,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
             EmbedsJson = command.EmbedsJson,
@@ -66,6 +77,8 @@ public class CreateMessageCommandHandler
                 FileName = a.FileName,
             }).ToList(),
             EncryptionState = encryptionState,
+            Type = message.Type,
+            SystemMessageVariant = message.SystemMessageVariant,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
             SenderDeviceId = command.SenderDeviceId,

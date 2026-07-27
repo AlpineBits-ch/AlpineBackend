@@ -15,6 +15,7 @@ public class CreateMessageParams
     public string AuthorId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     public MessageType Type { get; set; } = MessageType.Message;
+    public int? SystemMessageVariant { get; set; }
     public List<string> Mentions { get; set; } = [];
     public List<string> RoleMentions { get; set; } = [];
     public bool MentionsEveryone { get; set; }
@@ -55,7 +56,11 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public string? InReplyTo { get; set; }
     
     public MessageType Type { get; set; } = MessageType.Message;
-    
+
+    /// <summary>Which of the fixed set of localized copy variants a client should render for
+    /// this Type (see SystemMessageVariants) - null for ordinary MessageType.Message.</summary>
+    public int? SystemMessageVariant { get; set; }
+
     public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
     
     public List<string> Mentions { get; set; } = new();
@@ -69,6 +74,20 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     }
 
     [NotMapped] public static string Prefix { get; } = "mesg";
+
+    /// <summary>Explicit column list for reading the "messages" table. Cassandra/Scylla's
+    /// "SELECT *" returns regular (non-key) columns in alphabetical order, not creation order -
+    /// so any future "ALTER TABLE messages ADD ..." (see ScyllaContext.RunMigrationsAsync) whose
+    /// column name sorts before an existing one silently shifts every column read after it for
+    /// any client still holding a prepared statement from before the alter (this is exactly what
+    /// happened when "embeds_json" landed alphabetically before "encryption_state" - readers with
+    /// a stale "SELECT *" prepare started reading embeds_json's bytes as encryption_state's enum
+    /// string). Pinning the list makes wire order independent of what gets added later.</summary>
+    public const string SelectColumns =
+        "context_id, message_id, author_id, content, created_at, updated_at, in_reply_to, " +
+        "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
+        "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
+        "encryption_state, embeds_json, system_message_variant";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       
@@ -88,6 +107,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             Content = createMessageParams.Content,
             EncryptionState = createMessageParams.EncryptionState,
             Type = createMessageParams.Type,
+            SystemMessageVariant = SystemMessageVariants.PickFor(createMessageParams.Type),
             Mentions = createMessageParams.Mentions.ToList(),
             RoleMentions = createMessageParams.RoleMentions.ToList(),
             MentionsEveryone = createMessageParams.MentionsEveryone,

@@ -12,6 +12,7 @@ public class CreateMessageCommand
     public long? MlsSequenceNumber { get; set; }
     public string? SenderDeviceId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
+    public MessageType Type { get; set; } = MessageType.Message;
 
     /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
     public string? EmbedsJson { get; set; }
@@ -34,6 +35,14 @@ public enum MessageEncryptionState
 {
     Plain,
     Encrypted
+}
+
+public enum MessageType
+{
+    Message,
+    Invite,
+    GuildMemberJoin,
+    GuildMemberLeave,
 }
 
 public record MinimalAttachmentContract

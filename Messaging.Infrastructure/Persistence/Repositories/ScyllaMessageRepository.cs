@@ -21,7 +21,7 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
     public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByConversationIdAsync(string conversationId, int take, int skip)
     {
-        var cql = "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?";
+        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?";
         
           
         
@@ -49,7 +49,7 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
     public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByContextIdAsync(string contextId, int take, int skip)
     {
-        var cql = "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?";
+        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?";
         
           
         
@@ -78,7 +78,7 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
     public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(string channelId, int take, int skip)
     {
-        var cql = "SELECT * FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?";
+        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?";
         
           
         

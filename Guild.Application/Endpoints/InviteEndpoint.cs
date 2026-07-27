@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Text;
 using Echo.Realtime;
 using Facet.Extensions;
 using Guild.Application.Dtos.Request;
@@ -8,6 +9,7 @@ using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Messaging.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -15,6 +17,7 @@ using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
 using Wolverine;
 using Wolverine.Http;
+using MessagingMessageType = Messaging.Contracts.Bus.Commands.MessageType;
 
 namespace Guild.Application.Endpoints;
 
@@ -174,6 +177,23 @@ public class InviteEndpoint
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.MemberJoined", new { GuildId = guild.Id, UserId = userId });
 
         await bus.PublishAsync(new MemberJoinedForBots { GuildId = guild.Id, UserId = userId });
+
+        // Discord-style system message in the guild's system channel. Content carries a plain-
+        // English fallback for consumers that don't understand MessageType (bots, notifications);
+        // real clients render one of ~10 localized copy variants keyed by (Type, SystemMessageVariant)
+        // instead, same convention as Discord's own system messages.
+        if (!string.IsNullOrWhiteSpace(guild.SystemChannelId))
+        {
+            await bus.InvokeAsync(new CreateMessageCommand()
+            {
+                Content = Encoding.UTF8.GetBytes($"{profileResponse.Profile.UserName} joined the server"),
+                ChannelId = guild.SystemChannelId,
+                AuthorId = userId,
+                AuthorIdType = AuthorIdType.User,
+                Mentions = [],
+                Type = MessagingMessageType.GuildMemberJoin,
+            });
+        }
 
         return Results.Accepted();
 

@@ -17,6 +17,9 @@ public class MessageCreatedForBots
 
     /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
     public string? EmbedsJson { get; set; }
+
+    public MessageType Type { get; set; } = MessageType.Message;
+    public int? SystemMessageVariant { get; set; }
 }
 
 /// <summary>

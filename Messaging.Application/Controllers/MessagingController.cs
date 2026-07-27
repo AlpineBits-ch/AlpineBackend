@@ -37,7 +37,7 @@ public class MessagingController(ScyllaContext scylla, MicroserviceContext ctx, 
 
         try 
         {
-            var cql = "SELECT * FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
+            var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
         
           
         
@@ -101,7 +101,7 @@ public class MessagingController(ScyllaContext scylla, MicroserviceContext ctx, 
 
         try 
         {
-            var cql = "SELECT * FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
+            var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
         
           
         

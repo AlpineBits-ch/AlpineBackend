@@ -17,6 +17,8 @@ using Social.Contracts.Bus.Integration.Response;
 using Wolverine;
 using Wolverine.Attributes;
 using Message = FirebaseAdmin.Messaging.Message;
+using DomainMessageType = Messaging.Domain.Enums.MessageType;
+using ChannelMessageType = Guild.Contracts.Bus.Events.MessageType;
 
 namespace Messaging.Application.Handler.Messages;
 
@@ -64,6 +66,14 @@ public class MessageCreatedHandler
                 MentionsHere = messageCreated.MentionsHere,
                 EncryptionState = MessageEncryptionState.Plain,
                 EmbedsJson = messageCreated.EmbedsJson,
+                Type = messageCreated.Type switch
+                {
+                    DomainMessageType.Invite => ChannelMessageType.Invite,
+                    DomainMessageType.GuildMemberJoin => ChannelMessageType.GuildMemberJoin,
+                    DomainMessageType.GuildMemberLeave => ChannelMessageType.GuildMemberLeave,
+                    _ => ChannelMessageType.Message,
+                },
+                SystemMessageVariant = messageCreated.SystemMessageVariant,
                 Attachments = messageCreated.Attachments.Select(a => new MinimalAttachmentForChannel()
                 {
                     Id = a.Id,

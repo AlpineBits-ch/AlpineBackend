@@ -52,6 +52,8 @@ public class MessageCreatedHandler
             AuthorId = message.AuthorId,
             EncryptionState = message.EncryptionState,
             EmbedsJson = message.EmbedsJson,
+            Type = message.Type,
+            SystemMessageVariant = message.SystemMessageVariant,
         });
 
         // Union of everyone whose mention count should bump: direct @user mentions, members

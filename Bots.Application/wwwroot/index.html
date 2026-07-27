@@ -120,6 +120,30 @@
   .badge.enabled { color: var(--ok); border-color: var(--ok); }
   .badge.disabled { color: var(--danger); border-color: var(--danger); }
   .empty { color: var(--muted); font-size: 13px; }
+  .permission-picker {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 6px;
+  }
+  .permission-group h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin: 0 0 6px;
+  }
+  .permission-group label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text);
+    margin: 4px 0;
+    font-weight: normal;
+  }
+  .permission-group input[type=checkbox] { margin: 0; width: auto; }
+  .computed-value { color: var(--muted); font-size: 12px; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -127,15 +151,35 @@
   <h1>Bot Developer Portal</h1>
   <p class="subtitle">Create and manage bot applications for venta.gg. Bot tokens work with the Discord-compat REST surface at <code>/api/discord/v10</code>.</p>
 
-  <section class="card">
-    <h2>Your access token</h2>
-    <label for="access-token">Bearer access token</label>
-    <input type="password" id="access-token" placeholder="Paste the access token from your venta.gg login" autocomplete="off" />
-    <div class="actions">
-      <button class="primary" id="save-token">Save</button>
-      <button id="clear-token">Clear</button>
+  <section class="card" id="login-card">
+    <h2>Log in</h2>
+    <div id="login-form">
+      <label for="login-username">Email or username</label>
+      <input type="text" id="login-username" autocomplete="username" />
+      <label for="login-password">Password</label>
+      <input type="password" id="login-password" autocomplete="current-password" />
+      <div class="actions">
+        <button class="primary" id="login-submit">Log in</button>
+      </div>
+    </div>
+    <div id="logged-in-state" style="display:none;">
+      <p style="margin:0;">Logged in as <strong id="logged-in-as"></strong>.</p>
+      <div class="actions">
+        <button id="logout">Log out</button>
+      </div>
     </div>
     <p class="status" id="token-status"></p>
+
+    <details style="margin-top:16px;">
+      <summary style="cursor:pointer; color:var(--muted); font-size:12.5px;">Advanced: use an access token directly</summary>
+      <div style="margin-top:10px;">
+        <label for="access-token">Bearer access token</label>
+        <input type="password" id="access-token" placeholder="Paste an existing access token" autocomplete="off" />
+        <div class="actions">
+          <button id="save-token">Save token</button>
+        </div>
+      </div>
+    </details>
   </section>
 
   <section class="card">
@@ -144,16 +188,13 @@
     <input type="text" id="bot-name" placeholder="Captain Hook" />
     <label for="bot-description">Description (optional)</label>
     <textarea id="bot-description" placeholder="What does this bot do?"></textarea>
-    <div class="row">
-      <div>
-        <label for="bot-icon">Icon URL (optional)</label>
-        <input type="text" id="bot-icon" placeholder="https://..." />
-      </div>
-      <div>
-        <label for="bot-permissions">Default permissions (bitmask)</label>
-        <input type="number" id="bot-permissions" value="0" min="0" />
-      </div>
-    </div>
+    <label for="bot-icon">Icon URL (optional)</label>
+    <input type="text" id="bot-icon" placeholder="https://..." />
+
+    <label style="margin-top:14px;">Default permissions</label>
+    <div class="permission-picker" id="permission-picker"></div>
+    <p class="computed-value" id="permissions-computed"></p>
+
     <div class="actions">
       <button class="primary" id="create-bot">Create bot</button>
     </div>
@@ -174,6 +215,7 @@
 <script>
 (function () {
   const TOKEN_KEY = "venta_bots_portal_access_token";
+  const IDENTITY_LABEL_KEY = "venta_bots_portal_identity_label";
 
   const el = (id) => document.getElementById(id);
   const tokenInput = el("access-token");
@@ -188,23 +230,102 @@
     node.className = "status" + (kind ? " " + kind : "");
   }
 
-  tokenInput.value = getToken();
-  if (getToken()) setStatus(tokenStatus, "Token loaded from this browser's storage.", "ok");
+  // Best-effort read of the "email" claim out of the JWT payload, purely to show
+  // "Logged in as ..." - never trust this for anything security-relevant.
+  function decodeEmailClaim(jwt) {
+    try {
+      const payload = JSON.parse(atob(jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      return payload.email || payload.sub || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function refreshLoginUi() {
+    const token = getToken();
+    const label = localStorage.getItem(IDENTITY_LABEL_KEY);
+    el("login-form").style.display = token ? "none" : "block";
+    el("logged-in-state").style.display = token ? "block" : "none";
+    if (token) el("logged-in-as").textContent = label || "your venta.gg account";
+  }
+
+  function setSession(token, label) {
+    localStorage.setItem(TOKEN_KEY, token);
+    if (label) localStorage.setItem(IDENTITY_LABEL_KEY, label);
+    else localStorage.removeItem(IDENTITY_LABEL_KEY);
+    refreshLoginUi();
+  }
+
+  function clearSession() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(IDENTITY_LABEL_KEY);
+    tokenInput.value = "";
+    refreshLoginUi();
+    el("bot-list").innerHTML = "";
+  }
+
+  el("login-submit").addEventListener("click", async () => {
+    const username = el("login-username").value.trim();
+    const password = el("login-password").value;
+    if (!username || !password) {
+      setStatus(tokenStatus, "Enter your email/username and password.", "error");
+      return;
+    }
+
+    setStatus(tokenStatus, "Logging in...", "");
+    try {
+      const response = await fetch("/connect/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "password",
+          username,
+          password,
+          client_id: "echo",
+        }),
+      });
+
+      const text = await response.text();
+      let body = null;
+      try { body = text ? JSON.parse(text) : null; } catch { body = text; }
+
+      if (!response.ok || !body || !body.access_token) {
+        const message = (body && (body.error_description || body.error)) ||
+          (typeof body === "string" && body) || "Login failed - check your credentials.";
+        throw new Error(message);
+      }
+
+      el("login-password").value = "";
+      setSession(body.access_token, decodeEmailClaim(body.access_token) || username);
+      setStatus(tokenStatus, "Logged in.", "ok");
+      loadBots();
+    } catch (err) {
+      setStatus(tokenStatus, err.message, "error");
+    }
+  });
+
+  el("login-password").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") el("login-submit").click();
+  });
+
+  el("logout").addEventListener("click", () => {
+    clearSession();
+    setStatus(tokenStatus, "Logged out.", "");
+  });
 
   el("save-token").addEventListener("click", () => {
-    localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
-    setStatus(tokenStatus, "Saved.", "ok");
+    const token = tokenInput.value.trim();
+    if (!token) return;
+    setSession(token, decodeEmailClaim(token));
+    setStatus(tokenStatus, "Token saved.", "ok");
+    loadBots();
   });
 
-  el("clear-token").addEventListener("click", () => {
-    localStorage.removeItem(TOKEN_KEY);
-    tokenInput.value = "";
-    setStatus(tokenStatus, "Cleared.", "");
-  });
+  refreshLoginUi();
 
   async function api(path, options) {
     const token = getToken();
-    if (!token) throw new Error("Save an access token above first.");
+    if (!token) throw new Error("Log in above first.");
 
     const response = await fetch(path, {
       ...options,
@@ -264,6 +385,79 @@
     return wrap;
   }
 
+  // ── Permission picker ────────────────────────────────────────────────────
+  // Bit positions mirror Guild.Domain.Enums.Permissions exactly. Superadmin (bit 63) is
+  // deliberately excluded - it's a guild-owner-only catch-all that would just get clamped
+  // away for any non-owner installer, so offering it here would only be confusing.
+
+  const PERMISSION_GROUPS = [
+    { label: "Channel", items: [["ViewChannel", 0]] },
+    { label: "Messages", items: [
+      ["SendMessages", 1], ["EditOwnMessages", 2], ["EditAnyMessage", 3],
+      ["DeleteOwnMessages", 4], ["DeleteAnyMessage", 5], ["PinMessages", 6],
+      ["AttachFiles", 7], ["EmbedLinks", 8], ["AddReactions", 9],
+    ] },
+    { label: "Voice", items: [
+      ["Connect", 10], ["Speak", 11], ["Stream", 12],
+      ["MuteMembers", 13], ["DeafenMembers", 14], ["MoveMembers", 15],
+    ] },
+    { label: "Threads", items: [
+      ["CreateThreads", 16], ["SendMessagesInThreads", 17],
+      ["ManageOwnThreads", 18], ["ManageAnyThread", 19],
+    ] },
+    { label: "Channel management", items: [
+      ["ManageChannel", 20], ["ManagePermissions", 21], ["CreateInvite", 22],
+    ] },
+    { label: "Wiki", items: [
+      ["ViewWiki", 23], ["CreateWikiPages", 24], ["EditOwnWikiPages", 25],
+      ["EditAnyWikiPage", 26], ["DeleteWikiPages", 27], ["ManageWikiRevisions", 28],
+      ["ManageWikiStructure", 29], ["ModerateWikiComments", 30], ["PublishWikiPublicly", 31],
+    ] },
+    { label: "Guild moderation", items: [
+      ["KickMembers", 32], ["BanMembers", 33], ["ModerateMembers", 34],
+      ["ManageGuild", 35], ["ViewAuditLog", 36],
+    ] },
+  ];
+
+  function renderPermissionPicker() {
+    const container = el("permission-picker");
+    container.innerHTML = "";
+
+    for (const group of PERMISSION_GROUPS) {
+      const groupEl = document.createElement("div");
+      groupEl.className = "permission-group";
+      const heading = document.createElement("h3");
+      heading.textContent = group.label;
+      groupEl.appendChild(heading);
+
+      for (const [name, bit] of group.items) {
+        const label = document.createElement("label");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.dataset.bit = String(2 ** bit);
+        checkbox.addEventListener("change", updateComputedPermissions);
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(name));
+        groupEl.appendChild(label);
+      }
+
+      container.appendChild(groupEl);
+    }
+
+    updateComputedPermissions();
+  }
+
+  function computeSelectedPermissions() {
+    return Array.from(document.querySelectorAll("#permission-picker input:checked"))
+      .reduce((sum, cb) => sum + Number(cb.dataset.bit), 0);
+  }
+
+  function updateComputedPermissions() {
+    el("permissions-computed").textContent = `Computed bitmask: ${computeSelectedPermissions()}`;
+  }
+
+  renderPermissionPicker();
+
   // ── Create bot ──────────────────────────────────────────────────────────
 
   el("create-bot").addEventListener("click", async () => {
@@ -282,7 +476,7 @@
           name,
           description: el("bot-description").value.trim() || null,
           iconUrl: el("bot-icon").value.trim() || null,
-          defaultPermissions: Number(el("bot-permissions").value) || 0,
+          defaultPermissions: computeSelectedPermissions(),
         }),
       });
 
@@ -298,7 +492,8 @@
       el("bot-name").value = "";
       el("bot-description").value = "";
       el("bot-icon").value = "";
-      el("bot-permissions").value = "0";
+      document.querySelectorAll("#permission-picker input:checked").forEach((cb) => (cb.checked = false));
+      updateComputedPermissions();
 
       loadBots();
     } catch (err) {

@@ -30,8 +30,13 @@ public class GuildAuditLogEntry : BaseEntity<GuildAuditLogEntry>, IPrefixedEntit
 
     public static GuildAuditLogEntry Create(CreateAuditLogEntryParams parameters)
     {
+        
+        var date = DateTime.UtcNow;
         return new GuildAuditLogEntry
         {
+            Id = GenerateId(),
+            CreatedAt = date,
+            UpdatedAt = date,
             GuildId = parameters.GuildId,
             ActorUserId = parameters.ActorUserId,
             ActionType = parameters.ActionType,

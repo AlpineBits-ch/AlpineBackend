@@ -1,4 +1,5 @@
 ﻿using System.Security.Claims;
+using System.Text;
 using Echo.Realtime;
 using Facet.Extensions;
 using Guild.Application.Dtos.Request;
@@ -8,6 +9,7 @@ using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Messaging.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +18,7 @@ using Social.Contracts.Bus.Integration.Response;
 using Wolverine;
 using Wolverine.Http;
 using Wolverine.Persistence.Durability;
+using MessagingMessageType = Messaging.Contracts.Bus.Commands.MessageType;
 
 namespace Guild.Application.Endpoints;
 
@@ -53,8 +56,20 @@ public class GuildEndpoint
         guild.SystemChannelId = null;
         await ctx.SaveChangesAsync();
         guild.SystemChannelId = sysChannelId;
-        
-        
+
+        if (!string.IsNullOrWhiteSpace(guild.SystemChannelId))
+        {
+            await bus.InvokeAsync(new CreateMessageCommand()
+            {
+                Content = Encoding.UTF8.GetBytes($"{profileResponse.Profile.UserName} joined the server"),
+                ChannelId = guild.SystemChannelId,
+                AuthorId = guild.OwnerId,
+                AuthorIdType = AuthorIdType.User,
+                Mentions = [],
+                Type = MessagingMessageType.GuildMemberJoin,
+            });
+        }
+
         return Results.Ok(guild.ToFacet<Domain.Aggregates.Guild, GuildDto>());
     }
     

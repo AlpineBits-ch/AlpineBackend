@@ -43,7 +43,7 @@ public class MessageCreatedHandler
         // Bots.Application can't join the SignalR/Redis backplane the hub broadcast above rides
         // on, so it gets its own event - carrying the GuildId this handler just resolved, since
         // the raw MessageCreatedForChannel event doesn't have it.
-        await bus.SendAsync(new MessageCreatedForBots
+        await bus.PublishAsync(new MessageCreatedForBots
         {
             GuildId = cachedGuildId,
             ChannelId = message.ChannelId,

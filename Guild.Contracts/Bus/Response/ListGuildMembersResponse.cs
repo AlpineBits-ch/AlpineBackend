@@ -12,4 +12,7 @@ public class GuildMemberSummary
     public List<string> RoleIds { get; set; } = new();
     public DateTime JoinedAt { get; set; }
     public bool IsBot { get; set; }
+
+    /// <summary>Maps to Discord's communication_disabled_until on the member object.</summary>
+    public DateTimeOffset? MutedUntil { get; set; }
 }

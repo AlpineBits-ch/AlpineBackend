@@ -69,7 +69,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = MemberId },
-            _context, _service);
+            _context, _service, new FakeMessageBus());
 
         Assert.That(_cache.HasEntry(cacheKey), Is.False,
             "Removed member's cache must be cleared immediately so the permission loss takes effect");
@@ -89,7 +89,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = MemberId },
-            _context, _service);
+            _context, _service, new FakeMessageBus());
 
         Assert.That(_cache.HasEntry(cacheKey), Is.False,
             "Added member's cache must be cleared so new role permissions take effect immediately");
@@ -116,7 +116,7 @@ public class RoleUpdatedHandlerTests
         // Role permissions updated — no specific member added or removed.
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = null },
-            _context, _service);
+            _context, _service, new FakeMessageBus());
 
         Assert.Multiple(() =>
         {

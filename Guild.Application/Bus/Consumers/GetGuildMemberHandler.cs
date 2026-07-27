@@ -20,6 +20,7 @@ public class GetGuildMemberHandler
                 RoleIds = m.RoleMembers.Select(rm => rm.RoleId).ToList(),
                 JoinedAt = m.JoinedAt,
                 IsBot = m.Type == MemberType.Bot,
+                MutedUntil = m.MutedUntil,
             })
             .FirstOrDefaultAsync();
 

@@ -1,13 +1,16 @@
 ﻿using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Events.Role;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 
 namespace Guild.Application.Bus.Events.Role;
 
 public class RoleUpdatedHandler
 {
-    public static async Task Handle(RoleUpdated @event, MicroserviceContext ctx, GuildPermissionService guildPermissionService)
+    public static async Task Handle(RoleUpdated @event, MicroserviceContext ctx, GuildPermissionService guildPermissionService,
+        IMessageBus bus)
     {
         var role = await ctx.Roles
             .Include(r => r.Members)
@@ -22,6 +25,9 @@ public class RoleUpdatedHandler
 
         // For member removals role.Members no longer contains the removed member after
         // the DB commit, so the loop above misses them. Invalidate them explicitly here.
+        // MemberId is only set for the add/remove-member-from-role operations (not plain role
+        // metadata edits), which is exactly when a bot's GUILD_MEMBER_UPDATE (roles changed)
+        // should fire too.
         if (@event.MemberId != null)
         {
             var userId = await ctx.GuildMembers
@@ -31,7 +37,10 @@ public class RoleUpdatedHandler
                 .FirstOrDefaultAsync();
 
             if (userId != null)
+            {
                 await guildPermissionService.InvalidateUserPermissionsCacheAsync(@event.GuildId, userId);
+                await bus.PublishAsync(new MemberUpdatedForBots { GuildId = @event.GuildId, UserId = userId });
+            }
         }
     }
 }

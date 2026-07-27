@@ -32,7 +32,7 @@ public class MessageDeletedForChannelHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
-        await bus.SendAsync(new MessageDeletedForBots
+        await bus.PublishAsync(new MessageDeletedForBots
         {
             GuildId = guildId,
             ChannelId = message.ChannelId,

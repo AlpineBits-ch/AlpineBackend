@@ -4,6 +4,7 @@ using Echo.Realtime;
 
 using Guild.Application.Models;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Wolverine;
 
 namespace Guild.Application.Controllers;
 
@@ -21,7 +23,8 @@ public class GuildVoiceController(
     GuildPermissionService permissions,
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
-    MicroserviceContext db) : ControllerBase
+    MicroserviceContext db,
+    IMessageBus bus) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
     {
@@ -81,6 +84,8 @@ public class GuildVoiceController(
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserJoinedVoice",
             new { userId = UserId, channelId, guildId }, ct);
 
+        await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = UserId, ChannelId = channelId });
+
         return Ok(ChannelVoiceStateResponse.From(voiceState));
     }
 
@@ -118,6 +123,8 @@ public class GuildVoiceController(
         var onlineUserIds = await GetOnlineGuildMemberIdsAsync(voiceState.GuildId);
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
             new { userId, channelId, guildId = voiceState.GuildId }, ct);
+
+        await bus.PublishAsync(new VoiceStateForBots { GuildId = voiceState.GuildId, UserId = userId, ChannelId = null });
     }
 
     private async Task<ChannelVoiceState> LoadOrCreateChannelVoiceStateAsync(

@@ -1,11 +1,14 @@
 ﻿using System.Security.Claims;
+using Echo.Realtime;
 using Facet.Extensions;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Social.Contracts.Bus.Integration.Request;
@@ -98,7 +101,9 @@ public class InviteEndpoint
     }
 
     [WolverinePost("/api/v1/invites/{inviteId}/redeem")]
-    public async Task<IResult> RedeemInviteAsync(string inviteId, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx, [NotBody] IDistributedCache cache, [NotBody] IMessageBus bus)
+    public async Task<IResult> RedeemInviteAsync(string inviteId, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
+        [NotBody] IDistributedCache cache, [NotBody] IMessageBus bus,
+        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -162,8 +167,14 @@ public class InviteEndpoint
             var cacheKey = GuildChannelPermission.GetCacheKey(guild.Id, channel.Id, userId);
             await cache.RemoveAsync(cacheKey);
         }
-        
-        
+
+        // Previously nothing broadcast a join at all - MemberBanned/Kicked/Left all notify
+        // realtime, but a join never did, for either the human client or bots.
+        var presence = await guildHydrateService.GetGuildPresenceAsync(guild.Id);
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.MemberJoined", new { GuildId = guild.Id, UserId = userId });
+
+        await bus.PublishAsync(new MemberJoinedForBots { GuildId = guild.Id, UserId = userId });
+
         return Results.Accepted();
 
     }

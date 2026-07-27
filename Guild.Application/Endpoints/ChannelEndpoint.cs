@@ -68,7 +68,7 @@ public class ChannelEndpoint
                 GuildId = channel.GuildId,
             });
 
-            await bus.SendAsync(new ChannelCreatedForBots
+            await bus.PublishAsync(new ChannelCreatedForBots
             {
                 ChannelId = channel.Id,
                 GuildId = channel.GuildId,
@@ -139,7 +139,7 @@ public class ChannelEndpoint
 
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelDeleted", new { ChannelId = channel.Id, GuildId = channel.GuildId });
 
-        await bus.SendAsync(new ChannelDeletedForBots { ChannelId = channel.Id, GuildId = channel.GuildId });
+        await bus.PublishAsync(new ChannelDeletedForBots { ChannelId = channel.Id, GuildId = channel.GuildId });
 
         return Results.NoContent();
     }
@@ -188,7 +188,7 @@ public class ChannelEndpoint
         var presence = await guildHydrateService.GetGuildPresenceAsync(channel.GuildId);
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelUpdated", new { ChannelId = channel.Id, GuildId = channel.GuildId });
 
-        await bus.SendAsync(new ChannelUpdatedForBots
+        await bus.PublishAsync(new ChannelUpdatedForBots
         {
             ChannelId = channel.Id,
             GuildId = channel.GuildId,

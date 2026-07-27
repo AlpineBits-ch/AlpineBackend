@@ -6,12 +6,14 @@ using FluentValidation;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Guild.Application.Endpoints;
@@ -23,7 +25,7 @@ public class ThreadEndpoint
     public async Task<IResult> CreateThreadAsync(string channelId, CreateThreadDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
-        [NotBody] AuditLogService auditLog, [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -55,6 +57,14 @@ public class ThreadEndpoint
 
             var presence = await guildHydrateService.GetGuildPresenceAsync(parent.GuildId);
             await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ThreadCreated", new { ChannelId = thread.Id, ParentChannelId = channelId, GuildId = parent.GuildId });
+
+            await bus.PublishAsync(new ThreadCreatedForBots
+            {
+                ChannelId = thread.Id,
+                GuildId = parent.GuildId,
+                ParentChannelId = channelId,
+                Name = thread.Name,
+            });
 
             return Results.Ok(thread.ToFacet<Channel, ChannelDto>());
         }
@@ -91,7 +101,8 @@ public class ThreadEndpoint
     [WolverinePatch("/api/v1/threads/{threadId}/archive")]
     public async Task<IResult> ArchiveThreadAsync(string threadId,
         [NotBody] GuildPermissionService permissionService, [NotBody] MicroserviceContext ctx,
-        [NotBody] AuditLogService auditLog, [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] GuildHydrateService guildHydrateService, [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -109,6 +120,20 @@ public class ThreadEndpoint
         thread.IsArchived = true;
 
         auditLog.Log(thread.GuildId, userId, AuditActionType.ChannelUpdated, threadId, new { Archived = true });
+
+        // Previously nothing broadcast a thread archive at all, for either audience.
+        var presence = await guildHydrateService.GetGuildPresenceAsync(thread.GuildId);
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ThreadUpdated",
+            new { ChannelId = thread.Id, ParentChannelId = thread.ParentChannelId, GuildId = thread.GuildId, Archived = true });
+
+        await bus.PublishAsync(new ThreadUpdatedForBots
+        {
+            ChannelId = thread.Id,
+            GuildId = thread.GuildId,
+            ParentChannelId = thread.ParentChannelId ?? "",
+            Name = thread.Name,
+            Archived = true,
+        });
 
         return Results.NoContent();
     }

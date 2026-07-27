@@ -2,11 +2,13 @@ using System.Text.Json;
 using Echo.Realtime;
 
 using Guild.Application.Models;
+using Guild.Contracts.Bus.Events;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using StackExchange.Redis;
+using Wolverine;
 
 namespace Guild.Application.Services;
 
@@ -78,6 +80,7 @@ public class VoiceHeartbeatCleanupService(
 
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+            var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
             var memberIds = await db.GuildMembers
                 .AsNoTracking()
                 .Where(m => m.GuildId == voiceState.GuildId)
@@ -93,6 +96,8 @@ public class VoiceHeartbeatCleanupService(
                 await hub.Clients.Users(memberIds).SendAsync("guild.voice.UserLeftVoice",
                     new { userId = participant.UserId, channelId, guildId = voiceState.GuildId },
                     ct);
+
+                await bus.PublishAsync(new VoiceStateForBots { GuildId = voiceState.GuildId, UserId = participant.UserId, ChannelId = null });
             }
         }
     }

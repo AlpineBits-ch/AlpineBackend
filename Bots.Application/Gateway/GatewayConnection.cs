@@ -64,6 +64,14 @@ public class GatewayConnection
         {
             // server shutting down - the ApplicationStopping hook already sent OP 7 Reconnect
         }
+        catch (Exception ex)
+        {
+            // Anything else (DI resolution failure, a bug in the handshake/hydration path, etc.)
+            // would otherwise silently abort the raw socket with no trace - log it so a bad
+            // connection is actually diagnosable instead of just showing up as a client-side
+            // "closed without completing the close handshake".
+            _logger.LogError(ex, "Unhandled error in Gateway connection (session {SessionId})", _session?.SessionId);
+        }
         finally
         {
             await lifetime.CancelAsync();

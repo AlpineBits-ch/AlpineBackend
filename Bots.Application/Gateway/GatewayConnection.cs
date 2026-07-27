@@ -206,7 +206,22 @@ public class GatewayConnection
         do
         {
             result = await _socket.ReceiveAsync(buffer, token);
-            if (result.MessageType == WebSocketMessageType.Close) return null;
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                // Must echo a close frame back - otherwise the underlying connection just gets
+                // torn down without completing the four-way close handshake, which surfaces to
+                // the client as "closed the WebSocket connection without completing the close
+                // handshake" even though the client itself closed cleanly.
+                try
+                {
+                    await _socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "ack", token);
+                }
+                catch
+                {
+                    // best-effort - the underlying connection may already be gone
+                }
+                return null;
+            }
             stream.Write(buffer, 0, result.Count);
         } while (!result.EndOfMessage);
 

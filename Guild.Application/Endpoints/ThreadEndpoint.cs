@@ -80,6 +80,7 @@ public class ThreadEndpoint
         if (!canView) return Results.Forbid();
 
         var threads = await ctx.Channels
+            .AsSplitQuery()
             .Where(c => c.ParentChannelId == channelId && c.Type == ChannelType.Thread)
             .OrderByDescending(c => c.CreatedAt)
             .ToFacetsAsync<Channel, ChannelDto>();

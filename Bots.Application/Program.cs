@@ -40,6 +40,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+// Other services get this transitively via AddControllers(); Bots.Application is
+// Wolverine-HTTP only (no MVC controllers), so it must be registered explicitly for
+// UseAuthorization() / the [Authorize] attribute on the endpoint classes to work.
+builder.Services.AddAuthorization();
+
 builder.Services.AddWolverineHttp()
     .ConfigureHttpJsonOptions(options =>
     {

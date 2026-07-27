@@ -17,7 +17,7 @@ public record BotAuthResult(bool Success, string? BotUserId, string? Jwt)
 public class BotTokenTranslator(IHttpClientFactory httpClientFactory, IDistributedCache cache)
 {
     private static readonly string IdentityBaseUrl =
-        Environment.GetEnvironmentVariable("Services__Identity") ?? "http://identity.default.svc.cluster.local";
+        Environment.GetEnvironmentVariable("Services__Identity") ?? "http://identity.default.svc.cluster.local:8080";
 
     public async Task<BotAuthResult> AuthenticateAsync(string discordToken)
     {

@@ -19,8 +19,23 @@ public class MessageCreatedForChannel
     public bool MentionsEveryone { get; set; }
     public bool MentionsHere { get; set; }
 
+    /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
+    public string? EmbedsJson { get; set; }
 
     public ICollection<MinimalAttachmentForChannel> Attachments { get; set; } = new List<MinimalAttachmentForChannel>();
+}
+
+/// <summary>
+/// Published by Messaging.Application when a channel (non-conversation) message is edited - mirrors
+/// MessageCreatedForChannel.
+/// </summary>
+public class MessageUpdatedForChannel
+{
+    public string ChannelId { get; set; }
+    public string MessageId { get; set; }
+    public byte[] Content { get; set; }
+    public string AuthorId { get; set; }
+    public string? EmbedsJson { get; set; }
 }
 
 

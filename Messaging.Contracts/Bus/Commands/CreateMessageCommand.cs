@@ -12,7 +12,10 @@ public class CreateMessageCommand
     public long? MlsSequenceNumber { get; set; }
     public string? SenderDeviceId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
-    
+
+    /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
+    public string? EmbedsJson { get; set; }
+
     public List<string> Mentions { get; set; } = new List<string>();
     public List<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }

@@ -99,7 +99,8 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.AuthorIdType, cm => cm.WithName("author_id_type").WithDbType<string>())
                 .Column(m => m.Type, cm => cm.WithName("message_type").WithDbType<string>())
                 .Column(m => m.Attachments, cm => cm.WithName("attachments").AsFrozen())
-                .Column(m => m.EncryptionState, cm => cm.WithName("encryption_state").WithDbType<string>()));
+                .Column(m => m.EncryptionState, cm => cm.WithName("encryption_state").WithDbType<string>())
+                .Column(m => m.EmbedsJson, cm => cm.WithName("embeds_json")));
 
         config.Define(
             new Map<MinimalAttachment>()
@@ -235,6 +236,15 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD mentions_here boolean;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD embeds_json text;"));
         }
         catch (InvalidQueryException)
         {

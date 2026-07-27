@@ -13,6 +13,9 @@ public class MessageCreatedForBots
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; }
+
+    /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
+    public string? EmbedsJson { get; set; }
 }
 
 /// <summary>
@@ -24,6 +27,20 @@ public class MessageDeletedForBots
     public string GuildId { get; set; }
     public string ChannelId { get; set; }
     public string MessageId { get; set; }
+}
+
+/// <summary>
+/// Republished by Guild.Application once it has resolved an edited message's ChannelId ->
+/// GuildId (mirrors <see cref="MessageCreatedForBots"/>).
+/// </summary>
+public class MessageUpdatedForBots
+{
+    public string GuildId { get; set; }
+    public string ChannelId { get; set; }
+    public string MessageId { get; set; }
+    public byte[] Content { get; set; }
+    public string AuthorId { get; set; }
+    public string? EmbedsJson { get; set; }
 }
 
 /// <summary>

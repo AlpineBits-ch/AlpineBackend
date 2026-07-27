@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Bots.Application.Gateway;
 using Bots.Contracts.Gateway.Payloads;
 using Messaging.Contracts.Bus.Commands;
@@ -61,13 +62,16 @@ public class DiscordInteractionEndpoint
 
     private static async Task<Message> CreateResponseMessageAsync(PendingInteraction pending, InteractionResponseDataPayload? data, IMessageBus bus)
     {
-        var content = data?.Content ?? "";
+        var embeds = data?.Embeds ?? new List<EmbedPayload>();
+        var content = !string.IsNullOrEmpty(data?.Content) ? data.Content : EmbedFlattener.Flatten(null, embeds);
+
         return await bus.InvokeAsync<Message>(new CreateMessageCommand
         {
             AuthorId = pending.BotUserId,
             AuthorIdType = AuthorIdType.Bot,
             Content = Encoding.UTF8.GetBytes(content),
             ChannelId = pending.ChannelId,
+            EmbedsJson = embeds.Count > 0 ? JsonSerializer.Serialize(embeds) : null,
         });
     }
 
@@ -77,6 +81,9 @@ public class DiscordInteractionEndpoint
         channel_id = pending.ChannelId,
         guild_id = pending.GuildId,
         content = Encoding.UTF8.GetString(message.Content),
+        embeds = string.IsNullOrWhiteSpace(message.EmbedsJson)
+            ? new List<EmbedPayload>()
+            : JsonSerializer.Deserialize<List<EmbedPayload>>(message.EmbedsJson) ?? new List<EmbedPayload>(),
         timestamp = message.CreatedAt,
         author = new { id = pending.BotUserId, bot = true },
     };

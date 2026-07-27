@@ -32,7 +32,7 @@ public class MessageCreatePayload
     public List<object> Attachments { get; set; } = new();
 
     [JsonPropertyName("embeds")]
-    public List<object> Embeds { get; set; } = new();
+    public List<EmbedPayload> Embeds { get; set; } = new();
 
     [JsonPropertyName("tts")]
     public bool Tts { get; set; }

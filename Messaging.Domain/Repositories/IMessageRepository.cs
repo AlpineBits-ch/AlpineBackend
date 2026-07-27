@@ -17,4 +17,6 @@ public interface IMessageRepository
         string channelId, int take, int skip);
 
     public Task<Message> UpdateMessageAsync(Message message);
+
+    public Task DeleteMessageAsync(Message message);
 }

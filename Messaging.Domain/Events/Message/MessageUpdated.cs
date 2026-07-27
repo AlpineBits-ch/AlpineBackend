@@ -9,5 +9,6 @@ public class MessageUpdated : DomainEvent
     public string? ConversationId { get; set; }
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
+    public string? EmbedsJson { get; set; }
 
 }

@@ -79,6 +79,12 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
         return message;
     }
 
+    public async Task DeleteMessageAsync(Message message)
+    {
+        context.Messages.Remove(message);
+        await context.SaveChangesAsync();
+    }
+
     private async Task<Dictionary<string, List<Reaction>>> FetchReactionsForMessages(List<Message> messages)
     {
         var messageIds = messages.Select(m => m.Id).ToList();

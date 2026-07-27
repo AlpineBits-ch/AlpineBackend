@@ -143,13 +143,13 @@ public static class ProxyConfig
 
     public static IReadOnlyList<ClusterConfig> GetClusters()
     {
-        var identity  = Environment.GetEnvironmentVariable("Services__Identity")  ?? "http://_http.identity.default.svc.cluster.local";
-        var guild     = Environment.GetEnvironmentVariable("Services__Guild")     ?? "http://_http.guild.default.svc.cluster.local";
-        var messaging = Environment.GetEnvironmentVariable("Services__Messaging") ?? "http://_http.messaging.default.svc.cluster.local";
-        var social    = Environment.GetEnvironmentVariable("Services__Social")    ?? "http://_http.social.default.svc.cluster.local";
+        var identity  = Environment.GetEnvironmentVariable("Services__Identity")  ?? "http://identity.default.svc.cluster.local";
+        var guild     = Environment.GetEnvironmentVariable("Services__Guild")     ?? "http://guild.default.svc.cluster.local";
+        var messaging = Environment.GetEnvironmentVariable("Services__Messaging") ?? "http://messaging.default.svc.cluster.local";
+        var social    = Environment.GetEnvironmentVariable("Services__Social")    ?? "http://social.default.svc.cluster.local";
         var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://federation.default.svc.cluster.local";
         var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://isle.default.svc.cluster.local:8080";
-        var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://_http.bots.default.svc.cluster.local";
+        var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://.bots.default.svc.cluster.local";
 
         return new[]
         {

@@ -44,9 +44,11 @@ public class MessageCreatedForBotsHandler
             Timestamp = DateTimeOffset.UtcNow,
         };
 
+        // Real Discord dispatches MESSAGE_CREATE to the author bot for its own messages too -
+        // filtering "is this my own message" is a client-side concern (every bot framework's
+        // well-known `if message.author.bot: return` pattern), not something the server does.
         foreach (var botUserId in botUserIds)
         {
-            if (botUserId == message.AuthorId) continue; // don't echo a bot's own message back to it
             await registry.PublishAsync(botUserId, "MESSAGE_CREATE", payload);
         }
     }

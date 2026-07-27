@@ -85,4 +85,42 @@ public class MicroserviceContextTests
 
         Assert.That(index.IsUnique, Is.True);
     }
+
+    [Test]
+    public async Task BotCommand_RoundTripsThroughSaveChanges()
+    {
+        _context.BotApplications.Add(MakeApplication());
+        _context.BotCommands.Add(new BotCommand
+        {
+            Id = "boco_1", BotApplicationId = "boap_1", Name = "ping", Description = "Replies with pong",
+            OptionsJson = "[]", GuildId = null,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        await _context.SaveChangesAsync();
+
+        var loaded = await _context.BotCommands.FirstOrDefaultAsync(c => c.Id == "boco_1");
+
+        Assert.That(loaded, Is.Not.Null);
+        Assert.That(loaded!.Name, Is.EqualTo("ping"));
+    }
+
+    [Test]
+    public void BotCommand_HasSeparateUniqueIndexesForGlobalAndGuildScope()
+    {
+        // Split into two filtered indexes (see MicroserviceContext.OnModelCreating) because
+        // Postgres treats every NULL as distinct, so one index across (AppId, GuildId, Name)
+        // would never actually enforce uniqueness among global (GuildId == null) commands.
+        var indexes = _context.Model.FindEntityType(typeof(BotCommand))!.GetIndexes().ToList();
+
+        var globalIndex = indexes.Single(i => i.Properties.Select(p => p.Name).SequenceEqual(
+            [nameof(BotCommand.BotApplicationId), nameof(BotCommand.Name)]));
+        var guildIndex = indexes.Single(i => i.Properties.Select(p => p.Name).SequenceEqual(
+            [nameof(BotCommand.BotApplicationId), nameof(BotCommand.GuildId), nameof(BotCommand.Name)]));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(globalIndex.IsUnique, Is.True);
+            Assert.That(guildIndex.IsUnique, Is.True);
+        });
+    }
 }

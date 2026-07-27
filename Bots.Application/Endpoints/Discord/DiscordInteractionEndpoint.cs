@@ -1,0 +1,83 @@
+using System.Text;
+using Bots.Application.Gateway;
+using Bots.Contracts.Gateway.Payloads;
+using Messaging.Contracts.Bus.Commands;
+using Messaging.Domain.Entities;
+using Wolverine;
+using Wolverine.Http;
+
+namespace Bots.Application.Endpoints.Discord;
+
+/// <summary>A bot's response to a slash command invocation.</summary>
+public class DiscordInteractionEndpoint
+{
+    /// <summary>Type 4 (CHANNEL_MESSAGE_WITH_SOURCE) posts the real message immediately.</summary>
+    [WolverinePost("/api/discord/v10/interactions/{interactionId}/{token}/callback")]
+    public async Task<IResult> CallbackAsync(string interactionId, string token, InteractionCallbackPayload callback,
+        [NotBody] PendingInteractionStore pendingStore, [NotBody] IMessageBus bus)
+    {
+        var pending = await pendingStore.GetAsync(token);
+        if (pending is null || pending.InteractionId != interactionId) return Results.NotFound();
+
+        switch (callback.Type)
+        {
+            case 4:
+                await CreateResponseMessageAsync(pending, callback.Data, bus);
+                return Results.Ok();
+
+            case 5:
+                await pendingStore.MarkAcknowledgedAsync(token, pending);
+                return Results.Ok();
+
+            default:
+                return Results.BadRequest($"Unsupported interaction callback type {callback.Type}.");
+        }
+    }
+
+    [WolverinePost("/api/discord/v10/webhooks/{applicationId}/{token}")]
+    public async Task<IResult> FollowupAsync(string applicationId, string token, InteractionResponseDataPayload body,
+        [NotBody] PendingInteractionStore pendingStore, [NotBody] IMessageBus bus)
+    {
+        var pending = await pendingStore.GetAsync(token);
+        if (pending is null || pending.BotUserId != applicationId) return Results.NotFound();
+
+        var message = await CreateResponseMessageAsync(pending, body, bus);
+        return Results.Ok(ToMessageResponseShape(message, pending));
+    }
+
+    /// <summary>
+    /// Discord uses the literal path segment "@original" for the deferred response's placeholder.
+    /// </summary>
+    [WolverinePatch("/api/discord/v10/webhooks/{applicationId}/{token}/messages/{messageId}")]
+    public async Task<IResult> EditFollowupAsync(string applicationId, string token, string messageId, InteractionResponseDataPayload body,
+        [NotBody] PendingInteractionStore pendingStore, [NotBody] IMessageBus bus)
+    {
+        var pending = await pendingStore.GetAsync(token);
+        if (pending is null || pending.BotUserId != applicationId) return Results.NotFound();
+
+        var message = await CreateResponseMessageAsync(pending, body, bus);
+        return Results.Ok(ToMessageResponseShape(message, pending));
+    }
+
+    private static async Task<Message> CreateResponseMessageAsync(PendingInteraction pending, InteractionResponseDataPayload? data, IMessageBus bus)
+    {
+        var content = data?.Content ?? "";
+        return await bus.InvokeAsync<Message>(new CreateMessageCommand
+        {
+            AuthorId = pending.BotUserId,
+            AuthorIdType = AuthorIdType.Bot,
+            Content = Encoding.UTF8.GetBytes(content),
+            ChannelId = pending.ChannelId,
+        });
+    }
+
+    private static object ToMessageResponseShape(Message message, PendingInteraction pending) => new
+    {
+        id = message.Id,
+        channel_id = pending.ChannelId,
+        guild_id = pending.GuildId,
+        content = Encoding.UTF8.GetString(message.Content),
+        timestamp = message.CreatedAt,
+        author = new { id = pending.BotUserId, bot = true },
+    };
+}

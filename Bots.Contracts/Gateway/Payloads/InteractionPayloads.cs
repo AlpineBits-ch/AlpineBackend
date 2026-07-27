@@ -23,6 +23,13 @@ public class InteractionPayload
     [JsonPropertyName("guild_id")]
     public string? GuildId { get; set; }
 
+    /// <summary>discord.js reads data.channel?.id, NOT a flat channel_id field - a bare
+    /// channel_id string (what real Discord used to send, now deprecated-but-still-present) is
+    /// silently ignored by the client, leaving channelId/channel null. Keep channel_id too for
+    /// any consumer that still reads the old flat field.</summary>
+    [JsonPropertyName("channel")]
+    public InteractionChannelPayload? Channel { get; set; }
+
     [JsonPropertyName("channel_id")]
     public string? ChannelId { get; set; }
 
@@ -36,6 +43,45 @@ public class InteractionPayload
 
     [JsonPropertyName("version")]
     public int Version { get; set; } = 1;
+
+    /// <summary>discord.js's BaseInteraction constructor calls `new PermissionsBitField(data.app_permissions)`
+    /// unconditionally - there's no null-fallback, so this must always be a valid bitfield string.</summary>
+    [JsonPropertyName("app_permissions")]
+    public string AppPermissions { get; set; } = "0";
+
+    [JsonPropertyName("locale")]
+    public string Locale { get; set; } = "en-US";
+
+    [JsonPropertyName("guild_locale")]
+    public string? GuildLocale { get; set; }
+
+    /// <summary>discord.js calls `data.entitlements.reduce(...)` unconditionally with no fallback
+    /// - omitting this entirely crashes BaseInteraction's constructor (confirmed against the
+    /// real discord.js source, packages/discord.js/src/structures/BaseInteraction.js). This
+    /// project has no monetization/SKU concept, so it's always empty.</summary>
+    [JsonPropertyName("entitlements")]
+    public List<object> Entitlements { get; set; } = new();
+
+    /// <summary>Passed straight into `new AuthorizingIntegrationOwners(client, data.authorizing_integration_owners)`,
+    /// which does `this.data[key]` inside a loop - omitting this entirely (undefined) throws
+    /// there too. An empty object is a valid, safe default.</summary>
+    [JsonPropertyName("authorizing_integration_owners")]
+    public Dictionary<string, string> AuthorizingIntegrationOwners { get; set; } = new();
+
+    [JsonPropertyName("context")]
+    public int? Context { get; set; }
+
+    [JsonPropertyName("attachment_size_limit")]
+    public long AttachmentSizeLimit { get; set; } = 25 * 1024 * 1024;
+}
+
+public class InteractionChannelPayload
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("type")]
+    public int Type { get; set; }
 }
 
 public class InteractionDataPayload

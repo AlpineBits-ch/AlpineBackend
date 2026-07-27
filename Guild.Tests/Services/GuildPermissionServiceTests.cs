@@ -1623,4 +1623,80 @@ public class GuildPermissionServiceTests
             Assert.That(canPostInParent, Is.False, "the parent channel itself still requires plain SendMessages");
         });
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // ClampToGrantableAsync / CanGrantPermissionsAsync — bot-install privilege clamp Extracted so
+    // the install flow can silently downgrade an over-broad request instead of rejecting it
+    // outright; CanGrantPermissionsAsync must keep its original boolean semantics on top of the
+    // same shared math. ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task ClampToGrantable_Owner_ReturnsRequestedUnchanged()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        await _context.SaveChangesAsync();
+
+        var requested = Permissions.ManageGuild | Permissions.BanMembers | Permissions.SendMessages;
+        var clamped = await _service.ClampToGrantableAsync(UserId, GuildId, requested);
+
+        Assert.That(clamped, Is.EqualTo(requested), "Owner's expanded base permissions cover every bit");
+    }
+
+    [Test]
+    public async Task ClampToGrantable_NonOwner_IntersectsWithActorsBasePermissions()
+    {
+        // Actor holds only SendMessages; requests SendMessages + BanMembers.
+        await SeedWithRolePermission(Permissions.SendMessages);
+
+        var clamped = await _service.ClampToGrantableAsync(
+            UserId, GuildId, Permissions.SendMessages | Permissions.BanMembers);
+
+        Assert.That(clamped, Is.EqualTo(Permissions.SendMessages),
+            "Only the bit the actor actually holds should survive the clamp");
+    }
+
+    [Test]
+    public async Task ClampToGrantable_NoOverlap_ReturnsNone()
+    {
+        await SeedWithRolePermission(Permissions.ViewChannel);
+
+        var clamped = await _service.ClampToGrantableAsync(UserId, GuildId, Permissions.ManageGuild);
+
+        Assert.That(clamped, Is.EqualTo(Permissions.None));
+    }
+
+    [Test]
+    public async Task ClampToGrantable_ActorsImpliedPermissionsCountTowardClamp()
+    {
+        // Actor holds Stream, which implies Speak + Connect; requesting Speak should
+        // survive the clamp even though no role grants Speak directly.
+        await SeedWithRolePermission(Permissions.Stream);
+
+        var clamped = await _service.ClampToGrantableAsync(UserId, GuildId, Permissions.Speak);
+
+        Assert.That(clamped, Is.EqualTo(Permissions.Speak),
+            "Implied permissions from ExpandImpliedPermissions must count as grantable");
+    }
+
+    [Test]
+    public async Task CanGrantPermissions_ActorHasAllRequestedBits_ReturnsTrue()
+    {
+        await SeedWithRolePermission(Permissions.SendMessages | Permissions.ViewChannel);
+
+        var result = await _service.CanGrantPermissionsAsync(
+            UserId, GuildId, Permissions.SendMessages | Permissions.ViewChannel);
+
+        Assert.That(result, Is.True);
+    }
+
+    [Test]
+    public async Task CanGrantPermissions_ActorMissingABit_ReturnsFalse()
+    {
+        await SeedWithRolePermission(Permissions.SendMessages);
+
+        var result = await _service.CanGrantPermissionsAsync(
+            UserId, GuildId, Permissions.SendMessages | Permissions.BanMembers);
+
+        Assert.That(result, Is.False, "Actor must not be able to grant a bit it doesn't hold itself");
+    }
 }

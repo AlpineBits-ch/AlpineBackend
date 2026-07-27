@@ -100,6 +100,37 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
         
     }
 
+    /// <summary>Creates a bot account.</summary>
+    public static ApplicationUser CreateBot(string botUserId, string name)
+    {
+        var date = DateTime.UtcNow;
+        return new ApplicationUser
+        {
+            Id = botUserId,
+            CorrelationId = botUserId,
+            UserName = name,
+            NormalizedUserName = name.ToUpperInvariant(),
+            UserType = UserType.Bot,
+            CreatedAt = date,
+            UpdatedAt = date,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            Status = UserStatus.Active,
+            AgeVerification = new AgeVerification
+            {
+                Level = AgeVertificationLevel.None,
+            },
+            UserPreferences = new UserPreferences
+            {
+                Id = UserPreferences.GenerateId(),
+                CreatedAt = date,
+                UpdatedAt = date,
+                Data = "{}",
+                DirectMessageSettings = DirectMessageSettings.FilterNonFriends,
+                PrivacySettings = PrivacySettings.None,
+            },
+        };
+    }
+
     public void SetPasswordHash(string passwordHash)
     {
         this.PasswordHash = passwordHash;

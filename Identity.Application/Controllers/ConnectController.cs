@@ -1,5 +1,7 @@
-﻿using Identity.Application.Services.Steam;
+﻿using System.Security.Claims;
+using Identity.Application.Services.Steam;
 using Identity.Domain.Aggregates;
+using Identity.Domain.Enums;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
@@ -98,12 +100,32 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return Forbid("User is not allowed to sign in");
             }
         }
+        else if (request.IsClientCredentialsGrantType())
+        {
+            // OpenIddict's server middleware already authenticated client_id/client_secret against
+            // the registered OpenIddict application (Confidential + ClientCredentials permission)
+            // before this action runs.
+            user = await manager.FindByIdAsync(request.ClientId);
+            if (user == null) return NotFound();
+
+            if (!user.IsSigninAllowed())
+            {
+                logger.LogInformation("Bot {clientId} is not allowed to sign in", request.ClientId);
+                return Forbid("Bot account is disabled.");
+            }
+        }
         else { return BadRequest("The grant type is not supported."); }
 
         // Create the ClaimsPrincipal
         var principal = await signInManager.CreateUserPrincipalAsync(user);
         principal.SetClaim(OpenIddictConstants.Claims.Subject, await manager.GetUserIdAsync(user));
         principal.SetClaim(OpenIddictConstants.Claims.Email, user.Email);
+        if (user.UserType == UserType.Bot)
+        {
+            // Lets every downstream service detect "is this caller a bot" straight from the JWT,
+            // with no extra cross-service lookup (used e.g. to tag messages with AuthorIdType.Bot).
+            principal.SetClaim("user_type", nameof(UserType.Bot));
+        }
         principal.SetScopes(request.GetScopes());
         // Tell OpenIddict which claims go into the JWT
         foreach (var claim in principal.Claims)

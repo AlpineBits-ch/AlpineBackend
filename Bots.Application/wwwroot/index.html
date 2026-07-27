@@ -639,7 +639,7 @@
       installedList.innerHTML = "";
       setStatus(installedStatus, "Loading...", "");
       try {
-        const installations = await api(`/api/v1/applications/${bot.id}/installations`);
+        const installations = await api(`/api/v1/bots/applications/${bot.id}/installations`);
         if (!installations || installations.length === 0) {
           installedList.innerHTML = '<p class="empty">Not installed anywhere yet.</p>';
         } else {
@@ -659,12 +659,34 @@
     panel.appendChild(formHeading);
 
     const guildIdLabel = document.createElement("label");
-    guildIdLabel.textContent = "Guild ID (you need Manage Guild there)";
+    guildIdLabel.textContent = "Guild";
     panel.appendChild(guildIdLabel);
-    const guildIdInput = document.createElement("input");
-    guildIdInput.type = "text";
-    guildIdInput.placeholder = "gild_...";
-    panel.appendChild(guildIdInput);
+    const guildIdSelect = document.createElement("select");
+    guildIdSelect.innerHTML = '<option value="">Loading your guilds...</option>';
+    guildIdSelect.disabled = true;
+    panel.appendChild(guildIdSelect);
+    const guildIdHint = document.createElement("p");
+    guildIdHint.className = "empty";
+    guildIdHint.style.margin = "4px 0 0";
+    panel.appendChild(guildIdHint);
+
+    api("/api/v1/bots/guilds/manageable")
+      .then((guilds) => {
+        if (!guilds || guilds.length === 0) {
+          guildIdSelect.innerHTML = '<option value="">No guilds you manage</option>';
+          guildIdHint.textContent = "You need Manage Guild in a guild before you can install a bot into it.";
+          return;
+        }
+        guildIdSelect.innerHTML = guilds
+          .map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`)
+          .join("");
+        guildIdSelect.disabled = false;
+        guildIdHint.textContent = "Only guilds where you have Manage Guild are listed.";
+      })
+      .catch((err) => {
+        guildIdSelect.innerHTML = '<option value="">Failed to load</option>';
+        guildIdHint.textContent = err.message;
+      });
 
     const permissionsLabel = document.createElement("label");
     permissionsLabel.textContent = "Permissions to request";
@@ -698,15 +720,15 @@
     panel.appendChild(installStatus);
 
     installButton.addEventListener("click", async () => {
-      const guildId = guildIdInput.value.trim();
+      const guildId = guildIdSelect.value;
       if (!guildId) {
-        setStatus(installStatus, "Guild ID is required.", "error");
+        setStatus(installStatus, "Pick a guild first.", "error");
         return;
       }
 
       setStatus(installStatus, "Installing...", "");
       try {
-        const result = await api("/api/v1/oauth2/authorize", {
+        const result = await api("/api/v1/bots/oauth2/authorize", {
           method: "POST",
           body: JSON.stringify({
             clientId: bot.botUserId,
@@ -715,7 +737,6 @@
           }),
         });
         setStatus(installStatus, `Installed. Granted permissions bitmask: ${result.grantedPermissions}`, "ok");
-        guildIdInput.value = "";
         pickerContainer.querySelectorAll("input:checked").forEach((cb) => (cb.checked = false));
         computedLine.textContent = "Requesting bitmask: 0";
         loadInstallations();
@@ -753,7 +774,7 @@
     uninstallButton.addEventListener("click", async () => {
       if (!confirm(`Remove this bot from guild ${install.guildId}?`)) return;
       try {
-        await api(`/api/v1/applications/${bot.id}/installations/${install.guildId}`, { method: "DELETE" });
+        await api(`/api/v1/bots/applications/${bot.id}/installations/${install.guildId}`, { method: "DELETE" });
         onChange();
       } catch (err) {
         errorLine.textContent = err.message;

@@ -591,6 +591,13 @@
     guildsButton.textContent = "Guilds";
     actions.appendChild(guildsButton);
 
+    const installLinkButton = document.createElement("button");
+    installLinkButton.textContent = "Copy install link";
+    installLinkButton.title = "Copies the venta://install-bot link a provider site would use, and " +
+      "tries to open it - use this to test your OS's venta:// handler without a real provider page.";
+    installLinkButton.addEventListener("click", () => testInstallLink(bot, installLinkButton));
+    actions.appendChild(installLinkButton);
+
     item.appendChild(actions);
 
     const resultBox = document.createElement("div");
@@ -783,6 +790,31 @@
     });
 
     return wrap;
+  }
+
+  // Builds the same venta://install-bot link a real bot provider's "Add to venta.gg" button
+  // would use (see docs/bot-install-links.md), copies it to the clipboard, and navigates to it -
+  // emulating a click on that provider-hosted button so the OS protocol handler can be tested
+  // from here without needing an actual third-party site.
+  function buildInstallLink(bot) {
+    const params = new URLSearchParams({
+      client_id: bot.botUserId,
+      permissions: String(bot.defaultPermissions ?? 0),
+    });
+    return `venta://install-bot?${params.toString()}`;
+  }
+
+  async function testInstallLink(bot, button) {
+    const link = buildInstallLink(bot);
+    try {
+      await navigator.clipboard.writeText(link);
+      const original = button.textContent;
+      button.textContent = "Copied - opening...";
+      setTimeout(() => (button.textContent = original), 1500);
+    } catch {
+      // Clipboard access can be denied - copying is a bonus, not required to proceed.
+    }
+    window.location.href = link;
   }
 
   async function resetSecret(applicationId, item) {

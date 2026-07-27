@@ -73,22 +73,51 @@ public class GatewayLiveE2ETests
 
         var heartbeat = new GatewayOutboundEnvelope<object?> { Op = (int)GatewayOpCode.Heartbeat, D = null };
         await SendEnvelopeAsync(socket, heartbeat, TimeSpan.FromSeconds(5));
-        var ack = await ReceiveEnvelopeAsync(socket, TimeSpan.FromSeconds(10));
-        Assert.That(ack.Op, Is.EqualTo((int)GatewayOpCode.HeartbeatAck));
 
-        // Best-effort only: a timeout here just means the bot isn't installed anywhere, which is
-        // fine. Cancelling a pending ClientWebSocket.ReceiveAsync aborts the connection, so this
-        // must be the last thing attempted before close.
-        try
+        // GUILD_CREATE is dispatched per installed guild in parallel with the heartbeat ack, so
+        // it can race ahead of it - don't assume a fixed wire order, just drain dispatches until
+        // the ack itself shows up (or we time out entirely, which is a real failure).
+        var sawGuildCreate = false;
+        GatewayEnvelope? ack = null;
+        using (var overallCts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
         {
-            var guildCreate = await ReceiveEnvelopeAsync(socket, TimeSpan.FromSeconds(5));
-            Assert.That(guildCreate.T, Is.EqualTo("GUILD_CREATE"));
-            TestContext.Out.WriteLine("Received a GUILD_CREATE - bot is installed in at least one guild.");
+            while (!overallCts.IsCancellationRequested)
+            {
+                var envelope = await ReceiveEnvelopeAsync(socket, TimeSpan.FromSeconds(10));
+                if (envelope.Op == (int)GatewayOpCode.HeartbeatAck)
+                {
+                    ack = envelope;
+                    break;
+                }
+
+                Assert.That(envelope.Op, Is.EqualTo((int)GatewayOpCode.Dispatch),
+                    "only expected dispatches to precede the heartbeat ack");
+                if (envelope.T == "GUILD_CREATE") sawGuildCreate = true;
+            }
         }
-        catch (OperationCanceledException)
+        Assert.That(ack, Is.Not.Null, "never received a heartbeat ack");
+        Assert.That(ack!.Op, Is.EqualTo((int)GatewayOpCode.HeartbeatAck));
+
+        if (sawGuildCreate)
         {
-            TestContext.Out.WriteLine("No GUILD_CREATE within 5s - bot likely isn't installed anywhere, which is fine.");
-            return;
+            TestContext.Out.WriteLine("Received a GUILD_CREATE before the heartbeat ack - bot is installed in at least one guild.");
+        }
+        else
+        {
+            // Best-effort only: a timeout here just means the bot isn't installed anywhere, which is
+            // fine. Cancelling a pending ClientWebSocket.ReceiveAsync aborts the connection, so this
+            // must be the last thing attempted before close.
+            try
+            {
+                var guildCreate = await ReceiveEnvelopeAsync(socket, TimeSpan.FromSeconds(5));
+                Assert.That(guildCreate.T, Is.EqualTo("GUILD_CREATE"));
+                TestContext.Out.WriteLine("Received a GUILD_CREATE - bot is installed in at least one guild.");
+            }
+            catch (OperationCanceledException)
+            {
+                TestContext.Out.WriteLine("No GUILD_CREATE within 5s - bot likely isn't installed anywhere, which is fine.");
+                return;
+            }
         }
 
         using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));

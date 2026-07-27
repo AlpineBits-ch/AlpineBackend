@@ -93,6 +93,9 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.ConversationId, cm => cm.WithName("conversation_id"))
                 .Column(m => m.ChannelId, cm => cm.WithName("channel_id"))
                 .Column(m => m.Mentions, cm => cm.WithName("mentions"))
+                .Column(m => m.RoleMentions, cm => cm.WithName("role_mentions"))
+                .Column(m => m.MentionsEveryone, cm => cm.WithName("mentions_everyone"))
+                .Column(m => m.MentionsHere, cm => cm.WithName("mentions_here"))
                 .Column(m => m.AuthorIdType, cm => cm.WithName("author_id_type").WithDbType<string>())
                 .Column(m => m.Type, cm => cm.WithName("message_type").WithDbType<string>())
                 .Column(m => m.Attachments, cm => cm.WithName("attachments").AsFrozen())
@@ -140,6 +143,9 @@ public class ScyllaContext : IAsyncDisposable
             "mls_epoch bigint, " + // epoch when message was sent
             "mls_sequence_number bigint, " +
             "mentions list<text>, " +
+            "role_mentions list<text>, " +
+            "mentions_everyone boolean, " +
+            "mentions_here boolean, " +
             "attachments list<frozen<minimal_attachment>>, " +
             "updated_at timestamp, " +
             "PRIMARY KEY (context_id, created_at, message_id)" +
@@ -202,6 +208,33 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD author_id_type text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD role_mentions list<text>;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD mentions_everyone boolean;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD mentions_here boolean;"));
         }
         catch (InvalidQueryException)
         {

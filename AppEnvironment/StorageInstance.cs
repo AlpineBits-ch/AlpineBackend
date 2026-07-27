@@ -11,8 +11,11 @@ public static class StorageInstance
 
         var s3Config = new AmazonS3Config
         {
-      
-            ForcePathStyle = true 
+            ForcePathStyle = true,
+            // GCS's S3-interop XML API rejects the aws-chunked flexible-checksum
+            // trailer that the SDK sends by default since v4 (WHEN_SUPPORTED) with a bare 400.
+            RequestChecksumCalculation = Amazon.Runtime.RequestChecksumCalculation.WHEN_REQUIRED,
+            ResponseChecksumValidation = Amazon.Runtime.ResponseChecksumValidation.WHEN_REQUIRED
         };
 
         if (storageConfig.UseServiceUrl)

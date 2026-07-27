@@ -138,7 +138,11 @@ jobs:
           - project: Isle
             context: .
             dockerfile: Isle.Application/Dockerfile
-            image: isle-application            
+            image: isle-application
+          - project: Bot
+            context: .
+            dockerfile: Bot.Application/Dockerfile
+            image: bot-application
     
     steps:
       - name: Checkout

@@ -4,6 +4,7 @@ using Guild.Contracts.Bus.Commands;
 using Guild.Domain.Enums;
 using Guild.Tests.Helpers;
 using JasperFx.Core;
+using Microsoft.Extensions.Logging.Abstractions;
 using Social.Contracts.Bus.Integration.Response;
 using Social.Contracts.Dtos;
 using Wolverine;
@@ -60,6 +61,7 @@ public class ImportGuildStructureHandlerTests
     private TestGuildContext _context = null!;
     private AuditLogService _auditLog = null!;
     private FakeProfileMessageBus _bus = null!;
+    private FakeHubContext _hub = null!;
 
     [SetUp]
     public void SetUp()
@@ -68,6 +70,7 @@ public class ImportGuildStructureHandlerTests
         _context = new TestGuildContext(_dbName);
         _auditLog = new AuditLogService(_context);
         _bus = new FakeProfileMessageBus { Profile = new ProfileDto { UserName = "owner", Hash = 1 } };
+        _hub = new FakeHubContext();
     }
 
     [TearDown]
@@ -164,13 +167,43 @@ public class ImportGuildStructureHandlerTests
         Assert.That(overwrites, Has.Count.EqualTo(1), "the unmapped role's overwrite should be silently dropped");
     }
 
+    [Test]
+    public async Task Handle_ChannelNameFailsDomainValidation_ReturnsErrorMessageInsteadOfThrowing()
+    {
+        // ChannelValidator rejects whitespace in a channel name - Import.Application sanitizes
+        // this upstream, but this handler must still fail gracefully (not dead-letter the
+        // Wolverine message) if a bad name gets through some other path.
+        var command = BasicCommand();
+        command.Categories[0].Channels[0].Name = "bad name with spaces";
+
+        ImportGuildStructureResponse response = null!;
+        Assert.DoesNotThrowAsync(async () => response = await Invoke(command));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.ErrorMessage, Is.Not.Null);
+            Assert.That(response.GuildId, Is.Null, "a failed build must not report a guild id");
+            Assert.That(_context.Guilds.Any(), Is.False, "nothing partially built should be persisted on failure");
+        });
+    }
+
     /// <summary>ImportGuildStructureHandler deliberately doesn't call SaveChangesAsync itself
     /// (bus handlers auto-commit via Wolverine's DbContext middleware in production) - tests
     /// invoke it directly with no such middleware present, so this simulates that one commit.</summary>
     private async Task<ImportGuildStructureResponse> Invoke(ImportGuildStructureCommand command)
     {
-        var response = await ImportGuildStructureHandler.Handle(command, _context, _auditLog, _bus);
+        var response = await ImportGuildStructureHandler.Handle(command, _context, _auditLog, _bus, _hub,
+            NullLogger<ImportGuildStructureHandler>.Instance);
         await _context.SaveChangesAsync();
         return response;
+    }
+
+    [Test]
+    public async Task Handle_BroadcastsGuildCreatedToOwner()
+    {
+        await Invoke(BasicCommand());
+
+        var hubClients = (FakeHubClients)_hub.Clients;
+        Assert.That(hubClients.SentMessages, Has.Some.Matches<(string Method, object?[] Args)>(m => m.Method == "guild.GuildCreated"));
     }
 }

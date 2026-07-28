@@ -67,7 +67,14 @@ public class ImportedRoleDto
 
 public class ImportGuildStructureResponse
 {
-    public string GuildId { get; set; }
+    public string? GuildId { get; set; }
+
+    /// <summary>Null on success. Set when structure creation failed (e.g. domain validation) -
+    /// the handler catches these itself and returns a clean response rather than letting the
+    /// Wolverine message dead-letter, so callers should check this instead of relying on
+    /// bus.InvokeAsync throwing.</summary>
+    public string? ErrorMessage { get; set; }
+
     public Dictionary<string, string> DiscordToEchoCategoryIds { get; set; } = [];
     public Dictionary<string, string> DiscordToEchoChannelIds { get; set; } = [];
     public Dictionary<string, string> DiscordToEchoRoleIds { get; set; } = [];

@@ -130,6 +130,15 @@ jobs:
           mkdir -p ./Messaging.Application/Credentials
           echo "$SIX_LABORS_LIC" > ./Messaging.Application/Credentials/sixlabors.lic
 
+      - name: Raise fs.aio-max-nr for concurrent Scylla testcontainers
+        # This job runs 3 scylladb/scylla containers at once (the shared EchoInfraFixture.Default
+        # set plus FederationTwoInstanceTests' own infraA/infraB). Each one claims roughly half of
+        # the kernel's fs.aio-max-nr for its AIO context even at --smp 1, so two already exhaust
+        # Ubuntu's default 65536 and the third fails with "Could not setup Async I/O" - which then
+        # surfaces as an opaque 3-minute TimeoutException in EchoInfraSet.StartAsync instead of the
+        # real cause. Confirmed via `docker logs` on the failing container locally on 2026-07-28.
+        run: sudo sysctl -w fs.aio-max-nr=1048576
+
       - name: Run Echo.E2E.Tests
         run: dotnet test Echo.E2E.Tests/Echo.E2E.Tests.csproj --logger "console;verbosity=detailed"
 

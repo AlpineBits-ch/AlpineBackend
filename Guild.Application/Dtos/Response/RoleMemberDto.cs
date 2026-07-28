@@ -15,5 +15,11 @@ public partial class RoleMemberDto
 [Facet(typeof(RoleMember), Include = ["Id", "CreatedAt", "UpdatedAt", "Role"], NestedFacets = [typeof(FlatRoleDto)])]
 public partial class FlatRoleMember
 {
-    
+
+}
+
+[Facet(typeof(RoleMember), Include = ["Role"], NestedFacets = [typeof(RoleDto)])]
+public partial class MemberRoleAssignmentDto
+{
+
 }

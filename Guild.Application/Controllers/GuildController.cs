@@ -140,10 +140,21 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         var userIds = members.Select(m => m.UserId).ToList();
 
         var profiles = await profileService.GetProfilesByUserIds(userIds);
-        
+
+        var memberIds = members.Select(m => m.Id).ToList();
+        var roleAssignmentsByMember = (await ctx.RoleMembers
+                .AsNoTracking()
+                .Where(rm => memberIds.Contains(rm.MemberId))
+                .Select(rm => new { rm.MemberId, Role = rm.Role.ToFacet<Role, RoleDto>() })
+                .ToListAsync())
+            .ToLookup(x => x.MemberId);
+
         foreach (var member in members)
         {
             member.Profile = profiles.FirstOrDefault(p => p.UserId == member.UserId);
+            member.RoleMembers = roleAssignmentsByMember[member.Id]
+                .Select(x => new MemberRoleAssignmentDto { Role = x.Role })
+                .ToList();
             if(member.UserId == userId)
             {
                 member.ReadStates = [];
@@ -151,7 +162,7 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         }
 
         logger.LogInformation("Guild members loaded for guild {GuildId} with {Count} members, with {Data}", id, members.Count, JsonSerializer.Serialize(members));
-        
+
         return Ok(members);
     }
 

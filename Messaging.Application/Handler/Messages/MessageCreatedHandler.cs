@@ -48,6 +48,7 @@ public class MessageCreatedHandler
                     Token = token,
                     Title = profile.Profile?.UserName ?? "New message",
                     Body = body,
+                    Data = new Dictionary<string, string> { ["conversationId"] = messageCreated.ConversationId },
                 });
             }
         }

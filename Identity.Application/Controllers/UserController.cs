@@ -125,4 +125,31 @@ public class UserController(MicroserviceContext ctx) : ControllerBase
         return Created();
 
     }
+
+    [HttpPost("self/voip-token")]
+    public async Task<IActionResult> CreateVoipTokenAsync(CreateDeviceTokenDto dto)
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if(userId is null) return BadRequest();
+
+        var user = await ctx.Users.Include(u => u.VoipTokens).FirstOrDefaultAsync(u => u.Id == userId);
+        if(user is null) return NotFound();
+
+        if (user.VoipTokens.Any(t => t.Token == dto.Token))
+        {
+            return Accepted();
+        }
+
+        user.VoipTokens.Add(new UserVoipToken
+        {
+            Id = UserVoipToken.GenerateId(),
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Token = dto.Token,
+            UserId = userId
+        });
+        await ctx.SaveChangesAsync();
+        return Created();
+
+    }
 }

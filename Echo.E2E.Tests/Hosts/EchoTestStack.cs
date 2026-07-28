@@ -3,8 +3,8 @@ using Echo.E2E.Tests.Fixtures;
 namespace Echo.E2E.Tests.Hosts;
 
 /// <summary>
-/// Boots one full "instance" of the Echo backend - Identity, Guild, Messaging, Social, Federation -
-/// as real child processes sharing one <see cref="EchoInfraSet"/>.
+/// Boots one full "instance" of the Echo backend - Identity, Guild, Messaging, Social, Federation,
+/// Import, and the Echo gateway - as real child processes sharing one <see cref="EchoInfraSet"/>.
 /// </summary>
 public sealed class EchoTestStack : IAsyncDisposable
 {
@@ -14,6 +14,7 @@ public sealed class EchoTestStack : IAsyncDisposable
     public SpawnedServiceProcess Social { get; private set; } = null!;
     public SpawnedServiceProcess Federation { get; private set; } = null!;
     public SpawnedServiceProcess Import { get; private set; } = null!;
+    public SpawnedServiceProcess Gateway { get; private set; } = null!;
 
     public string InstanceName { get; }
 
@@ -76,6 +77,8 @@ public sealed class EchoTestStack : IAsyncDisposable
         federationEnv["INSTANCE_NAME"] = instanceName;
         var importEnv = Common($"import_{databaseSuffix}");
         importEnv["INSTANCE_URL"] = identityUrl;
+        var gatewayEnv = Common($"echo_{databaseSuffix}");
+        gatewayEnv["INSTANCE_URL"] = identityUrl;
 
         // Started sequentially (not in parallel) so a failure surfaces against the specific service
         // that failed, with that service's captured stdout/stderr, instead of an ambiguous
@@ -92,6 +95,8 @@ public sealed class EchoTestStack : IAsyncDisposable
                 "Federation.Application", "/federation/health", federationEnv);
             stack.Import = await SpawnedServiceProcess.StartAsync(
                 "Import.Application", "/imports/health", importEnv);
+            stack.Gateway = await SpawnedServiceProcess.StartAsync(
+                "Echo", "/health", gatewayEnv);
         }
         catch
         {
@@ -106,7 +111,7 @@ public sealed class EchoTestStack : IAsyncDisposable
 
     private async ValueTask DisposeStartedAsync()
     {
-        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import }
+        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import, Gateway }
             .Where(p => p is not null);
         await Task.WhenAll(started.Select(p => p.DisposeAsync().AsTask()));
     }

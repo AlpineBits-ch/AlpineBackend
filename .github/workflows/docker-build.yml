@@ -63,7 +63,10 @@ jobs:
         run: dotnet tool install --global dotnet-coverage
       
       - name: Run dotnet test with coverage
-        run: dotnet-coverage collect 'dotnet test' -f cobertura -o 'solution_coverage.xml'
+        # TestCategory!=E2E: Echo.E2E.Tests boots the real backend via Testcontainers + spawned
+        # service processes - correct to build here (catches compile errors), too slow/heavy to
+        # run in this fast unit-test job. It has its own job below.
+        run: dotnet-coverage collect 'dotnet test --filter "TestCategory!=E2E"' -f cobertura -o 'solution_coverage.xml'
       - name: Run Coverage Summary
         uses: irongut/CodeCoverageSummary@v1.3.0
         with:
@@ -98,6 +101,37 @@ jobs:
           git add .github/badges/coverage.svg
           git commit -m "Update coverage badge [skip ci]" || exit 0
           git push
+
+  e2e-tests:
+    name: Run E2E tests
+    runs-on: ubuntu-latest
+    # Independent of `test`/`build`: boots the real backend (Testcontainers Postgres/RabbitMQ/
+    # Redis/Scylla + spawned service processes), which is new and slower/heavier than the rest of
+    # the suite. Reports its own status rather than gating the Docker build/push, so flakiness
+    # here while this harness is new doesn't block deploys.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Write Secrets
+        env:
+          SIX_LABORS_LIC: ${{ secrets.SIX_LABORS_LIC }}
+        run: |
+          mkdir -p ./Messaging.Application/Credentials
+          echo "$SIX_LABORS_LIC" > ./Messaging.Application/Credentials/sixlabors.lic
+
+      - name: Run Echo.E2E.Tests
+        run: dotnet test Echo.E2E.Tests/Echo.E2E.Tests.csproj --logger "console;verbosity=detailed"
 
   build:
     name: Build ${{ matrix.project }}

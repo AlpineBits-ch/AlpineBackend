@@ -9,6 +9,7 @@ namespace Echo.E2E.Tests.Scenarios;
 /// backed by a real (Testcontainers) Postgres, can register a user over real HTTP.
 /// </summary>
 [TestFixture]
+[Category("E2E")]
 public class SmokeTests
 {
     private EchoTestStack _stack = null!;
@@ -38,6 +39,7 @@ public class SmokeTests
         Assert.That(_stack.Social.Port, Is.GreaterThan(0));
         Assert.That(_stack.Federation.Port, Is.GreaterThan(0));
         Assert.That(_stack.Import.Port, Is.GreaterThan(0));
+        Assert.That(_stack.Gateway.Port, Is.GreaterThan(0));
     }
 
     [Test]

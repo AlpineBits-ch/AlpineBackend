@@ -23,6 +23,17 @@ only compliant way to read a server's structure is a real Discord Bot Applicatio
 server via the standard OAuth2 "add bot" flow. Since members/messages are out of scope, only the
 `View Channels` permission is requested - no privileged Discord intents needed at all.
 
+## Outstanding
+
+Two things stand between this and a real, working import:
+
+1. **OAuth callback redirect target is wrong.** `DiscordImportEndpoint.Callback` currently redirects
+   the browser to a literal web route (`{InstanceUrl}/imports/{jobId}`). It needs to redirect to
+   the `venta://discord-import?jobId=...` deep link instead, matching the existing
+   `venta://steam-auth` convention (`SteamConfiguration.ClientReturnUrl`). Not fixed yet.
+2. **No real Discord application has been registered** (see One-time setup below) - the OAuth flow,
+   REST calls, and Gateway handshake have never been exercised against real discord.com.
+
 ## One-time setup (outside this repo)
 
 1. Register a Discord Application + Bot in Discord's [Developer Portal](https://discord.com/developers/applications).
@@ -91,7 +102,8 @@ forwarding, same convention as `bots-route`/`guild-route`, so the internal route
 Flow:
 1. "Import from Discord" button → `GET .../discord/start` → redirect the browser to `authorizeUrl`.
 2. User approves in Discord's UI → Discord redirects to the callback → Import service redirects
-   the browser to a **frontend route** `{InstanceUrl}/imports/{jobId}` (must be registered app-side).
+   the browser to the `venta://discord-import?jobId=...` deep link (see Outstanding above - this
+   redirect target isn't fixed yet, still points at a web route).
 3. That page polls `GET .../jobs/{jobId}` (e.g. every 1-2s) until `Completed` (navigate to
    `echoGuildId`) or `Failed` (show `errorMessage`). There's intentionally no push/SignalR event
    for this - imports finish in seconds since there's no message/member history to move.
@@ -102,8 +114,7 @@ Flow:
 
 - Full solution build clean; `Guild.Tests` 194/194, `Import.Tests` 52/52 (new project), `Bots.Tests`
   43/43 unaffected. Zero pending EF model changes on `Import.Infrastructure`/`Guild.Infrastructure`.
-- **Not yet deployed or live-tested** - no real Discord application registered (see Setup above),
-  so the OAuth flow, REST calls, and Gateway handshake have never run against real discord.com.
+- **Not yet deployed or live-tested** - see Outstanding above.
 - CI: `Import.Tests` runs automatically as part of the solution-wide `dotnet test` step; a Docker
   build matrix entry (`Import.Application/Dockerfile` → `import-application` image) was added
   alongside the other services in `.github/workflows/docker-build.yml`.

@@ -78,18 +78,18 @@ public class CallPushService
     {
         foreach (var token in tokens)
         {
-            var push = new ApplePush(ApplePushType.Voip).AddToken(token).SetPriority(10);
-            push.AddCustomProperty("callId", payload.CallId);
-            push.AddCustomProperty("conversationId", payload.ConversationId);
-            push.AddCustomProperty("callerName", payload.CallerName);
-            push.AddCustomProperty("callerAvatarUrl", payload.CallerAvatarUrl ?? "");
-            if (isCancel)
-            {
-                push.AddCustomProperty("type", "end");
-            }
-
             try
             {
+                var push = new ApplePush(ApplePushType.Voip).AddVoipToken(token).SetPriority(10);
+                push.AddCustomProperty("callId", payload.CallId);
+                push.AddCustomProperty("conversationId", payload.ConversationId);
+                push.AddCustomProperty("callerName", payload.CallerName);
+                push.AddCustomProperty("callerAvatarUrl", payload.CallerAvatarUrl ?? "");
+                if (isCancel)
+                {
+                    push.AddCustomProperty("type", "end");
+                }
+
                 await VoipApnsClient.SendAsync(push);
             }
             catch (Exception e)

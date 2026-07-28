@@ -8,6 +8,7 @@ using Federation.Application.Services;
 using Federation.Infrastructure;
 using Federation.Infrastructure.Persistence;
 using JasperFx;
+using JasperFx.RuntimeCompiler;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -61,11 +62,9 @@ builder.UseWolverine(opts =>
 
     });
 
-    if (builder.Environment.IsDevelopment())
-    {
-        return;
-    }
-
+    // Previously returned here in Development, skipping ConfigureWolverine (and therefore RabbitMQ)
+    // entirely - meaning Federation could never send/receive the cross-service bus messages the
+    // rest of federation wiring depends on outside Production.
     opts.ConfigureWolverine();
     opts.UseSystemTextJsonForSerialization(o =>
     {
@@ -74,6 +73,16 @@ builder.UseWolverine(opts =>
         o.TypeInfoResolverChain.Insert(1, FederationMessageContext.Default);
 
     });
+
+    // Static codegen (the default) expects the ahead-of-time-generated types the Dockerfile bakes
+    // in via `dotnet run -- codegen write` before publish.
+    if (builder.Environment.IsDevelopment())
+    {
+        opts.CodeGeneration.TypeLoadMode = JasperFx.CodeGeneration.TypeLoadMode.Dynamic;
+        // Dynamic mode compiles handlers with Roslyn at startup - needs an IAssemblyGenerator,
+        // which core WolverineFx no longer ships (see JasperFx.RuntimeCompiler package).
+        opts.Services.AddRuntimeCompilation();
+    }
 });
 
 if (args.Contains("codegen") || args.Contains("describe"))

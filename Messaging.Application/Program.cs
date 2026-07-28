@@ -3,6 +3,7 @@ using Echo.Realtime.Sfu;
 using AppEnvironment;
 using Domain;
 using JasperFx;
+using JasperFx.RuntimeCompiler;
 using Messaging;
 using Messaging.Application.Services;
 using Messaging.Infrastructure;
@@ -50,6 +51,15 @@ builder.UseWolverine(opts =>
     });
     opts.ConfigureWolverine();
 
+    // Static codegen (the default) expects the ahead-of-time-generated types the Dockerfile bakes
+    // in via `dotnet run -- codegen write` before publish.
+    if (builder.Environment.IsDevelopment())
+    {
+        opts.CodeGeneration.TypeLoadMode = JasperFx.CodeGeneration.TypeLoadMode.Dynamic;
+        // Dynamic mode compiles handlers with Roslyn at startup - needs an IAssemblyGenerator,
+        // which core WolverineFx no longer ships (see JasperFx.RuntimeCompiler package).
+        opts.Services.AddRuntimeCompilation();
+    }
 });
 builder.Services.AddWolverineHttp()
     .ConfigureHttpJsonOptions(options =>

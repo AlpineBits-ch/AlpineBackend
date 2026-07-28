@@ -11,6 +11,7 @@
         <PackageReference Include="Facet.Dashboard" Version="6.6.8" />
         <PackageReference Include="Facet.Extensions" Version="6.6.8" />
         <PackageReference Include="Facet.Extensions.EFCore" Version="6.6.8" />
+        <PackageReference Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.10" />

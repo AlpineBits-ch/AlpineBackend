@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Http.Polly" Version="10.0.10" />
+        <PackageReference Include="WolverineFx" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.Http" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Import.Contracts\Import.Contracts.csproj" />
+      <ProjectReference Include="..\Import.Infrastructure\Import.Infrastructure.csproj" />
+      <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
+      <!-- Reuses the Gateway envelope/op-code/handshake payload shapes already built for the
+           inbound (server) side - the wire protocol is identical, only the connection direction
+           (client vs. server) differs. -->
+      <ProjectReference Include="..\Bots.Contracts\Bots.Contracts.csproj" />
+      <!-- Shared Wolverine configuration (durable inbox/outbox, RabbitMQ, retry policies) -
+           same convention every other service (Bots.Application included) already uses. -->
+      <ProjectReference Include="..\Messaging\Messaging.csproj" />
+    </ItemGroup>
+
+</Project>

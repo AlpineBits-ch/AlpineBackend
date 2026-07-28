@@ -31,6 +31,7 @@ public class ScyllaContext : IAsyncDisposable
     {
         var cluster = Cluster.Builder()
             .AddContactPoints(Env.Scylla.Host)
+            .WithPort(Env.Scylla.Port)
             .WithCredentials(Env.Scylla.UserName, Env.Scylla.Password)
             .WithPoolingOptions(new PoolingOptions().SetCoreConnectionsPerHost(HostDistance.Local, 10))
             .Build();

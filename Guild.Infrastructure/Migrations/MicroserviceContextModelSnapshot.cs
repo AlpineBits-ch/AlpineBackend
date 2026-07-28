@@ -22,7 +22,7 @@ namespace Guild.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "channel_created", "channel_deleted", "channel_permission_changed", "channel_updated", "guild_deleted", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_unbanned", "member_unmuted", "role_created", "role_deleted", "role_positions_changed", "role_updated" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "channel_created", "channel_deleted", "channel_permission_changed", "channel_updated", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_unbanned", "member_unmuted", "role_created", "role_deleted", "role_positions_changed", "role_updated" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "forum", "text", "thread", "ticket", "voice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "encryption_state", new[] { "encrypted", "encrypted_without_fallback_key", "plain" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_state", new[] { "active", "expired" });

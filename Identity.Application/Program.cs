@@ -8,6 +8,7 @@ using Identity.Domain.Aggregates;
 using Identity.Infrastructure;
 using Identity.Infrastructure.Persistence;
 using JasperFx;
+using JasperFx.RuntimeCompiler;
 using JasperFx.CodeGeneration;
 using JasperFx.CodeGeneration.Model;
 using Messaging;
@@ -147,6 +148,9 @@ builder.UseWolverine(opts =>
     {
         opts.CodeGeneration.TypeLoadMode = TypeLoadMode.Dynamic;
         opts.ServiceLocationPolicy = ServiceLocationPolicy.AllowedButWarn;
+        // Dynamic mode compiles handlers with Roslyn at startup - needs an IAssemblyGenerator,
+        // which core WolverineFx no longer ships (see JasperFx.RuntimeCompiler package).
+        opts.Services.AddRuntimeCompilation();
 
     }
    

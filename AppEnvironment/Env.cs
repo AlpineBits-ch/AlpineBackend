@@ -44,6 +44,8 @@ public static class Env
 
     public static readonly IsleConfiguration Isle = new();
 
+    public static readonly DiscordImportConfiguration DiscordImport = new();
+
 }
 
 public class RabbitMQConfig
@@ -232,4 +234,26 @@ public class FederationConfiguration
             PublicKey = (key.PublicKey.Export(KeyBlobFormat.PkixPublicKeyText));
         }
     }
+}
+public class DiscordImportConfiguration
+{
+    /// <summary>Echo-owned Discord Application's bot token, used to call the real discord.com
+    /// API and (for live sync) maintain a Gateway connection. A deployment secret - never
+    /// persisted in a DB row. Registered once, by hand, in Discord's Developer Portal.</summary>
+    public string BotToken { get; set; } = GetEnvironmentVariable("DISCORD_IMPORT_BOT_TOKEN") ?? string.Empty;
+
+    public string ClientId { get; set; } = GetEnvironmentVariable("DISCORD_IMPORT_CLIENT_ID") ?? string.Empty;
+
+    /// <summary>Public, browser-facing callback path - must include the YARP gateway prefix
+    /// (/api/v1/imports), which the gateway strips before the request reaches the Import
+    /// service. Configured as this application's OAuth2 redirect URI in Discord's Developer
+    /// Portal.</summary>
+    public string PublicCallbackPath { get; set; } =
+        GetEnvironmentVariable("DISCORD_IMPORT_PUBLIC_CALLBACK_PATH")
+        ?? "/api/v1/imports/discord/callback";
+
+    public string PublicBaseUrl { get; set; } =
+        GetEnvironmentVariable("DISCORD_IMPORT_PUBLIC_BASE_URL")
+        ?? GetEnvironmentVariable("INSTANCE_URL")
+        ?? "https://api.venta.gg";
 }

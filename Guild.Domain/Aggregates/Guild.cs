@@ -14,6 +14,11 @@ public class CreateGuildParams
     public string OwnerId { get; init; }
     public required string OwnerSearchValue { get; init; }
     public string? OwnerNickname { get; init; }
+
+    /// <summary>When true, skips seeding the default "Text Channels"/"Voice Channels"
+    /// categories - used by Discord-import, which populates its own category/channel tree
+    /// instead. The @everyone role and owner membership are still always created.</summary>
+    public bool SkipDefaultChannels { get; init; } = false;
 }
 
 public class Guild : Aggregate<Guild>, IPrefixedEntity
@@ -52,7 +57,7 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
             Name = parameters.Name,
             Description = parameters.Description,
             OwnerId = parameters.OwnerId,
-            Categories = Category.GetDefault(id),
+            Categories = parameters.SkipDefaultChannels ? new List<Category>() : Category.GetDefault(id),
             Members = [new GuildMember()
             {
                 Id = memberId,
@@ -67,8 +72,14 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
             Roles = [Role.CreateEveryoneRole(id, memberId)]
         };
 
-        guild.SystemChannelId = guild.Categories.First(c => c.Position == 0).Channels.First(c => c.Type == ChannelType.Text).Id;
-        
+        // When default channels are skipped (Discord import), there's no text channel yet to
+        // point at - the importer sets SystemChannelId itself once it has created its own tree.
+        var defaultTextChannel = guild.Categories
+            .OrderBy(c => c.Position)
+            .SelectMany(c => c.Channels)
+            .FirstOrDefault(c => c.Type == ChannelType.Text);
+        guild.SystemChannelId = defaultTextChannel?.Id;
+
         guild.AddDomainEvent(new GuildCreated() { GuildId = id });
         return guild;
     }

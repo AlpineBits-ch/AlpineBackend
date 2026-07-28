@@ -15,11 +15,12 @@ public enum OnlineStatus
     DoNotDisturb,
 }
 
-[Facet(typeof(GuildMember), nameof(GuildMember.Guild),  NestedFacets = [typeof(InviteDto), typeof(RoleMemberDto), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]
+[Facet(typeof(GuildMember), nameof(GuildMember.Guild), nameof(GuildMember.RoleMembers), NestedFacets = [typeof(InviteDto), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]
 public partial class MemberDto
 {
     public OnlineStatus Status { get; set; }
     public ProfileDto? Profile { get; set; }
+    public List<MemberRoleAssignmentDto> RoleMembers { get; set; } = [];
 }
 
 [Facet(typeof(GuildMember), nameof(GuildMember.Guild),

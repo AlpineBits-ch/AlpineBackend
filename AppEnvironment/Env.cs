@@ -46,6 +46,8 @@ public static class Env
 
     public static readonly DiscordImportConfiguration DiscordImport = new();
 
+    public static readonly ApnsConfiguration Apns = new();
+
 }
 
 public class RabbitMQConfig
@@ -235,6 +237,22 @@ public class FederationConfiguration
         }
     }
 }
+/// <summary>
+/// Direct-APNs credentials for the one push path FCM can't cover: VoIP/CallKit (see
+/// Messaging.Application/Services/CallPushService.cs).
+/// </summary>
+public class ApnsConfiguration
+{
+    public string BundleId { get; set; } = GetEnvironmentVariable("APNS_VOIP_BUNDLE_ID") ?? "gg.venta.mobile.voip";
+    public string KeyId { get; set; } = GetEnvironmentVariable("APNS_KEY_ID") ?? string.Empty;
+    public string TeamId { get; set; } = GetEnvironmentVariable("APNS_TEAM_ID") ?? string.Empty;
+    public string AuthKeyBase64 { get; set; } = GetEnvironmentVariable("APNS_AUTH_KEY_BASE_64") ?? string.Empty;
+
+    public string AuthKeyContent => string.IsNullOrEmpty(AuthKeyBase64)
+        ? string.Empty
+        : Encoding.UTF8.GetString(Convert.FromBase64String(AuthKeyBase64));
+}
+
 public class DiscordImportConfiguration
 {
     /// <summary>Echo-owned Discord Application's bot token, used to call the real discord.com

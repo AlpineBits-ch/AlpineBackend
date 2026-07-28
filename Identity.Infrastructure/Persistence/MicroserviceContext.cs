@@ -17,6 +17,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<UserKeyPackage> UserKeyPackages { get; set; }
     public DbSet<UserDevice> UserDevices { get; set; }
     public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
+    public DbSet<UserVoipToken> UserVoipTokens { get; set; }
 
     public DbSet<UserDeviceBackup> UserDeviceBackups { get; set; }
     
@@ -113,6 +114,14 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
         {
             token.HasOne<ApplicationUser>(t => t.User)
                 .WithMany(u => u.DeviceTokens)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserVoipToken>(token =>
+        {
+            token.HasOne<ApplicationUser>(t => t.User)
+                .WithMany(u => u.VoipTokens)
                 .HasForeignKey(t => t.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });

@@ -9,6 +9,8 @@ using Messaging.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Microsoft.Extensions.Caching.Distributed;
 using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
@@ -74,6 +76,17 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
             SlidingExpiration = TimeSpan.FromMinutes(40)
         });
         await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
+
+        var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = request.Participants });
+        var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = request.Participants });
+        await CallPushService.SendIncomingCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
+        {
+            CallId = call.Id,
+            ConversationId = call.ConversationId,
+            CallerName = response.Profile.UserName,
+            CallerAvatarUrl = response.Profile.AvatarUrl,
+        });
+
         return Accepted(call);
     }
 
@@ -176,6 +189,22 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
         }
 
         await hubContext.Clients.Users(participantIds).SendAsync("call.CallEnded", new { callId });
+
+        var cancelRecipientIds = participantIds.Where(id => id != userId).ToList();
+        if (cancelRecipientIds.Count > 0)
+        {
+            var callerProfile = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest { UserId = call.CreatorId });
+            var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = cancelRecipientIds });
+            var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = cancelRecipientIds });
+            await CallPushService.SendCancelCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
+            {
+                CallId = call.Id,
+                ConversationId = call.ConversationId,
+                CallerName = callerProfile.Profile?.UserName ?? string.Empty,
+                CallerAvatarUrl = callerProfile.Profile?.AvatarUrl,
+            });
+        }
+
         return Accepted(call);
     }
 }

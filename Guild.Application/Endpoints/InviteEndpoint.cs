@@ -79,6 +79,10 @@ public class InviteEndpoint
     public async Task<IResult> GetInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx)
     {
         var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Id == inviteId);
+        if (invite == null)
+        {
+            invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Code == inviteId);
+        }
         if(invite is null) return Results.NotFound();
         return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
     }

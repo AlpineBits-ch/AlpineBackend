@@ -25,14 +25,14 @@ server via the standard OAuth2 "add bot" flow. Since members/messages are out of
 
 ## Outstanding
 
-Two things stand between this and a real, working import:
+One thing stands between this and a real, working import:
 
-1. **OAuth callback redirect target is wrong.** `DiscordImportEndpoint.Callback` currently redirects
-   the browser to a literal web route (`{InstanceUrl}/imports/{jobId}`). It needs to redirect to
-   the `venta://discord-import?jobId=...` deep link instead, matching the existing
-   `venta://steam-auth` convention (`SteamConfiguration.ClientReturnUrl`). Not fixed yet.
-2. **No real Discord application has been registered** (see One-time setup below) - the OAuth flow,
-   REST calls, and Gateway handshake have never been exercised against real discord.com.
+- **No real Discord application has been registered** (see One-time setup below) - the OAuth flow,
+  REST calls, and Gateway handshake have never been exercised against real discord.com.
+
+Fixed: the OAuth callback now redirects to `{DiscordImportConfiguration.ClientReturnUrl}?jobId=...`
+(defaults to `venta://discord-import?jobId=...`, overridable via `DISCORD_IMPORT_CLIENT_RETURN_URL`),
+matching the existing `venta://steam-auth` convention (`SteamConfiguration.ClientReturnUrl`).
 
 ## One-time setup (outside this repo)
 
@@ -102,9 +102,9 @@ forwarding, same convention as `bots-route`/`guild-route`, so the internal route
 Flow:
 1. "Import from Discord" button → `GET .../discord/start` → redirect the browser to `authorizeUrl`.
 2. User approves in Discord's UI → Discord redirects to the callback → Import service redirects
-   the browser to the `venta://discord-import?jobId=...` deep link (see Outstanding above - this
-   redirect target isn't fixed yet, still points at a web route).
-3. That page polls `GET .../jobs/{jobId}` (e.g. every 1-2s) until `Completed` (navigate to
+   the browser to the `venta://discord-import?jobId=...` deep link. The client app needs to
+   register that scheme/host and route it to an "import in progress" screen.
+3. That screen polls `GET .../jobs/{jobId}` (e.g. every 1-2s) until `Completed` (navigate to
    `echoGuildId`) or `Failed` (show `errorMessage`). There's intentionally no push/SignalR event
    for this - imports finish in seconds since there's no message/member history to move.
 4. A guild's settings screen can call `GET .../links?guildId=...` to show link status and offer

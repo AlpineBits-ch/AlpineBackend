@@ -157,7 +157,7 @@ public static class ProxyConfig
         var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://federation.default.svc.cluster.local";
         var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://isle.default.svc.cluster.local:8080";
         var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://bots.default.svc.cluster.local";
-        var imports = Environment.GetEnvironmentVariable("Services__Imports") ?? "http://imports.default.svc.cluster.local";
+        var imports = Environment.GetEnvironmentVariable("Services__Imports") ?? "http://import.default.svc.cluster.local";
 
         return new[]
         {

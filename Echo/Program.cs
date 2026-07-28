@@ -16,6 +16,7 @@ using Octokit;
 using StackExchange.Redis;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
+using JasperFx.RuntimeCompiler;
 using Yarp.ReverseProxy.Health;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,6 +42,15 @@ builder.UseWolverine(opts =>
     // invocations over RabbitMQ) in every environment, so we no longer short-circuit in
     // Development. Realtime therefore requires RabbitMQ + the target services to be running.
     opts.ConfigureWolverine(false);
+
+    // Static codegen (the default) expects the ahead-of-time-generated types the Dockerfile
+    // bakes in via `dotnet run -- codegen write` before publish. A local/dev/test run from raw
+    // build output never runs that step, so fall back to compiling handlers on the fly.
+    if (builder.Environment.IsDevelopment())
+    {
+        opts.CodeGeneration.TypeLoadMode = JasperFx.CodeGeneration.TypeLoadMode.Dynamic;
+        opts.Services.AddRuntimeCompilation();
+    }
 });
 
 if (args.Contains("codegen") || args.Contains("describe"))

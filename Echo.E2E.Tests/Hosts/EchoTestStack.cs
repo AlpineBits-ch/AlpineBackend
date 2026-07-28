@@ -4,14 +4,20 @@ namespace Echo.E2E.Tests.Hosts;
 
 /// <summary>
 /// Boots one full "instance" of the Echo backend - Identity, Guild, Messaging, Social,
-/// Federation - as real child processes sharing one <see cref="EchoInfraSet"/>. Each service
-/// gets its own database (see <see cref="EchoInfraFixture.DatabaseNames"/>) but shares the
-/// broker/cache within that infra set, exactly as in compose.yaml.
+/// Federation, Import, and the Echo gateway - as real child processes sharing one
+/// <see cref="EchoInfraSet"/>. Each service gets its own database (see
+/// <see cref="EchoInfraFixture.DatabaseNames"/>) but shares the broker/cache within that infra
+/// set, exactly as in compose.yaml.
 ///
-/// The YARP gateway (Echo/) is deliberately not part of the stack: services talk to each other
-/// directly over their own real loopback ports, and tests call each service's HTTP API directly.
-/// This skips exercising gateway routing, which is out of scope for the business-logic and
-/// federation scenarios this harness exists for.
+/// The Echo gateway is NOT just a YARP reverse proxy - it also hosts a Wolverine host with
+/// cross-service sagas (e.g. <c>Echo.Sagas.UserRegistrationSaga</c>, which turns Identity's
+/// UserCreatedEvent into the CreateUserProfileCommand Social actually materializes a profile
+/// from). Omitting it originally seemed safe ("just routing") but silently broke that saga,
+/// which made registration look like a dead RabbitMQ event when the real cause was a missing
+/// orchestrator - discovered the hard way by this harness. Tests still call each service's HTTP
+/// API directly rather than through the gateway's proxy routes, since exercising YARP routing
+/// itself isn't this harness's concern - only running the gateway process so its non-proxy
+/// responsibilities (sagas, the realtime hub) are present.
 /// </summary>
 public sealed class EchoTestStack : IAsyncDisposable
 {
@@ -21,6 +27,7 @@ public sealed class EchoTestStack : IAsyncDisposable
     public SpawnedServiceProcess Social { get; private set; } = null!;
     public SpawnedServiceProcess Federation { get; private set; } = null!;
     public SpawnedServiceProcess Import { get; private set; } = null!;
+    public SpawnedServiceProcess Gateway { get; private set; } = null!;
 
     public string InstanceName { get; }
 
@@ -86,6 +93,8 @@ public sealed class EchoTestStack : IAsyncDisposable
         federationEnv["INSTANCE_NAME"] = instanceName;
         var importEnv = Common($"import_{databaseSuffix}");
         importEnv["INSTANCE_URL"] = identityUrl;
+        var gatewayEnv = Common($"echo_{databaseSuffix}");
+        gatewayEnv["INSTANCE_URL"] = identityUrl;
 
         // Started sequentially (not in parallel) so a failure surfaces against the specific
         // service that failed, with that service's captured stdout/stderr, instead of an
@@ -108,6 +117,8 @@ public sealed class EchoTestStack : IAsyncDisposable
                 "Federation.Application", "/federation/health", federationEnv);
             stack.Import = await SpawnedServiceProcess.StartAsync(
                 "Import.Application", "/imports/health", importEnv);
+            stack.Gateway = await SpawnedServiceProcess.StartAsync(
+                "Echo", "/health", gatewayEnv);
         }
         catch
         {
@@ -122,7 +133,7 @@ public sealed class EchoTestStack : IAsyncDisposable
 
     private async ValueTask DisposeStartedAsync()
     {
-        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import }
+        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import, Gateway }
             .Where(p => p is not null);
         await Task.WhenAll(started.Select(p => p.DisposeAsync().AsTask()));
     }

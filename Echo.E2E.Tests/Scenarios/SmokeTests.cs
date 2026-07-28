@@ -12,6 +12,7 @@ namespace Echo.E2E.Tests.Scenarios;
 /// mattered enough to build this harness.
 /// </summary>
 [TestFixture]
+[Category("E2E")]
 public class SmokeTests
 {
     private EchoTestStack _stack = null!;
@@ -41,6 +42,7 @@ public class SmokeTests
         Assert.That(_stack.Social.Port, Is.GreaterThan(0));
         Assert.That(_stack.Federation.Port, Is.GreaterThan(0));
         Assert.That(_stack.Import.Port, Is.GreaterThan(0));
+        Assert.That(_stack.Gateway.Port, Is.GreaterThan(0));
     }
 
     [Test]

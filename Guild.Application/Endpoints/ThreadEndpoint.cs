@@ -105,6 +105,7 @@ public class ThreadEndpoint
 
         var threads = await ctx.Channels
             .AsSplitQuery()
+            .Include(c => c.Guild)
             .Where(c => c.ParentChannelId == channelId && c.Type == ChannelType.Thread)
             .OrderByDescending(c => c.CreatedAt)
             .ToFacetsAsync<Channel, ChannelDto>();

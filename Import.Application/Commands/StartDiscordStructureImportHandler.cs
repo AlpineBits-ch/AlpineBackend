@@ -23,6 +23,16 @@ public class StartDiscordStructureImportHandler
 
         try
         {
+            var existingLink = await ctx.GuildLinks
+                .FirstOrDefaultAsync(l => l.DiscordGuildId == command.DiscordGuildId, ct);
+            if (existingLink is not null)
+            {
+                job.Status = ImportJobStatus.Failed;
+                job.ErrorMessage = "This Discord server is already linked to an Echo guild - unlink it first if you want to re-import.";
+                job.EchoGuildId = existingLink.EchoGuildId;
+                return;
+            }
+
             job.Status = ImportJobStatus.FetchingFromDiscord;
 
             var discordGuild = await discordApi.GetGuildAsync(command.DiscordGuildId, ct);

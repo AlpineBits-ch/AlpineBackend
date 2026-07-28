@@ -167,7 +167,7 @@ public class VentaFederationProviderTests
         public async Task SendMessageAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.SendMessageAsync(channelId, "msg-1", "hello"u8.ToArray(), default);
+            await _provider.SendMessageAsync(channelId, "msg-1", "hello"u8.ToArray(), "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -181,7 +181,7 @@ public class VentaFederationProviderTests
         public async Task EditMessageAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.EditMessageAsync(channelId, "msg-2", "edited"u8.ToArray(), default);
+            await _provider.EditMessageAsync(channelId, "msg-2", "edited"u8.ToArray(), "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -194,7 +194,7 @@ public class VentaFederationProviderTests
         public async Task DeleteMessageAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.DeleteMessageAsync(channelId, "msg-3", default);
+            await _provider.DeleteMessageAsync(channelId, "msg-3", "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -206,7 +206,7 @@ public class VentaFederationProviderTests
         public async Task AddReactionAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.AddReactionAsync(channelId, "msg-4", "👍", default);
+            await _provider.AddReactionAsync(channelId, "msg-4", "👍", "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -219,7 +219,7 @@ public class VentaFederationProviderTests
         public async Task RemoveReactionAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.RemoveReactionAsync(channelId, "msg-5", "❤️", default);
+            await _provider.RemoveReactionAsync(channelId, "msg-5", "❤️", "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -254,7 +254,7 @@ public class VentaFederationProviderTests
         public async Task JoinChannelAsync_PostsCorrectEvent()
         {
             var guildId = Id.Guild(Domain);
-            await _provider.JoinChannelAsync(guildId, default);
+            await _provider.JoinChannelAsync(guildId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -266,7 +266,7 @@ public class VentaFederationProviderTests
         public async Task LeaveChannelAsync_PostsCorrectEvent()
         {
             var guildId = Id.Guild(Domain);
-            await _provider.LeaveChannelAsync(guildId, default);
+            await _provider.LeaveChannelAsync(guildId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -278,7 +278,7 @@ public class VentaFederationProviderTests
         public async Task AcceptGuildInviteAsync_PostsCorrectEvent()
         {
             var guildId = Id.Guild(Domain);
-            await _provider.AcceptGuildInviteAsync(guildId, "invite-abc", default);
+            await _provider.AcceptGuildInviteAsync(guildId, "invite-abc", "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -291,7 +291,7 @@ public class VentaFederationProviderTests
         public async Task RevokeGuildInviteAsync_PostsCorrectEvent()
         {
             var guildId = Id.Guild(Domain);
-            await _provider.RevokeGuildInviteAsync(guildId, "invite-xyz", default);
+            await _provider.RevokeGuildInviteAsync(guildId, "invite-xyz", "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -305,7 +305,7 @@ public class VentaFederationProviderTests
         {
             var guildId = Id.Guild(Domain);
             var bannedUserId = Id.User(Domain);
-            await _provider.BanGuildMemberAsync(guildId, bannedUserId, default);
+            await _provider.BanGuildMemberAsync(guildId, bannedUserId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -341,7 +341,7 @@ public class VentaFederationProviderTests
         {
             // Routed by user/profile ID to target's server
             var targetUserId = Id.Profile(Domain);
-            await _provider.SendFriendRequestAsync(targetUserId, default);
+            await _provider.SendFriendRequestAsync(targetUserId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -354,7 +354,7 @@ public class VentaFederationProviderTests
         {
             // Routed by friendship/user ID back to initiator's server
             var initiatorUserId = Id.Friendship(Domain);
-            await _provider.AcceptFriendRequestAsync(initiatorUserId, default);
+            await _provider.AcceptFriendRequestAsync(initiatorUserId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -366,7 +366,7 @@ public class VentaFederationProviderTests
         public async Task RejectFriendRequestAsync_PostsCorrectEvent()
         {
             var initiatorUserId = Id.Friendship(Domain);
-            await _provider.RejectFriendRequestAsync(initiatorUserId, default);
+            await _provider.RejectFriendRequestAsync(initiatorUserId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -378,7 +378,7 @@ public class VentaFederationProviderTests
         public async Task RemoveFriendAsync_PostsCorrectEvent()
         {
             var targetUserId = Id.User(Domain);
-            await _provider.RemoveFriendAsync(targetUserId, default);
+            await _provider.RemoveFriendAsync(targetUserId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -419,7 +419,7 @@ public class VentaFederationProviderTests
                 Id.User("other.example.com")            // federated — POST
             };
 
-            await _provider.CreateConversationAsync("conv-local-id", members, default);
+            await _provider.CreateConversationAsync("conv-local-id", members, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(2),
                 "Only federated members should receive a POST");
@@ -431,7 +431,7 @@ public class VentaFederationProviderTests
         public async Task EditConversationAsync_PostsCorrectEvent()
         {
             var convId = Id.Conversation(Domain);
-            await _provider.EditConversationAsync(convId, default);
+            await _provider.EditConversationAsync(convId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -443,7 +443,7 @@ public class VentaFederationProviderTests
         public async Task DeleteConversationAsync_PostsCorrectEvent()
         {
             var convId = Id.Conversation(Domain);
-            await _provider.DeleteConversationAsync(convId, default);
+            await _provider.DeleteConversationAsync(convId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -455,7 +455,7 @@ public class VentaFederationProviderTests
         public async Task AddConversationMemberAsync_PostsCorrectEvent()
         {
             var userId = Id.User(Domain);
-            await _provider.AddConversationMemberAsync("conv-local-id", userId, default);
+            await _provider.AddConversationMemberAsync("conv-local-id", userId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -468,7 +468,7 @@ public class VentaFederationProviderTests
         public async Task RemoveConversationMemberAsync_PostsCorrectEvent()
         {
             var userId = Id.User(Domain);
-            await _provider.RemoveConversationMemberAsync("conv-local-id", userId, default);
+            await _provider.RemoveConversationMemberAsync("conv-local-id", userId, "usr_test:sender.example.com", default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -571,28 +571,28 @@ public class VentaFederationProviderTests
         [Test]
         public async Task MessagingEvent_HasCorrectEventFields()
         {
-            await _provider.SendMessageAsync(Id.Channel(Domain), "m", Array.Empty<byte>(), default);
+            await _provider.SendMessageAsync(Id.Channel(Domain), "m", Array.Empty<byte>(), "usr_test:sender.example.com", default);
             AssertEventFields(AssertPayloadType<MessageCreated>(_handler.Requests[0].Body));
         }
 
         [Test]
         public async Task GuildEvent_HasCorrectEventFields()
         {
-            await _provider.JoinChannelAsync(Id.Guild(Domain), default);
+            await _provider.JoinChannelAsync(Id.Guild(Domain), "usr_test:sender.example.com", default);
             AssertEventFields(AssertPayloadType<GuildMemberJoined>(_handler.Requests[0].Body));
         }
 
         [Test]
         public async Task SocialEvent_HasCorrectEventFields()
         {
-            await _provider.SendFriendRequestAsync(Id.User(Domain), default);
+            await _provider.SendFriendRequestAsync(Id.User(Domain), "usr_test:sender.example.com", default);
             AssertEventFields(AssertPayloadType<SocialFriendRequest>(_handler.Requests[0].Body));
         }
 
         [Test]
         public async Task ConversationEvent_HasCorrectEventFields()
         {
-            await _provider.EditConversationAsync(Id.Conversation(Domain), default);
+            await _provider.EditConversationAsync(Id.Conversation(Domain), "usr_test:sender.example.com", default);
             AssertEventFields(AssertPayloadType<ConversationEdited>(_handler.Requests[0].Body));
         }
     }
@@ -626,7 +626,7 @@ public class VentaFederationProviderTests
         [Test]
         public async Task SignedEvent_CanBeVerified_WithGeneratedPublicKey()
         {
-            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), default);
+            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), "usr_test:sender.example.com", default);
 
             var signed = DeserializeSignedEvent(_handler.Requests[0].Body);
             Assert.That(signed.IsValid(BuildInstance(_publicKeyBytes)), Is.True);
@@ -635,7 +635,7 @@ public class VentaFederationProviderTests
         [Test]
         public async Task SignedEvent_FailsVerification_WithWrongPublicKey()
         {
-            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), default);
+            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), "usr_test:sender.example.com", default);
 
             var signed = DeserializeSignedEvent(_handler.Requests[0].Body);
             var (_, wrongPublicKey) = GenerateKeyPair();

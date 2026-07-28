@@ -60,6 +60,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
+                    b.Property<string>("OriginInstanceId")
+                        .HasColumnType("text")
+                        .HasColumnName("origin_instance_id");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");

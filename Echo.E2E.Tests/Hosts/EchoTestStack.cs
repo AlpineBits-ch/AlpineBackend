@@ -116,7 +116,7 @@ public sealed class EchoTestStack : IAsyncDisposable
             stack.Federation = await SpawnedServiceProcess.StartAsync(
                 "Federation.Application", "/federation/health", federationEnv);
             stack.Import = await SpawnedServiceProcess.StartAsync(
-                "Import.Application", "/imports/health", importEnv);
+                "Import.Application", "/import/health", importEnv);
             stack.Gateway = await SpawnedServiceProcess.StartAsync(
                 "Echo", "/health", gatewayEnv);
         }

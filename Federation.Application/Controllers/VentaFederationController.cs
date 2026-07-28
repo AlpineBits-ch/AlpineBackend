@@ -1,25 +1,17 @@
 using Federation.Application.Dtos.Response;
-using Federation.Application.Providers;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Federation.Application.Controllers;
 
+/// <summary>
+/// Self-describing metadata document for this instance (host, name, public key, protocol
+/// version) - the entry point a remote instance's admin/operator uses to verify who they're
+/// about to federate with before initiating a handshake.
+/// </summary>
 [ApiController]
 [Route(".well-known/federation")]
 public class VentaFederationController : ControllerBase
 {
-    private readonly IFederationProvider _federationProvider;
-    private readonly ILogger<VentaFederationController> _logger;
-
-    public VentaFederationController(IFederationProvider federationProvider, ILogger<VentaFederationController> logger)
-    {
-        _federationProvider = federationProvider;
-        _logger = logger;
-    }
-
     [HttpGet]
     public IActionResult Get() => Ok(new FederationDocumentResponse());
-
-    [HttpPut("event")]
-    public IActionResult ReceiveEventAsync() => Ok();
 }

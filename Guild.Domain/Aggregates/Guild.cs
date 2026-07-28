@@ -44,6 +44,14 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     public virtual ICollection<WebhookConfig> WebhookConfigs { get; set; }
     public string? SystemChannelId { get; set; }
 
+    /// <summary>
+    /// Null for a locally-created guild. Set to the owning Federation.Application instance's
+    /// FederationInstance id when this guild is a shadow copy materialized from a remote
+    /// instance's federated guild (see the canonical-ID / shadow-entity model in the federation
+    /// protocol doc) - doubles as the "is this remote" flag, so no separate bool is needed.
+    /// </summary>
+    public string? OriginInstanceId { get; set; }
+
     public static Guild Create(CreateGuildParams parameters)
     {
         var id = Guild.GenerateId();

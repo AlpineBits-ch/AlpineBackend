@@ -137,6 +137,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Import.Application", "Impor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Import.Tests", "Import.Tests\Import.Tests.csproj", "{14A36BA2-4112-4D37-B1CE-C4F0DB88701E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Federation.Contracts", "Federation.Contracts\Federation.Contracts.csproj", "{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -783,6 +785,18 @@ Global
 		{14A36BA2-4112-4D37-B1CE-C4F0DB88701E}.Release|x64.Build.0 = Release|Any CPU
 		{14A36BA2-4112-4D37-B1CE-C4F0DB88701E}.Release|x86.ActiveCfg = Release|Any CPU
 		{14A36BA2-4112-4D37-B1CE-C4F0DB88701E}.Release|x86.Build.0 = Release|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Debug|x64.Build.0 = Debug|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Debug|x86.Build.0 = Debug|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Release|x64.ActiveCfg = Release|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Release|x64.Build.0 = Release|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Release|x86.ActiveCfg = Release|Any CPU
+		{232498D6-ADE8-4DF2-9A56-5923EF18C4E9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -157,7 +157,7 @@ public class InviteEndpoint
             GuildId = guild.Id,
             UserId = userId,
             JoinedAt = DateTime.UtcNow,
-            InviteId = inviteId,
+            InviteId = invite.Id,
             Nickname = profileResponse.Profile.UserName,
             SearchValue = searchValue.ToUpperInvariant()
         };

@@ -243,7 +243,12 @@ public class FederationConfiguration
 /// </summary>
 public class ApnsConfiguration
 {
-    public string BundleId { get; set; } = GetEnvironmentVariable("APNS_VOIP_BUNDLE_ID") ?? "gg.venta.mobile.voip";
+    /// <summary>
+    /// Plain app bundle id — NOT the VoIP topic. dotAPNS's ApnsClient.GetTopic() appends ".voip"
+    /// itself for ApplePushType.Voip pushes (CallPushService.SendVoipAsync), so a pre-suffixed
+    /// value here would double up into "...voip.voip" and Apple would reject every push.
+    /// </summary>
+    public string BundleId { get; set; } = GetEnvironmentVariable("APNS_BUNDLE_ID") ?? "gg.venta.mobile";
     public string KeyId { get; set; } = GetEnvironmentVariable("APNS_KEY_ID") ?? string.Empty;
     public string TeamId { get; set; } = GetEnvironmentVariable("APNS_TEAM_ID") ?? string.Empty;
     public string AuthKeyBase64 { get; set; } = GetEnvironmentVariable("APNS_AUTH_KEY_BASE_64") ?? string.Empty;

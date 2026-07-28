@@ -98,6 +98,10 @@ namespace Social.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("OriginInstanceId")
+                        .HasColumnType("text")
+                        .HasColumnName("origin_instance_id");
+
                     b.Property<string>("OwnerId")
                         .IsRequired()
                         .HasColumnType("text")

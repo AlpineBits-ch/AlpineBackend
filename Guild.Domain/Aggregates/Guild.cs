@@ -44,6 +44,9 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     public virtual ICollection<WebhookConfig> WebhookConfigs { get; set; }
     public string? SystemChannelId { get; set; }
 
+    /// <summary>Null for a locally-created guild.</summary>
+    public string? OriginInstanceId { get; set; }
+
     public static Guild Create(CreateGuildParams parameters)
     {
         var id = Guild.GenerateId();

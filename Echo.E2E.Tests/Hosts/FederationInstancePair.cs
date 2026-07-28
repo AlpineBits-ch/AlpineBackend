@@ -25,34 +25,39 @@ public sealed class FederationInstancePair : IAsyncDisposable
     public static async Task<FederationInstancePair> StartAsync(
         string instanceNameA = "instance-a", string instanceNameB = "instance-b")
     {
-        var infraA = await EchoInfraSet.StartAsync();
-        var infraB = await EchoInfraSet.StartAsync();
+        // Every real resource acquired along the way is tracked here as soon as it exists, and
+        // cleaned up from a single place on any failure - a previous version disposed infra but
+        // not an already-started EchoTestStack (up to 7 real OS processes each) if a *later*
+        // step failed, leaking them for the rest of the run and locking their build output.
+        EchoInfraSet? infraA = null;
+        EchoInfraSet? infraB = null;
+        EchoTestStack? stackA = null;
+        EchoTestStack? stackB = null;
 
         try
         {
+            infraA = await EchoInfraSet.StartAsync();
+            infraB = await EchoInfraSet.StartAsync();
+
             await Task.WhenAll(
                 infraA.CreateDatabasesAsync(EchoInfraFixture.DatabaseNames),
                 infraB.CreateDatabasesAsync(EchoInfraFixture.DatabaseNames));
 
-            EchoTestStack stackA, stackB;
-            try
-            {
-                // Sequential, not parallel: a failure here should point at exactly which
-                // instance's stack didn't come up, with that instance's own captured output.
-                stackA = await EchoTestStack.StartAsync(infraA, "a", instanceNameA);
-                stackB = await EchoTestStack.StartAsync(infraB, "b", instanceNameB);
-            }
-            catch
-            {
-                await Task.WhenAll(infraA.DisposeAsync().AsTask(), infraB.DisposeAsync().AsTask());
-                throw;
-            }
+            // Sequential, not parallel: a failure here should point at exactly which instance's
+            // stack didn't come up, with that instance's own captured output.
+            stackA = await EchoTestStack.StartAsync(infraA, "a", instanceNameA);
+            stackB = await EchoTestStack.StartAsync(infraB, "b", instanceNameB);
 
             return new FederationInstancePair(infraA, infraB, stackA, stackB);
         }
         catch
         {
-            await Task.WhenAll(infraA.DisposeAsync().AsTask(), infraB.DisposeAsync().AsTask());
+            var cleanup = new List<Task>();
+            if (stackB is not null) cleanup.Add(stackB.DisposeAsync().AsTask());
+            if (stackA is not null) cleanup.Add(stackA.DisposeAsync().AsTask());
+            if (infraB is not null) cleanup.Add(infraB.DisposeAsync().AsTask());
+            if (infraA is not null) cleanup.Add(infraA.DisposeAsync().AsTask());
+            await Task.WhenAll(cleanup);
             throw;
         }
     }

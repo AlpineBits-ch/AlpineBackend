@@ -13,5 +13,5 @@ public class FederationInstance : BaseEntity<FederationInstance>, IPrefixedEntit
     public string? DefederationReason { get; set; }
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
     
-    public ICollection<FederatedGuild> FederatedGuilds { get; set; } = new List<FederatedGuild>();
+    public ICollection<FederatedResource> FederatedResources { get; set; } = new List<FederatedResource>();
 }

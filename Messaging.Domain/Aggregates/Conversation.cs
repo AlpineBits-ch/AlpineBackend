@@ -34,7 +34,10 @@ public class Conversation : Aggregate<Conversation>, IPrefixedEntity
     public byte[]? MlsGroupId { get; set; }
     public long? MlsEpoch { get; set; }
     public byte[]? MlsGroupInfo { get; set; }
-    
+
+    /// <summary>Null for a locally-created conversation.</summary>
+    public string? OriginInstanceId { get; set; }
+
     public static Conversation Create(CreateConversationParams parameters)
     {
         if (parameters.Encryption == ChannelEncryptionState.Encrypted)
@@ -61,6 +64,7 @@ public class Conversation : Aggregate<Conversation>, IPrefixedEntity
         {
             ConversationId = id,
             CorrelationId = id,
+            MemberIds = conversation.Members.Select(m => m.UserId).ToArray(),
         });
         
         foreach (var conversationMember in conversation.Members)

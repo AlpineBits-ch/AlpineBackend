@@ -125,8 +125,8 @@ public static class FriendshipEndpoints
 
         if (friendship == null) return Results.NotFound();
 
-        friendship.Status = RelationshipStatus.None;
-        friendship.Related.Status = RelationshipStatus.None;
+        friendship.Remove();
+        friendship.Related.Remove();
 
         return Results.Ok();
     }

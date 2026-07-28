@@ -196,7 +196,7 @@ public class FederationIntegrationTests
     {
         var channelId = $"ch_test:{InstanceBDomain}";
 
-        await _senderA.SendMessageAsync(channelId, "int-msg-1", "hello"u8.ToArray(), default);
+        await _senderA.SendMessageAsync(channelId, "int-msg-1", "hello"u8.ToArray(), "usr_test:sender.example.com", default);
 
         Assert.That(_received, Has.Count.EqualTo(1));
         Assert.That(_received[0], Is.InstanceOf<MessageCreated>());
@@ -211,7 +211,7 @@ public class FederationIntegrationTests
     {
         var targetId = $"usr_test:{InstanceBDomain}";
 
-        await _senderA.SendFriendRequestAsync(targetId, default);
+        await _senderA.SendFriendRequestAsync(targetId, "usr_test:sender.example.com", default);
 
         Assert.That(_received, Has.Count.EqualTo(1));
         Assert.That(_received[0], Is.InstanceOf<SocialFriendRequest>());
@@ -224,7 +224,7 @@ public class FederationIntegrationTests
     public async Task SendMessage_ProtocolVersion_IsVentaV01OnReceivedEvent()
     {
         await _senderA.SendMessageAsync(
-            $"ch:{InstanceBDomain}", "pv-msg", Array.Empty<byte>(), default);
+            $"ch:{InstanceBDomain}", "pv-msg", Array.Empty<byte>(), "usr_test:sender.example.com", default);
 
         Assert.That(_received, Has.Count.EqualTo(1));
         Assert.That(_received[0].ProtocolVersion, Is.EqualTo("venta/v0.1"));

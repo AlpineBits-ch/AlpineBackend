@@ -19,10 +19,11 @@ namespace Federation.Infrastructure.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.9")
+                .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "acceptance_policy", new[] { "auto_accept", "require_approval" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "federated_resource_type", new[] { "conversation", "friendship", "guild" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "federation_status", new[] { "active", "blocked", "defederated", "pending", "suspended" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -35,6 +36,14 @@ namespace Federation.Infrastructure.Migrations
                     b.Property<bool>("Applied")
                         .HasColumnType("boolean")
                         .HasColumnName("applied");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<bool>("Delivered")
+                        .HasColumnType("boolean")
+                        .HasColumnName("delivered");
 
                     b.Property<long>("Depth")
                         .HasColumnType("bigint")
@@ -64,13 +73,17 @@ namespace Federation.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("scope_key");
 
+                    b.Property<string>("TargetHost")
+                        .HasColumnType("text")
+                        .HasColumnName("target_host");
+
                     b.HasKey("EventId")
                         .HasName("pk_federated_events");
 
                     b.ToTable("federated_events", (string)null);
                 });
 
-            modelBuilder.Entity("Federation.Domain.Aggregates.FederatedGuild", b =>
+            modelBuilder.Entity("Federation.Domain.Aggregates.FederatedResource", b =>
                 {
                     b.Property<string>("Id")
                         .HasColumnType("text")
@@ -80,32 +93,40 @@ namespace Federation.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
-                    b.Property<string>("FederatedGuildId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("federated_guild_id");
-
                     b.Property<string>("InstanceId")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("instance_id");
+
+                    b.Property<string>("LocalId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("local_id");
 
                     b.Property<string>("RemoteId")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("remote_id");
 
+                    b.Property<FederatedResourceType>("ResourceType")
+                        .HasColumnType("federated_resource_type")
+                        .HasColumnName("resource_type");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id")
-                        .HasName("pk_federated_guild");
+                        .HasName("pk_federated_resources");
 
-                    b.HasIndex("InstanceId")
-                        .HasDatabaseName("ix_federated_guild_instance_id");
+                    b.HasIndex("ResourceType", "LocalId")
+                        .HasDatabaseName("ix_federated_resources_resource_type_local_id");
 
-                    b.ToTable("federated_guild", (string)null);
+                    b.HasIndex("InstanceId", "ResourceType", "RemoteId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_federated_resources_instance_id_resource_type_remote_id");
+
+                    b.ToTable("federated_resources", (string)null);
                 });
 
             modelBuilder.Entity("Federation.Domain.Aggregates.FederationInstance", b =>
@@ -152,6 +173,10 @@ namespace Federation.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_federation_instances");
 
+                    b.HasIndex("Host")
+                        .IsUnique()
+                        .HasDatabaseName("ix_federation_instances_host");
+
                     b.ToTable("federation_instances", (string)null);
                 });
 
@@ -175,21 +200,21 @@ namespace Federation.Infrastructure.Migrations
                     b.ToTable("federation_settings", (string)null);
                 });
 
-            modelBuilder.Entity("Federation.Domain.Aggregates.FederatedGuild", b =>
+            modelBuilder.Entity("Federation.Domain.Aggregates.FederatedResource", b =>
                 {
                     b.HasOne("Federation.Domain.Aggregates.FederationInstance", "Instance")
-                        .WithMany("FederatedGuilds")
+                        .WithMany("FederatedResources")
                         .HasForeignKey("InstanceId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("fk_federated_guild_federation_instances_instance_id");
+                        .HasConstraintName("fk_federated_resources_federation_instances_instance_id");
 
                     b.Navigation("Instance");
                 });
 
             modelBuilder.Entity("Federation.Domain.Aggregates.FederationInstance", b =>
                 {
-                    b.Navigation("FederatedGuilds");
+                    b.Navigation("FederatedResources");
                 });
 #pragma warning restore 612, 618
         }

@@ -139,6 +139,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("name");
 
+                    b.Property<string>("OriginInstanceId")
+                        .HasColumnType("text")
+                        .HasColumnName("origin_instance_id");
+
                     b.Property<string>("OwnerId")
                         .IsRequired()
                         .HasColumnType("text")

@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Caching.Distributed;
+﻿using AppEnvironment;
+using Microsoft.Extensions.Caching.Distributed;
 using Newtonsoft.Json;
 using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
@@ -36,8 +37,8 @@ public class UserService(IDistributedCache cache, IMessageBus bus)
 
     }
     
-    public async Task<string> GetFederatedUserId(string userId)
-    {
-        return string.Empty;
-    }
+    // Per the canonical-ID convention (see the federation protocol doc), a user keeps their
+    // local id everywhere - the <id>:<domain> form only exists for cross-instance routing, built
+    // by suffixing this instance's own address.
+    public string GetFederatedUserId(string userId) => $"{userId}:{Env.GeneralConfiguration.InstanceUrl}";
 }

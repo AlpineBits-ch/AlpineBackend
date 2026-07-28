@@ -28,6 +28,18 @@ builder.Services.AddScoped<Federation.Application.Services.FederationDagService>
 builder.Services.AddScoped<IFederationProvider, VentaFederationProvider>();
 builder.Services.AddScoped<IFederationAcceptanceEvaluator, PolicyBasedEvaluator>();
 builder.Services.AddScoped<FederationHandshakeService>();
+builder.Services.AddScoped<Federation.Application.Services.UserService>();
+builder.Services.AddHostedService<Federation.Application.Services.FederationOutboundRetryService>();
+builder.Services.AddHostedService<Federation.Application.Services.FederationDagGcService>();
+
+// UserService (used by GetUserProfileAsync/GetFederatedUserId, wired up for real in Phase 1/2 of
+// the federation work) caches profile lookups via IDistributedCache - previously unregistered
+// here since UserService was never actually constructed through DI before.
+var redis = Env.Redis;
+builder.Services.AddStackExchangeRedisCache(config =>
+{
+    config.Configuration = $"{redis.Host}:{redis.Port},password={redis.Password}";
+});
 builder.Services.AddWolverineHttp().ConfigureSystemTextJsonForWolverineOrMinimalApi(options =>
 {
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());

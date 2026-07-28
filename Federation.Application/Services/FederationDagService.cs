@@ -31,8 +31,9 @@ public class FederationDagService
             .ToArray();
     }
 
-    // Sets PreviousEventIds and Depth on the outbound event, then persists it as Applied=true.
-    public async Task StampAndRecordAsync(FederationEvent @event, string scopeKey, CancellationToken ct = default)
+    // Sets PreviousEventIds and Depth on the outbound event, then persists it as Applied=true,
+    // Delivered=false.
+    public async Task StampAndRecordAsync(FederationEvent @event, string scopeKey, string targetHost = "", CancellationToken ct = default)
     {
         var tips = await GetTipsAsync(scopeKey, ct);
         @event.PreviousEventIds = tips;
@@ -57,10 +58,37 @@ public class FederationDagService
             PreviousEventIds = @event.PreviousEventIds,
             PayloadJson = JsonSerializer.Serialize(@event),
             Applied = true,
-            ReceivedAt = DateTimeOffset.UtcNow
+            ReceivedAt = DateTimeOffset.UtcNow,
+            TargetHost = targetHost,
+            Delivered = false,
         });
         await _db.SaveChangesAsync(ct);
     }
+
+    public async Task MarkDeliveredAsync(string eventId, CancellationToken ct = default)
+    {
+        var record = await _db.FederatedEvents.FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+        if (record is null) return;
+        record.Delivered = true;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task MarkDeliveryFailedAsync(string eventId, CancellationToken ct = default)
+    {
+        var record = await _db.FederatedEvents.FirstOrDefaultAsync(e => e.EventId == eventId, ct);
+        if (record is null) return;
+        record.Attempts++;
+        await _db.SaveChangesAsync(ct);
+    }
+
+    // Outbound records only ever get Delivered=false at creation (see StampAndRecordAsync);
+    // inbound records default Delivered=true and are never touched here, so this is naturally
+    // scoped to exactly the rows that need retrying.
+    public Task<List<FederatedEventRecord>> GetUndeliveredAsync(int maxAttempts, CancellationToken ct = default) =>
+        _db.FederatedEvents
+            .Where(e => !e.Delivered && e.Attempts < maxAttempts)
+            .OrderBy(e => e.ReceivedAt)
+            .ToListAsync(ct);
 
     // Records an inbound event and returns all events now ready to apply in causal order.
     public async Task<IReadOnlyList<FederationEvent>> RecordAndResolveAsync(FederationEvent @event, CancellationToken ct = default)

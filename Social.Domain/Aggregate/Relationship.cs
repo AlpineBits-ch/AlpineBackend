@@ -24,6 +24,9 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
     public string? RelatedId { get; set; }
     public virtual Relationship Related { get; set; } = null!;
 
+    /// <summary>Null for a locally-created relationship.</summary>
+    public string? OriginInstanceId { get; set; }
+
 
     
     /// <summary>This creates two relationships.</summary>
@@ -53,7 +56,9 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
         
         outgoingRequest.AddDomainEvent(new FriendRequestCreated()
         {
-            
+            TargetProfileId = param.Subject,
+            InitiatorProfileId = param.Initiator,
+            RelationshipId = outgoingId,
         });
         return new List<Relationship> { outgoingRequest, incomingRequest };
         
@@ -86,6 +91,20 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
                 RelationshipId = this.Id
             });
         }
+        this.Status = RelationshipStatus.None;
+    }
+
+    /// <summary>Covers both "revoke my own pending outgoing request" and "unfriend an accepted
+    /// friendship" - FriendEndpoint.RevokeAsync uses this for both, and federation only cares
+    /// that the relationship no longer exists either way.</summary>
+    public void Remove()
+    {
+        this.AddDomainEvent(new FriendRemoved()
+        {
+            TargetProfileId = this.OwnerId,
+            InitiatorProfileId = this.TargetId,
+            RelationshipId = this.Id
+        });
         this.Status = RelationshipStatus.None;
     }
     

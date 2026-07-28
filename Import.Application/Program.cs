@@ -90,7 +90,7 @@ var app = builder.Build();
 app.UseInfrastructure();
 app.UseGracefulShutdownHealthCheck();
 
-app.MapHealthChecks("/imports/health");
+app.MapHealthChecks("/import/health");
 
 if (app.Environment.IsDevelopment())
 {

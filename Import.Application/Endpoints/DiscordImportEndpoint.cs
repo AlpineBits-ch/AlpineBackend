@@ -58,6 +58,12 @@ public class DiscordImportEndpoint
             $"https://discord.com/oauth2/authorize?client_id={Env.DiscordImport.ClientId}" +
             "&scope=bot" +
             "&permissions=1024" +
+            // Without response_type=code, Discord's bot-add flow shows its own "you're done"
+            // confirmation screen and never calls redirect_uri at all - we don't need the
+            // authorization code itself (we already have a static bot token), but including
+            // response_type=code is what makes Discord actually perform the HTTP redirect back
+            // to us (with guild_id appended) instead of just ending the flow in its own UI.
+            "&response_type=code" +
             $"&redirect_uri={redirectUri}" +
             $"&state={stateId}";
 

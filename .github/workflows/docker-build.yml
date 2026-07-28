@@ -143,6 +143,10 @@ jobs:
             context: .
             dockerfile: Bots.Application/Dockerfile
             image: bots-application
+          - project: import
+            context: .
+            dockerfile: Import.Application/Dockerfile
+            image: import-application
     
     steps:
       - name: Checkout

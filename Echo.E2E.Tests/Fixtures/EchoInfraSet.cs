@@ -1,5 +1,6 @@
+using DotNet.Testcontainers.Builders;
+using DotNet.Testcontainers.Containers;
 using Npgsql;
-using Testcontainers.Cassandra;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
 using Testcontainers.Redis;
@@ -16,7 +17,7 @@ public sealed class EchoInfraSet : IAsyncDisposable
     private readonly PostgreSqlContainer _postgres;
     private readonly RabbitMqContainer _rabbitMq;
     private readonly RedisContainer _redis;
-    private readonly CassandraContainer _scylla;
+    private readonly IContainer _scylla;
 
     public string PostgresHost { get; private set; } = null!;
     public int PostgresPort { get; private set; }
@@ -28,7 +29,7 @@ public sealed class EchoInfraSet : IAsyncDisposable
     public int ScyllaPort { get; private set; }
 
     private EchoInfraSet(
-        PostgreSqlContainer postgres, RabbitMqContainer rabbitMq, RedisContainer redis, CassandraContainer scylla)
+        PostgreSqlContainer postgres, RabbitMqContainer rabbitMq, RedisContainer redis, IContainer scylla)
     {
         _postgres = postgres;
         _rabbitMq = rabbitMq;
@@ -59,14 +60,21 @@ public sealed class EchoInfraSet : IAsyncDisposable
         // Messaging.Application connects to Scylla unconditionally at startup (there's no
         // in-memory/skip fallback), so this is needed just to get the service to boot, not only for
         // message-store scenarios.
-        var scylla = new CassandraBuilder()
+        var scylla = new ContainerBuilder()
             .WithImage("scylladb/scylla:5.4")
             .WithCommand("--smp", "1", "--memory", "750M", "--overprovisioned", "1")
+            .WithPortBinding(9042, true)
+            .WithWaitStrategy(Wait.ForUnixContainer()
+                .UntilMessageIsLogged("Starting listening for CQL clients"))
             .Build();
 
         var set = new EchoInfraSet(postgres, rabbitMq, redis, scylla);
 
-        await Task.WhenAll(postgres.StartAsync(), rabbitMq.StartAsync(), redis.StartAsync(), scylla.StartAsync());
+        // A bounded timeout here beats a silent multi-minute hang if a wait strategy ever
+        // misbehaves again (see the comment on the Scylla wait strategy above for exactly that
+        // happening once already).
+        await Task.WhenAll(postgres.StartAsync(), rabbitMq.StartAsync(), redis.StartAsync(), scylla.StartAsync())
+            .WaitAsync(TimeSpan.FromMinutes(3));
 
         set.PostgresHost = postgres.Hostname;
         set.PostgresPort = postgres.GetMappedPublicPort(5432);

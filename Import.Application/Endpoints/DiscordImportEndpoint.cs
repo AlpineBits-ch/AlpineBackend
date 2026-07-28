@@ -34,13 +34,18 @@ public class GuildLinkDto
     public DateTimeOffset? LastSyncedAt { get; set; }
 }
 
+/// <summary>
+/// Route paths here deliberately omit the "imports" segment - the gateway's imports-route
+/// (Echo/Proxy/ProxyConfig.cs) already strips it before forwarding, same convention as
+/// bots-route/guild-route.
+/// </summary>
 [Authorize]
 public class DiscordImportEndpoint
 {
     /// <summary>Kicks off the OAuth "add bot to server" flow - the browser is sent to Discord's
     /// own consent screen, requesting only View Channels (bit 0x400). No privileged intents/
     /// permissions are requested since structure import never touches members or messages.</summary>
-    [WolverineGet("/api/v1/imports/discord/start")]
+    [WolverineGet("/api/v1/discord/start")]
     public async Task<StartImportResponseDto> Start(
         [NotBody] ClaimsPrincipal user, [NotBody] DiscordImportStateStore stateStore)
     {
@@ -60,7 +65,7 @@ public class DiscordImportEndpoint
     }
 
     /// <summary>Discord's redirect target once the guild owner approves the bot-add.</summary>
-    [WolverineGet("/api/v1/imports/discord/callback")]
+    [WolverineGet("/api/v1/discord/callback")]
     [AllowAnonymous]
     public async Task<IResult> Callback(
         string state, string? guild_id,
@@ -92,7 +97,7 @@ public class DiscordImportEndpoint
         return Results.Redirect($"{Env.GeneralConfiguration.InstanceUrl}/imports/{job.Id}");
     }
 
-    [WolverineGet("/api/v1/imports/{jobId}")]
+    [WolverineGet("/api/v1/jobs/{jobId}")]
     public async Task<IResult> GetStatus(string jobId, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -108,7 +113,7 @@ public class DiscordImportEndpoint
         });
     }
 
-    [WolverineGet("/api/v1/imports/links")]
+    [WolverineGet("/api/v1/links")]
     public async Task<IResult> GetLinks(string guildId, [NotBody] MicroserviceContext ctx)
     {
         var link = await ctx.GuildLinks.FirstOrDefaultAsync(l => l.EchoGuildId == guildId);
@@ -127,7 +132,7 @@ public class DiscordImportEndpoint
     }
 
     /// <summary>Body is just the target status - "Paused" or "Active".</summary>
-    [WolverinePatch("/api/v1/imports/links/{id}")]
+    [WolverinePatch("/api/v1/links/{id}")]
     public async Task<IResult> SetLinkStatus(string id, SetLinkStatusDto dto, [NotBody] MicroserviceContext ctx)
     {
         var link = await ctx.GuildLinks.FirstOrDefaultAsync(l => l.Id == id);
@@ -142,7 +147,7 @@ public class DiscordImportEndpoint
         return Results.NoContent();
     }
 
-    [WolverineDelete("/api/v1/imports/links/{id}")]
+    [WolverineDelete("/api/v1/links/{id}")]
     public async Task<IResult> Unlink(string id, [NotBody] MicroserviceContext ctx, [NotBody] DiscordApiClient discordApi)
     {
         var link = await ctx.GuildLinks.FirstOrDefaultAsync(l => l.Id == id);

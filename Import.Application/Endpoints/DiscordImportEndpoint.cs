@@ -98,7 +98,7 @@ public class DiscordImportEndpoint
             RequestedByUserId = requestingUserId,
         });
 
-        return Results.Redirect($"{Env.GeneralConfiguration.InstanceUrl}/imports/{job.Id}");
+        return Results.Redirect($"{Env.DiscordImport.ClientReturnUrl}?jobId={job.Id}");
     }
 
     [WolverineGet("/api/v1/jobs/{jobId}")]

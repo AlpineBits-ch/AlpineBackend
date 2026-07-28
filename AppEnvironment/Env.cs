@@ -263,4 +263,11 @@ public class DiscordImportConfiguration
         GetEnvironmentVariable("DISCORD_IMPORT_PUBLIC_BASE_URL")
         ?? GetEnvironmentVariable("INSTANCE_URL")
         ?? "https://api.venta.gg";
+
+    /// <summary>
+    /// Deep link the OAuth callback redirects the browser to once the import job is queued -
+    /// same convention as SteamConfiguration.ClientReturnUrl. The client appends ?jobId=... itself.
+    /// </summary>
+    public string ClientReturnUrl { get; set; } =
+        GetEnvironmentVariable("DISCORD_IMPORT_CLIENT_RETURN_URL") ?? "venta://discord-import";
 }

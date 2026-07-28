@@ -128,6 +128,11 @@ public class InviteEndpoint
         var searchValue = profileResponse.Profile.UserName! + "#" + profileResponse.Profile.Hash;
 
         var invite = await ctx.GuildInvites.FirstOrDefaultAsync(i => i.Id == inviteId);
+        
+        if (invite == null)
+        {
+            invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Code == inviteId);
+        }
         if (invite is null) return Results.NotFound();
 
         if(invite.State == InviteState.Expired) return Results.BadRequest("Invite has expired");

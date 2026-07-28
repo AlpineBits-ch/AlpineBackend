@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Guild.Contracts.Bus.Commands;
 using Import.Application.Discord;
 using Import.Application.Mapping;
@@ -51,6 +52,13 @@ public class StartDiscordStructureImportHandler
             var importCommand = BuildImportCommand(command.RequestedByUserId, discordGuild, discordRoles, discordChannels);
             var response = await bus.InvokeAsync<ImportGuildStructureResponse>(importCommand, ct);
 
+            if (response.ErrorMessage is not null)
+            {
+                job.Status = ImportJobStatus.Failed;
+                job.ErrorMessage = response.ErrorMessage;
+                return;
+            }
+
             job.EchoGuildId = response.GuildId;
             job.Status = ImportJobStatus.Completed;
             job.CompletedAt = DateTimeOffset.UtcNow;
@@ -58,7 +66,8 @@ public class StartDiscordStructureImportHandler
             var link = new GuildLink
             {
                 Id = GuildLink.GenerateId(),
-                EchoGuildId = response.GuildId,
+                // Non-null guaranteed here - we already returned above when ErrorMessage was set.
+                EchoGuildId = response.GuildId!,
                 DiscordGuildId = command.DiscordGuildId,
                 SyncDirection = SyncDirection.DiscordToVenta,
                 Status = GuildLinkStatus.Active,
@@ -164,7 +173,7 @@ public class StartDiscordStructureImportHandler
     private static ImportedChannelDto ToChannelDto(DiscordChannelPayload channel) => new()
     {
         DiscordId = channel.Id,
-        Name = channel.Name ?? "channel",
+        Name = SanitizeChannelName(channel.Name),
         Type = DiscordChannelTypeMapper.ToEchoChannelType(channel.Type),
         Position = channel.Position,
         IsAgeRestricted = channel.Nsfw,
@@ -181,4 +190,16 @@ public class StartDiscordStructureImportHandler
             })
             .ToList(),
     };
+
+    /// <summary>Guild.Domain's ChannelValidator rejects any whitespace in a channel name (Echo's
+    /// own convention, matching how Discord's client auto-kebab-cases text channel names) - but
+    /// Discord doesn't enforce that server-side for every channel type (voice/forum/category
+    /// names can freely contain spaces), so a real import can hand us a name that would otherwise
+    /// fail Guild-side validation. Collapse any whitespace run to a single hyphen.</summary>
+    private static string SanitizeChannelName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "channel";
+        var sanitized = Regex.Replace(name.Trim(), @"\s+", "-");
+        return sanitized.Length == 0 ? "channel" : sanitized;
+    }
 }

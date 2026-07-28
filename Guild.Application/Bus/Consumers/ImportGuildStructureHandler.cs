@@ -1,8 +1,12 @@
+using Echo.Realtime;
+using Facet.Extensions;
+using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Commands;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
@@ -17,7 +21,32 @@ public class ImportGuildStructureHandler
         ImportGuildStructureCommand command,
         MicroserviceContext ctx,
         AuditLogService auditLog,
-        IMessageBus bus)
+        IMessageBus bus,
+        IHubContext<EchoRealtimeHub> hub,
+        ILogger<ImportGuildStructureHandler> logger)
+    {
+        try
+        {
+            return await BuildGuildAsync(command, ctx, auditLog, bus, hub);
+        }
+        catch (Exception ex)
+        {
+            // A thrown exception here would otherwise dead-letter the whole Wolverine message (see
+            // the whitespace-in-channel-name incident this was added for) - the caller
+            // (Import.Application's StartDiscordStructureImportHandler) expects a clean response it
+            // can turn into a normal "Failed" job status, not a bus-level retry/timeout cycle.
+            logger.LogError(ex, "Failed to build imported guild structure for owner {OwnerId}", command.OwnerId);
+            ctx.ChangeTracker.Clear();
+            return new ImportGuildStructureResponse { ErrorMessage = ex.Message };
+        }
+    }
+
+    private static async Task<ImportGuildStructureResponse> BuildGuildAsync(
+        ImportGuildStructureCommand command,
+        MicroserviceContext ctx,
+        AuditLogService auditLog,
+        IMessageBus bus,
+        IHubContext<EchoRealtimeHub> hub)
     {
         var profileResponse = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest
         {
@@ -137,6 +166,11 @@ public class ImportGuildStructureHandler
         // UpdateGuild(SystemChannelId) endpoint.
         auditLog.Log(guild.Id, command.OwnerId, AuditActionType.GuildImportedFromDiscord, null,
             new { CategoryCount = command.Categories.Count, RoleCount = command.Roles.Count });
+
+        // The import completes asynchronously, long after the HTTP request that kicked it off
+        // already returned/redirected - unlike GuildEndpoint.CreateGuild's synchronous response,
+        // there's no request left to hand the new guild back on.
+        await hub.Clients.User(command.OwnerId).SendAsync("guild.GuildCreated", guild.ToFacet<GuildAggregate, GuildDto>());
 
         return response;
     }

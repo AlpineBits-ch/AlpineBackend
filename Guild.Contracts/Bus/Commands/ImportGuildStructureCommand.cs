@@ -62,7 +62,11 @@ public class ImportedRoleDto
 
 public class ImportGuildStructureResponse
 {
-    public string GuildId { get; set; }
+    public string? GuildId { get; set; }
+
+    /// <summary>Null on success.</summary>
+    public string? ErrorMessage { get; set; }
+
     public Dictionary<string, string> DiscordToEchoCategoryIds { get; set; } = [];
     public Dictionary<string, string> DiscordToEchoChannelIds { get; set; } = [];
     public Dictionary<string, string> DiscordToEchoRoleIds { get; set; } = [];

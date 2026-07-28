@@ -65,6 +65,10 @@ public class InviteEndpoint
         invite.CreatedAt = DateTime.UtcNow;
         invite.UpdatedAt = DateTime.UtcNow;
 
+        var guild = await ctx.Guilds.FindAsync(guildId);
+        if (guild is null) return Results.NotFound();
+        invite.Guild = guild;
+
         ctx.GuildInvites.Add(invite);
 
         return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());

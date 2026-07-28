@@ -24,4 +24,6 @@ public enum AuditActionType
     InviteDeleted,
     BotInstalled,
     BotUninstalled,
+    GuildImportedFromDiscord,
+    GuildSyncedFromDiscord,
 }

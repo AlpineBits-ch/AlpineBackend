@@ -78,6 +78,13 @@ public static class ProxyConfig
             ClusterId = "bots-cluster",
             Match = new RouteMatch { Path = "/api/discord/v10/{**catch-all}" }
         },
+
+        new RouteConfig
+        {
+            RouteId = "imports-route",
+            ClusterId = "imports-cluster",
+            Match = new RouteMatch { Path = "/api/v1/imports/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
         new RouteConfig
         {
             RouteId = "identity-connect-route",
@@ -150,6 +157,7 @@ public static class ProxyConfig
         var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://federation.default.svc.cluster.local";
         var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://isle.default.svc.cluster.local:8080";
         var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://bots.default.svc.cluster.local";
+        var imports = Environment.GetEnvironmentVariable("Services__Imports") ?? "http://imports.default.svc.cluster.local";
 
         return new[]
         {
@@ -412,6 +420,30 @@ public static class ProxyConfig
                 Active = new ActiveHealthCheckConfig()
                 {
                     Path = "bots/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
+        },
+
+        new ClusterConfig
+        {
+            ClusterId = "imports-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = imports } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "imports/health",
                     Timeout = TimeSpan.FromSeconds(10),
                     Interval = TimeSpan.FromSeconds(15),
                 }

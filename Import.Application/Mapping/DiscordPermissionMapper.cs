@@ -1,0 +1,118 @@
+namespace Import.Application.Mapping;
+
+/// <summary>
+/// Discord's real permission bitmask -&gt; Guild.Domain.Enums.Permissions bitmask. The two bit
+/// layouts are entirely unrelated (this is a semantic remap, never a numeric cast) - Import.
+/// Application has no project reference to Guild.Domain (contracts-project isolation, same
+/// convention already used for AuthorIdType/MessageType), so the Echo-side bit values are
+/// mirrored locally as <see cref="EchoPermissions"/> and must be kept in sync with
+/// Guild.Domain.Enums.Permissions by hand if that enum ever changes.
+/// </summary>
+[Flags]
+public enum EchoPermissions : ulong
+{
+    None = 0,
+    ViewChannel = 1ul << 0,
+    SendMessages = 1ul << 1,
+    EditOwnMessages = 1ul << 2,
+    EditAnyMessage = 1ul << 3,
+    DeleteOwnMessages = 1ul << 4,
+    DeleteAnyMessage = 1ul << 5,
+    PinMessages = 1ul << 6,
+    AttachFiles = 1ul << 7,
+    EmbedLinks = 1ul << 8,
+    AddReactions = 1ul << 9,
+    Connect = 1ul << 10,
+    Speak = 1ul << 11,
+    Stream = 1ul << 12,
+    MuteMembers = 1ul << 13,
+    DeafenMembers = 1ul << 14,
+    MoveMembers = 1ul << 15,
+    CreateThreads = 1ul << 16,
+    SendMessagesInThreads = 1ul << 17,
+    ManageOwnThreads = 1ul << 18,
+    ManageAnyThread = 1ul << 19,
+    ManageChannel = 1ul << 20,
+    ManagePermissions = 1ul << 21,
+    CreateInvite = 1ul << 22,
+    KickMembers = 1ul << 32,
+    BanMembers = 1ul << 33,
+    ModerateMembers = 1ul << 34,
+    ManageGuild = 1ul << 35,
+    ViewAuditLog = 1ul << 36,
+    Superadmin = 1ul << 63,
+}
+
+public static class DiscordPermissionMapper
+{
+    // Real Discord API v10 permission bit constants (the subset with an Echo equivalent).
+    private const ulong CreateInstantInvite = 1ul << 0;
+    private const ulong KickMembers = 1ul << 1;
+    private const ulong BanMembers = 1ul << 2;
+    private const ulong Administrator = 1ul << 3;
+    private const ulong ManageChannels = 1ul << 4;
+    private const ulong ManageGuild = 1ul << 5;
+    private const ulong AddReactions = 1ul << 6;
+    private const ulong ViewAuditLog = 1ul << 7;
+    private const ulong Stream = 1ul << 9;
+    private const ulong ViewChannel = 1ul << 10;
+    private const ulong SendMessages = 1ul << 11;
+    private const ulong ManageMessages = 1ul << 13;
+    private const ulong EmbedLinks = 1ul << 14;
+    private const ulong AttachFiles = 1ul << 15;
+    private const ulong Connect = 1ul << 20;
+    private const ulong Speak = 1ul << 21;
+    private const ulong MuteMembers = 1ul << 22;
+    private const ulong DeafenMembers = 1ul << 23;
+    private const ulong MoveMembers = 1ul << 24;
+    private const ulong ManageRoles = 1ul << 28;
+    private const ulong ManageThreads = 1ul << 34;
+    private const ulong CreatePublicThreads = 1ul << 35;
+    private const ulong CreatePrivateThreads = 1ul << 36;
+    private const ulong SendMessagesInThreads = 1ul << 38;
+    private const ulong ModerateMembers = 1ul << 40;
+
+    /// <summary>
+    /// Parses Discord's decimal-string permission bitmask (kept as a string in JSON to avoid JS
+    /// Number precision loss) and remaps it bit-by-bit to <see cref="EchoPermissions"/>.
+    /// Everything without an Echo equivalent (manage emojis/stickers/webhooks/events/nicknames,
+    /// priority speaker, request-to-speak, etc.) is silently dropped. Echo's Wiki permission
+    /// block has no Discord source and is never set here.
+    /// </summary>
+    public static ulong ToEchoPermissions(string discordPermissionsDecimalString)
+    {
+        if (!ulong.TryParse(discordPermissionsDecimalString, out var discord))
+        {
+            return 0;
+        }
+
+        var echo = EchoPermissions.None;
+
+        if ((discord & Administrator) != 0) echo |= EchoPermissions.Superadmin;
+        if ((discord & ViewChannel) != 0) echo |= EchoPermissions.ViewChannel;
+        if ((discord & SendMessages) != 0) echo |= EchoPermissions.SendMessages;
+        if ((discord & ManageMessages) != 0) echo |= EchoPermissions.DeleteAnyMessage | EchoPermissions.PinMessages;
+        if ((discord & AttachFiles) != 0) echo |= EchoPermissions.AttachFiles;
+        if ((discord & EmbedLinks) != 0) echo |= EchoPermissions.EmbedLinks;
+        if ((discord & AddReactions) != 0) echo |= EchoPermissions.AddReactions;
+        if ((discord & Connect) != 0) echo |= EchoPermissions.Connect;
+        if ((discord & Speak) != 0) echo |= EchoPermissions.Speak;
+        if ((discord & Stream) != 0) echo |= EchoPermissions.Stream;
+        if ((discord & MuteMembers) != 0) echo |= EchoPermissions.MuteMembers;
+        if ((discord & DeafenMembers) != 0) echo |= EchoPermissions.DeafenMembers;
+        if ((discord & MoveMembers) != 0) echo |= EchoPermissions.MoveMembers;
+        if ((discord & (CreatePublicThreads | CreatePrivateThreads)) != 0) echo |= EchoPermissions.CreateThreads;
+        if ((discord & SendMessagesInThreads) != 0) echo |= EchoPermissions.SendMessagesInThreads;
+        if ((discord & ManageThreads) != 0) echo |= EchoPermissions.ManageAnyThread;
+        if ((discord & ManageChannels) != 0) echo |= EchoPermissions.ManageChannel;
+        if ((discord & ManageRoles) != 0) echo |= EchoPermissions.ManagePermissions;
+        if ((discord & CreateInstantInvite) != 0) echo |= EchoPermissions.CreateInvite;
+        if ((discord & KickMembers) != 0) echo |= EchoPermissions.KickMembers;
+        if ((discord & BanMembers) != 0) echo |= EchoPermissions.BanMembers;
+        if ((discord & ModerateMembers) != 0) echo |= EchoPermissions.ModerateMembers;
+        if ((discord & ManageGuild) != 0) echo |= EchoPermissions.ManageGuild;
+        if ((discord & ViewAuditLog) != 0) echo |= EchoPermissions.ViewAuditLog;
+
+        return (ulong)echo;
+    }
+}

@@ -98,6 +98,26 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
         return Accepted(call);
     }
 
+    /// <summary>
+    /// Authoritative current-state fetch — the catch-up path for clients that
+    /// missed a `call.ParticipantJoined`/`call.CallEnded` SignalR event (e.g. a
+    /// reconnect gap mid-call). Mirrors GuildVoiceController.GetVoiceState.
+    /// </summary>
+    [HttpGet("call/{callId}")]
+    public async Task<IActionResult> GetCall(string callId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var serializedCall = await cache.GetStringAsync(Call.GetCacheId(callId));
+        if (string.IsNullOrWhiteSpace(serializedCall)) return NotFound();
+
+        var call = JsonSerializer.Deserialize<Call>(serializedCall);
+        if (call == null || !call.IsParticipant(userId)) return NotFound();
+
+        return Ok(call);
+    }
+
     [HttpPut("call/{callId}/accept")]
     public async Task<IActionResult> AcceptCall(string callId)
     {

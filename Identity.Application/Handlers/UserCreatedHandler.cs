@@ -1,4 +1,5 @@
 ﻿using AppEnvironment;
+using Identity.Application.Services;
 using Identity.Application.Templates;
 using Identity.Domain.Events.User;
 using Messaging;
@@ -12,11 +13,7 @@ public class UserCreatedHandler
     {
         if(!Env.AuthConfiguration.RequireUserEmailVerification) return;
         var email = userCreated.Email;
-        var verificationCode = Guid.NewGuid().ToString("N").Substring(0, 6);
-        await cache.SetStringAsync($"verification_code:{email}", verificationCode, new DistributedCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
-        });
+        var verificationCode = await VerificationCodeService.GetOrCreateCodeAsync(cache, email);
         var renderer = new EmailTemplateRenderer();
 
         var body = await renderer.RenderAsync("WelcomeEmail.cshtml", new WelcomeEmail()

@@ -1,4 +1,5 @@
-﻿using Identity.Application.Templates;
+﻿using Identity.Application.Services;
+using Identity.Application.Templates;
 using Identity.Infrastructure.Persistence;
 using Messaging;
 using Microsoft.AspNetCore.Mvc;
@@ -23,12 +24,8 @@ public class UserVerificationEndpoint
             return Results.BadRequest("User email not found");
         }
         if(user.EmailConfirmed) return Results.BadRequest("User already verified");
-        
-        var verificationCode = Guid.NewGuid().ToString("N").Substring(0, 6);
-        await cache.SetStringAsync($"verification_code:{email}", verificationCode, new DistributedCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
-        });
+
+        var verificationCode = await VerificationCodeService.GetOrCreateCodeAsync(cache, email);
         var renderer = new EmailTemplateRenderer();
 
         var body = await renderer.RenderAsync("WelcomeEmail.cshtml", new WelcomeEmail()

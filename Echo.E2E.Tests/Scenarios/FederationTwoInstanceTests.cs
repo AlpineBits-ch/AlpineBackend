@@ -74,6 +74,13 @@ public class FederationTwoInstanceTests
         // A's side records B as Active synchronously in the initiate call. B's side (the inbound
         // receiver) applies its acceptance policy (AutoAccept by default) in the same request,
         // but confirm by polling A's own admin list endpoint rather than assuming timing.
+        //
+        // The instance identity B reports of itself (Env.GeneralConfiguration.InstanceUrl, i.e.
+        // the "Host" recorded on A's side) is B's INSTANCE_URL - which every service in a stack
+        // shares as the OIDC issuer - not the port the Federation service itself happens to be
+        // listening on. In this harness INSTANCE_URL is pinned to the Identity service's port
+        // (see EchoTestStack), so that's what A ends up storing as B's host, even though the
+        // handshake POST itself was dialed against B's Federation port.
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var isActive = false;
         while (!cts.IsCancellationRequested && !isActive)
@@ -81,7 +88,7 @@ public class FederationTwoInstanceTests
             var instances = await _pair.A.Federation.Client.GetFromJsonAsync<JsonElement>(
                 "/api/v1/admin/federation/instances", cts.Token);
             isActive = instances.EnumerateArray().Any(i =>
-                i.GetProperty("host").GetString() == $"http://127.0.0.1:{_pair.B.Federation.Port}" &&
+                i.GetProperty("host").GetString() == $"http://127.0.0.1:{_pair.B.Identity.Port}" &&
                 i.GetProperty("status").GetString() == "Active");
 
             if (!isActive)

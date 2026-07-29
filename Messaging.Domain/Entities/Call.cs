@@ -75,10 +75,24 @@ public class Call : Aggregate<Call>, IPrefixedEntity
         if (Participants.Count == 2)
         {
             this.Status = CallStatus.Rejected;
+            // Also raise CallEnded - CallDeclined alone only reaches clients that specifically
+            // handle it (group-call "so-and-so declined" UI); CallEnded is the one every client
+            // already tears its ringing/in-call UI down on, so the 1:1 case needs it too.
+            AddDomainEvent(new CallEnded()
+            {
+                CallId = this.Id,
+            });
             return;
         }
 
-        if(Participants.Except([creator]).All(p => p.Status == CallStatus.Rejected)) this.Status = CallStatus.Rejected;
+        if (Participants.Except([creator]).All(p => p.Status == CallStatus.Rejected))
+        {
+            this.Status = CallStatus.Rejected;
+            AddDomainEvent(new CallEnded()
+            {
+                CallId = this.Id,
+            });
+        }
     }
     
 

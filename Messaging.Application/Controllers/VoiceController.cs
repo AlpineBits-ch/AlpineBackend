@@ -160,6 +160,31 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
             await bus.PublishAsync(evt);
         }
 
+        // The call is only actually over once Decline() has rejected it outright (1:1, or every
+        // invitee in a group call has now declined) - only then do the other clients need telling
+        // the call ended, mirroring EndCall's notification path below.
+        if (call.Status == CallStatus.Rejected)
+        {
+            var participantIds = call.Participants.Select(p => p.UserId).ToList();
+            await Task.WhenAll(participantIds.Select(id => cache.RemoveAsync($"user-call:{id}")));
+            await hubContext.Clients.Users(participantIds).SendAsync("call.CallEnded", new { callId = call.Id });
+
+            var cancelRecipientIds = participantIds.Where(id => id != userId).ToList();
+            if (cancelRecipientIds.Count > 0)
+            {
+                var callerProfile = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest { UserId = call.CreatorId });
+                var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = cancelRecipientIds });
+                var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = cancelRecipientIds });
+                await CallPushService.SendCancelCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
+                {
+                    CallId = call.Id,
+                    ConversationId = call.ConversationId,
+                    CallerName = callerProfile.Profile?.UserName ?? string.Empty,
+                    CallerAvatarUrl = callerProfile.Profile?.AvatarUrl,
+                });
+            }
+        }
+
         return Accepted(call);
     }
     [HttpPut("call/{callId}/end")]

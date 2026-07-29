@@ -12,6 +12,7 @@
 
     <ItemGroup>
         <PackageReference Include="WolverineFx" Version="6.21.0" />
+        <PackageReference Include="StackExchange.Redis" Version="3.0.17" />
     </ItemGroup>
 
 </Project>

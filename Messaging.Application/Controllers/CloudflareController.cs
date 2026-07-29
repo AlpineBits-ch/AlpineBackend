@@ -1,7 +1,7 @@
 using Echo.Realtime.Sfu;
 using System.Security.Claims;
-using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
@@ -27,6 +27,7 @@ public class CloudflareController(
     CloudflareService cfService,
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
+    LockedJsonCacheStore callStore,
     ILogger<CloudflareController> logger) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -40,20 +41,18 @@ public class CloudflareController(
     public async Task<IActionResult> CreateSession(string callId, CancellationToken ct)
     {
         var cfSessionId = await cfService.CreateSessionAsync(ct);
-        
-        
-        var raw = await cache.GetStringAsync(Call.GetCacheId(callId), token: ct);
-        if (raw is not null)
-        {
-            var call = JsonSerializer.Deserialize<Call>(raw)!;
-            var me = call.Participants.FirstOrDefault(p => p.UserId == UserId);
-            if (me is not null && me.Status != CallStatus.Connected)
+
+        // Locked: this read-modify-write on the Call blob was racing ExchangeParticipantJoined
+        // below (fired by the OTHER participant publishing their audio track) whenever both
+        // happened close together -e.g. the callee accepting right as the caller finishes
+        // publishing.
+        await callStore.UpdateAsync<Call>(
+            Call.GetCacheId(callId), Call.GetCacheId(callId),
+            call =>
             {
-                me.Status = CallStatus.Connected;
-                await cache.SetStringAsync(Call.GetCacheId(callId),
-                    JsonSerializer.Serialize(call), CacheOptions, token: ct);
-            }
-        }
+                var me = call.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (me is not null) me.Status = CallStatus.Connected;
+            }, CacheOptions, ct);
 
         // Store reverse mapping so OnDisconnectedAsync can find this user's call
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);
@@ -145,32 +144,24 @@ public class CloudflareController(
         return NoContent();
     }
 
-    private async Task<Call?> LoadCall(string callId)
-    {
-        var raw = await cache.GetStringAsync(Call.GetCacheId(callId));
-        return raw is null ? null : JsonSerializer.Deserialize<Call>(raw);
-    }
-
-    private async Task SaveCall(Call call)
-    {
-        await cache.SetStringAsync(
-            Call.GetCacheId(call.Id),
-            JsonSerializer.Serialize(call),
-            CacheOptions);
-    }
+    private Task<Call?> LoadCall(string callId) => callStore.LoadAsync<Call>(Call.GetCacheId(callId));
 
     private async Task ExchangeParticipantJoined(string callId, string cfSessionId, CancellationToken ct)
     {
-        var call = await LoadCall(callId);
+        // Locked for the same reason as CreateSession above -this is the write half of the
+        // race that silently dropped the caller's CfSessionId/AudioTrackName.
+        var call = await callStore.UpdateAsync<Call>(
+            Call.GetCacheId(callId), Call.GetCacheId(callId),
+            c =>
+            {
+                var me = c.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (me is not null)
+                {
+                    me.CfSessionId = cfSessionId;
+                    me.AudioTrackName = "audio";
+                }
+            }, CacheOptions, ct);
         if (call is null) return;
-
-        var me = call.Participants.FirstOrDefault(p => p.UserId == UserId);
-        if (me is not null)
-        {
-            me.CfSessionId = cfSessionId;
-            me.AudioTrackName = "audio";
-            await SaveCall(call);
-        }
 
         var connectedOthers = call.Participants
             .Where(p => p.UserId != UserId && p.Status == CallStatus.Connected)

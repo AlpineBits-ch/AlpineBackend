@@ -1,3 +1,4 @@
+using Echo.Realtime.Caching;
 using Echo.Realtime.Sfu;
 using System.Net.Http.Headers;
 using AppEnvironment;
@@ -43,6 +44,8 @@ var redis = Env.Redis;
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
+builder.Services.AddSingleton<IDistributedLockService, RedisDistributedLockService>();
+builder.Services.AddSingleton<LockedJsonCacheStore>();
 
 builder.Services.AddScoped<ProfileService>();
 builder.Services.AddStackExchangeRedisCache(config =>

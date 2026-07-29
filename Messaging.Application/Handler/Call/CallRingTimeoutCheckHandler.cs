@@ -1,5 +1,5 @@
-using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Services;
@@ -16,21 +16,28 @@ namespace Messaging.Application.Handler.Call;
 
 public class CallRingTimeoutCheckHandler
 {
-    public static async Task Handle(CallRingTimeoutCheck @event, IHubContext<EchoRealtimeHub> hubContext,
-        IDistributedCache cache, IMessageBus bus)
+    private static readonly DistributedCacheEntryOptions CacheOptions = new()
     {
-        var call = await CallService.GetCallById(@event.CallId, cache);
-        if (call == null || call.Status != CallStatus.Pending) return; // already answered, declined, or ended
+        SlidingExpiration = TimeSpan.FromMinutes(40)
+    };
 
-        call.Timeout();
+    public static async Task Handle(CallRingTimeoutCheck @event, IHubContext<EchoRealtimeHub> hubContext,
+        IDistributedCache cache, LockedJsonCacheStore callStore, IMessageBus bus)
+    {
+        // Locked: guards the Pending check-then-act against Accept/Decline landing in the same
+        // window (e.g. the ring timeout firing right as the callee accepts).
+        var didTimeout = false;
+        var call = await callStore.UpdateAsync<Domain.Entities.Call>(
+            Domain.Entities.Call.GetCacheId(@event.CallId), Domain.Entities.Call.GetCacheId(@event.CallId),
+            c =>
+            {
+                if (c.Status != CallStatus.Pending) return;
+                c.Timeout();
+                didTimeout = true;
+            }, CacheOptions);
+        if (call == null || !didTimeout) return; // already answered, declined, or ended
 
         var participantIds = call.Participants.Select(p => p.UserId).ToList();
-
-        await cache.SetStringAsync(Domain.Entities.Call.GetCacheId(call.Id), JsonSerializer.Serialize(call),
-            new DistributedCacheEntryOptions
-            {
-                SlidingExpiration = TimeSpan.FromMinutes(40)
-            });
 
         await Task.WhenAll(participantIds.Select(id => cache.RemoveAsync($"user-call:{id}")));
 

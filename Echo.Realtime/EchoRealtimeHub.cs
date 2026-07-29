@@ -15,8 +15,21 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
     /// <summary>How often (seconds) a live connection republishes a presence heartbeat.</summary>
     private const long PresenceHeartbeatIntervalSeconds = 30;
 
+    /// <summary>Device id used when a client connects without one (older builds) - keeps every
+    /// one of that user's un-tagged sessions bucketed together instead of failing outright.</summary>
+    private const string DefaultDeviceId = "default";
+
     private string Uid() =>
         Context.UserIdentifier ?? throw new HubException("User not authenticated");
+
+    /// <summary>SignalR group name for one specific device of one specific user.</summary>
+    public static string DeviceGroup(string userId, string deviceId) => $"device:{userId}:{deviceId}";
+
+    private string ResolveDeviceId()
+    {
+        var deviceId = Context.GetHttpContext()?.Request.Query["deviceId"].ToString();
+        return string.IsNullOrWhiteSpace(deviceId) ? DefaultDeviceId : deviceId;
+    }
 
     public override async Task OnConnectedAsync()
     {
@@ -24,10 +37,15 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
         if (string.IsNullOrWhiteSpace(userId))
             throw new HubException("User not authenticated");
 
-        logger.LogInformation("Realtime client connected, connection {ConnectionId}, user {UserId}",
-            Context.ConnectionId, userId);
+        var deviceId = ResolveDeviceId();
+        Context.Items["DeviceId"] = deviceId;
 
-        await bus.PublishAsync(new UserConnected(userId));
+        logger.LogInformation("Realtime client connected, connection {ConnectionId}, user {UserId}, device {DeviceId}",
+            Context.ConnectionId, userId, deviceId);
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, DeviceGroup(userId, deviceId));
+
+        await bus.PublishAsync(new UserConnected(userId, deviceId));
 
         // Keep presence fresh while the socket lives, throttled so we don't publish on every pulse.
         var heartbeat = Context.Features.Get<IConnectionHeartbeatFeature>();
@@ -53,11 +71,12 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var userId = Context.UserIdentifier;
-        logger.LogInformation("Realtime client disconnected, connection {ConnectionId}, user {UserId}",
-            Context.ConnectionId, userId);
+        var deviceId = Context.Items.TryGetValue("DeviceId", out var value) ? value as string : null;
+        logger.LogInformation("Realtime client disconnected, connection {ConnectionId}, user {UserId}, device {DeviceId}",
+            Context.ConnectionId, userId, deviceId);
 
         if (!string.IsNullOrWhiteSpace(userId))
-            await bus.PublishAsync(new UserDisconnected(userId));
+            await bus.PublishAsync(new UserDisconnected(userId, deviceId));
 
         await base.OnDisconnectedAsync(exception);
     }

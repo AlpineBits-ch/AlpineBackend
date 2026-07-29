@@ -249,6 +249,7 @@ public class GuildVoiceStateHandler
                 UserId = message.TargetUserId,
                 ChannelId = message.TargetChannelId,
                 GuildId = voiceState.GuildId,
+                DeviceId = target.DeviceId,
                 JoinedAt = DateTime.UtcNow
             };
             targetVoiceState.Participants.Add(movedState);
@@ -267,7 +268,7 @@ public class GuildVoiceStateHandler
 
         await cache.SetStringAsync(
             ChannelVoiceState.GetUserCacheKey(message.TargetUserId),
-            JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = message.TargetChannelId, GuildId = voiceState.GuildId }),
+            JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = message.TargetChannelId, GuildId = voiceState.GuildId, DeviceId = movedState.DeviceId }),
             ChannelCacheOptions);
 
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserJoinedVoice",

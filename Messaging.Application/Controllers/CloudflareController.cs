@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
+using Wolverine;
 
 namespace Messaging.Application.Controllers;
 
@@ -28,6 +29,7 @@ public class CloudflareController(
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
+    IMessageBus bus,
     ILogger<CloudflareController> logger) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -36,6 +38,11 @@ public class CloudflareController(
     };
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+    /// <summary>See VoiceController.DeviceId - same fallback for pre-update clients.</summary>
+    private string DeviceId => Request.Headers.TryGetValue("X-Device-Id", out var value) && !string.IsNullOrWhiteSpace(value)
+        ? value.ToString()
+        : "default";
 
     [HttpPost("session")]
     public async Task<IActionResult> CreateSession(string callId, CancellationToken ct)
@@ -46,13 +53,21 @@ public class CloudflareController(
         // below (fired by the OTHER participant publishing their audio track) whenever both
         // happened close together -e.g. the callee accepting right as the caller finishes
         // publishing.
-        await callStore.UpdateAsync<Call>(
+        var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
             call =>
             {
                 var me = call.Participants.FirstOrDefault(p => p.UserId == UserId);
-                if (me is not null) me.Status = CallStatus.Connected;
+                if (me is not null) call.ConnectDevice(me, DeviceId);
             }, CacheOptions, ct);
+
+        if (call is not null)
+        {
+            foreach (var evt in call.GetDomainEvents())
+            {
+                await bus.PublishAsync(evt);
+            }
+        }
 
         // Store reverse mapping so OnDisconnectedAsync can find this user's call
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);

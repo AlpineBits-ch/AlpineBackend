@@ -6,5 +6,6 @@ public class CallAccepted : DomainEvent
 {
     public string CallId { get; set; }
     public string? UserId { get; set; }
+    public string? DeviceId { get; set; }
 
 }

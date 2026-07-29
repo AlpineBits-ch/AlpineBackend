@@ -9,34 +9,35 @@ using Wolverine;
 
 namespace Messaging.Application.Handler.Call;
 
-public class CallRingTimeoutCheckHandler
+public class CallAloneTimeoutCheckHandler
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
     {
         SlidingExpiration = TimeSpan.FromMinutes(40)
     };
 
-    public static async Task Handle(CallRingTimeoutCheck @event, IHubContext<EchoRealtimeHub> hubContext,
+    public static async Task Handle(CallAloneTimeoutCheck @event, IHubContext<EchoRealtimeHub> hubContext,
         IDistributedCache cache, LockedJsonCacheStore callStore, IMessageBus bus)
     {
-        // Locked: guards the Pending check-then-act against Accept/Decline landing in the same
-        // window (e.g. the ring timeout firing right as the callee accepts).
+        // Locked, same check-then-act-under-lock shape as CallRingTimeoutCheckHandler: guards
+        // against someone rejoining (or the sole survivor also leaving) in the same window this
+        // fires.
         var didTimeout = false;
         var call = await callStore.UpdateAsync<Domain.Entities.Call>(
             Domain.Entities.Call.GetCacheId(@event.CallId), Domain.Entities.Call.GetCacheId(@event.CallId),
             c =>
             {
-                if (c.Status != CallStatus.Pending) return;
-                c.Timeout();
-                didTimeout = true;
+                var wasAlreadyOver = c.Status == CallStatus.Completed;
+                c.EndIfStillAlone(@event.ExpectedAloneSince);
+                didTimeout = !wasAlreadyOver && c.Status == CallStatus.Completed;
             }, CacheOptions);
-        if (call == null || !didTimeout) return; // already answered, declined, or ended
+        if (call == null || !didTimeout) return;
 
         foreach (var evt in call.GetDomainEvents())
         {
             await bus.PublishAsync(evt);
         }
 
-        await CallEndNotifier.NotifyAsync(call, CallEndReason.Declined, null, bus, cache, hubContext);
+        await CallEndNotifier.NotifyAsync(call, CallEndReason.AloneTimeout, null, bus, cache, hubContext);
     }
 }

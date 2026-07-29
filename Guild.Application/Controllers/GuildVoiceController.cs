@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Sfu;
 
 using Guild.Application.Models;
 using Guild.Application.Services;
@@ -26,6 +27,7 @@ public class GuildVoiceController(
     IDistributedCache cache,
     LockedJsonCacheStore voiceStore,
     IDistributedLockService locks,
+    CloudflareService cfService,
     MicroserviceContext db,
     IMessageBus bus) : ControllerBase
 {
@@ -35,6 +37,12 @@ public class GuildVoiceController(
     };
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+
+    /// <summary>See Messaging.Application.Controllers.VoiceController.DeviceId - same fallback
+    /// for pre-update clients.</summary>
+    private string DeviceId => Request.Headers.TryGetValue("X-Device-Id", out var value) && !string.IsNullOrWhiteSpace(value)
+        ? value.ToString()
+        : "default";
 
     [HttpPost("join")]
     public async Task<IActionResult> Join(string guildId, string channelId, CancellationToken ct)
@@ -50,21 +58,38 @@ public class GuildVoiceController(
         if (channel is null) return NotFound();
         if (channel.Type != Guild.Domain.Enums.ChannelType.Voice) return BadRequest("Channel is not a voice channel");
 
-        // If the user is already in another voice channel in this guild, leave it first
+        var deviceId = DeviceId;
+
+        // A user can only be in one voice channel, on one device, at a time, app-wide. If
+        // they're already active somewhere else, resolve that first:
+        //  - same channel, different device -> takeover (kick the old device, keep the roster
+        //    entry, transfer it to the new device)
+        //  - anywhere else (any other channel, in this guild or a different one) -> stale
+        //    presence, clean leave
         var existingChannelJson = await cache.GetStringAsync(ChannelVoiceState.GetUserCacheKey(UserId), ct);
         if (existingChannelJson is not null)
         {
             var existing = JsonSerializer.Deserialize<UserVoiceLocation>(existingChannelJson);
-            if (existing is not null && existing.GuildId == guildId && existing.ChannelId != channelId)
-                await LeaveChannelAsync(existing.ChannelId, UserId, ct);
+            if (existing is not null)
+            {
+                if (existing.ChannelId == channelId)
+                {
+                    if (existing.DeviceId is not null && existing.DeviceId != deviceId)
+                        await TakeoverDeviceAsync(guildId, channelId, UserId, existing.DeviceId, deviceId, ct);
+                }
+                else
+                {
+                    await LeaveChannelAsync(existing.ChannelId, UserId, ct);
+                }
+            }
         }
 
         // Add user to the target channel voice state.
-        var voiceState = await JoinChannelVoiceStateAsync(channelId, guildId, ct);
+        var voiceState = await JoinChannelVoiceStateAsync(channelId, guildId, deviceId, ct);
 
         await cache.SetStringAsync(
             ChannelVoiceState.GetUserCacheKey(UserId),
-            JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId }),
+            JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId, DeviceId = deviceId }),
             CacheOptions, ct);
         await cache.SetStringAsync(
             ChannelVoiceState.GetHeartbeatCacheKey(UserId),
@@ -79,6 +104,42 @@ public class GuildVoiceController(
         await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = UserId, ChannelId = channelId });
 
         return Ok(ChannelVoiceStateResponse.From(voiceState));
+    }
+
+    /// <summary>Same user, same channel, a different device just joined - transfer the
+    /// connection instead of running two. Tells exactly the old device to disconnect, and
+    /// best-effort closes its stale Cloudflare session server-side too (the device may be
+    /// backgrounded/unreachable and never process the push).</summary>
+    private async Task TakeoverDeviceAsync(string guildId, string channelId, string userId, string oldDeviceId, string newDeviceId, CancellationToken ct)
+    {
+        string? oldCfSessionId = null;
+        string? oldAudioTrackName = null;
+
+        await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+            vs =>
+            {
+                var participant = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                if (participant is null) return;
+                oldCfSessionId = participant.CfSessionId;
+                oldAudioTrackName = participant.AudioTrackName;
+                participant.DeviceId = newDeviceId;
+                participant.CfSessionId = null;
+                participant.AudioTrackName = null;
+            }, CacheOptions, ct);
+
+        await hub.Clients.Group(EchoRealtimeHub.DeviceGroup(userId, oldDeviceId))
+            .SendAsync("guild.voice.KickedByOtherDevice", new { channelId, guildId }, ct);
+
+        if (oldCfSessionId is null || oldAudioTrackName is null) return;
+        try
+        {
+            await cfService.CloseTracksAsync(oldCfSessionId, [oldAudioTrackName], ct);
+        }
+        catch (CloudflareCallsException)
+        {
+            // Best-effort - the old device still tears itself down client-side from the kick above.
+        }
     }
 
     [HttpPost("leave")]
@@ -103,22 +164,30 @@ public class GuildVoiceController(
     /// endpoint above for why this needs the lock (not just the mutate-existing case that
     /// <see cref="LockedJsonCacheStore.UpdateAsync{T}"/> covers, since the very first joiner
     /// to a channel has no existing entry to lock onto via that path).</summary>
-    private async Task<ChannelVoiceState> JoinChannelVoiceStateAsync(string channelId, string guildId, CancellationToken ct)
+    private async Task<ChannelVoiceState> JoinChannelVoiceStateAsync(string channelId, string guildId, string deviceId, CancellationToken ct)
     {
         await using var _ = await locks.AcquireAsync(ChannelVoiceState.GetCacheKey(channelId), ct: ct);
 
         var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct)
             ?? new ChannelVoiceState { ChannelId = channelId, GuildId = guildId };
 
-        if (voiceState.Participants.All(p => p.UserId != UserId))
+        var existing = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
+        if (existing is null)
         {
             voiceState.Participants.Add(new VoiceState
             {
                 UserId = UserId,
                 ChannelId = channelId,
                 GuildId = guildId,
+                DeviceId = deviceId,
                 JoinedAt = DateTime.UtcNow
             });
+        }
+        else
+        {
+            // Same device reconnecting, or the takeover above already updated this - either way,
+            // make sure the roster reflects the device that's actually joining now.
+            existing.DeviceId = deviceId;
         }
 
         await voiceStore.SaveAsync(ChannelVoiceState.GetCacheKey(channelId), voiceState, CacheOptions, ct);
@@ -162,4 +231,5 @@ internal record UserVoiceLocation
 {
     public string ChannelId { get; init; } = string.Empty;
     public string GuildId { get; init; } = string.Empty;
+    public string? DeviceId { get; init; }
 }

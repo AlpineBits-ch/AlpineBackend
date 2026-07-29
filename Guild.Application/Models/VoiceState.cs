@@ -13,6 +13,12 @@ public class VoiceState
     public string GuildId { get; set; } = string.Empty;
     public string? CfSessionId { get; set; }
     public string? AudioTrackName { get; set; }
+
+    /// <summary>The device currently connected to this channel's audio for this participant. A
+    /// user can only be in one voice channel, on one device, at a time app-wide - joining the
+    /// same channel from a different device transfers this (see GuildVoiceController.Join)
+    /// rather than running two connections for the same person.</summary>
+    public string? DeviceId { get; set; }
     public bool IsSelfMuted { get; set; }
     public bool IsSelfDeafened { get; set; }
     public bool IsServerMuted { get; set; }

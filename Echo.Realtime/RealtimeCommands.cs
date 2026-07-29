@@ -7,9 +7,9 @@ namespace Echo.Realtime;
 
 // ---- Connection lifecycle (published; handled by every interested service) ----
 
-public record UserConnected(string UserId);
+public record UserConnected(string UserId, string? DeviceId = null);
 
-public record UserDisconnected(string UserId);
+public record UserDisconnected(string UserId, string? DeviceId = null);
 
 public record PresenceHeartbeat(string UserId);
 

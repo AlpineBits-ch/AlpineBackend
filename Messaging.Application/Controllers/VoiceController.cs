@@ -37,6 +37,13 @@ public class VoiceController(
         SlidingExpiration = TimeSpan.FromMinutes(40)
     };
 
+    /// <summary>Falls back to a shared "default" bucket for clients that haven't been updated to
+    /// send a device id yet - keeps the multi-device fixes backward compatible rather than
+    /// erroring for older builds (see EchoRealtimeHub.DeviceGroup's same fallback).</summary>
+    private string DeviceId => Request.Headers.TryGetValue("X-Device-Id", out var value) && !string.IsNullOrWhiteSpace(value)
+        ? value.ToString()
+        : "default";
+
     [HttpGet("ice-servers")]
     public async Task<IActionResult> GetIceServers()
     {
@@ -142,7 +149,7 @@ public class VoiceController(
         // subscribes to the caller's audio).
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Accept(userId), CacheOptions);
+            c => c.Accept(userId, DeviceId), CacheOptions);
         if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())
@@ -161,7 +168,7 @@ public class VoiceController(
 
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Decline(userId), CacheOptions);
+            c => c.Decline(userId, DeviceId), CacheOptions);
         if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())
@@ -171,31 +178,47 @@ public class VoiceController(
 
         // The call is only actually over once Decline() has rejected it outright (1:1, or every
         // invitee in a group call has now declined) - only then do the other clients need telling
-        // the call ended, mirroring EndCall's notification path below.
+        // the call ended. A decline that's actually a stale cross-device race (see Call.Decline)
+        // leaves Status alone, so this doesn't fire in that case.
         if (call.Status == CallStatus.Rejected)
         {
-            var participantIds = call.Participants.Select(p => p.UserId).ToList();
-            await Task.WhenAll(participantIds.Select(id => cache.RemoveAsync($"user-call:{id}")));
-            await hubContext.Clients.Users(participantIds).SendAsync("call.CallEnded", new { callId = call.Id });
-
-            var cancelRecipientIds = participantIds.Where(id => id != userId).ToList();
-            if (cancelRecipientIds.Count > 0)
-            {
-                var callerProfile = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest { UserId = call.CreatorId });
-                var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = cancelRecipientIds });
-                var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = cancelRecipientIds });
-                await CallPushService.SendCancelCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
-                {
-                    CallId = call.Id,
-                    ConversationId = call.ConversationId,
-                    CallerName = callerProfile.Profile?.UserName ?? string.Empty,
-                    CallerAvatarUrl = callerProfile.Profile?.AvatarUrl,
-                });
-            }
+            await CallEndNotifier.NotifyAsync(call, CallEndReason.Declined, userId, bus, cache, hubContext);
         }
 
         return Accepted(call);
     }
+
+    /// <summary>Removes just the caller from a still-active call, leaving it running for any
+    /// other connected participants (see Call.Leave). Distinct from End, which force-terminates
+    /// the call for everyone.</summary>
+    [HttpPut("call/{callId}/leave")]
+    public async Task<IActionResult> LeaveCall(string callId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var call = await callStore.UpdateAsync<Call>(
+            Call.GetCacheId(callId), Call.GetCacheId(callId),
+            c => c.Leave(userId, DeviceId), CacheOptions);
+        if (call is null) return NotFound();
+
+        foreach (var evt in call.GetDomainEvents())
+        {
+            await bus.PublishAsync(evt);
+        }
+
+        // Leave() only completes the call outright when it dropped to zero connected
+        // participants - otherwise it either keeps running normally or moved to the
+        // one-participant-alone state, both handled via the published events above
+        // (CallParticipantLeft / CallWentAlone).
+        if (call.Status == CallStatus.Completed)
+        {
+            await CallEndNotifier.NotifyAsync(call, CallEndReason.AllParticipantsLeft, userId, bus, cache, hubContext);
+        }
+
+        return Accepted(call);
+    }
+
     [HttpPut("call/{callId}/end")]
     public async Task<IActionResult> EndCall(string callId)
     {
@@ -204,34 +227,15 @@ public class VoiceController(
 
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.End(userId), CacheOptions);
+            c => c.End(CallEndReason.UserEnded), CacheOptions);
         if (call is null) return NotFound();
-
-        var participantIds = call.Participants.Select(p => p.UserId).ToList();
-
-        await Task.WhenAll(participantIds.Select(id => cache.RemoveAsync($"user-call:{id}")));
 
         foreach (var evt in call.GetDomainEvents())
         {
             await bus.PublishAsync(evt);
         }
 
-        await hubContext.Clients.Users(participantIds).SendAsync("call.CallEnded", new { callId });
-
-        var cancelRecipientIds = participantIds.Where(id => id != userId).ToList();
-        if (cancelRecipientIds.Count > 0)
-        {
-            var callerProfile = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest { UserId = call.CreatorId });
-            var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = cancelRecipientIds });
-            var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = cancelRecipientIds });
-            await CallPushService.SendCancelCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
-            {
-                CallId = call.Id,
-                ConversationId = call.ConversationId,
-                CallerName = callerProfile.Profile?.UserName ?? string.Empty,
-                CallerAvatarUrl = callerProfile.Profile?.AvatarUrl,
-            });
-        }
+        await CallEndNotifier.NotifyAsync(call, CallEndReason.UserEnded, userId, bus, cache, hubContext);
 
         return Accepted(call);
     }

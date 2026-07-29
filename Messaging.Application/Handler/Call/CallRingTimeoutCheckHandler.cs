@@ -1,15 +1,10 @@
 using Echo.Realtime;
 using Echo.Realtime.Caching;
-using Identity.Contracts.Bus.Request;
-using Identity.Contracts.Bus.Response;
 using Messaging.Application.Services;
-using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Messaging.Domain.Events.Call;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
-using Social.Contracts.Bus.Integration.Request;
-using Social.Contracts.Bus.Integration.Response;
 using Wolverine;
 
 namespace Messaging.Application.Handler.Call;
@@ -41,26 +36,11 @@ public class CallRingTimeoutCheckHandler
             }, CacheOptions);
         if (call == null || !didTimeout) return; // already answered, declined, or ended
 
-        var participantIds = call.Participants.Select(p => p.UserId).ToList();
-
-        await Task.WhenAll(participantIds.Select(id => cache.RemoveAsync($"user-call:{id}")));
-
         foreach (var evt in call.GetDomainEvents())
         {
             await bus.PublishAsync(evt);
         }
 
-        await hubContext.Clients.Users(participantIds).SendAsync("call.CallEnded", new { callId = call.Id });
-
-        var callerProfile = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest { UserId = call.CreatorId });
-        var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = participantIds });
-        var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = participantIds });
-        await CallPushService.SendCancelCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
-        {
-            CallId = call.Id,
-            ConversationId = call.ConversationId,
-            CallerName = callerProfile.Profile?.UserName ?? string.Empty,
-            CallerAvatarUrl = callerProfile.Profile?.AvatarUrl,
-        });
+        await CallEndNotifier.NotifyAsync(call, CallEndReason.Declined, null, bus, cache, hubContext);
     }
 }

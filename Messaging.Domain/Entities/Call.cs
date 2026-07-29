@@ -35,6 +35,14 @@ public class Call : Aggregate<Call>, IPrefixedEntity
     
     public ICollection<CallParticipant> Participants { get; set; } = [];
 
+    public void MarkCreated()
+    {
+        AddDomainEvent(new CallCreated
+        {
+            CallId = this.Id,
+        });
+    }
+
     public void Accept(string userId)
     {
         var participant = Participants.FirstOrDefault(p => p.UserId == userId);
@@ -77,7 +85,19 @@ public class Call : Aggregate<Call>, IPrefixedEntity
     public void End(string userId)
     {
         this.Status = CallStatus.Completed;
-        
+
+        AddDomainEvent(new CallEnded()
+        {
+            CallId = this.Id,
+        });
+    }
+
+    /// <summary>Auto-declines the call if nobody has answered by the ring timeout.</summary>
+    public void Timeout()
+    {
+        if (Status != CallStatus.Pending) return;
+        this.Status = CallStatus.Rejected;
+
         AddDomainEvent(new CallEnded()
         {
             CallId = this.Id,

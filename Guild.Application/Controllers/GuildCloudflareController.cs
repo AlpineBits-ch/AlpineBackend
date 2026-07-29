@@ -190,7 +190,18 @@ public class GuildCloudflareController(
     private async Task ExchangeParticipantJoined(string channelId, string cfSessionId, CancellationToken ct)
     {
         var voiceState = await LoadChannelVoiceStateAsync(channelId, ct);
-        if (voiceState is null) return;
+        if (voiceState is null)
+        {
+            logger.LogWarning(
+                "ExchangeParticipantJoined: no cached ChannelVoiceState for channel {ChannelId} — {UserId}'s "
+                + "publish will notify nobody", channelId, UserId);
+            return;
+        }
+
+        logger.LogInformation(
+            "ExchangeParticipantJoined: channel {ChannelId}, publisher {UserId}, cached participants: {Participants}",
+            channelId, UserId,
+            string.Join(", ", voiceState.Participants.Select(p => $"{p.UserId}(cfSessionId={p.CfSessionId ?? "null"})")));
 
         var me = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
         if (me is not null)
@@ -199,10 +210,20 @@ public class GuildCloudflareController(
             me.AudioTrackName = "audio";
             await SaveChannelVoiceStateAsync(voiceState, ct);
         }
+        else
+        {
+            logger.LogWarning(
+                "ExchangeParticipantJoined: publisher {UserId} not found in channel {ChannelId}'s cached "
+                + "participants — their own CfSessionId never got saved", UserId, channelId);
+        }
 
         var others = voiceState.Participants
             .Where(p => p.UserId != UserId)
             .ToList();
+
+        logger.LogInformation(
+            "ExchangeParticipantJoined: notifying {Count} other participant(s) about {UserId}'s join: {Others}",
+            others.Count, UserId, string.Join(", ", others.Select(p => p.UserId)));
 
         var joinedPayload = new { userId = UserId, cfSessionId, audioTrackName = "audio", channelId };
         var tasks = others

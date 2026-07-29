@@ -1,8 +1,18 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace Echo.Realtime.Sfu;
+
+/// <summary>A Cloudflare Calls HTTP call returned a non-success status.</summary>
+public class CloudflareCallsException(string operation, System.Net.HttpStatusCode statusCode, string responseBody)
+    : Exception($"Cloudflare Calls '{operation}' failed with {(int)statusCode} {statusCode}: {responseBody}")
+{
+    public string Operation { get; } = operation;
+    public System.Net.HttpStatusCode StatusCode { get; } = statusCode;
+    public string ResponseBody { get; } = responseBody;
+}
 
 public record CfSessionDescription(string Type, string Sdp);
 
@@ -39,20 +49,32 @@ public record CfRenegotiateResponse(CfSessionDescription SessionDescription);
 public class CloudflareService
 {
     private readonly HttpClient _http;
+    private readonly ILogger<CloudflareService> _logger;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public CloudflareService(IHttpClientFactory factory)
+    public CloudflareService(IHttpClientFactory factory, ILogger<CloudflareService> logger)
     {
         _http = factory.CreateClient("CloudflareProxy");
+        _logger = logger;
+    }
+
+    private async Task EnsureSuccessAsync(HttpResponseMessage res, string operation, CancellationToken ct)
+    {
+        if (res.IsSuccessStatusCode) return;
+        var body = await res.Content.ReadAsStringAsync(ct);
+        _logger.LogError(
+            "Cloudflare Calls {Operation} failed with {StatusCode}: {Body}",
+            operation, (int)res.StatusCode, body);
+        throw new CloudflareCallsException(operation, res.StatusCode, body);
     }
 
     public async Task<string> CreateSessionAsync(CancellationToken ct = default)
     {
         var res = await _http.PostAsync("sessions/new", null, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(res, "sessions/new", ct);
         var doc = await res.Content.ReadFromJsonAsync<JsonElement>(Json, ct);
         return doc.GetProperty("sessionId").GetString()!;
     }
@@ -64,7 +86,7 @@ public class CloudflareService
     {
         var res = await _http.PostAsJsonAsync(
             $"sessions/{cfSessionId}/tracks/new", request, Json, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(res, "tracks/new", ct);
         return (await res.Content.ReadFromJsonAsync<CfTracksNewResponse>(Json, ct))!;
     }
 
@@ -75,7 +97,7 @@ public class CloudflareService
     {
         var res = await _http.PutAsJsonAsync(
             $"sessions/{cfSessionId}/renegotiate", request, Json, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(res, "renegotiate", ct);
         return (await res.Content.ReadFromJsonAsync<CfRenegotiateResponse>(Json, ct))!;
     }
 
@@ -88,6 +110,6 @@ public class CloudflareService
         var res = await _http.PutAsJsonAsync(
             $"sessions/{cfSessionId}/tracks/close", body, Json, ct);
         if (res.StatusCode != System.Net.HttpStatusCode.NotAcceptable)
-            res.EnsureSuccessStatusCode();
+            await EnsureSuccessAsync(res, "tracks/close", ct);
     }
 }

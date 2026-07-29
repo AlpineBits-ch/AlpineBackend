@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
 
 namespace Messaging.Application.Controllers;
 
@@ -25,7 +26,8 @@ public record CloseTracksBody(string CfSessionId, List<string> TrackNames);
 public class CloudflareController(
     CloudflareService cfService,
     IHubContext<EchoRealtimeHub> hub,
-    IDistributedCache cache) : ControllerBase
+    IDistributedCache cache,
+    ILogger<CloudflareController> logger) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
     {
@@ -62,8 +64,10 @@ public class CloudflareController(
     [HttpPost("cf/tracks/new")]
     public async Task<IActionResult> TracksNew(string callId, [FromBody] TracksNewBody body, CancellationToken ct)
     {
-        var result = await cfService.TracksNewAsync(body.CfSessionId,
-            new CfTracksNewRequest(body.SessionDescription, body.Tracks), ct);
+        var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
+        var result = body.Tracks.All(t => t.Location == "remote")
+            ? await TracksNewWithRetryAsync(body.CfSessionId, request, ct)
+            : await cfService.TracksNewAsync(body.CfSessionId, request, ct);
 
         var audioTrack = body.Tracks.FirstOrDefault(t => t is { Location: "local", TrackName: "audio" });
         if (audioTrack is not null)
@@ -76,6 +80,31 @@ public class CloudflareController(
             await EmitTrackPublished(callId, body.CfSessionId, nonAudioLocalTracks, ct);
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Subscribing to a track another participant only just published can race Cloudflare's own SFU
+    /// eventual consistency — their publish (a separate, concurrent tracks/new call) doesn't always
+    /// finish propagating on Cloudflare's side by the time our ParticipantJoined- triggered
+    /// subscribe lands.
+    /// </summary>
+    private async Task<CfTracksNewResponse> TracksNewWithRetryAsync(
+        string cfSessionId, CfTracksNewRequest request, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await cfService.TracksNewAsync(cfSessionId, request, ct);
+            }
+            catch (CloudflareCallsException ex) when (attempt < 4)
+            {
+                logger.LogWarning(
+                    "Subscribe tracks/new attempt {Attempt} failed for session {CfSessionId}: {Message}",
+                    attempt, cfSessionId, ex.Message);
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
+            }
+        }
     }
 
     [HttpPut("cf/renegotiate")]

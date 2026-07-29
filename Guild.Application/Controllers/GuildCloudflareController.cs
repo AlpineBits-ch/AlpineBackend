@@ -88,8 +88,10 @@ public class GuildCloudflareController(
             if (!canStream) return Forbid();
         }
 
-        var result = await cfService.TracksNewAsync(body.CfSessionId,
-            new CfTracksNewRequest(body.SessionDescription, body.Tracks), ct);
+        var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
+        var result = body.Tracks.All(t => t.Location == "remote")
+            ? await TracksNewWithRetryAsync(body.CfSessionId, request, ct)
+            : await cfService.TracksNewAsync(body.CfSessionId, request, ct);
 
         if (audioTrack is not null)
             await ExchangeParticipantJoined(channelId, body.CfSessionId, ct);
@@ -98,6 +100,31 @@ public class GuildCloudflareController(
             await EmitTrackPublished(channelId, body.CfSessionId, nonAudioLocal, ct);
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Subscribing to a track another participant only just published can race Cloudflare's own SFU
+    /// eventual consistency — their publish (a separate, concurrent tracks/new call) doesn't always
+    /// finish propagating on Cloudflare's side by the time our ParticipantJoined- triggered
+    /// subscribe lands.
+    /// </summary>
+    private async Task<CfTracksNewResponse> TracksNewWithRetryAsync(
+        string cfSessionId, CfTracksNewRequest request, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await cfService.TracksNewAsync(cfSessionId, request, ct);
+            }
+            catch (CloudflareCallsException ex) when (attempt < 4)
+            {
+                logger.LogWarning(
+                    "Subscribe tracks/new attempt {Attempt} failed for session {CfSessionId}: {Message}",
+                    attempt, cfSessionId, ex.Message);
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
+            }
+        }
     }
 
     [HttpPut("cf/renegotiate")]

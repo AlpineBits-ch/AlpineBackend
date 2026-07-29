@@ -103,7 +103,10 @@ public class CloudflareService
         var res = await _http.PostAsJsonAsync(
             $"sessions/{cfSessionId}/tracks/new", request, Json, ct);
         await EnsureSuccessAsync(res, "tracks/new", ct);
-        return (await res.Content.ReadFromJsonAsync<CfTracksNewResponse>(Json, ct))!;
+        var body = await res.Content.ReadAsStringAsync(ct);
+        var result = JsonSerializer.Deserialize<CfTracksNewResponse>(body, Json);
+        EnsureValidSessionDescription(result?.SessionDescription, "tracks/new", body);
+        return result!;
     }
 
     public async Task<CfRenegotiateResponse> RenegotiateAsync(
@@ -114,7 +117,28 @@ public class CloudflareService
         var res = await _http.PutAsJsonAsync(
             $"sessions/{cfSessionId}/renegotiate", request, Json, ct);
         await EnsureSuccessAsync(res, "renegotiate", ct);
-        return (await res.Content.ReadFromJsonAsync<CfRenegotiateResponse>(Json, ct))!;
+        var body = await res.Content.ReadAsStringAsync(ct);
+        var result = JsonSerializer.Deserialize<CfRenegotiateResponse>(body, Json);
+        EnsureValidSessionDescription(result?.SessionDescription, "renegotiate", body);
+        return result!;
+    }
+
+    /// <summary>
+    /// EnsureSuccessAsync above only catches Cloudflare rejecting the request outright
+    /// (non-2xx). It says nothing about a 2xx response whose sessionDescription is
+    /// missing or empty -which client-side surfaces only as a bare, unactionable
+    /// "Failed to parse SessionDescription" from RTCPeerConnection.setRemoteDescription,
+    /// with nothing in our logs to say why. Catch that here, with the raw body attached,
+    /// so the next occurrence is diagnosable from this side instead of only the client's.
+    /// </summary>
+    private void EnsureValidSessionDescription(CfSessionDescription? desc, string operation, string rawBody)
+    {
+        if (desc is not null && !string.IsNullOrEmpty(desc.Sdp) && !string.IsNullOrEmpty(desc.Type)) return;
+
+        _logger.LogError(
+            "Cloudflare Calls {Operation} returned a 2xx response with a missing or empty " +
+            "sessionDescription. Raw body: {Body}", operation, rawBody);
+        throw new CloudflareCallsException(operation, System.Net.HttpStatusCode.OK, rawBody);
     }
 
     public async Task CloseTracksAsync(

@@ -71,10 +71,18 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
                 .ToList()
         };
 
+        call.MarkCreated();
+
         await cache.SetStringAsync(Call.GetCacheId(call.Id), JsonSerializer.Serialize(call), new DistributedCacheEntryOptions()
         {
             SlidingExpiration = TimeSpan.FromMinutes(40)
         });
+
+        foreach (var evt in call.GetDomainEvents())
+        {
+            await bus.PublishAsync(evt);
+        }
+
         await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
 
         var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = request.Participants });

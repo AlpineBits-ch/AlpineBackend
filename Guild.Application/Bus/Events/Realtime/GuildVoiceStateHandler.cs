@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 using Guild.Application.Controllers;
 using Guild.Application.Models;
 using Guild.Application.Services;
@@ -44,21 +45,24 @@ public class GuildVoiceStateHandler
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(90) });
     }
 
-    public async Task Handle(GuildVoiceMuteCommand message, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+    public async Task Handle(GuildVoiceMuteCommand message, LockedJsonCacheStore voiceStore, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
     {
         var userId = message.UserId;
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
+        // Locked: was an unsynchronized read-modify-write racing every other write in this
+        // file plus GuildVoiceController.Join/LeaveChannelAsync and GuildCloudflareController
+        // for the same channelId -see GuildVoiceController.Join for the class of bug this
+        // silently caused (one side's change getting last-writer-wins overwritten).
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(message.ChannelId), ChannelVoiceState.GetCacheKey(message.ChannelId),
+            vs =>
+            {
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                if (me is not null) me.IsSelfMuted = message.IsMuted;
+            }, ChannelCacheOptions);
+        if (voiceState is null) return;
+
         var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-        if (me is not null)
-        {
-            me.IsSelfMuted = message.IsMuted;
-            await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-                JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
-        }
-
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.MuteChanged",
             new { userId, isMuted = message.IsMuted, channelId = message.ChannelId, serverForced = false });
@@ -66,21 +70,21 @@ public class GuildVoiceStateHandler
         if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me));
     }
 
-    public async Task Handle(GuildVoiceDeafenCommand message, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+    public async Task Handle(GuildVoiceDeafenCommand message, LockedJsonCacheStore voiceStore, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
     {
         var userId = message.UserId;
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
+        // Locked -see GuildVoiceMuteCommand above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(message.ChannelId), ChannelVoiceState.GetCacheKey(message.ChannelId),
+            vs =>
+            {
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                if (me is not null) me.IsSelfDeafened = message.IsDeafened;
+            }, ChannelCacheOptions);
+        if (voiceState is null) return;
+
         var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-        if (me is not null)
-        {
-            me.IsSelfDeafened = message.IsDeafened;
-            await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-                JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
-        }
-
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.DeafenChanged",
             new { userId, isDeafened = message.IsDeafened, channelId = message.ChannelId, serverForced = false });
@@ -105,106 +109,104 @@ public class GuildVoiceStateHandler
         if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me, selfVideo: message.IsCameraOn));
     }
 
-    public async Task Handle(GuildVoiceScreenShareStartCommand message, IDistributedCache cache,
+    public async Task Handle(GuildVoiceScreenShareStartCommand message, LockedJsonCacheStore voiceStore,
         IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService, IMessageBus bus)
     {
         var userId = message.UserId;
 
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
-
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-
         var canStream = await permissionService.CanUserPerformActionAsync(userId, message.ChannelId, Permissions.Stream);
         if (!canStream) return;
 
-        var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-        if (me is not null)
-        {
-            me.IsStreaming = true;
-            await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-                JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
-        }
+        // Locked -see GuildVoiceMuteCommand above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(message.ChannelId), ChannelVoiceState.GetCacheKey(message.ChannelId),
+            vs =>
+            {
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                if (me is not null) me.IsStreaming = true;
+            }, ChannelCacheOptions);
+        if (voiceState is null) return;
 
+        var meAfter = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.ScreenShareStarted",
             new { userId, shareId = message.ShareId, trackName = message.TrackName, channelId = message.ChannelId });
 
-        if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me));
+        if (meAfter is not null) await bus.PublishAsync(ToVoiceStateForBots(meAfter));
     }
 
-    public async Task Handle(GuildVoiceScreenShareStopCommand message, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+    public async Task Handle(GuildVoiceScreenShareStopCommand message, LockedJsonCacheStore voiceStore, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
     {
         var userId = message.UserId;
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
+        // Locked -see GuildVoiceMuteCommand above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(message.ChannelId), ChannelVoiceState.GetCacheKey(message.ChannelId),
+            vs =>
+            {
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                if (me is not null) me.IsStreaming = false;
+            }, ChannelCacheOptions);
+        if (voiceState is null) return;
 
-        var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-        if (me is not null)
-        {
-            me.IsStreaming = false;
-            await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-                JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
-        }
-
+        var meAfter = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.ScreenShareStopped",
             new { shareId = message.ShareId, channelId = message.ChannelId });
 
-        if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me));
+        if (meAfter is not null) await bus.PublishAsync(ToVoiceStateForBots(meAfter));
     }
 
-    public async Task Handle(GuildVoiceServerMuteCommand message, IDistributedCache cache,
+    public async Task Handle(GuildVoiceServerMuteCommand message, LockedJsonCacheStore voiceStore,
         IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService, IMessageBus bus)
     {
         var canMute = await permissionService.CanUserPerformActionAsync(message.UserId, message.ChannelId, Permissions.MuteMembers);
         if (!canMute) return;
 
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
+        // Locked -see GuildVoiceMuteCommand above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(message.ChannelId), ChannelVoiceState.GetCacheKey(message.ChannelId),
+            vs =>
+            {
+                var target = vs.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
+                if (target is not null) target.IsServerMuted = message.IsMuted;
+            }, ChannelCacheOptions);
+        var targetAfter = voiceState?.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
+        if (targetAfter is null) return;
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-        var target = voiceState.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
-        if (target is null) return;
-
-        target.IsServerMuted = message.IsMuted;
-        await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-            JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
-
-        var allIds = voiceState.Participants.Select(p => p.UserId).ToList();
+        var allIds = voiceState!.Participants.Select(p => p.UserId).ToList();
         await hub.Clients.Users(allIds).SendAsync("guild.voice.MuteChanged",
             new { userId = message.TargetUserId, isMuted = message.IsMuted, channelId = message.ChannelId, serverForced = true });
 
-        await bus.PublishAsync(ToVoiceStateForBots(target));
+        await bus.PublishAsync(ToVoiceStateForBots(targetAfter));
     }
 
-    public async Task Handle(GuildVoiceServerDeafenCommand message, IDistributedCache cache,
+    public async Task Handle(GuildVoiceServerDeafenCommand message, LockedJsonCacheStore voiceStore,
         IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService, IMessageBus bus)
     {
         var canDeafen = await permissionService.CanUserPerformActionAsync(message.UserId, message.ChannelId, Permissions.DeafenMembers);
         if (!canDeafen) return;
 
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
+        // Locked -see GuildVoiceMuteCommand above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(message.ChannelId), ChannelVoiceState.GetCacheKey(message.ChannelId),
+            vs =>
+            {
+                var target = vs.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
+                if (target is not null) target.IsServerDeafened = message.IsDeafened;
+            }, ChannelCacheOptions);
+        var targetAfter = voiceState?.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
+        if (targetAfter is null) return;
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-        var target = voiceState.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
-        if (target is null) return;
-
-        target.IsServerDeafened = message.IsDeafened;
-        await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-            JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
-
-        var allIds = voiceState.Participants.Select(p => p.UserId).ToList();
+        var allIds = voiceState!.Participants.Select(p => p.UserId).ToList();
         await hub.Clients.Users(allIds).SendAsync("guild.voice.DeafenChanged",
             new { userId = message.TargetUserId, isDeafened = message.IsDeafened, channelId = message.ChannelId, serverForced = true });
 
-        await bus.PublishAsync(ToVoiceStateForBots(target));
+        await bus.PublishAsync(ToVoiceStateForBots(targetAfter));
     }
 
     public async Task Handle(GuildVoiceMoveUserCommand message, IDistributedCache cache,
+        LockedJsonCacheStore voiceStore, IDistributedLockService locks,
         IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService,
         MicroserviceContext microserviceContext, IMessageBus bus)
     {
@@ -212,17 +214,47 @@ public class GuildVoiceStateHandler
         var canMove = await permissionService.CanUserPerformActionAsync(userId, message.ChannelId, Permissions.MoveMembers);
         if (!canMove) return;
 
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId));
-        if (raw is null) return;
+        var sourceKey = ChannelVoiceState.GetCacheKey(message.ChannelId);
+        var targetKey = ChannelVoiceState.GetCacheKey(message.TargetChannelId);
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-        var target = voiceState.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
-        if (target is null) return;
+        // This touches two channel keys at once -acquire both locks in a fixed
+        // lexicographic order (not call order) so a concurrent move in the opposite
+        // direction (X->Y here, Y->X there) can't deadlock against this one.
+        var (firstKey, secondKey) = string.CompareOrdinal(sourceKey, targetKey) <= 0
+            ? (sourceKey, targetKey)
+            : (targetKey, sourceKey);
 
-        // Remove from current channel
-        voiceState.Participants.Remove(target);
-        await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.ChannelId),
-            JsonSerializer.Serialize(voiceState), ChannelCacheOptions);
+        ChannelVoiceState voiceState;
+        ChannelVoiceState targetVoiceState;
+        VoiceState movedState;
+
+        await using (await locks.AcquireAsync(firstKey))
+        await using (await locks.AcquireAsync(secondKey))
+        {
+            var loaded = await voiceStore.LoadAsync<ChannelVoiceState>(sourceKey);
+            var target = loaded?.Participants.FirstOrDefault(p => p.UserId == message.TargetUserId);
+            if (loaded is null || target is null) return;
+            voiceState = loaded;
+
+            // Remove from current channel
+            voiceState.Participants.Remove(target);
+            await voiceStore.SaveAsync(sourceKey, voiceState, ChannelCacheOptions);
+
+            // Add to target channel
+            targetVoiceState = await voiceStore.LoadAsync<ChannelVoiceState>(targetKey)
+                ?? new ChannelVoiceState { ChannelId = message.TargetChannelId, GuildId = voiceState.GuildId };
+
+            movedState = new VoiceState
+            {
+                UserId = message.TargetUserId,
+                ChannelId = message.TargetChannelId,
+                GuildId = voiceState.GuildId,
+                JoinedAt = DateTime.UtcNow
+            };
+            targetVoiceState.Participants.Add(movedState);
+
+            await voiceStore.SaveAsync(targetKey, targetVoiceState, ChannelCacheOptions);
+        }
 
         var onlineUserIds = await microserviceContext.GuildMembers
             .AsNoTracking()
@@ -232,24 +264,6 @@ public class GuildVoiceStateHandler
 
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
             new { userId = message.TargetUserId, channelId = message.ChannelId, guildId = voiceState.GuildId });
-
-        // Add to target channel
-        var targetRaw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(message.TargetChannelId));
-        var targetVoiceState = targetRaw is not null
-            ? JsonSerializer.Deserialize<ChannelVoiceState>(targetRaw)!
-            : new ChannelVoiceState { ChannelId = message.TargetChannelId, GuildId = voiceState.GuildId };
-
-        var movedState = new VoiceState
-        {
-            UserId = message.TargetUserId,
-            ChannelId = message.TargetChannelId,
-            GuildId = voiceState.GuildId,
-            JoinedAt = DateTime.UtcNow
-        };
-        targetVoiceState.Participants.Add(movedState);
-
-        await cache.SetStringAsync(ChannelVoiceState.GetCacheKey(message.TargetChannelId),
-            JsonSerializer.Serialize(targetVoiceState), ChannelCacheOptions);
 
         await cache.SetStringAsync(
             ChannelVoiceState.GetUserCacheKey(message.TargetUserId),

@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 using Messaging.Application.Dtos.Request;
 
 using Messaging.Application.Services;
@@ -22,8 +23,20 @@ namespace Messaging.Application.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/v1/voice")]
-public class VoiceController(IceServerService iceServerService, IMessageBus bus, IDistributedCache cache, IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
+public class VoiceController(
+    IceServerService iceServerService,
+    IMessageBus bus,
+    IDistributedCache cache,
+    LockedJsonCacheStore callStore,
+    IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
+    // Call.GetCacheId(callId) doubles as the lock key -LockedJsonCacheStore namespaces it
+    // under "lock:" internally, so it can't collide with the cache entry itself.
+    private static readonly DistributedCacheEntryOptions CacheOptions = new()
+    {
+        SlidingExpiration = TimeSpan.FromMinutes(40)
+    };
+
     [HttpGet("ice-servers")]
     public async Task<IActionResult> GetIceServers()
     {
@@ -109,10 +122,7 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
 
-        var serializedCall = await cache.GetStringAsync(Call.GetCacheId(callId));
-        if (string.IsNullOrWhiteSpace(serializedCall)) return NotFound();
-
-        var call = JsonSerializer.Deserialize<Call>(serializedCall);
+        var call = await callStore.LoadAsync<Call>(Call.GetCacheId(callId));
         if (call == null || !call.IsParticipant(userId)) return NotFound();
 
         return Ok(call);
@@ -123,26 +133,17 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
-        
-        var serializedCall = await cache.GetStringAsync(Call.GetCacheId(callId));
-        if (string.IsNullOrWhiteSpace(serializedCall))
-        {
-            return NotFound();
-        }
-        
-        var call = JsonSerializer.Deserialize<Call>(serializedCall);
-        if (call == null)
-        {
-            return NotFound();
-        }
-        
-        call.Accept(userId);
 
-        await cache.SetStringAsync(Call.GetCacheId(callId), JsonSerializer.Serialize(call),
-            new DistributedCacheEntryOptions()
-            {
-                SlidingExpiration = TimeSpan.FromMinutes(40)
-            });
+        // Locked: races against CloudflareController.CreateSession/ExchangeParticipantJoined
+        // for the same callId when the caller publishes its audio track around the same time
+        // the callee accepts -without the lock, whichever save lands last silently wins and
+        // can wipe out the other side's CfSessionId/AudioTrackName (the original bug: the
+        // Tauri client's syncParticipants() backfill then finds those fields null and never
+        // subscribes to the caller's audio).
+        var call = await callStore.UpdateAsync<Call>(
+            Call.GetCacheId(callId), Call.GetCacheId(callId),
+            c => c.Accept(userId), CacheOptions);
+        if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())
         {
@@ -157,23 +158,11 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
-        var serializedCall = await cache.GetStringAsync(Call.GetCacheId(callId));
-        if (string.IsNullOrWhiteSpace(serializedCall))
-        {
-            return NotFound();
-        }
-        
-        var call = JsonSerializer.Deserialize<Call>(serializedCall);
-        if (call == null)
-        {
-            return NotFound();
-        }
-        call.Decline(userId);
 
-        await cache.SetStringAsync(Call.GetCacheId(call.Id), JsonSerializer.Serialize(call), new DistributedCacheEntryOptions()
-        {
-            SlidingExpiration = TimeSpan.FromMinutes(40)
-        });
+        var call = await callStore.UpdateAsync<Call>(
+            Call.GetCacheId(callId), Call.GetCacheId(callId),
+            c => c.Decline(userId), CacheOptions);
+        if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())
         {
@@ -212,27 +201,13 @@ public class VoiceController(IceServerService iceServerService, IMessageBus bus,
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
-        var serializedCall = await cache.GetStringAsync(Call.GetCacheId(callId));
-        if (string.IsNullOrWhiteSpace(serializedCall))
-        {
-            return NotFound();
-        }
-        
-        var call = JsonSerializer.Deserialize<Call>(serializedCall);
-        if (call == null)
-        {
-            return NotFound();
-        }
-        
-        call.End(userId);
+
+        var call = await callStore.UpdateAsync<Call>(
+            Call.GetCacheId(callId), Call.GetCacheId(callId),
+            c => c.End(userId), CacheOptions);
+        if (call is null) return NotFound();
 
         var participantIds = call.Participants.Select(p => p.UserId).ToList();
-
-        await cache.SetStringAsync(Call.GetCacheId(callId), JsonSerializer.Serialize(call),
-            new DistributedCacheEntryOptions()
-            {
-                SlidingExpiration = TimeSpan.FromMinutes(40)
-            });
 
         await Task.WhenAll(participantIds.Select(id => cache.RemoveAsync($"user-call:{id}")));
 

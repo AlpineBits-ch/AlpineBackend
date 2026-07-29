@@ -2,6 +2,7 @@ using Echo.Realtime.Sfu;
 using System.Security.Claims;
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 
 using Guild.Application.Models;
 using Guild.Application.Services;
@@ -28,6 +29,7 @@ public class GuildCloudflareController(
     IHubContext<EchoRealtimeHub> hub,
     ILogger<GuildCloudflareController> logger,
     IDistributedCache cache,
+    LockedJsonCacheStore voiceStore,
     MicroserviceContext db) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -45,16 +47,15 @@ public class GuildCloudflareController(
 
         var cfSessionId = await cfService.CreateSessionAsync(ct);
 
-        var voiceState = await LoadChannelVoiceStateAsync(channelId, ct);
-        if (voiceState is not null)
-        {
-            var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-            if (participant is not null)
+        // Locked: races Join/ExchangeParticipantJoined/CloseTracks for the same channelId -see
+        // the comment on GuildVoiceController.Join for the class of bug this prevents.
+        await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+            voiceState =>
             {
-                participant.CfSessionId = cfSessionId;
-                await SaveChannelVoiceStateAsync(voiceState, ct);
-            }
-        }
+                var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (participant is not null) participant.CfSessionId = cfSessionId;
+            }, CacheOptions, ct);
 
         await cache.SetStringAsync(
             ChannelVoiceState.GetUserCacheKey(UserId),
@@ -150,19 +151,21 @@ public class GuildCloudflareController(
     {
         await cfService.CloseTracksAsync(body.CfSessionId, body.TrackNames, ct);
 
-        var voiceState = await LoadChannelVoiceStateAsync(channelId, ct);
-        if (voiceState is not null)
-        {
-            var me = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-            if (me is not null)
+        // Locked: same class of race as CreateSession/ExchangeParticipantJoined above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+            vs =>
             {
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (me is null) return;
                 foreach (var tn in body.TrackNames)
                     foreach (var share in me.ActiveScreenShares)
                         share.TrackNames.Remove(tn);
                 me.ActiveScreenShares.RemoveAll(s => s.TrackNames.Count == 0);
-                await SaveChannelVoiceStateAsync(voiceState, ct);
-            }
+            }, CacheOptions, ct);
 
+        if (voiceState is not null)
+        {
             var otherIds = voiceState.Participants
                 .Where(p => p.UserId != UserId)
                 .Select(p => p.UserId)
@@ -177,23 +180,30 @@ public class GuildCloudflareController(
         return NoContent();
     }
 
-    private async Task<ChannelVoiceState?> LoadChannelVoiceStateAsync(string channelId, CancellationToken ct)
-    {
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(channelId), ct);
-        return raw is null ? null : JsonSerializer.Deserialize<ChannelVoiceState>(raw);
-    }
-
-    private async Task SaveChannelVoiceStateAsync(ChannelVoiceState voiceState, CancellationToken ct)
-    {
-        await cache.SetStringAsync(
-            ChannelVoiceState.GetCacheKey(voiceState.ChannelId),
-            JsonSerializer.Serialize(voiceState),
-            CacheOptions, ct);
-    }
-
     private async Task ExchangeParticipantJoined(string channelId, string cfSessionId, CancellationToken ct)
     {
-        var voiceState = await LoadChannelVoiceStateAsync(channelId, ct);
+        // Locked -this write is the direct counterpart of the bug reported for the 1:1 call
+        // flow: it races CreateSession/Join/CloseTracks for the same channelId, and the
+        // last-writer-wins overwrite could silently wipe the publisher's own CfSessionId/
+        // AudioTrackName right back out, leaving nobody able to subscribe to their audio.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+            vs =>
+            {
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (me is not null)
+                {
+                    me.CfSessionId = cfSessionId;
+                    me.AudioTrackName = "audio";
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "ExchangeParticipantJoined: publisher {UserId} not found in channel {ChannelId}'s cached "
+                        + "participants — their own CfSessionId never got saved", UserId, channelId);
+                }
+            }, CacheOptions, ct);
+
         if (voiceState is null)
         {
             logger.LogWarning(
@@ -206,20 +216,6 @@ public class GuildCloudflareController(
             "ExchangeParticipantJoined: channel {ChannelId}, publisher {UserId}, cached participants: {Participants}",
             channelId, UserId,
             string.Join(", ", voiceState.Participants.Select(p => $"{p.UserId}(cfSessionId={p.CfSessionId ?? "null"})")));
-
-        var me = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-        if (me is not null)
-        {
-            me.CfSessionId = cfSessionId;
-            me.AudioTrackName = "audio";
-            await SaveChannelVoiceStateAsync(voiceState, ct);
-        }
-        else
-        {
-            logger.LogWarning(
-                "ExchangeParticipantJoined: publisher {UserId} not found in channel {ChannelId}'s cached "
-                + "participants — their own CfSessionId never got saved", UserId, channelId);
-        }
 
         var others = voiceState.Participants
             .Where(p => p.UserId != UserId)
@@ -283,31 +279,33 @@ public class GuildCloudflareController(
 
     private async Task EmitTrackPublished(string channelId, string cfSessionId, List<CfTrackNew> tracks, CancellationToken ct)
     {
-        var voiceState = await LoadChannelVoiceStateAsync(channelId, ct);
-        if (voiceState is null) return;
-
-        var me = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-        if (me is not null)
-        {
-            foreach (var track in tracks)
+        // Locked -same class of race as ExchangeParticipantJoined above.
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+            vs =>
             {
-                var tn = track.TrackName!;
-                var isScreenAudio = tn.StartsWith("screen-audio-");
-                var isScreen = !isScreenAudio && tn.StartsWith("screen-");
-                if (!isScreen && !isScreenAudio) continue;
+                var me = vs.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (me is null) return;
 
-                var sid = isScreen ? tn["screen-".Length..] : tn["screen-audio-".Length..];
-                var share = me.ActiveScreenShares.FirstOrDefault(s => s.ShareId == sid);
-                if (share is null)
+                foreach (var track in tracks)
                 {
-                    share = new ActiveScreenShare { ShareId = sid };
-                    me.ActiveScreenShares.Add(share);
+                    var tn = track.TrackName!;
+                    var isScreenAudio = tn.StartsWith("screen-audio-");
+                    var isScreen = !isScreenAudio && tn.StartsWith("screen-");
+                    if (!isScreen && !isScreenAudio) continue;
+
+                    var sid = isScreen ? tn["screen-".Length..] : tn["screen-audio-".Length..];
+                    var share = me.ActiveScreenShares.FirstOrDefault(s => s.ShareId == sid);
+                    if (share is null)
+                    {
+                        share = new ActiveScreenShare { ShareId = sid };
+                        me.ActiveScreenShares.Add(share);
+                    }
+                    if (!share.TrackNames.Contains(tn))
+                        share.TrackNames.Add(tn);
                 }
-                if (!share.TrackNames.Contains(tn))
-                    share.TrackNames.Add(tn);
-            }
-            await SaveChannelVoiceStateAsync(voiceState, ct);
-        }
+            }, CacheOptions, ct);
+        if (voiceState is null) return;
 
         var otherIds = voiceState.Participants
             .Where(p => p.UserId != UserId)

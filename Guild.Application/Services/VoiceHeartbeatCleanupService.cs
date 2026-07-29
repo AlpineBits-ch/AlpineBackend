@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 
 using Guild.Application.Models;
 using Guild.Contracts.Bus.Events;
@@ -15,6 +16,7 @@ namespace Guild.Application.Services;
 public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
+    LockedJsonCacheStore voiceStore,
     IHubContext<EchoRealtimeHub> hub,
     IServiceScopeFactory scopeFactory,
     ILogger<VoiceHeartbeatCleanupService> logger) : BackgroundService
@@ -53,13 +55,11 @@ public class VoiceHeartbeatCleanupService(
             if (ct.IsCancellationRequested) break;
 
             var channelId = key.ToString()["voice:channel:".Length..];
-            var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(channelId), ct);
-            if (raw is null) continue;
-
-            var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
+            var loaded = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
+            if (loaded is null) continue;
 
             var stale = new List<VoiceState>();
-            foreach (var participant in voiceState.Participants)
+            foreach (var participant in loaded.Participants)
             {
                 var heartbeat = await cache.GetStringAsync(
                     ChannelVoiceState.GetHeartbeatCacheKey(participant.UserId), ct);
@@ -69,14 +69,17 @@ public class VoiceHeartbeatCleanupService(
 
             if (stale.Count == 0) continue;
 
-            foreach (var participant in stale)
-                voiceState.Participants.Remove(participant);
-
-            await cache.SetStringAsync(
-                ChannelVoiceState.GetCacheKey(channelId),
-                JsonSerializer.Serialize(voiceState),
-                ChannelCacheOptions,
-                ct);
+            var staleIds = stale.Select(p => p.UserId).ToHashSet();
+            // Locked: this background sweep racing a live Join/mute/etc. write for the same
+            // channel was another instance of the same read-modify-write class of bug -see
+            // GuildVoiceController.Join. Re-checking staleIds (computed above from a read taken
+            // before the lock) against the freshly-loaded state inside the lock avoids evicting
+            // a participant whose heartbeat arrived in the gap between that read and now.
+            var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
+                ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+                vs => vs.Participants.RemoveAll(p => staleIds.Contains(p.UserId)),
+                ChannelCacheOptions, ct);
+            if (voiceState is null) continue;
 
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();

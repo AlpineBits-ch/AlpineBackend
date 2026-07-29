@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 
 using Guild.Application.Models;
 using Guild.Application.Services;
@@ -23,6 +24,8 @@ public class GuildVoiceController(
     GuildPermissionService permissions,
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
+    LockedJsonCacheStore voiceStore,
+    IDistributedLockService locks,
     MicroserviceContext db,
     IMessageBus bus) : ControllerBase
 {
@@ -56,20 +59,14 @@ public class GuildVoiceController(
                 await LeaveChannelAsync(existing.ChannelId, UserId, ct);
         }
 
-        // Add user to the target channel voice state
-        var voiceState = await LoadOrCreateChannelVoiceStateAsync(channelId, guildId, ct);
-        if (voiceState.Participants.All(p => p.UserId != UserId))
-        {
-            voiceState.Participants.Add(new VoiceState
-            {
-                UserId = UserId,
-                ChannelId = channelId,
-                GuildId = guildId,
-                JoinedAt = DateTime.UtcNow
-            });
-        }
+        // Add user to the target channel voice state. Locked: two users joining the same
+        // channel at once (or a join racing ExchangeParticipantJoined/CloseTracks below) were
+        // an unsynchronized read-modify-write on the same ChannelVoiceState blob -whichever
+        // save landed last silently discarded the other's change (e.g. one joiner's
+        // participant entry never persisted, or a fresh CfSessionId got clobbered back to
+        // null, same class of bug as the 1:1 call flow in Messaging.Application).
+        var voiceState = await JoinChannelVoiceStateAsync(channelId, guildId, ct);
 
-        await SaveChannelVoiceStateAsync(voiceState, ct);
         await cache.SetStringAsync(
             ChannelVoiceState.GetUserCacheKey(UserId),
             JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId }),
@@ -102,47 +99,58 @@ public class GuildVoiceController(
         var canView = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel);
         if (!canView) return Forbid();
 
-        var voiceState = await LoadOrCreateChannelVoiceStateAsync(channelId, guildId, ct);
+        var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct)
+            ?? new ChannelVoiceState { ChannelId = channelId, GuildId = guildId };
         return Ok(ChannelVoiceStateResponse.From(voiceState));
+    }
+
+    /// <summary>Locked load-or-create-then-add-participant -see the comment on the Join
+    /// endpoint above for why this needs the lock (not just the mutate-existing case that
+    /// <see cref="LockedJsonCacheStore.UpdateAsync{T}"/> covers, since the very first joiner
+    /// to a channel has no existing entry to lock onto via that path).</summary>
+    private async Task<ChannelVoiceState> JoinChannelVoiceStateAsync(string channelId, string guildId, CancellationToken ct)
+    {
+        await using var _ = await locks.AcquireAsync(ChannelVoiceState.GetCacheKey(channelId), ct: ct);
+
+        var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct)
+            ?? new ChannelVoiceState { ChannelId = channelId, GuildId = guildId };
+
+        if (voiceState.Participants.All(p => p.UserId != UserId))
+        {
+            voiceState.Participants.Add(new VoiceState
+            {
+                UserId = UserId,
+                ChannelId = channelId,
+                GuildId = guildId,
+                JoinedAt = DateTime.UtcNow
+            });
+        }
+
+        await voiceStore.SaveAsync(ChannelVoiceState.GetCacheKey(channelId), voiceState, CacheOptions, ct);
+        return voiceState;
     }
 
     internal async Task LeaveChannelAsync(string channelId, string userId, CancellationToken ct)
     {
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(channelId), ct);
-        if (raw is null) return;
+        ChannelVoiceState? voiceState;
+        await using (await locks.AcquireAsync(ChannelVoiceState.GetCacheKey(channelId), ct: ct))
+        {
+            voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
+            var participant = voiceState?.Participants.FirstOrDefault(p => p.UserId == userId);
+            if (participant is null) return;
 
-        var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-        var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-        if (participant is null) return;
+            voiceState!.Participants.Remove(participant);
+            await voiceStore.SaveAsync(ChannelVoiceState.GetCacheKey(channelId), voiceState, CacheOptions, ct);
+        }
 
-        voiceState.Participants.Remove(participant);
-        await SaveChannelVoiceStateAsync(voiceState, ct);
         await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId), ct);
         await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId), ct);
 
-        var onlineUserIds = await GetOnlineGuildMemberIdsAsync(voiceState.GuildId);
+        var onlineUserIds = await GetOnlineGuildMemberIdsAsync(voiceState!.GuildId);
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
             new { userId, channelId, guildId = voiceState.GuildId }, ct);
 
         await bus.PublishAsync(new VoiceStateForBots { GuildId = voiceState.GuildId, UserId = userId, ChannelId = null });
-    }
-
-    private async Task<ChannelVoiceState> LoadOrCreateChannelVoiceStateAsync(
-        string channelId, string guildId, CancellationToken ct)
-    {
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(channelId), ct);
-        if (raw is not null)
-            return JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-
-        return new ChannelVoiceState { ChannelId = channelId, GuildId = guildId };
-    }
-
-    private async Task SaveChannelVoiceStateAsync(ChannelVoiceState voiceState, CancellationToken ct)
-    {
-        await cache.SetStringAsync(
-            ChannelVoiceState.GetCacheKey(voiceState.ChannelId),
-            JsonSerializer.Serialize(voiceState),
-            CacheOptions, ct);
     }
 
     private async Task<List<string>> GetOnlineGuildMemberIdsAsync(string guildId)

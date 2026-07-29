@@ -77,7 +77,7 @@ public class FederationTwoInstanceTests
             var instances = await _pair.A.Federation.Client.GetFromJsonAsync<JsonElement>(
                 "/api/v1/admin/federation/instances", cts.Token);
             isActive = instances.EnumerateArray().Any(i =>
-                i.GetProperty("host").GetString() == $"http://127.0.0.1:{_pair.B.Federation.Port}" &&
+                i.GetProperty("host").GetString() == $"http://127.0.0.1:{_pair.B.Identity.Port}" &&
                 i.GetProperty("status").GetString() == "Active");
 
             if (!isActive)

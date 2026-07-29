@@ -90,7 +90,23 @@ public class CallPushService
                     push.AddCustomProperty("type", "end");
                 }
 
-                await VoipApnsClient.SendAsync(push);
+                // A device token is only valid against the APNs gateway that issued it — a
+                // debug/Xcode-run build (Runner.entitlements: aps-environment=development)
+                // registers a sandbox token, and dotAPNS defaults every push to the production
+                // gateway unless told otherwise here.
+                if (Env.Apns.UseSandbox) push.SendToDevelopmentServer();
+
+                // SendAsync reports APNs rejections (BadDeviceToken, Unregistered, etc.) via this
+                // response, not by throwing — awaiting it and discarding the result (as this used
+                // to) means a rejected VoIP push looks identical to a delivered one: the callee's
+                // phone just never rings, with nothing anywhere saying why.
+                var response = await VoipApnsClient.SendAsync(push);
+                if (!response.IsSuccessful)
+                {
+                    Console.WriteLine(
+                        $"[CallPushService] VoIP push rejected for token {token[..Math.Min(8, token.Length)]}...: " +
+                        $"{response.Reason} {response.ReasonString}");
+                }
             }
             catch (Exception e)
             {

@@ -253,6 +253,17 @@ public class ApnsConfiguration
     public string TeamId { get; set; } = GetEnvironmentVariable("APNS_TEAM_ID") ?? string.Empty;
     public string AuthKeyBase64 { get; set; } = GetEnvironmentVariable("APNS_AUTH_KEY_BASE_64") ?? string.Empty;
 
+    /// <summary>
+    /// A device's push token is only valid against the APNs gateway that issued it — a debug/
+    /// Xcode-run build (whose Runner.entitlements sets aps-environment=development) registers a
+    /// sandbox token, and Apple's production gateway silently rejects those (BadDeviceToken) rather
+    /// than delivering them. dotAPNS defaults every push to production
+    /// (ApplePush.SendToDevelopmentServer() must be called explicitly for sandbox) — see
+    /// CallPushService.SendVoipAsync.
+    /// </summary>
+    public bool UseSandbox { get; set; } =
+        GetEnvironmentVariable("APNS_USE_SANDBOX")?.Equals("false", StringComparison.OrdinalIgnoreCase) != true;
+
     public string AuthKeyContent => string.IsNullOrEmpty(AuthKeyBase64)
         ? string.Empty
         : Encoding.UTF8.GetString(Convert.FromBase64String(AuthKeyBase64));

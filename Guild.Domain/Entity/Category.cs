@@ -85,8 +85,61 @@ public class Category : BaseEntity<Category>, IPrefixedEntity
         });
         voice.Channels.Add(voiceChannel);
         text.Channels.Add(textChannel);
-        
+
         return new List<Category> { text, voice };
     }
-    
+
+    /// <summary>The channel tree a brand-new guild starts with. Every kind except Household gets
+    /// the historical Text/Voice pair unchanged - this is deliberately not a general "templates
+    /// per kind" mechanism, just the one case where the default is genuinely wrong.
+    ///
+    /// A household seeded with two empty categories called "Text Channels" and "Voice Channels"
+    /// looks exactly like a Discord server, which is the thing the Household kind exists to not
+    /// be. Seeding one channel per module makes the modules discoverable without a settings tour.</summary>
+    public static ICollection<Category> GetDefaultForKind(GuildKind kind, string guildId) =>
+        kind == GuildKind.Household ? GetHouseholdDefault(guildId) : GetDefault(guildId);
+
+    private static ICollection<Category> GetHouseholdDefault(string guildId)
+    {
+        var date = DateTime.UtcNow;
+
+        Category MakeCategory(string name, int position) => new()
+        {
+            Id = GenerateId(),
+            CreatedAt = date,
+            UpdatedAt = date,
+            Name = name,
+            GuildId = guildId,
+            Position = position,
+        };
+
+        var home = MakeCategory("Home", 0);
+        var house = MakeCategory("House", 1);
+        var voice = MakeCategory("Voice", 2);
+
+        void Add(Category category, string name, ChannelType type, string description, int position) =>
+            category.Channels.Add(Channel.Create(new CreateChannelParams
+            {
+                Name = name,
+                Type = type,
+                CategoryId = category.Id,
+                GuildId = guildId,
+                Description = description,
+                Position = position,
+            }));
+
+        // "general" first in the first category, so Guild.Create's system-channel pick (first Text
+        // channel by category then position) still lands somewhere sensible.
+        Add(home, "general", ChannelType.Text, "Everything that isn't a list or a chore", 0);
+        Add(home, "groceries", ChannelType.List, "The shopping list", 1);
+        Add(home, "chores", ChannelType.Chores, "Who does what, and when", 2);
+
+        Add(house, "pantry", ChannelType.Pantry, "What's in the kitchen", 0);
+        Add(house, "ledger", ChannelType.Ledger, "Shared expenses", 1);
+        Add(house, "decisions", ChannelType.Decisions, "Things the house needs to agree on", 2);
+
+        Add(voice, "house", ChannelType.Voice, "Voice channel", 0);
+
+        return new List<Category> { home, house, voice };
+    }
 }

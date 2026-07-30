@@ -29,8 +29,16 @@ public class ChannelEndpoint
     // Text channels for reads/writes, with cross-posting layered on top (see AnnouncementEndpoint).
     // Media is a Forum in every respect the backend cares about - only the client's intended
     // rendering differs - which is why it's creatable here rather than behind a flag on Forum.
+    // The household module types (List/Chores/Ledger/Pantry/Decisions) are creatable here like any
+    // other container; what they hold is item rows served by their own endpoints, not messages.
+    // Each is refused below unless its GuildFeatures module is enabled.
     private static readonly HashSet<ChannelType> CreatableTypes =
-        [ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media, ChannelType.Announcement];
+    [
+        ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media,
+        ChannelType.Announcement,
+        ChannelType.List, ChannelType.Chores, ChannelType.Ledger, ChannelType.Pantry,
+        ChannelType.Decisions,
+    ];
 
     [WolverinePost("/api/v1/guilds/{guildId}/channels")]
     public async Task<IResult> CreateChannel(string guildId, CreateChannelDto dto,

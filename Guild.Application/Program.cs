@@ -134,7 +134,13 @@ builder.Services.AddScoped<OnboardingValidationService>();
 builder.Services.AddScoped<OnboardingGrantService>();
 builder.Services.AddScoped<OnboardingConfigService>();
 builder.Services.AddScoped<ForumService>();
+builder.Services.AddScoped<HouseholdChannelService>();
+builder.Services.AddScoped<PantryRestockService>();
+builder.Services.AddScoped<ChoreRotationService>();
+builder.Services.AddScoped<LedgerService>();
+builder.Services.AddScoped<HomeStatusService>();
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
+builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 if (args.Contains("codegen") || args.Contains("describe"))

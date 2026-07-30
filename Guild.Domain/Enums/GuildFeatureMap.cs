@@ -34,6 +34,19 @@ public static class GuildFeatureMap
             Permissions.EditAnyWikiPage | Permissions.DeleteWikiPages |
             Permissions.ManageWikiRevisions | Permissions.ManageWikiStructure |
             Permissions.ModerateWikiComments | Permissions.PublishWikiPublicly),
+
+        (GuildFeatures.Lists,
+            Permissions.ManageLists | Permissions.AddListItems | Permissions.CheckOffListItems),
+
+        (GuildFeatures.Chores, Permissions.ManageChores | Permissions.CompleteChores),
+
+        (GuildFeatures.Ledger, Permissions.ManageLedger | Permissions.AddExpenses),
+
+        (GuildFeatures.Pantry, Permissions.ManagePantry),
+
+        (GuildFeatures.Decisions, Permissions.CreateDecisions | Permissions.VoteDecisions),
+
+        (GuildFeatures.GuestAccess, Permissions.ManageGuests),
     ];
 
     /// <summary>Every permission bit owned by a module that <paramref name="enabled"/> does not
@@ -72,6 +85,11 @@ public static class GuildFeatureMap
         ChannelType.Announcement => GuildFeatures.Announcements,
         ChannelType.Ticket => GuildFeatures.Tickets,
         ChannelType.Thread => GuildFeatures.Threads,
+        ChannelType.List => GuildFeatures.Lists,
+        ChannelType.Chores => GuildFeatures.Chores,
+        ChannelType.Ledger => GuildFeatures.Ledger,
+        ChannelType.Pantry => GuildFeatures.Pantry,
+        ChannelType.Decisions => GuildFeatures.Decisions,
         _ => null,
     };
 }

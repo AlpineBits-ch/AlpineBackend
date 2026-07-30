@@ -242,12 +242,43 @@ public class GuildFeatureGateTests
         Assert.That((ulong)GuildFeaturePresets.Community, Is.EqualTo(4095ul));
     }
 
+    /// <summary>Community is the pre-gate behaviour, so it must not strip anything that existed
+    /// before feature gating landed. It legitimately does strip the household-module permissions -
+    /// those never existed for a community guild - so the invariant is stated against the
+    /// community-scale modules rather than against "nothing at all".</summary>
     [Test]
-    public void CommunityPreset_EnablesEveryPermissionOwningModule()
+    public void CommunityPreset_StripsNoPreExistingPermission()
     {
-        Assert.That(GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Community),
-            Is.EqualTo(Permissions.None),
-            "Community is the pre-gate behaviour: it must not strip a single permission");
+        var householdOnly =
+            Permissions.ManageLists | Permissions.AddListItems | Permissions.CheckOffListItems |
+            Permissions.ManageChores | Permissions.CompleteChores |
+            Permissions.ManageLedger | Permissions.AddExpenses |
+            Permissions.ManagePantry |
+            Permissions.CreateDecisions | Permissions.VoteDecisions |
+            Permissions.ManageGuests;
+
+        var stripped = GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Community);
+
+        Assert.That(stripped & ~householdOnly, Is.EqualTo(Permissions.None),
+            "every guild that existed before gating must keep every permission it had");
+    }
+
+    [Test]
+    public void HouseholdPreset_EnablesEveryHouseholdPermission()
+    {
+        var stripped = GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Household);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(stripped.HasFlag(Permissions.AddListItems), Is.False);
+            Assert.That(stripped.HasFlag(Permissions.CompleteChores), Is.False);
+            Assert.That(stripped.HasFlag(Permissions.AddExpenses), Is.False);
+            Assert.That(stripped.HasFlag(Permissions.ManagePantry), Is.False);
+            Assert.That(stripped.HasFlag(Permissions.VoteDecisions), Is.False);
+            Assert.That(stripped.HasFlag(Permissions.ManageGuests), Is.False);
+            Assert.That(stripped.HasFlag(Permissions.BanMembers), Is.True,
+                "households don't ban each other");
+        });
     }
 
     [Test]

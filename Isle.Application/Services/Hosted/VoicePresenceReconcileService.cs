@@ -56,7 +56,8 @@ public sealed class VoicePresenceReconcileService(
         }
     }
 
-    private async Task ReconcileAsync(CancellationToken ct)
+    /// <summary>Internal (rather than private) so unit tests can drive one reconcile pass directly without waiting on <see cref="Interval"/>.</summary>
+    internal async Task ReconcileAsync(CancellationToken ct)
     {
         // Authoritative roster of steamIds currently connected to the game server.
         List<string> onlineSteamIds;

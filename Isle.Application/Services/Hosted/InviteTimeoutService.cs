@@ -41,7 +41,8 @@ public sealed class InviteTimeoutService(
         }
     }
 
-    private async Task ExpireStaleInvitesAsync(CancellationToken ct)
+    /// <summary>Internal (rather than private) so unit tests can drive one tick directly without waiting on <see cref="Interval"/>.</summary>
+    internal async Task ExpireStaleInvitesAsync(CancellationToken ct)
     {
         var cutoff = DateTimeOffset.UtcNow - PlayerInvite.Timeout;
 

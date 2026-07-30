@@ -58,7 +58,8 @@ public sealed class KingOfTheHillDirectorService(
         }
     }
 
-    private async Task SafeTickAsync(CancellationToken ct)
+    /// <summary>Internal (rather than private) so unit tests can drive one tick directly without waiting on <see cref="StartupDelay"/>/<see cref="Interval"/>.</summary>
+    internal async Task SafeTickAsync(CancellationToken ct)
     {
         try
         {

@@ -46,6 +46,10 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         var decoded = _sqids.Decode(friendlyId);
         if (decoded.Count != 1) return null;
         var seq = decoded[0];
+        // Decode can yield a negative number for arbitrary strings that aren't a real friendly id
+        // (e.g. an in-game name) — Encode throws on negative input, so guard before the round-trip
+        // re-encode instead of letting that exception escape as an unhandled crash.
+        if (seq < 0) return null;
         return _sqids.Encode(seq) == friendlyId ? seq : null;
     }
 

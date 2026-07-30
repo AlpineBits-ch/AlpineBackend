@@ -39,8 +39,11 @@ public class StoreDinoCommand(MicroserviceContext microserviceContext, IBridgeCl
             return $"Your storage is full ({player.Storage.Slots.Count}/{player.Storage.MaxSlotCount}). Buy a slot with !buyslot or load one out first.";
         }
 
-        // Pull the current mutation loadout so it can be restored on load.
-        MutationsData? mutations = null;
+        // Pull the current mutation loadout so it can be restored on load. Mutations is a required
+        // owned type (see MicroserviceContext), so a failed read must still produce a non-null,
+        // empty value here - leaving it null would make the SaveChangesAsync below throw instead of
+        // degrading gracefully as the log message below promises.
+        MutationsData mutations = new();
         try
         {
             mutations = await bridgeClient.GetMutationsAsync(context.PlayerSteam);

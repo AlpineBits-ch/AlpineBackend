@@ -109,7 +109,8 @@ public sealed class VoiceSubscriptionReconcileService(
     /// or whether the per-tick heuristic kept deferring it, this runs exactly once per process and
     /// clears it regardless.
     /// </summary>
-    private async Task RunStartupForceRepublishAsync(CancellationToken ct)
+    /// <summary>Internal (rather than private) so unit tests can drive this directly without waiting on <see cref="StartupForceRepublishDelay"/>.</summary>
+    internal async Task RunStartupForceRepublishAsync(CancellationToken ct)
     {
         try
         {
@@ -150,7 +151,8 @@ public sealed class VoiceSubscriptionReconcileService(
         }
     }
 
-    private async Task ReconcileAsync()
+    /// <summary>Internal (rather than private) so unit tests can drive one reconcile pass directly without waiting on <see cref="Interval"/>.</summary>
+    internal async Task ReconcileAsync()
     {
         // Snapshot under the grid lock, then do the SFU pushes outside it.
         var players = cluster.GetPlayers();
@@ -203,7 +205,7 @@ public sealed class VoiceSubscriptionReconcileService(
     /// republish. Requires the player to have been track-less for two consecutive ticks so a normal
     /// joiner still finishing its first publish is left alone, and rate-limits per user.
     /// </summary>
-    private async Task OrderRepublishForForgottenTracks(IReadOnlyCollection<string> players, ISfuClient sfu)
+    internal async Task OrderRepublishForForgottenTracks(IReadOnlyCollection<string> players, ISfuClient sfu)
     {
         var trackless = new HashSet<string>();
         foreach (var userId in players)

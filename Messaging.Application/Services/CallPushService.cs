@@ -76,7 +76,14 @@ public class CallPushService
 
     private static async Task SendVoipAsync(IEnumerable<string> tokens, CallPushPayload payload, bool isCancel)
     {
-        foreach (var token in tokens)
+        var tokenList = tokens.ToList();
+        // Distinguishing "no token on file" from "sent, Apple accepted it" from "sent, Apple
+        // rejected it" was previously impossible from the logs alone - the only line that ever
+        // printed was the rejection case, so a silently-empty token list (stale/never-registered
+        // VoIP token) looked identical to a successful, silent delivery. See venta_mobile's
+        // "CallKit rings sometimes but not others" investigation.
+        Console.WriteLine($"[CallPushService] SendVoipAsync: {tokenList.Count} voip token(s) for callId={payload.CallId} isCancel={isCancel}");
+        foreach (var token in tokenList)
         {
             try
             {
@@ -104,11 +111,20 @@ public class CallPushService
                 // the callee's phone just never rings, with nothing anywhere saying why. See
                 // venta_mobile's "native call screen never appears on iOS" investigation.
                 var response = await VoipApnsClient.SendAsync(push);
+                var tokenPrefix = token[..Math.Min(8, token.Length)];
                 if (!response.IsSuccessful)
                 {
                     Console.WriteLine(
-                        $"[CallPushService] VoIP push rejected for token {token[..Math.Min(8, token.Length)]}...: " +
+                        $"[CallPushService] VoIP push rejected for token {tokenPrefix}...: " +
                         $"{response.Reason} {response.ReasonString}");
+                }
+                else
+                {
+                    // Apple accepting the push (2xx from APNs) only means it queued for delivery
+                    // to the device - it doesn't guarantee PushKit actually wakes the app (that
+                    // can still silently fail on Apple's end). Logged so a future "rejected? no.
+                    // exception? no. rang? also no." report can at least rule the server side out.
+                    Console.WriteLine($"[CallPushService] VoIP push accepted by APNs for token {tokenPrefix}... (sandbox={Env.Apns.UseSandbox})");
                 }
             }
             catch (Exception e)

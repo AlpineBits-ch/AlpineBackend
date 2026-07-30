@@ -4,6 +4,7 @@ using Messaging.Application.Controllers;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
+using Messaging.Infrastructure.Persistence;
 using Messaging.Infrastructure.Persistence.Repositories;
 using Messaging.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
@@ -175,5 +176,51 @@ public class MessagingControllerTests
         Assert.That(result, Is.InstanceOf<OkObjectResult>());
         var messages = (((OkObjectResult)result).Value as IEnumerable<MessageDto>)!.ToList();
         Assert.That(messages, Has.Count.EqualTo(1));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Paging normalization
+    //
+    // [FromQuery] int binds an omitted limit to 0. Scylla answers a "LIMIT 0" with
+    // "LIMIT must be strictly positive", which surfaced as a 500 on requests that merely left
+    // the parameter off. Both history endpoints clamp instead.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private static FakeMessageBus AllowChannelAccess() => new(msg => msg switch
+    {
+        HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
+        _ => throw new InvalidOperationException("unexpected"),
+    });
+
+    [Test]
+    public async Task GetMessagesForChannel_OmittedLimit_UsesPositiveDefaultPageSize()
+    {
+        var mapper = new FakeCassandraMapper
+        {
+            Messages = [Message.Create(new CreateMessageParams { Content = "hi"u8.ToArray(), ChannelId = "chan-1", AuthorId = "author-1" })],
+        };
+        var controller = new MessagingController(
+            new ScyllaMessageRepository(ScyllaContext.CreateDebug(mapper)),
+            NullLogger<MessagingController>.Instance, AllowChannelAccess(), _permissionService);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestPrincipal.ForUser("user-1") } };
+
+        var result = await controller.GetMessagesForChannelAsync("chan-1", 0, 0);
+
+        Assert.That(result, Is.InstanceOf<OkObjectResult>());
+        Assert.That(mapper.Fetches[0].Args[1], Is.EqualTo(50), "LIMIT reaching Scylla must be strictly positive");
+    }
+
+    [Test]
+    public async Task GetMessagesForChannel_OversizedLimit_IsCapped()
+    {
+        var mapper = new FakeCassandraMapper();
+        var controller = new MessagingController(
+            new ScyllaMessageRepository(ScyllaContext.CreateDebug(mapper)),
+            NullLogger<MessagingController>.Instance, AllowChannelAccess(), _permissionService);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestPrincipal.ForUser("user-1") } };
+
+        await controller.GetMessagesForChannelAsync("chan-1", 0, 5000);
+
+        Assert.That(mapper.Fetches[0].Args[1], Is.EqualTo(100));
     }
 }

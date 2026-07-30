@@ -19,96 +19,66 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
  
 
-    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByConversationIdAsync(string conversationId, int take, int skip)
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByConversationIdAsync(string conversationId, int take, int skip)
     {
         // messages' PRIMARY KEY is (context_id, created_at, message_id) - context_id is the
         // partition key. conversation_id/channel_id are denormalized metadata columns, not part
         // of the key, so filtering on them requires ALLOW FILTERING (a full partition scan) and
         // Scylla rejects it outright. Message.Create sets ContextId = ConversationId ?? ChannelId,
         // so querying by context_id with the conversation id is the actual indexed lookup.
-        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
-
-        var messageItems = await context.Mapper.FetchAsync<Message>(cql, conversationId, skip + take);
-        
-        var result = messageItems
-            .Skip(skip)
-            .Take(take)
-            .OrderBy(m => m.CreatedAt) // Flip them back to chronological order
-            .ToList();
-            
-        var reactionCql = "SELECT * FROM reactions WHERE context_id = ? AND message_id = ?";
-        var reactionTasks = result.Select(m => 
-            context.Mapper.FetchAsync<Reaction>(reactionCql, m.ContextId, m.Id));
-    
-        var reactionResults = await Task.WhenAll(reactionTasks);
-    
-        var reactionsByMessage = result
-            .Zip(reactionResults, (m, reactions) => (m.Id, Reactions: reactions.ToList()))
-            .ToDictionary(x => x.Id, x => x.Reactions);
-
-
-        return (messageItems.ToList(), reactionsByMessage);
+        return GetMessagePageAsync(conversationId, take, skip);
     }
 
-    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByContextIdAsync(string contextId, int take, int skip)
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByContextIdAsync(string contextId, int take, int skip)
+        => GetMessagePageAsync(contextId, take, skip);
+
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(string channelId, int take, int skip)
     {
-        // Same partition-key fix as GetMessagesByConversationIdAsync - this was querying by
-        // conversation_id (not part of the key, and wrong for channel-scoped context ids too)
-        // instead of the actual partition key, context_id.
-        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
-
-        var messageItems = await context.Mapper.FetchAsync<Message>(cql, contextId, skip + take);
-        
-        var result = messageItems
-            .Skip(skip)
-            .Take(take)
-            .OrderBy(m => m.CreatedAt) // Flip them back to chronological order
-            .ToList();
-            
-        var reactionCql = "SELECT * FROM reactions WHERE context_id = ? AND message_id = ?";
-        var reactionTasks = result.Select(m => 
-            context.Mapper.FetchAsync<Reaction>(reactionCql, m.ContextId, m.Id));
-    
-        var reactionResults = await Task.WhenAll(reactionTasks);
-    
-        var reactionsByMessage = result
-            .Zip(reactionResults, (m, reactions) => (m.Id, Reactions: reactions.ToList()))
-            .ToDictionary(x => x.Id, x => x.Reactions);
-
-
-        return (messageItems.ToList(), reactionsByMessage);
-        
+        // Same partition-key lookup as the conversation variant - channel_id isn't part of
+        // messages' PRIMARY KEY either, and Message.Create sets ContextId = ChannelId for
+        // channel-scoped messages, so context_id is the correct indexed lookup for both.
+        return GetMessagePageAsync(channelId, take, skip);
     }
 
-    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(string channelId, int take, int skip)
+    /// <summary>
+    /// Reads one page of a message partition, newest-first off the wire, returned oldest-first.
+    /// All three public list overloads funnel through here: conversation ids, channel ids and raw
+    /// context ids are all just the messages partition key (see Message.Create).
+    /// </summary>
+    private async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagePageAsync(
+        string contextId, int take, int skip)
     {
-        // Same partition-key fix as GetMessagesByConversationIdAsync - channel_id isn't part of
-        // messages' PRIMARY KEY (context_id, created_at, message_id), so this required ALLOW
-        // FILTERING and Scylla rejected it. Message.Create sets ContextId = ChannelId for
-        // channel-scoped messages, so context_id is the correct indexed lookup.
+        if (take <= 0) return (new List<Message>(), new Dictionary<string, List<Reaction>>());
+        if (skip < 0) skip = 0;
+
         var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
 
-        var messageItems = await context.Mapper.FetchAsync<Message>(cql, channelId, skip + take);
-        
+        // ToList() here is load-bearing, not a style choice: Mapper.FetchAsync returns a lazy
+        // projection over the driver's RowSet, whose enumerator *dequeues* from an internal
+        // ConcurrentQueue<Row>. It is a single-pass, self-consuming sequence - enumerating it a
+        // second time yields nothing. Materializing once up front is the only safe way to read it
+        // more than once.
+        var messageItems = (await context.Mapper.FetchAsync<Message>(cql, contextId, skip + take)).ToList();
+
         var result = messageItems
             .Skip(skip)
             .Take(take)
             .OrderBy(m => m.CreatedAt) // Flip them back to chronological order
             .ToList();
-            
+
         var reactionCql = "SELECT * FROM reactions WHERE context_id = ? AND message_id = ?";
-        var reactionTasks = result.Select(m => 
+        var reactionTasks = result.Select(m =>
             context.Mapper.FetchAsync<Reaction>(reactionCql, m.ContextId, m.Id));
-    
+
         var reactionResults = await Task.WhenAll(reactionTasks);
-    
+
         var reactionsByMessage = result
             .Zip(reactionResults, (m, reactions) => (m.Id, Reactions: reactions.ToList()))
             .ToDictionary(x => x.Id, x => x.Reactions);
 
-
-        return (messageItems.ToList(), reactionsByMessage);
-        
+        // Return the paged/ordered page - not the raw fetch, which ignores skip, comes back
+        // newest-first, and has no matching entries in reactionsByMessage.
+        return (result, reactionsByMessage);
     }
 
     public async Task<Message> UpdateMessageAsync(Message message)

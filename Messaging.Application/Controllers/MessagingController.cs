@@ -18,6 +18,17 @@ namespace Messaging.Application.Controllers;
 [Route("api/v1/messaging")]
 public class MessagingController(IMessageRepository repo, ILogger<MessagingController> logger, IMessageBus bus, ConversationPermissionService conversationPermissionService) : ControllerBase
 {
+    private const int DefaultPageSize = 50;
+    private const int MaxPageSize = 100;
+
+    /// <summary>
+    /// [FromQuery] int binds an omitted/blank limit to 0, which Scylla rejects outright
+    /// ("LIMIT must be strictly positive") - a 500 on a request that is merely under-specified.
+    /// Clamp to a sane page instead, and never let a negative offset reach the store.
+    /// </summary>
+    private static (int Offset, int Limit) NormalizePaging(int offset, int limit) =>
+        (Math.Max(0, offset), limit <= 0 ? DefaultPageSize : Math.Min(limit, MaxPageSize));
+
     [HttpGet("conversations/{conversationId}/messages")]
     public async Task<IActionResult> GetMessages(string conversationId, [FromQuery] int offset, [FromQuery] int limit)
     {
@@ -39,7 +50,8 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
             // (see MessagingInfrastructure's UseScyllaDb switch) - this endpoint previously always
             // hit Scylla directly regardless of that setting, throwing a NullReferenceException on
             // any self-hosted deployment (or test harness) that disables it.
-            var (result, reactionsByMessage) = await repo.GetMessagesByConversationIdAsync(conversationId, limit, offset);
+            var (page, size) = NormalizePaging(offset, limit);
+            var (result, reactionsByMessage) = await repo.GetMessagesByConversationIdAsync(conversationId, size, page);
 
             var messages = result.SelectFacets<Message, MessageDto>();
 
@@ -81,7 +93,8 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
 
         try
         {
-            var (result, reactionsByMessage) = await repo.GetMessagesByChannelIdAsync(channelId, limit, offset);
+            var (page, size) = NormalizePaging(offset, limit);
+            var (result, reactionsByMessage) = await repo.GetMessagesByChannelIdAsync(channelId, size, page);
 
             var messages = result.SelectFacets<Message, MessageDto>();
 

@@ -1,6 +1,7 @@
 using Guild.Application.Dtos.Request;
 using Guild.Application.Endpoints;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
@@ -29,6 +30,8 @@ public class CategoryEndpointTests
     private GuildPermissionService _permissionService = null!;
     private FakeHubContext _hub = null!;
     private GuildHydrateService _hydrateService = null!;
+    private AuditLogService _auditLog = null!;
+    private FakeMessageBus _bus = null!;
     private CategoryEndpoint _endpoint = null!;
 
     [SetUp]
@@ -39,6 +42,8 @@ public class CategoryEndpointTests
         _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _hub = new FakeHubContext();
         _hydrateService = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
+        _auditLog = new AuditLogService(_context);
+        _bus = new FakeMessageBus();
         _endpoint = new CategoryEndpoint();
     }
 
@@ -66,7 +71,7 @@ public class CategoryEndpointTests
     [Test]
     public async Task CreateCategory_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "c" }, _permissionService, _context, _hub, _hydrateService, TestPrincipal.CreateAnonymous());
+        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "c" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.CreateAnonymous());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -77,7 +82,7 @@ public class CategoryEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "c" }, _permissionService, _context, _hub, _hydrateService, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "c" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -86,7 +91,7 @@ public class CategoryEndpointTests
     {
         await SeedManagerMember();
 
-        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "New Category", Position = 3 }, _permissionService, _context, _hub, _hydrateService, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "New Category", Position = 3 }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var ok = result as Ok<Guild.Application.Dtos.Response.CategoryDto>;
@@ -96,20 +101,37 @@ public class CategoryEndpointTests
         Assert.That(created.Position, Is.EqualTo(3));
     }
 
+    [Test]
+    public async Task CreateCategory_Valid_PublishesBotEventAsCategoryTypeChannel()
+    {
+        await SeedManagerMember();
+
+        var result = await _endpoint.CreateCategory(GuildId, new CreateCategoryDto { Name = "New Category" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var ok = (Ok<Guild.Application.Dtos.Response.CategoryDto>)result;
+
+        var evt = _bus.Published.OfType<ChannelCreatedForBots>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt.ChannelId, Is.EqualTo(ok.Value!.Id));
+            Assert.That(evt.Type, Is.EqualTo("Category"));
+            Assert.That(evt.CategoryId, Is.Null);
+        });
+    }
+
     // ══════════════════════════════════════════════════════════════════════ DeleteChannelAsync
     // (deletes a Category) ══════════════════════════════════════════════════════════════════════
 
     [Test]
     public async Task DeleteCategory_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.DeleteChannelAsync("nonexistent", _permissionService, _context, _hub, _hydrateService, TestPrincipal.CreateAnonymous());
+        var result = await _endpoint.DeleteChannelAsync("nonexistent", _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.CreateAnonymous());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task DeleteCategory_DoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.DeleteChannelAsync("nonexistent", _permissionService, _context, _hub, _hydrateService, TestPrincipal.Create(UserId));
+        var result = await _endpoint.DeleteChannelAsync("nonexistent", _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -122,7 +144,7 @@ public class CategoryEndpointTests
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.DeleteChannelAsync(category.Id, _permissionService, _context, _hub, _hydrateService, TestPrincipal.Create(UserId));
+        var result = await _endpoint.DeleteChannelAsync(category.Id, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -134,10 +156,96 @@ public class CategoryEndpointTests
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.DeleteChannelAsync(category.Id, _permissionService, _context, _hub, _hydrateService, TestPrincipal.Create(UserId));
+        var result = await _endpoint.DeleteChannelAsync(category.Id, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(await _context.Categories.AsNoTracking().AnyAsync(c => c.Id == category.Id), Is.False);
+    }
+
+    [Test]
+    public async Task DeleteCategory_Valid_PublishesBotEvent()
+    {
+        await SeedManagerMember();
+        var category = Guild.Domain.Entity.Category.Create(new CreateCategoryParams { Name = "cat", GuildId = GuildId, Position = 0 });
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+
+        await _endpoint.DeleteChannelAsync(category.Id, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+
+        var evt = _bus.Published.OfType<ChannelDeletedForBots>().Single();
+        Assert.That(evt.ChannelId, Is.EqualTo(category.Id));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ UpdateCategoryAsync
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task UpdateCategory_Unauthenticated_ReturnsUnauthorized()
+    {
+        var result = await _endpoint.UpdateCategoryAsync("nonexistent", new UpdateCategoryDto { Name = "x" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.CreateAnonymous());
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    [Test]
+    public async Task UpdateCategory_DoesNotExist_ReturnsNotFound()
+    {
+        var result = await _endpoint.UpdateCategoryAsync("nonexistent", new UpdateCategoryDto { Name = "x" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task UpdateCategory_LacksManageChannel_ReturnsForbid()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
+        var category = Guild.Domain.Entity.Category.Create(new CreateCategoryParams { Name = "cat", GuildId = GuildId, Position = 0 });
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.UpdateCategoryAsync(category.Id, new UpdateCategoryDto { Name = "renamed" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task UpdateCategory_Valid_RenamesCategory()
+    {
+        await SeedManagerMember();
+        var category = Guild.Domain.Entity.Category.Create(new CreateCategoryParams { Name = "old-name", GuildId = GuildId, Position = 0 });
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.UpdateCategoryAsync(category.Id, new UpdateCategoryDto { Name = "new-name" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.CategoryDto>;
+        Assert.That(ok, Is.Not.Null);
+        Assert.That(ok!.Value!.Name, Is.EqualTo("new-name"));
+        var stored = await _context.Categories.AsNoTracking().FirstAsync(c => c.Id == category.Id);
+        Assert.That(stored.Name, Is.EqualTo("new-name"));
+    }
+
+    [Test]
+    public async Task UpdateCategory_Valid_PublishesBotEventAsCategoryTypeChannel()
+    {
+        await SeedManagerMember();
+        var category = Guild.Domain.Entity.Category.Create(new CreateCategoryParams { Name = "old-name", GuildId = GuildId, Position = 0 });
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateCategoryAsync(category.Id, new UpdateCategoryDto { Name = "new-name" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+
+        var evt = _bus.Published.OfType<ChannelUpdatedForBots>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt.ChannelId, Is.EqualTo(category.Id));
+            Assert.That(evt.Name, Is.EqualTo("new-name"));
+            Assert.That(evt.Type, Is.EqualTo("Category"));
+        });
     }
 }

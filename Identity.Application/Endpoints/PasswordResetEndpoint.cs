@@ -7,6 +7,7 @@ using Messaging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Logging;
 using Wolverine.Http;
 
 namespace Identity.Application.Endpoints;
@@ -18,7 +19,7 @@ public class PasswordResetEndpoint
 {
     [WolverineGet("api/v1/user/request-password-reset")]
     public async Task<IResult> RequestPasswordReset([FromQuery] string email, [NotBody] IDistributedCache cache,
-        [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService)
+        [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService, [NotBody] ILogger<PasswordResetEndpoint> logger)
     {
         var normalized = email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
@@ -37,7 +38,19 @@ public class PasswordResetEndpoint
             ResetCode = code,
         });
 
-        await emailService.SendEmailAsync(user.Email, "Reset your Venta.gg password", body);
+        try
+        {
+            await emailService.SendEmailAsync(user.Email, "Reset your Venta.gg password", body);
+        }
+        catch (Exception ex)
+        {
+            // Don't let a mail-delivery fault (e.g. Graph mail not configured in this
+            // environment, or a transient outage) turn into an unhandled 500 that also
+            // contradicts the "always look the same" contract above by revealing, via a
+            // failure response, that the account exists. The code is already cached, so a
+            // resend attempt can still succeed once mail delivery is available.
+            logger.LogError(ex, "Failed to send password reset email to {Email}", user.Email);
+        }
 
         return Results.Accepted();
     }

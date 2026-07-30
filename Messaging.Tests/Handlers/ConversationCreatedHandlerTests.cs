@@ -130,4 +130,23 @@ public class ConversationCreatedHandlerTests
         Assert.That(permissions.ConversationIds, Contains.Item(ConversationId),
             "Cache must contain the new conversation after handler runs");
     }
+
+    [Test]
+    public async Task Handle_PendingWelcomesExist_SendsWelcomeToEachOwningUser()
+    {
+        _context.Members.Add(MakeMember("m-a", InitiatorUserId, ConversationId));
+        _context.PendingWelcomes.AddRange(
+            new PendingWelcome { Id = "pewe-1", ConversationId = ConversationId, UserId = AcceptantUserId, DeviceId = "device-1", Welcome = [1, 2, 3] },
+            new PendingWelcome { Id = "pewe-2", ConversationId = ConversationId, UserId = "user-c", DeviceId = "device-2", Welcome = [4, 5, 6] });
+        await _context.SaveChangesAsync();
+
+        var @event = new ConversationCreated { ConversationId = ConversationId };
+
+        await ConversationCreatedHandler.Handle(@event, _context, _permissionService, _hubContext);
+
+        var hubClients = (FakeHubClients)_hubContext.Clients;
+        var welcomeMessages = hubClients.SentMessages.Where(m => m.Method == "conversation.Welcome").ToList();
+        Assert.That(welcomeMessages, Has.Count.EqualTo(2),
+            "Each user with a pending welcome for this conversation must receive one welcome push");
+    }
 }

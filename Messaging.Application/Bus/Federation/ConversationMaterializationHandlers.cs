@@ -32,10 +32,18 @@ public class ConversationMaterializationHandlers
             OriginInstanceId = message.OriginInstanceId,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
+            // PublicKey/CachedUserName are IsRequired() (NOT NULL) columns - unlike
+            // ConversationEndpoints.CreateConversation, there's no cross-service profile lookup
+            // available here to populate a real cached display name, so we default to the
+            // federated user id (same empty-key convention as a non-MLS local member) rather than
+            // leaving them null, which would fail this SaveChangesAsync with a constraint
+            // violation.
             Members = message.MemberIds.Select(userId => ConversationMember.Create(new CreateConversationMemberParams
             {
                 ConversationId = message.ConversationId,
                 UserId = userId,
+                PublicKey = Array.Empty<byte>(),
+                CachedUserName = userId,
             })).ToList(),
         });
         await db.SaveChangesAsync(ct);
@@ -47,10 +55,14 @@ public class ConversationMaterializationHandlers
             m => m.ConversationId == message.ConversationId && m.UserId == message.UserId, ct);
         if (exists) return;
 
+        // See the matching comment in the FederatedConversationCreatedReceived handler above:
+        // PublicKey/CachedUserName are NOT NULL columns with no profile data available here.
         var member = ConversationMember.Create(new CreateConversationMemberParams
         {
             ConversationId = message.ConversationId,
             UserId = message.UserId,
+            PublicKey = Array.Empty<byte>(),
+            CachedUserName = message.UserId,
         });
         member.FederatedServerId = message.OriginInstanceId;
 

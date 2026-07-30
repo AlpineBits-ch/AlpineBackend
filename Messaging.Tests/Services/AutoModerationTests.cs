@@ -1,3 +1,5 @@
+using Guild.Contracts.Bus.Request;
+using Guild.Contracts.Bus.Response;
 using Messaging.Application.Services;
 using Messaging.Tests.Helpers;
 
@@ -124,5 +126,87 @@ public class AutoModerationTests
 
         var limited = await AutoModeration.IsRateLimitedAsync("chan-2", "user-1", maxMessages: 3, intervalSeconds: 10, cache);
         Assert.That(limited, Is.False);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // CheckAsync — the bus/cache-dependent wrapper (config cache hit vs. miss)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task CheckAsync_ConfigDisabled_ReturnsNull_RegardlessOfContent()
+    {
+        var cache = new FakeDistributedCache();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false, BlockedWords = ["spam"] },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        var result = await AutoModeration.CheckAsync("chan-1", "user-1", "this is spam", cache, bus);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task CheckAsync_ConfigCacheHit_SkipsBus_UsesCachedConfig()
+    {
+        var cache = new FakeDistributedCache();
+        cache.SetEntry("automod:config:chan-1", "{\"Enabled\":true,\"BlockedWords\":[\"spam\"]}");
+        var bus = new FakeMessageBus(); // no responder configured - a bus call would throw
+
+        var result = await AutoModeration.CheckAsync("chan-1", "user-1", "this is spam", cache, bus);
+
+        Assert.That(result, Is.EqualTo("blocked_word"));
+    }
+
+    [Test]
+    public async Task CheckAsync_ConfigCacheMiss_FetchesFromBus_AndPopulatesCache()
+    {
+        var cache = new FakeDistributedCache();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = true, BlockedWords = ["spam"] },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        var result = await AutoModeration.CheckAsync("chan-1", "user-1", "this is spam", cache, bus);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.EqualTo("blocked_word"));
+            Assert.That(cache.HasEntry("automod:config:chan-1"), Is.True,
+                "The fetched config must be cached so subsequent messages in the channel skip the bus round trip");
+        });
+    }
+
+    [Test]
+    public async Task CheckAsync_EnabledButCleanContent_UnderRateLimit_ReturnsNull()
+    {
+        var cache = new FakeDistributedCache();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = true, BlockedWords = ["spam"], MaxMessagesPerInterval = 5, IntervalSeconds = 60 },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        var result = await AutoModeration.CheckAsync("chan-1", "user-1", "perfectly fine message", cache, bus);
+
+        Assert.That(result, Is.Null);
+    }
+
+    [Test]
+    public async Task CheckAsync_EnabledCleanContent_ExceedsRateLimit_ReturnsRateLimited()
+    {
+        var cache = new FakeDistributedCache();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = true, BlockedWords = [], MaxMessagesPerInterval = 1, IntervalSeconds = 60 },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        await AutoModeration.CheckAsync("chan-1", "user-1", "message one", cache, bus);
+        var result = await AutoModeration.CheckAsync("chan-1", "user-1", "message two", cache, bus);
+
+        Assert.That(result, Is.EqualTo("rate_limited"));
     }
 }

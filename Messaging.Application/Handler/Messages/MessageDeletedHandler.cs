@@ -13,7 +13,12 @@ public class MessageDeletedHandler
     public async Task Handle(MessageDeleted messageDeleted, IHubContext<EchoRealtimeHub> hubContext,
         MicroserviceContext ctx, IMessageBus bus)
     {
-        await ctx.MessageSearchEntries.Where(e => e.MessageId == messageDeleted.MessageId).ExecuteDeleteAsync();
+        // Tracked-entity removal rather than ExecuteDeleteAsync, mirroring MessageUpdatedHandler's
+        // approach to the same MessageSearchEntry side effect right below it - this Handle method
+        // is bus-dispatched and auto-wrapped by Wolverine (see repo convention), so no manual
+        // SaveChangesAsync here; Wolverine's middleware commits the Remove() after Handle returns.
+        var searchEntry = await ctx.MessageSearchEntries.FirstOrDefaultAsync(e => e.MessageId == messageDeleted.MessageId);
+        if (searchEntry is not null) ctx.MessageSearchEntries.Remove(searchEntry);
 
         if (!string.IsNullOrWhiteSpace(messageDeleted.ConversationId))
         {

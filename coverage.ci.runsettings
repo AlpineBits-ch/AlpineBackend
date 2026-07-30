@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+  <CodeCoverage>
+    <!--
+      dotnet-coverage's profiler-based collection instruments every module loaded in the process
+      by default - without an explicit include list that means every third-party dependency too
+      (Wolverine, StackExchange.Redis, EF Core, JasperFx, ...), which dominates the denominator
+      and made CI-reported coverage meaningless (~17% regardless of how well our own code was
+      tested). This scopes collection to this solution's own assemblies only.
+    -->
+    <ModulePaths>
+      <Include>
+        <ModulePath>(AppEnvironment|Common|Contracts|Domain|Persistence|Echo|Echo\.Domain|Echo\.Infrastructure|Echo\.Realtime|Bots(\.\w+)?|Federation(\.\w+)?|Guild(\.\w+)?|Identity(\.\w+)?|Import(\.\w+)?|Isle(\.\w+)?|Messaging(\.\w+)?|Social(\.\w+)?)\.dll$</ModulePath>
+      </Include>
+      <Exclude>
+        <ModulePath>.*\.Tests\.dll$</ModulePath>
+        <ModulePath>IsleBridge.*\.dll$</ModulePath>
+      </Exclude>
+    </ModulePaths>
+    <!--
+      EF Core migrations are generated DDL verified by actually applying them, not unit tests -
+      they're ~80% of most services' line count and inherently 0%-covered, which otherwise caps
+      every service's reportable coverage regardless of how well the real logic is tested.
+    -->
+    <Sources>
+      <Exclude>
+        <Source>.*[\\/]Migrations[\\/].*</Source>
+      </Exclude>
+    </Sources>
+    <Attributes>
+      <Exclude>
+        <Attribute>^System\.Diagnostics\.CodeAnalysis\.ExcludeFromCodeCoverageAttribute$</Attribute>
+        <Attribute>^System\.CodeDom\.Compiler\.GeneratedCodeAttribute$</Attribute>
+        <Attribute>^System\.Runtime\.CompilerServices\.CompilerGeneratedAttribute$</Attribute>
+      </Exclude>
+    </Attributes>
+  </CodeCoverage>
+</Configuration>

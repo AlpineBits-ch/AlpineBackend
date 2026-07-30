@@ -105,6 +105,7 @@ public class PermissionOverwriteEndpoint
         if (existing != null)
             ctx.Set<ChannelPermission>().Remove(existing);
 
+        var now = DateTimeOffset.UtcNow;
         var overwrite = new ChannelPermission
         {
             Id = ChannelPermission.GenerateId(),
@@ -114,13 +115,32 @@ public class PermissionOverwriteEndpoint
             MemberId = memberId,
             AllowPermissions = dto.AllowPermissions,
             DenyPermissions = dto.DenyPermissions,
+            CreatedAt = now,
+            UpdatedAt = now,
         };
         ctx.Set<ChannelPermission>().Add(overwrite);
 
         auditLog.Log(guildId, userId, AuditActionType.ChannelPermissionChanged, channelId ?? categoryId,
             new { ChannelId = channelId, CategoryId = categoryId, RoleId = roleId, MemberId = memberId });
 
-        return (Results.Ok(overwrite.ToFacet<ChannelPermission, ChannelPermissionDto>()), new ChannelPermissionChanged
+        // NOTE: deliberately not overwrite.ToFacet<ChannelPermission, ChannelPermissionDto>() - the
+        // generated mapping unconditionally throws ArgumentNullException when the required nested
+        // Channel/Role facets are null (see ChannelPermissionDto's generated constructor), which
+        // they always are here since this endpoint never eager-loads those navigations.
+        var overwriteDto = new ChannelPermissionDto
+        {
+            Id = overwrite.Id,
+            ChannelId = overwrite.ChannelId,
+            CategoryId = overwrite.CategoryId,
+            RoleId = overwrite.RoleId,
+            MemberId = overwrite.MemberId,
+            AllowPermissions = overwrite.AllowPermissions,
+            DenyPermissions = overwrite.DenyPermissions,
+            CreatedAt = overwrite.CreatedAt,
+            UpdatedAt = overwrite.UpdatedAt,
+        };
+
+        return (Results.Ok(overwriteDto), new ChannelPermissionChanged
         {
             GuildId = guildId,
             RoleId = roleId,

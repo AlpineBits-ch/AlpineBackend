@@ -169,8 +169,11 @@ public class WikiEndpoint
                 EditorId = userId,
                 RevisionNumber = nextRevisionNumber,
             });
+            // Not also page.Revisions.Add(revision) - EF Core's change-tracker fixup already
+            // appends it to page.Revisions automatically once revision.PageId matches this
+            // already-tracked page (adding it explicitly too duplicated the in-memory list entry,
+            // inflating WikiPageDto.RevisionCount by one in the response below).
             ctx.WikiRevisions.Add(revision);
-            page.Revisions.Add(revision);
         }
 
         page.RaiseUpdated();
@@ -264,8 +267,9 @@ public class WikiEndpoint
             RevisionNumber = nextRevisionNumber,
             Summary = $"Restored from revision #{revision.RevisionNumber}",
         });
+        // Not also page.Revisions.Add(restoredRevision) - see the identical note in UpdateWikiPage
+        // above; EF's change-tracker fixup already appends it once tracked via the DbSet.
         ctx.WikiRevisions.Add(restoredRevision);
-        page.Revisions.Add(restoredRevision);
 
         page.RaiseUpdated();
 

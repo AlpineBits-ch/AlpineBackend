@@ -23,8 +23,12 @@ public class GuildBan : BaseEntity<GuildBan>, IPrefixedEntity
 
     public static GuildBan Create(CreateGuildBanParams parameters)
     {
+        var date = DateTimeOffset.UtcNow;
         return new GuildBan
         {
+            Id = GenerateId(),
+            CreatedAt = date,
+            UpdatedAt = date,
             GuildId = parameters.GuildId,
             BannedUserId = parameters.BannedUserId,
             BannedByUserId = parameters.BannedByUserId,

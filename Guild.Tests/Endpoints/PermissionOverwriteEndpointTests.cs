@@ -1,0 +1,221 @@
+using Guild.Application.Dtos.Request;
+using Guild.Application.Endpoints;
+using Guild.Application.Services;
+using Guild.Domain.Aggregates;
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
+using Guild.Persistence.Persistence;
+using Guild.Tests.Helpers;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace Guild.Tests.Endpoints;
+
+/// <summary>
+/// Covers PermissionOverwriteEndpoint: the shared UpsertAsync/RemoveAsync private helpers behind
+/// all eight channel/category x role/member routes - exercised via the channel+role variant
+/// (representative of all eight, which differ only in which FK is populated) plus the
+/// category+member variant to confirm the ResolveGuildIdAsync category branch.
+/// </summary>
+[TestFixture]
+public class PermissionOverwriteEndpointTests
+{
+    private const string GuildId = "guild-1";
+    private const string OwnerId = "owner-1";
+    private const string UserId = "user-1";
+    private const string ManagerRoleId = "role-manager";
+    private const string ManagerMemberId = "member-manager";
+    private const string TargetRoleId = "role-target";
+    private const string TargetMemberId = "member-target";
+
+    private TestGuildContext _context = null!;
+    private FakeDistributedCache _cache = null!;
+    private GuildPermissionService _permissionService = null!;
+    private AuditLogService _auditLog = null!;
+    private PermissionOverwriteEndpoint _endpoint = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        _context = new TestGuildContext(Guid.NewGuid().ToString());
+        _cache = new FakeDistributedCache();
+        _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _auditLog = new AuditLogService(_context);
+        _endpoint = new PermissionOverwriteEndpoint();
+    }
+
+    [TearDown]
+    public async Task TearDown() => await _context.DisposeAsync();
+
+    private static Guild.Domain.Aggregates.Guild MakeGuild() => new()
+    {
+        Id = GuildId, OwnerId = OwnerId, Name = "Test Guild",
+        CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+    };
+
+    private async Task<Channel> SeedManagerAndChannel(Permissions managerPermissions = Permissions.ManagePermissions)
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.Roles.Add(new Role { Id = ManagerRoleId, GuildId = GuildId, Name = "manager", Permissions = managerPermissions, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.GuildMembers.Add(new GuildMember { Id = ManagerMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
+        _context.RoleMembers.Add(new RoleMember { Id = "rm-manager", RoleId = ManagerRoleId, MemberId = ManagerMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Roles.Add(new Role { Id = TargetRoleId, GuildId = GuildId, Name = "target", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+
+        var channel = Channel.Create(new CreateChannelParams { Name = "general", Type = ChannelType.Text, GuildId = GuildId, Description = "d" });
+        _context.Channels.Add(channel);
+        await _context.SaveChangesAsync();
+        return channel;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SetChannelRoleOverwriteAsync (representative Upsert path)
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_Unauthenticated_ReturnsUnauthorized()
+    {
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync("nonexistent", "nonexistent", new SetPermissionOverwriteDto(), _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+        Assert.That(evt, Is.Null);
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_ChannelDoesNotExist_ReturnsNotFound()
+    {
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync("nonexistent", "nonexistent", new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_LacksManagePermissions_ReturnsForbid()
+    {
+        var channel = await SeedManagerAndChannel(managerPermissions: Permissions.None);
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_RequestsUngrantablePermission_ReturnsForbid()
+    {
+        var channel = await SeedManagerAndChannel();
+        var dto = new SetPermissionOverwriteDto { AllowPermissions = Permissions.BanMembers };
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_Valid_CreatesOverwrite()
+    {
+        var channel = await SeedManagerAndChannel();
+        var dto = new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel, DenyPermissions = Permissions.SendMessages };
+
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelPermissionDto>>());
+        Assert.That(evt!.GuildId, Is.EqualTo(GuildId));
+        Assert.That(evt.RoleId, Is.EqualTo(TargetRoleId));
+        var created = await _context.Set<ChannelPermission>().AsNoTracking().FirstAsync(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId);
+        Assert.That(created.AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
+        Assert.That(created.DenyPermissions, Is.EqualTo(Permissions.SendMessages));
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_Valid_WritesAuditLogEntry()
+    {
+        var channel = await SeedManagerAndChannel();
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.ActionType == AuditActionType.ChannelPermissionChanged).ToList();
+        Assert.That(entries, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_ExistingOverwrite_IsReplacedNotDuplicated()
+    {
+        // Manager needs SendMessages itself to be allowed to grant it on the second call
+        // (CanGrantPermissionsAsync clamps AllowPermissions to what the actor's own base
+        // permissions include) - ManagePermissions alone only implies ViewChannel.
+        var channel = await SeedManagerAndChannel(managerPermissions: Permissions.ManagePermissions | Permissions.SendMessages);
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.SendMessages }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        var overwrites = _context.Set<ChannelPermission>().Where(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId).ToList();
+        Assert.That(overwrites, Has.Count.EqualTo(1));
+        Assert.That(overwrites[0].AllowPermissions, Is.EqualTo(Permissions.SendMessages));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // DeleteChannelRoleOverwriteAsync (representative Remove path)
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task DeleteChannelRoleOverwrite_DoesNotExist_ReturnsNotFound()
+    {
+        var channel = await SeedManagerAndChannel();
+        var (result, _) = await _endpoint.DeleteChannelRoleOverwriteAsync(channel.Id, TargetRoleId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task DeleteChannelRoleOverwrite_Valid_RemovesOverwrite()
+    {
+        var channel = await SeedManagerAndChannel();
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        var (result, evt) = await _endpoint.DeleteChannelRoleOverwriteAsync(channel.Id, TargetRoleId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<NoContent>());
+        Assert.That(evt!.RoleId, Is.EqualTo(TargetRoleId));
+        Assert.That(await _context.Set<ChannelPermission>().AsNoTracking().AnyAsync(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId), Is.False);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SetCategoryMemberOverwriteAsync (category + member branch)
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task SetCategoryMemberOverwrite_CategoryDoesNotExist_ReturnsNotFound()
+    {
+        await SeedManagerAndChannel();
+        var (result, _) = await _endpoint.SetCategoryMemberOverwriteAsync("nonexistent", TargetMemberId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task SetCategoryMemberOverwrite_Valid_CreatesOverwrite()
+    {
+        await SeedManagerAndChannel();
+        var category = Category.Create(new CreateCategoryParams { Name = "cat", GuildId = GuildId, Position = 0 });
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+
+        var dto = new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel };
+        var (result, evt) = await _endpoint.SetCategoryMemberOverwriteAsync(category.Id, TargetMemberId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelPermissionDto>>());
+        Assert.That(evt!.MemberId, Is.EqualTo(TargetMemberId));
+        Assert.That(await _context.Set<ChannelPermission>().AsNoTracking().AnyAsync(p => p.CategoryId == category.Id && p.MemberId == TargetMemberId), Is.True);
+    }
+
+    [Test]
+    public async Task DeleteCategoryMemberOverwrite_DoesNotExist_ReturnsNotFound()
+    {
+        await SeedManagerAndChannel();
+        var category = Category.Create(new CreateCategoryParams { Name = "cat", GuildId = GuildId, Position = 0 });
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+
+        var (result, _) = await _endpoint.DeleteCategoryMemberOverwriteAsync(category.Id, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+}

@@ -4,13 +4,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Messaging.Infrastructure.Persistence.Repositories;
 
+// Every mutating method here is called exclusively from Wolverine-managed code (bus handlers or
+// WolverineHttp endpoints - see IMessageRepository's call sites), which auto-wraps the ambient
+// MicroserviceContext in a transaction and commits it once the handler/endpoint returns
+// (opts.Policies.AutoApplyTransactions() + UseEntityFrameworkCoreTransactions()). None of these
+// methods call SaveChangesAsync themselves: doing so double-saves against the same DbContext
+// instance Wolverine is already tracking for its own commit/outbox-flush, which is unsafe.
 public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepository
 {
-    public async Task<Message> CreateMessageAsync(Message message)
+    public Task<Message> CreateMessageAsync(Message message)
     {
         context.Messages.Add(message);
-        await context.SaveChangesAsync();
-        return message;
+        return Task.FromResult(message);
     }
 
     public async Task<Message?> GetMessageAsync(string messageId)
@@ -72,37 +77,34 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
         return (messages, reactionsByMessage);
     }
 
-    public async Task<Message> UpdateMessageAsync(Message message)
+    public Task<Message> UpdateMessageAsync(Message message)
     {
         context.Messages.Update(message);
-        await context.SaveChangesAsync();
-        return message;
+        return Task.FromResult(message);
     }
 
-    public async Task DeleteMessageAsync(Message message)
+    public Task DeleteMessageAsync(Message message)
     {
         context.Messages.Remove(message);
-        await context.SaveChangesAsync();
+        return Task.CompletedTask;
     }
 
-    public async Task<Message> PinMessageAsync(Message message, string pinnedById)
+    public Task<Message> PinMessageAsync(Message message, string pinnedById)
     {
         message.IsPinned = true;
         message.PinnedAt = DateTime.UtcNow;
         message.PinnedById = pinnedById;
         context.Messages.Update(message);
-        await context.SaveChangesAsync();
-        return message;
+        return Task.FromResult(message);
     }
 
-    public async Task<Message> UnpinMessageAsync(Message message)
+    public Task<Message> UnpinMessageAsync(Message message)
     {
         message.IsPinned = false;
         message.PinnedAt = null;
         message.PinnedById = null;
         context.Messages.Update(message);
-        await context.SaveChangesAsync();
-        return message;
+        return Task.FromResult(message);
     }
 
     public async Task<ICollection<Message>> GetPinnedMessagesAsync(string contextId, int limit = 50)
@@ -116,17 +118,24 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
             .ToListAsync();
     }
 
-    public async Task AddReactionAsync(Reaction reaction)
+    public Task AddReactionAsync(Reaction reaction)
     {
         context.Reactions.Add(reaction);
-        await context.SaveChangesAsync();
+        return Task.CompletedTask;
     }
 
     public async Task RemoveReactionAsync(string contextId, string messageId, string emoji, string userId)
     {
-        await context.Reactions
-            .Where(r => r.MessageId == messageId && r.Emoji == emoji && r.UserId == userId)
-            .ExecuteDeleteAsync();
+        // Fetch-then-remove rather than ExecuteDeleteAsync: (MessageId, UserId, Emoji) is the
+        // Reaction primary key (see MicroserviceContext.OnModelCreating), so at most one row ever
+        // matches, and ExecuteDeleteAsync isn't translatable by the EF Core InMemory provider used
+        // by this test suite. No SaveChangesAsync - see class-level comment.
+        var reaction = await context.Reactions
+            .FirstOrDefaultAsync(r => r.MessageId == messageId && r.Emoji == emoji && r.UserId == userId);
+
+        if (reaction is null) return;
+
+        context.Reactions.Remove(reaction);
     }
 
     private async Task<Dictionary<string, List<Reaction>>> FetchReactionsForMessages(List<Message> messages)

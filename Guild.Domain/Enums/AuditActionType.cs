@@ -18,6 +18,7 @@ public enum AuditActionType
     ChannelPermissionChanged,
     CategoryCreated,
     CategoryDeleted,
+    CategoryUpdated,
     GuildUpdated,
     GuildDeleted,
     InviteCreated,

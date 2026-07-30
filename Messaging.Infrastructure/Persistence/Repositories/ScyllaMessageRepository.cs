@@ -21,10 +21,13 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
     public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByConversationIdAsync(string conversationId, int take, int skip)
     {
-        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?";
-        
-          
-        
+        // messages' PRIMARY KEY is (context_id, created_at, message_id) - context_id is the
+        // partition key. conversation_id/channel_id are denormalized metadata columns, not part
+        // of the key, so filtering on them requires ALLOW FILTERING (a full partition scan) and
+        // Scylla rejects it outright. Message.Create sets ContextId = ConversationId ?? ChannelId,
+        // so querying by context_id with the conversation id is the actual indexed lookup.
+        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
+
         var messageItems = await context.Mapper.FetchAsync<Message>(cql, conversationId, skip + take);
         
         var result = messageItems
@@ -49,10 +52,11 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
     public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByContextIdAsync(string contextId, int take, int skip)
     {
-        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT ?";
-        
-          
-        
+        // Same partition-key fix as GetMessagesByConversationIdAsync - this was querying by
+        // conversation_id (not part of the key, and wrong for channel-scoped context ids too)
+        // instead of the actual partition key, context_id.
+        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
+
         var messageItems = await context.Mapper.FetchAsync<Message>(cql, contextId, skip + take);
         
         var result = messageItems
@@ -78,10 +82,12 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
 
     public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(string channelId, int take, int skip)
     {
-        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE channel_id = ? ORDER BY created_at DESC LIMIT ?";
-        
-          
-        
+        // Same partition-key fix as GetMessagesByConversationIdAsync - channel_id isn't part of
+        // messages' PRIMARY KEY (context_id, created_at, message_id), so this required ALLOW
+        // FILTERING and Scylla rejected it. Message.Create sets ContextId = ChannelId for
+        // channel-scoped messages, so context_id is the correct indexed lookup.
+        var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
+
         var messageItems = await context.Mapper.FetchAsync<Message>(cql, channelId, skip + take);
         
         var result = messageItems

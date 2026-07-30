@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
+using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -34,39 +35,6 @@ public class MessagePinningFlowTests
             await _stack.DisposeAsync();
     }
 
-    private static async Task<(string userId, string token)> RegisterAndGetTokenAsync(
-        SpawnedServiceProcess identity, string username)
-    {
-        var email = $"{username}-{Guid.NewGuid()}@example.com";
-        const string password = "SecurePass123!";
-
-        var register = await identity.Client.PostAsJsonAsync("/api/v1/authentication/register", new
-        {
-            Email = email,
-            Password = password,
-            Username = username,
-            BirthDate = DateTime.UtcNow.AddYears(-20),
-        });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
-        var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
-        var userId = registerBody.GetProperty("userId").GetString()!;
-
-        var tokenResponse = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
-            new Dictionary<string, string>
-            {
-                ["grant_type"] = "password",
-                ["username"] = username,
-                ["password"] = password,
-                ["client_id"] = "echo",
-            }));
-        Assert.That(tokenResponse.IsSuccessStatusCode, Is.True,
-            $"Token request failed: {await tokenResponse.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
-        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
-
-        return (userId, tokenBody.GetProperty("access_token").GetString()!);
-    }
-
     private static HttpClient AuthedClient(SpawnedServiceProcess service, string token)
     {
         var client = new HttpClient { BaseAddress = service.Client.BaseAddress };
@@ -77,7 +45,7 @@ public class MessagePinningFlowTests
     [Test]
     public async Task PinAndUnpinChannelMessage_UpdatesPinnedList()
     {
-        var (_, token) = await RegisterAndGetTokenAsync(_stack.Identity, "pinuser");
+        var (_, token) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "pinuser");
         using var guild = AuthedClient(_stack.Guild, token);
         using var messaging = AuthedClient(_stack.Messaging, token);
 
@@ -155,8 +123,8 @@ public class MessagePinningFlowTests
     [Test]
     public async Task PinAndUnpinDirectMessage_UpdatesPinnedList()
     {
-        var (userIdA, tokenA) = await RegisterAndGetTokenAsync(_stack.Identity, "dmpin_a");
-        var (userIdB, tokenB) = await RegisterAndGetTokenAsync(_stack.Identity, "dmpin_b");
+        var (userIdA, tokenA) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "dmpin_a");
+        var (userIdB, tokenB) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "dmpin_b");
         using var messagingA = AuthedClient(_stack.Messaging, tokenA);
         using var socialA = AuthedClient(_stack.Social, tokenA);
         using var socialB = AuthedClient(_stack.Social, tokenB);

@@ -21,6 +21,15 @@ public class EmailService
 
     public async Task SendEmailAsync(string toAddress, string subject, string htmlBody)
     {
+        // _graph is only constructed when email verification is required (see constructor) - callers
+        // like PasswordResetEndpoint.RequestPasswordReset and UserVerificationEndpoint.GenerateVerificationCode
+        // unconditionally call this method (unlike UserCreatedHandler, which checks the flag itself
+        // first), so without this guard they NullReferenceException on any deployment (including this
+        // E2E test harness) that sets AUTH_REQUIRE_USER_EMAIL_VERIFICATION=false. The short code is
+        // still generated and cached by the caller before this is invoked, so skipping the actual send
+        // here doesn't break the reset/verification flow itself.
+        if (!Env.AuthConfiguration.RequireUserEmailVerification) return;
+
         var message = new Message
         {
             Subject = subject,

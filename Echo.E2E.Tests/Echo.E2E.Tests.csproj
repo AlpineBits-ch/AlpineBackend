@@ -22,6 +22,10 @@
     <PackageReference Include="Testcontainers.RabbitMq" Version="4.2.0" />
     <PackageReference Include="Testcontainers.Redis" Version="4.2.0" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
+    <!-- Used to read cache entries (password reset codes) directly from the shared Redis
+         instance, the same "assert against real infra" pattern Npgsql is used for elsewhere in
+         this project (see AccountDeletionFlowTests). -->
+    <PackageReference Include="StackExchange.Redis" Version="3.0.17" />
   </ItemGroup>
 
   <ItemGroup>

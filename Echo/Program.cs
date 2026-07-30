@@ -148,7 +148,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AlpinePolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:1420", "https://chat.alpinebits.ch", "http://tauri.localhost", "tauri://localhost")
+        policy.WithOrigins("http://localhost:1420", "https://chat.alpinebits.ch", "http://tauri.localhost", "tauri://localhost", "https://app.venta.gg")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
@@ -406,6 +407,59 @@ public class ConversationPermissionServiceTests
 
         Assert.That(result, Is.True,
             "After a rebuild, HasPermission must reflect the newly added conversation");
+    }
+
+    // ── Stale negatives must not deny a real member ────────────────────────────
+
+    [Test]
+    public async Task HasPermission_CachedSetIsStale_StillAllowsAnActualMember()
+    {
+        // Exactly the DM-pinning sequence: accepting a friend request cached an empty set for
+        // the user, then a conversation was created. The cache is only refreshed by a handler
+        // running off the bus, so until that lands the cached set still says "no conversations".
+        _cache.SetEntry(CacheKey(UserId),
+            JsonSerializer.Serialize(new UserConversationPermissions()));
+
+        _context.Members.Add(MakeMember("m-1", UserId, ConversationId));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.HasPermission(UserId, ConversationId);
+
+        Assert.That(result, Is.True,
+            "A cached negative must be confirmed against the DB before denying a real member");
+    }
+
+    [Test]
+    public async Task HasPermission_StaleNegative_RefreshesTheCachedSet()
+    {
+        _cache.SetEntry(CacheKey(UserId),
+            JsonSerializer.Serialize(new UserConversationPermissions()));
+
+        _context.Members.Add(MakeMember("m-1", UserId, ConversationId));
+        await _context.SaveChangesAsync();
+
+        await _service.HasPermission(UserId, ConversationId);
+
+        // Cache is now warm and correct, so the next check needs no DB fallback.
+        var cached = JsonSerializer.Deserialize<UserConversationPermissions>(
+            Encoding.UTF8.GetString(_cache.Get(CacheKey(UserId))!))!;
+        Assert.That(cached.ConversationIds, Contains.Item(ConversationId),
+            "Discovering a stale negative must rebuild the cached set");
+    }
+
+    [Test]
+    public async Task HasPermission_CachedNegativeIsCorrect_StillReturnsFalse()
+    {
+        // The DB fallback must not turn into a way in for genuine non-members.
+        _cache.SetEntry(CacheKey(UserId),
+            JsonSerializer.Serialize(new UserConversationPermissions()));
+
+        _context.Members.Add(MakeMember("m-1", "other-user", ConversationId));
+        await _context.SaveChangesAsync();
+
+        var result = await _service.HasPermission(UserId, ConversationId);
+
+        Assert.That(result, Is.False);
     }
 
 }

@@ -18,7 +18,21 @@ public class ConversationPermissionService(MicroserviceContext ctx, IDistributed
     public  async Task<bool> HasPermission(string userId, string conversationId)
     {
         var permissions = await GetPermissionsForUser(userId);
-        return permissions.ConversationIds.Contains(conversationId);
+        if (permissions.ConversationIds.Contains(conversationId)) return true;
+
+        // A cached "not a member" is only ever a hint - the entry is written with a 10 minute TTL
+        // and is refreshed by handlers that run off the bus (ConversationCreated, FriendshipAccepted),
+        // so it can lag behind the database by however long the outbox/RabbitMQ round-trip takes.
+        // Accepting a friend request caches an empty set for both users; if they then open a DM,
+        // every permission check would deny them until the ConversationCreated event lands.
+        // Confirm a negative against the database before acting on it, and warm the cache back up
+        // when it turns out to be stale.
+        var isMember = await ctx.Members
+            .AnyAsync(m => m.UserId == userId && m.ConversationId == conversationId);
+
+        if (isMember) await GetPermissionsForUser(userId, rebuild: true);
+
+        return isMember;
     }
     
     public  async Task<UserConversationPermissions> GetPermissionsForUser(string userId, bool rebuild = false)

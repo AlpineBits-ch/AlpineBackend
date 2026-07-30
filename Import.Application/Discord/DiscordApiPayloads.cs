@@ -103,3 +103,91 @@ public class DiscordRoleDeletePayload
     [JsonPropertyName("role_id")]
     public string RoleId { get; set; } = "";
 }
+
+/// <summary>GET /guilds/{id}/onboarding.</summary>
+public class DiscordOnboardingPayload
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    /// <summary>0 = ONBOARDING_DEFAULT, 1 = ONBOARDING_ADVANCED.</summary>
+    [JsonPropertyName("mode")]
+    public int Mode { get; set; }
+
+    [JsonPropertyName("default_channel_ids")]
+    public List<string> DefaultChannelIds { get; set; } = [];
+
+    [JsonPropertyName("prompts")]
+    public List<DiscordOnboardingPromptPayload> Prompts { get; set; } = [];
+}
+
+public class DiscordOnboardingPromptPayload
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    /// <summary>0 = MULTIPLE_CHOICE, 1 = DROPDOWN.</summary>
+    [JsonPropertyName("type")]
+    public int Type { get; set; }
+
+    [JsonPropertyName("single_select")]
+    public bool SingleSelect { get; set; }
+
+    [JsonPropertyName("required")]
+    public bool Required { get; set; }
+
+    [JsonPropertyName("in_onboarding")]
+    public bool InOnboarding { get; set; } = true;
+
+    [JsonPropertyName("options")]
+    public List<DiscordOnboardingOptionPayload> Options { get; set; } = [];
+}
+
+public class DiscordOnboardingOptionPayload
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("emoji")]
+    public DiscordEmojiPayload? Emoji { get; set; }
+
+    [JsonPropertyName("role_ids")]
+    public List<string> RoleIds { get; set; } = [];
+
+    [JsonPropertyName("channel_ids")]
+    public List<string> ChannelIds { get; set; } = [];
+}
+
+public class DiscordEmojiPayload
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+
+/// <summary>GET /guilds/{id}/welcome-screen. 404s for guilds that never configured one.</summary>
+public class DiscordWelcomeScreenPayload
+{
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("welcome_channels")]
+    public List<DiscordWelcomeChannelPayload> WelcomeChannels { get; set; } = [];
+}
+
+public class DiscordWelcomeChannelPayload
+{
+    [JsonPropertyName("channel_id")]
+    public string ChannelId { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = "";
+
+    [JsonPropertyName("emoji_name")]
+    public string? EmojiName { get; set; }
+}

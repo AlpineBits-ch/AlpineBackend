@@ -29,6 +29,7 @@ public class DiscordGuildMemberEndpoint
             nick = m.Nickname,
             roles = m.RoleIds,
             joined_at = m.JoinedAt,
+            pending = m.Pending,
         });
 
         return Results.Ok(members);

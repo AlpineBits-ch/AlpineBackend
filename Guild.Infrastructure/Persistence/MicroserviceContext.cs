@@ -30,10 +30,19 @@ public class MicroserviceContext : DbContext
     public DbSet<GuildEmoji> GuildEmojis { get; set; }
     public DbSet<GuildAutoModConfig> GuildAutoModConfigs { get; set; }
     public DbSet<GuildOnboardingConfig> GuildOnboardingConfigs { get; set; }
+    public DbSet<GuildOnboardingPrompt> GuildOnboardingPrompts { get; set; }
+    public DbSet<GuildOnboardingPromptOption> GuildOnboardingPromptOptions { get; set; }
+    public DbSet<GuildMemberOnboardingResponse> GuildMemberOnboardingResponses { get; set; }
+    public DbSet<GuildOnboardingGrant> GuildOnboardingGrants { get; set; }
+    public DbSet<GuildWelcomeScreen> GuildWelcomeScreens { get; set; }
+    public DbSet<GuildWelcomeChannel> GuildWelcomeChannels { get; set; }
     public DbSet<GuildScheduledEvent> GuildScheduledEvents { get; set; }
     public DbSet<GuildScheduledEventInterest> GuildScheduledEventInterests { get; set; }
     public DbSet<GuildTemplate> GuildTemplates { get; set; }
     public DbSet<GuildChannelFollow> GuildChannelFollows { get; set; }
+    public DbSet<ForumTag> ForumTags { get; set; }
+    public DbSet<ForumPostTag> ForumPostTags { get; set; }
+    public DbSet<ForumConfig> ForumConfigs { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -52,6 +61,10 @@ public class MicroserviceContext : DbContext
             options.MapEnum<AuditActionType>();
             options.MapEnum<GuildVerificationLevel>();
             options.MapEnum<GuildScheduledEventStatus>();
+            options.MapEnum<OnboardingPromptType>();
+            options.MapEnum<OnboardingMode>();
+            options.MapEnum<ForumSortOrder>();
+            options.MapEnum<ForumLayout>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -133,6 +146,12 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired(false);
 
+            // Composite covering indexes for the two forum post orderings.
+            channelBuilder.HasIndex(c => new { c.ParentChannelId, c.IsPinned, c.LastActivityAt })
+                .HasDatabaseName("IX_channels_forum_activity");
+
+            channelBuilder.HasIndex(c => new { c.ParentChannelId, c.IsPinned, c.CreatedAt })
+                .HasDatabaseName("IX_channels_forum_created");
         });
         
         modelBuilder.Entity<GuildInvite>(guildInviteBuilder =>
@@ -319,6 +338,77 @@ public class MicroserviceContext : DbContext
             onboardingBuilder.Property(x => x.DefaultChannelIds).HasColumnType("text[]");
         });
 
+        modelBuilder.Entity<GuildOnboardingPrompt>(promptBuilder =>
+        {
+            promptBuilder.HasOne(x => x.Guild)
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            promptBuilder.HasMany(x => x.Options)
+                .WithOne(x => x.Prompt)
+                .HasForeignKey(x => x.PromptId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            promptBuilder.HasIndex(x => new { x.GuildId, x.Position });
+        });
+
+        modelBuilder.Entity<GuildOnboardingPromptOption>(optionBuilder =>
+        {
+            optionBuilder.Property(x => x.RoleIds).HasColumnType("text[]");
+            optionBuilder.Property(x => x.ChannelIds).HasColumnType("text[]");
+
+            optionBuilder.HasIndex(x => new { x.PromptId, x.Position });
+        });
+
+        modelBuilder.Entity<GuildMemberOnboardingResponse>(responseBuilder =>
+        {
+            responseBuilder.HasKey(x => new { x.MemberId, x.OptionId });
+
+            responseBuilder.HasOne(x => x.Member)
+                .WithMany()
+                .HasForeignKey(x => x.MemberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Editing an option away deletes the answers to it; the grants it produced survive
+            // (see GuildOnboardingGrant).
+            responseBuilder.HasOne(x => x.Option)
+                .WithMany()
+                .HasForeignKey(x => x.OptionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GuildOnboardingGrant>(grantBuilder =>
+        {
+            grantBuilder.HasOne(x => x.Member)
+                .WithMany()
+                .HasForeignKey(x => x.MemberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // No FK on OptionId on purpose - a grant outlives the option that caused it.
+            grantBuilder.HasIndex(x => new { x.MemberId, x.OptionId });
+        });
+
+        modelBuilder.Entity<GuildWelcomeScreen>(welcomeBuilder =>
+        {
+            welcomeBuilder.HasKey(x => x.GuildId);
+
+            welcomeBuilder.HasOne(x => x.Guild)
+                .WithOne()
+                .HasForeignKey<GuildWelcomeScreen>(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            welcomeBuilder.HasMany(x => x.Channels)
+                .WithOne(x => x.WelcomeScreen)
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GuildWelcomeChannel>(welcomeChannelBuilder =>
+        {
+            welcomeChannelBuilder.HasIndex(x => new { x.GuildId, x.Position });
+        });
+
         modelBuilder.Entity<GuildScheduledEvent>(eventBuilder =>
         {
             eventBuilder.HasOne(x => x.Guild)
@@ -358,6 +448,13 @@ public class MicroserviceContext : DbContext
                 {
                     categoryBuilder.OwnsMany(c => c.Channels);
                 });
+                snapshotBuilder.OwnsOne(s => s.Onboarding, onboardingBuilder =>
+                {
+                    onboardingBuilder.OwnsMany(o => o.Prompts, promptBuilder =>
+                    {
+                        promptBuilder.OwnsMany(p => p.Options);
+                    });
+                });
             });
         });
 
@@ -365,6 +462,51 @@ public class MicroserviceContext : DbContext
         {
             followBuilder.HasIndex(x => x.SourceChannelId);
             followBuilder.HasIndex(x => new { x.SourceChannelId, x.TargetChannelId }).IsUnique();
+        });
+
+        modelBuilder.Entity<ForumTag>(tagBuilder =>
+        {
+            // HasOne<Channel>() with no inverse navigation: the Channel aggregate deliberately owns
+            // no ForumTag collection (see ForumTag's doc comment - ChannelDto is Facet-generated
+            // and nested inside GuildDto, so collections there widen the materialization graph).
+            tagBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            tagBuilder.HasIndex(x => new { x.ChannelId, x.Position });
+
+            // Backstop against exact-duplicate names only.
+            tagBuilder.HasIndex(x => new { x.ChannelId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<ForumPostTag>(postTagBuilder =>
+        {
+            postTagBuilder.HasKey(x => new { x.ThreadChannelId, x.TagId });
+
+            postTagBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ThreadChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            postTagBuilder.HasOne<ForumTag>()
+                .WithMany()
+                .HasForeignKey(x => x.TagId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The PK covers "tags of this post"; this covers the inverse, "posts carrying this
+            // tag", which is what the forum filter actually runs.
+            postTagBuilder.HasIndex(x => x.TagId);
+        });
+
+        modelBuilder.Entity<ForumConfig>(configBuilder =>
+        {
+            configBuilder.HasKey(x => x.ChannelId);
+
+            configBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithOne()
+                .HasForeignKey<ForumConfig>(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
     

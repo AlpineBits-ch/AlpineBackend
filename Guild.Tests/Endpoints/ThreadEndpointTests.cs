@@ -37,6 +37,7 @@ public class ThreadEndpointTests
     private FakeInvokingMessageBus _bus = null!;
     private FakeHubContext _hub = null!;
     private GuildHydrateService _hydrateService = null!;
+    private ForumService _forumService = null!;
     private ThreadEndpoint _endpoint = null!;
 
     [SetUp]
@@ -49,6 +50,7 @@ public class ThreadEndpointTests
         _bus = new FakeInvokingMessageBus();
         _hub = new FakeHubContext();
         _hydrateService = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
+        _forumService = new ForumService(_context);
         _endpoint = new ThreadEndpoint();
     }
 
@@ -82,14 +84,14 @@ public class ThreadEndpointTests
     [Test]
     public async Task CreateThread_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.CreateThreadAsync("nonexistent", new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.CreateAnonymous());
+        var result = await _endpoint.CreateThreadAsync("nonexistent", new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.CreateAnonymous());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task CreateThread_ParentDoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.CreateThreadAsync("nonexistent", new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateThreadAsync("nonexistent", new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -98,7 +100,7 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads, ChannelType.Voice);
 
-        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
@@ -107,7 +109,7 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.ViewChannel);
 
-        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -116,7 +118,7 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
 
-        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "my-thread" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "my-thread" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var ok = result as Ok<Guild.Application.Dtos.Response.ChannelDto>;
@@ -132,7 +134,7 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
 
-        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
     }
@@ -142,7 +144,7 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
 
-        await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post", Content = "hello world" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post", Content = "hello world" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(_bus.Invoked.OfType<CreateMessageCommand>().Any(), Is.True);
     }
@@ -152,7 +154,7 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
 
-        await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(_bus.Invoked.OfType<CreateMessageCommand>().Any(), Is.False);
     }
@@ -162,9 +164,119 @@ public class ThreadEndpointTests
     {
         var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
 
-        await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(_bus.Published.OfType<ThreadCreatedForBots>().Any(e => e.ParentChannelId == parent.Id), Is.True);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ CreateThreadAsync —
+    // forum tags ══════════════════════════════════════════════════════════════════════
+
+    private async Task<ForumTag> SeedTag(string forumId, string name, bool moderated = false)
+    {
+        var tag = ForumTag.Create(new CreateForumTagParams
+        {
+            ChannelId = forumId, GuildId = GuildId, Name = name, Moderated = moderated,
+        });
+        _context.ForumTags.Add(tag);
+        await _context.SaveChangesAsync();
+        return tag;
+    }
+
+    [Test]
+    public async Task CreateThread_UnderForumParent_AppliesRequestedTags()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+        var tag = await SeedTag(parent.Id, "bug");
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post", TagIds = [tag.Id] }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.ChannelDto>;
+        Assert.That(ok, Is.Not.Null);
+        Assert.That(await _context.ForumPostTags.AnyAsync(pt => pt.ThreadChannelId == ok!.Value!.Id && pt.TagId == tag.Id), Is.True);
+    }
+
+    [Test]
+    public async Task CreateThread_UnderForumParent_RequireTagWithNoTags_ReturnsBadRequest()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+        _context.ForumConfigs.Add(new ForumConfig { ChannelId = parent.Id, GuildId = GuildId, RequireTag = true });
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateThread_NonModeratorApplyingModeratedTag_ReturnsForbid()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+        var tag = await SeedTag(parent.Id, "confirmed", moderated: true);
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post", TagIds = [tag.Id] }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task CreateThread_TagFromAnotherForum_ReturnsBadRequest()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+        var other = Channel.Create(new CreateChannelParams { Name = "other", Type = ChannelType.Forum, GuildId = GuildId, Description = "" });
+        _context.Channels.Add(other);
+        await _context.SaveChangesAsync();
+        var foreignTag = await SeedTag(other.Id, "elsewhere");
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post", TagIds = [foreignTag.Id] }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateThread_UnderForumParent_InheritsConfigSlowModeAndAutoArchive()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+        _context.ForumConfigs.Add(new ForumConfig
+        {
+            ChannelId = parent.Id, GuildId = GuildId, DefaultThreadSlowModeSeconds = 30, DefaultAutoArchiveMinutes = 1440,
+        });
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.ChannelDto>;
+        var created = await _context.Channels.AsNoTracking().FirstAsync(c => c.Id == ok!.Value!.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.SlowModeSeconds, Is.EqualTo(30));
+            Assert.That(created.AutoArchiveMinutes, Is.EqualTo(1440));
+            Assert.That(created.AutoArchiveAt, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public async Task CreateThread_UnderTextParent_TagIdsAreIgnored()
+    {
+        // A text channel has no tag vocabulary; sending tagIds there is a client mistake that
+        // shouldn't fail the create.
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "t", TagIds = ["ftag_whatever"] }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
+    }
+
+    [Test]
+    public async Task CreateThread_UnderMediaParent_Valid()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Media);
+
+        var result = await _endpoint.CreateThreadAsync(parent.Id, new CreateThreadDto { Name = "post" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
     }
 
     // ══════════════════════════════════════════════════════════════════════ GetThreadsAsync

@@ -8,4 +8,7 @@ public class CreateThreadDto
     /// <summary>Initial post body - required in practice for a Forum-parented thread (a "forum
     /// post" with no message would just be an empty title), optional for a Text-parented one.</summary>
     public string? Content { get; set; }
+
+    /// <summary>Forum tags to apply to the new post.</summary>
+    public List<string> TagIds { get; set; } = [];
 }

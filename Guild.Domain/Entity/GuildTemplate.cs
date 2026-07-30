@@ -13,6 +13,40 @@ public class TemplateSnapshot
     public List<TemplateRole> Roles { get; set; } = [];
     public List<TemplateCategory> Categories { get; set; } = [];
     public List<TemplateChannel> UncategorizedChannels { get; set; } = [];
+
+    /// <summary>Null when the source guild had no onboarding configured.</summary>
+    public TemplateOnboarding? Onboarding { get; set; }
+}
+
+/// <summary>Onboarding as captured in a template.</summary>
+public class TemplateOnboarding
+{
+    public bool Enabled { get; set; }
+    public string? RulesText { get; set; }
+    public OnboardingMode Mode { get; set; } = OnboardingMode.Default;
+    public List<string> DefaultChannelNames { get; set; } = [];
+    public List<TemplateOnboardingPrompt> Prompts { get; set; } = [];
+}
+
+public class TemplateOnboardingPrompt
+{
+    public string Title { get; set; } = null!;
+    public OnboardingPromptType Type { get; set; }
+    public bool SingleSelect { get; set; }
+    public bool Required { get; set; }
+    public bool InOnboarding { get; set; } = true;
+    public int Position { get; set; }
+    public List<TemplateOnboardingOption> Options { get; set; } = [];
+}
+
+public class TemplateOnboardingOption
+{
+    public string Title { get; set; } = null!;
+    public string? Description { get; set; }
+    public string? Emoji { get; set; }
+    public List<string> RoleNames { get; set; } = [];
+    public List<string> ChannelNames { get; set; } = [];
+    public int Position { get; set; }
 }
 
 public class TemplateRole

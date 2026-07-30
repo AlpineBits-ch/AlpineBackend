@@ -21,6 +21,7 @@ public class GetGuildMemberHandler
                 JoinedAt = m.JoinedAt,
                 IsBot = m.Type == MemberType.Bot,
                 MutedUntil = m.MutedUntil,
+                Pending = m.OnboardingCompletedAt == null,
             })
             .FirstOrDefaultAsync();
 

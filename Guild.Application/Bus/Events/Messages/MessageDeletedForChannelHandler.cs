@@ -1,4 +1,5 @@
 using Guild.Contracts.Bus.Events;
+using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -38,5 +39,11 @@ public class MessageDeletedForChannelHandler
             ChannelId = message.ChannelId,
             MessageId = message.MessageId,
         });
+
+        // Keeps the forum post card's reply count honest.
+        var thread = await context.Channels
+            .FirstOrDefaultAsync(c => c.Id == message.ChannelId && c.Type == ChannelType.Thread);
+
+        if (thread is not null && thread.MessageCount > 0) thread.MessageCount--;
     }
 }

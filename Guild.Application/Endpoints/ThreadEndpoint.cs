@@ -27,7 +27,8 @@ public class ThreadEndpoint
     public async Task<IResult> CreateThreadAsync(string channelId, CreateThreadDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
-        [NotBody] AuditLogService auditLog, [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] ForumService forumService,
+        [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -37,12 +38,15 @@ public class ThreadEndpoint
 
         // A Forum channel's "posts" are threads with a Forum parent instead of a Text one - same
         // entity, same permission model, same listing endpoint below. dto.Name doubles as the post
-        // title in that case.
-        if (parent.Type != ChannelType.Text && parent.Type != ChannelType.Forum)
-            return Results.BadRequest("Threads can only be created under a Text or Forum channel.");
+        // title in that case. Media channels are forums that render differently, nothing more.
+        if (parent.Type != ChannelType.Text && !parent.Type.IsForum())
+            return Results.BadRequest("Threads can only be created under a Text, Forum or Media channel.");
 
         var canCreate = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.CreateThreads);
         if (!canCreate) return Results.Forbid();
+
+        var isForumPost = parent.Type.IsForum();
+        var config = isForumPost ? await forumService.GetConfigAsync(channelId, parent.GuildId) : null;
 
         try
         {
@@ -56,12 +60,39 @@ public class ThreadEndpoint
                 CreatedByUserId = userId,
             });
 
+            if (config is not null)
+            {
+                // Snapshotted onto the post, not read through to the forum on every send: a later
+                // change to the forum default shouldn't retroactively slow down live posts.
+                thread.SlowModeSeconds = config.DefaultThreadSlowModeSeconds;
+                thread.AutoArchiveMinutes = config.DefaultAutoArchiveMinutes;
+                thread.AutoArchiveAt = DateTimeOffset.UtcNow.AddMinutes(config.DefaultAutoArchiveMinutes);
+            }
+
             ctx.Channels.Add(thread);
+
+            List<string> appliedTagIds = [];
+
+            if (isForumPost)
+            {
+                var isModerator = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageChannel)
+                                  || await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageAnyThread);
+
+                var tagResult = await forumService.SetPostTagsAsync(
+                    thread.Id, channelId, dto.TagIds, isModerator, config!.RequireTag);
+
+                // Reject the whole create rather than dropping the offending tags - a post that
+                // silently loses its tags is worse than one the author has to retry.
+                if (tagResult.Forbidden) return Results.Forbid();
+                if (!tagResult.Succeeded) return Results.BadRequest(tagResult.Error);
+
+                appliedTagIds = tagResult.TagIds!;
+            }
 
             auditLog.Log(parent.GuildId, userId, AuditActionType.ChannelCreated, thread.Id, new { ParentChannelId = channelId });
 
             var presence = await guildHydrateService.GetGuildPresenceAsync(parent.GuildId);
-            await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ThreadCreated", new { ChannelId = thread.Id, ParentChannelId = channelId, GuildId = parent.GuildId });
+            await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ThreadCreated", new { ChannelId = thread.Id, ParentChannelId = channelId, GuildId = parent.GuildId, TagIds = appliedTagIds });
 
             await bus.PublishAsync(new ThreadCreatedForBots
             {
@@ -123,14 +154,15 @@ public class ThreadEndpoint
         if (!canView) return Results.Forbid();
 
         // Built manually rather than via ToFacetsAsync<Channel, ChannelDto>() - ChannelDto's
-        // NestedFacets include GuildDto, which itself nests Channels/Categories/Roles
-        // (MaxDepth = 1); materializing that whole graph just to list threads previously threw
-        // ("Required nested facet property 'Guild' on source type was null") once a guild had a
-        // thread in it, a genuine pre-existing bug this fixes rather than works around.
+        // NestedFacets include GuildDto, which itself nests Channels/Categories/Roles (MaxDepth =
+        // 1); materializing that whole graph just to list threads previously threw ("Required
+        // nested facet property 'Guild' on source type was null") once a guild had a thread in it,
+        // a genuine pre-existing bug this fixes rather than works around.
         var threads = await ctx.Channels
             .AsNoTracking()
             .Where(c => c.ParentChannelId == channelId && c.Type == ChannelType.Thread)
             .OrderByDescending(c => c.CreatedAt)
+            .Take(50)
             .Select(c => new ChannelDto
             {
                 Id = c.Id,
@@ -175,9 +207,24 @@ public class ThreadEndpoint
         auditLog.Log(thread.GuildId, userId, AuditActionType.ChannelUpdated, threadId, new { Archived = true });
 
         // Previously nothing broadcast a thread archive at all, for either audience.
+        var tagIds = await ctx.ForumPostTags.AsNoTracking()
+            .Where(pt => pt.ThreadChannelId == threadId)
+            .Select(pt => pt.TagId)
+            .ToListAsync();
+
         var presence = await guildHydrateService.GetGuildPresenceAsync(thread.GuildId);
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ThreadUpdated",
-            new { ChannelId = thread.Id, ParentChannelId = thread.ParentChannelId, GuildId = thread.GuildId, Archived = true });
+            new
+            {
+                ChannelId = thread.Id,
+                ParentChannelId = thread.ParentChannelId,
+                GuildId = thread.GuildId,
+                Name = thread.Name,
+                TagIds = tagIds,
+                IsPinned = thread.IsPinned,
+                IsLocked = thread.IsLocked,
+                Archived = true,
+            });
 
         await bus.PublishAsync(new ThreadUpdatedForBots
         {

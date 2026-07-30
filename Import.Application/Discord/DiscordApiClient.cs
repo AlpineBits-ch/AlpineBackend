@@ -68,6 +68,36 @@ public class DiscordApiClient(IHttpClientFactory httpClientFactory, ILogger<Disc
         return await response.Content.ReadFromJsonAsync<List<DiscordChannelPayload>>(cancellationToken: ct) ?? [];
     }
 
+    /// <summary>Null when the guild has no onboarding configured, or when the bot lacks
+    /// MANAGE_GUILD on it - neither is an import failure, the rest of the structure still imports.</summary>
+    public async Task<DiscordOnboardingPayload?> GetGuildOnboardingAsync(string discordGuildId, CancellationToken ct = default)
+    {
+        using var response = await _retryPolicy.ExecuteAsync(t => Client.GetAsync($"guilds/{discordGuildId}/onboarding", t), ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogInformation("No onboarding config imported for Discord guild {DiscordGuildId} ({Status})",
+                discordGuildId, response.StatusCode);
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<DiscordOnboardingPayload>(cancellationToken: ct);
+    }
+
+    /// <summary>Null for guilds without a welcome screen (the common case - it is a Community
+    /// feature), which Discord serves as a 404.</summary>
+    public async Task<DiscordWelcomeScreenPayload?> GetGuildWelcomeScreenAsync(string discordGuildId, CancellationToken ct = default)
+    {
+        using var response = await _retryPolicy.ExecuteAsync(t => Client.GetAsync($"guilds/{discordGuildId}/welcome-screen", t), ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            logger.LogInformation("No welcome screen imported for Discord guild {DiscordGuildId} ({Status})",
+                discordGuildId, response.StatusCode);
+            return null;
+        }
+
+        return await response.Content.ReadFromJsonAsync<DiscordWelcomeScreenPayload>(cancellationToken: ct);
+    }
+
     /// <summary>Used by the unlink flow to have the bot leave the Discord server when a
     /// GuildLink is revoked.</summary>
     public async Task LeaveGuildAsync(string discordGuildId, CancellationToken ct = default)

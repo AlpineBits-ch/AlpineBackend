@@ -27,12 +27,16 @@ public class PurgeUserDataCommandHandler
             profile.Bio = null;
             profile.AccentColor = null;
             profile.Font = ProfileFont.Default;
-        }
 
-        var relationships = await ctx.Relationships
-            .Where(r => r.OwnerId == command.UserId || r.TargetId == command.UserId)
-            .ToListAsync();
-        ctx.Relationships.RemoveRange(relationships);
+            // Relationship.OwnerId/TargetId are Profile ids, not Identity user ids (see
+            // Relationship.Create's CreateRelationshipParams.Initiator/Subject, both populated
+            // from Profile.Id in FriendshipEndpoints). Filtering directly on command.UserId here
+            // never matched any row, so purged users kept showing up on former friends' lists.
+            var relationships = await ctx.Relationships
+                .Where(r => r.OwnerId == profile.Id || r.TargetId == profile.Id)
+                .ToListAsync();
+            ctx.Relationships.RemoveRange(relationships);
+        }
 
         return new PurgeUserDataCommandResponse
         {

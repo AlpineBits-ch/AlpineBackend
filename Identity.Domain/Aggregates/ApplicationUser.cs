@@ -54,8 +54,16 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public ICollection<UserDeviceBackup> Backups { get; set; } = new List<UserDeviceBackup>();
     
     public string? SteamId { get; set; }
-    
+
     public UserType UserType { get; set; } = UserType.Default;
+
+    public DateTimeOffset? DeletionRequestedAt { get; set; }
+
+    /// <summary>When the grace period ends and AccountDeletionPurgeSweepService is allowed to
+    /// kick off the cross-service purge. Null unless Status is PendingDeletion or
+    /// PurgeInProgress.</summary>
+    public DateTimeOffset? PurgeScheduledAt { get; set; }
+
     public static ApplicationUser Create(CreateUserParams createUserParams)
     {
         var id = GenerateId();
@@ -145,6 +153,67 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public bool IsSigninAllowed()
     {
         return Status == UserStatus.Active;
+    }
+
+    /// <summary>Starts the grace-period countdown. Reversible via CancelDeletionRequest until
+    /// the sweep flips status to PurgeInProgress.</summary>
+    public void RequestDeletion(DateTimeOffset purgeScheduledAt)
+    {
+        Status = UserStatus.PendingDeletion;
+        DeletionRequestedAt = DateTimeOffset.UtcNow;
+        PurgeScheduledAt = purgeScheduledAt;
+    }
+
+    /// <summary>No-ops (returns false) once the purge has already started - by that point the
+    /// cross-service fan-out is underway and can't be safely unwound.</summary>
+    public bool CancelDeletionRequest()
+    {
+        if (Status != UserStatus.PendingDeletion) return false;
+
+        Status = UserStatus.Active;
+        DeletionRequestedAt = null;
+        PurgeScheduledAt = null;
+        return true;
+    }
+
+    /// <summary>Marks the account as no longer cancellable, right before the sweep publishes
+    /// AccountPurgeStartedEvent - guards against the next sweep tick re-publishing while the
+    /// AccountDeletionSaga fan-out is still in flight.</summary>
+    public void BeginPurge()
+    {
+        Status = UserStatus.PurgeInProgress;
+    }
+
+    /// <summary>
+    /// Anonymizes the account in place rather than deleting the row: every other service
+    /// (Guild.GuildMember, Messaging.Message.AuthorId, Guild.GuildAuditLogEntry.ActorUserId,
+    /// etc.) references this Id by pointer and resolves display data live rather than storing
+    /// its own copy, so scrubbing this one row is what makes "Deleted User" show up everywhere
+    /// those references still exist - the same mechanism Discord uses. Idempotent so a
+    /// redelivered PurgeUserDataCommand is safe.
+    /// </summary>
+    public void Tombstone()
+    {
+        if (Status == UserStatus.Deleted) return;
+
+        var suffix = Id.Length >= 6 ? Id[^6..] : Id;
+        UserName = $"Deleted User {suffix}";
+        NormalizedUserName = UserName.ToUpperInvariant();
+        Email = null;
+        NormalizedEmail = null;
+        PhoneNumber = null;
+        PhoneVerifiedAt = null;
+        EmailVerifiedAt = null;
+        Bio = null;
+        PasswordHash = null;
+        SecurityStamp = Guid.NewGuid().ToString();
+        SteamId = null;
+        JsonSettings = "{}";
+        EncryptedMasterKey = null;
+        DeletionRequestedAt = null;
+        PurgeScheduledAt = null;
+        Status = UserStatus.Deleted;
+        UpdatedAt = DateTimeOffset.UtcNow;
     }
     [NotMapped] public static string Prefix { get; } = "user_"; // Explicitly handled here to not do as many allocs.
     public DateTimeOffset CreatedAt { get; set; }

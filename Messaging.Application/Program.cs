@@ -94,7 +94,13 @@ if (args.Contains("codegen") || args.Contains("describe"))
     return;
 }
 
-var scylla = await ScyllaContext.CreateAsync();
+// When USE_SCYLLA_DB=false (see Messaging.Infrastructure.MessagingInfrastructure), message/
+// reaction storage goes through Postgres/EF Core instead, so don't open a real Cassandra
+// connection here - it would otherwise require a live Scylla node to even boot regardless of
+// that flag (the e2e test harness relies on this to avoid provisioning a Scylla container).
+var scylla = Env.MessagingConfiguration.UseScyllaDb
+    ? await ScyllaContext.CreateAsync()
+    : ScyllaContext.CreateDebug();
 builder.Services.AddSingleton(scylla);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

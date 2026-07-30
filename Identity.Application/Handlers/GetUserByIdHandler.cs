@@ -23,6 +23,8 @@ public class GetUserByIdHandler(MicroserviceContext context)
                 SteamId = user.SteamId,
                 UserName = user.UserName,
                 IsBot = user.UserType == UserType.Bot,
+                EmailConfirmed = user.EmailConfirmed,
+                CreatedAt = user.CreatedAt,
             }
         };
     }

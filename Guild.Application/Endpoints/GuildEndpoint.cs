@@ -135,6 +135,11 @@ public class GuildEndpoint
             guild.SystemChannelId = dto.SystemChannelId;
         }
 
+        if (dto.VerificationLevel is not null)
+        {
+            guild.VerificationLevel = dto.VerificationLevel.Value;
+        }
+
         auditLog.Log(id, userId, AuditActionType.GuildUpdated, id);
 
         var presence = await guildHydrateService.GetGuildPresenceAsync(id);

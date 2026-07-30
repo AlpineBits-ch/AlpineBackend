@@ -53,6 +53,7 @@ public class ReactionHandler
             MessageId = reactionCreatedEvent.MessageId,
             Emoji = reactionCreatedEvent.Emoji,
             UserId = reactionCreatedEvent.UserId,
+            EmojiId = reactionCreatedEvent.EmojiId,
         });
     }
 

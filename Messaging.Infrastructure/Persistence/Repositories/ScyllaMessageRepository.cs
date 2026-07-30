@@ -115,4 +115,63 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
     {
         await context.Mapper.DeleteAsync(message);
     }
+
+    public async Task<Message> PinMessageAsync(Message message, string pinnedById)
+    {
+        message.IsPinned = true;
+        message.PinnedAt = DateTime.UtcNow;
+        message.PinnedById = pinnedById;
+        await context.Mapper.UpdateAsync(message);
+
+        await context.Mapper.InsertAsync(new PinnedMessage
+        {
+            ContextId = message.ContextId,
+            MessageId = message.Id,
+            PinnedAt = message.PinnedAt.Value,
+            PinnedById = pinnedById,
+        });
+
+        return message;
+    }
+
+    public async Task<Message> UnpinMessageAsync(Message message)
+    {
+        var pinnedAt = message.PinnedAt;
+        message.IsPinned = false;
+        message.PinnedAt = null;
+        message.PinnedById = null;
+        await context.Mapper.UpdateAsync(message);
+
+        if (pinnedAt is not null)
+        {
+            await context.Mapper.DeleteAsync<PinnedMessage>(
+                "WHERE context_id = ? AND pinned_at = ? AND message_id = ?",
+                message.ContextId, pinnedAt.Value, message.Id);
+        }
+
+        return message;
+    }
+
+    public async Task<ICollection<Message>> GetPinnedMessagesAsync(string contextId, int limit = 50)
+    {
+        var pins = await context.Mapper.FetchAsync<PinnedMessage>(
+            "WHERE context_id = ? LIMIT ?", contextId, limit);
+
+        var messageTasks = pins.Select(p => GetMessageAsync(p.MessageId));
+        var messages = await Task.WhenAll(messageTasks);
+
+        return messages.Where(m => m is not null).ToList()!;
+    }
+
+    public async Task AddReactionAsync(Reaction reaction)
+    {
+        await context.Mapper.InsertAsync(reaction);
+    }
+
+    public async Task RemoveReactionAsync(string contextId, string messageId, string emoji, string userId)
+    {
+        await context.Mapper.DeleteAsync<Reaction>(
+            "WHERE context_id = ? AND message_id = ? AND emoji = ? AND user_id = ?",
+            contextId, messageId, emoji, userId);
+    }
 }

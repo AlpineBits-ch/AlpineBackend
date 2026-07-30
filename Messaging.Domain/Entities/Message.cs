@@ -69,6 +69,10 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public bool MentionsHere { get; set; }
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
 
+    public bool IsPinned { get; set; }
+    public DateTime? PinnedAt { get; set; }
+    public string? PinnedById { get; set; }
+
     public Message()
     {
     }
@@ -87,7 +91,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "context_id, message_id, author_id, content, created_at, updated_at, in_reply_to, " +
         "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
-        "encryption_state, embeds_json, system_message_variant";
+        "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       

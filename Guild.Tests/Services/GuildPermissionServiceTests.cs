@@ -1576,6 +1576,98 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // Onboarding (OnboardingCompletedAt) — permission stripping
+    //
+    // Same MuteStrippedPermissions mechanism as MutedUntil, gated on a different
+    // condition. MakeGuildMember relies on GuildMember.OnboardingCompletedAt's entity-level
+    // default (already-completed) unless a test explicitly nulls it out - regression-tested
+    // here because every other test in this file implicitly depends on that default being
+    // "completed", not "pending" (see the OnboardingConfig feature's project notes).
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task OnboardingPending_StripsSendMessagesAndConnect_ButKeepsViewChannel()
+    {
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages | Permissions.Connect | Permissions.AddReactions;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        var member = MakeGuildMember();
+        member.OnboardingCompletedAt = null; // pending
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(perms.HasFlag(Permissions.ViewChannel), Is.True, "ViewChannel untouched while onboarding pending");
+            Assert.That(perms.HasFlag(Permissions.SendMessages), Is.False, "SendMessages stripped while onboarding pending");
+            Assert.That(perms.HasFlag(Permissions.Connect), Is.False, "Connect stripped while onboarding pending");
+            Assert.That(perms.HasFlag(Permissions.AddReactions), Is.False, "AddReactions stripped while onboarding pending");
+        });
+    }
+
+    [Test]
+    public async Task OnboardingCompleted_DoesNotStripPermissions()
+    {
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        var member = MakeGuildMember();
+        member.OnboardingCompletedAt = DateTimeOffset.UtcNow;
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.That(perms.HasFlag(Permissions.SendMessages), Is.True, "completed onboarding must not strip permissions");
+    }
+
+    [Test]
+    public async Task OnboardingPending_Owner_KeepsAllPermissions()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        _context.Channels.Add(MakeChannel());
+        var member = MakeGuildMember();
+        member.OnboardingCompletedAt = null;
+        _context.GuildMembers.Add(member);
+        await _context.SaveChangesAsync();
+
+        var result = await _service.CanUserPerformActionAsync(UserId, ChannelId, Permissions.SendMessages);
+
+        Assert.That(result, Is.True, "owner short-circuit bypasses onboarding gating entirely");
+    }
+
+    [Test]
+    public async Task OnboardingPending_AndMuted_BothStripSamePermissions_NoDoubleCounting()
+    {
+        // Both conditions active at once must still just strip the one permission set,
+        // not throw or behave differently than either alone.
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        var member = MakeGuildMember();
+        member.OnboardingCompletedAt = null;
+        member.MutedUntil = DateTimeOffset.UtcNow.AddMinutes(10);
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(perms.HasFlag(Permissions.ViewChannel), Is.True);
+            Assert.That(perms.HasFlag(Permissions.SendMessages), Is.False);
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // Threads — inherit parent's resolved permissions; SendMessages checks
     // substitute SendMessagesInThreads for Thread-type channels.
     // ══════════════════════════════════════════════════════════════════════════

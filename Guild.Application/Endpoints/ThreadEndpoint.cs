@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text;
 using Echo.Realtime;
 using Facet.Extensions;
 using Facet.Extensions.EFCore;
@@ -10,6 +11,7 @@ using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Messaging.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -33,8 +35,11 @@ public class ThreadEndpoint
         var parent = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (parent is null) return Results.NotFound();
 
-        if (parent.Type != ChannelType.Text)
-            return Results.BadRequest("Threads can only be created under a Text channel.");
+        // A Forum channel's "posts" are threads with a Forum parent instead of a Text one - same
+        // entity, same permission model, same listing endpoint below. dto.Name doubles as the post
+        // title in that case.
+        if (parent.Type != ChannelType.Text && parent.Type != ChannelType.Forum)
+            return Results.BadRequest("Threads can only be created under a Text or Forum channel.");
 
         var canCreate = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.CreateThreads);
         if (!canCreate) return Results.Forbid();
@@ -65,6 +70,20 @@ public class ThreadEndpoint
                 ParentChannelId = channelId,
                 Name = thread.Name,
             });
+
+            // Forum "posts" are just threads that open with a message - a Forum-parented thread
+            // with no body would otherwise render as an empty post.
+            if (!string.IsNullOrWhiteSpace(dto.Content))
+            {
+                await bus.InvokeAsync(new CreateMessageCommand
+                {
+                    Content = Encoding.UTF8.GetBytes(dto.Content),
+                    ChannelId = thread.Id,
+                    AuthorId = userId,
+                    AuthorIdType = AuthorIdType.User,
+                    Mentions = [],
+                });
+            }
 
             return Results.Ok(new ChannelDto
             {
@@ -103,12 +122,31 @@ public class ThreadEndpoint
         var canView = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ViewChannel);
         if (!canView) return Results.Forbid();
 
+        // Built manually rather than via ToFacetsAsync<Channel, ChannelDto>() - ChannelDto's
+        // NestedFacets include GuildDto, which itself nests Channels/Categories/Roles
+        // (MaxDepth = 1); materializing that whole graph just to list threads previously threw
+        // ("Required nested facet property 'Guild' on source type was null") once a guild had a
+        // thread in it, a genuine pre-existing bug this fixes rather than works around.
         var threads = await ctx.Channels
-            .AsSplitQuery()
-            .Include(c => c.Guild)
+            .AsNoTracking()
             .Where(c => c.ParentChannelId == channelId && c.Type == ChannelType.Thread)
             .OrderByDescending(c => c.CreatedAt)
-            .ToFacetsAsync<Channel, ChannelDto>();
+            .Select(c => new ChannelDto
+            {
+                Id = c.Id,
+                Type = c.Type,
+                GuildId = c.GuildId,
+                Name = c.Name,
+                Description = c.Description,
+                CreatedAt = c.CreatedAt,
+                UpdatedAt = c.UpdatedAt,
+                IsAgeRestricted = c.IsAgeRestricted,
+                IsPrivate = c.IsPrivate,
+                ParentChannelId = c.ParentChannelId,
+                CreatedByUserId = c.CreatedByUserId,
+                IsArchived = c.IsArchived,
+            })
+            .ToListAsync();
 
         return Results.Ok(threads);
     }

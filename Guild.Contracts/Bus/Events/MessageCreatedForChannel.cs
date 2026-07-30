@@ -55,6 +55,29 @@ public class MessageUpdatedForChannel
 }
 
 
+/// <summary>
+/// Published by Messaging.Application when a channel (non-conversation) message is pinned/unpinned -
+/// mirrors MessageUpdatedForChannel. Guild.Application resolves GuildId from this, broadcasts
+/// guild.MessagePinned/guild.MessageUnpinned to guild members over the hub, and writes an audit
+/// log entry (pinning is moderation-adjacent, gated by Permissions.PinMessages).
+/// </summary>
+public class MessagePinnedForChannel
+{
+    public string ChannelId { get; set; }
+    public string MessageId { get; set; }
+    public string AuthorId { get; set; }
+    public string PinnedById { get; set; }
+    public DateTime PinnedAt { get; set; }
+}
+
+public class MessageUnpinnedForChannel
+{
+    public string ChannelId { get; set; }
+    public string MessageId { get; set; }
+    public string AuthorId { get; set; }
+    public string UnpinnedById { get; set; }
+}
+
 public class MinimalAttachmentForChannel
 {
     public string Id { get; init; }

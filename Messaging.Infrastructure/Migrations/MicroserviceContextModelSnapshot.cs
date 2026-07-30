@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using NpgsqlTypes;
 
 #nullable disable
 
@@ -279,6 +280,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("in_reply_to");
 
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_pinned");
+
                     b.PrimitiveCollection<List<string>>("Mentions")
                         .IsRequired()
                         .HasColumnType("text[]")
@@ -299,6 +304,14 @@ namespace Messaging.Persistence.Migrations
                     b.Property<long?>("MlsSequenceNumber")
                         .HasColumnType("bigint")
                         .HasColumnName("mls_sequence_number");
+
+                    b.Property<DateTime?>("PinnedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("pinned_at");
+
+                    b.Property<string>("PinnedById")
+                        .HasColumnType("text")
+                        .HasColumnName("pinned_by_id");
 
                     b.PrimitiveCollection<List<string>>("RoleMentions")
                         .IsRequired()
@@ -335,6 +348,9 @@ namespace Messaging.Persistence.Migrations
 
                     b.HasIndex("ConversationId")
                         .HasDatabaseName("ix_messages_conversation_id");
+
+                    b.HasIndex("ContextId", "IsPinned")
+                        .HasDatabaseName("ix_messages_context_id_is_pinned");
 
                     b.ToTable("messages", (string)null);
                 });
@@ -461,6 +477,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<string>("EmojiId")
+                        .HasColumnType("text")
+                        .HasColumnName("emoji_id");
+
                     b.HasKey("MessageId", "UserId", "Emoji")
                         .HasName("pk_reactions");
 
@@ -468,6 +488,59 @@ namespace Messaging.Persistence.Migrations
                         .HasDatabaseName("ix_reactions_message_id");
 
                     b.ToTable("reactions", (string)null);
+                });
+
+            modelBuilder.Entity("Messaging.Infrastructure.Persistence.MessageSearchEntry", b =>
+                {
+                    b.Property<string>("MessageId")
+                        .HasColumnType("text")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("AuthorId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("author_id");
+
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<string>("ConversationId")
+                        .HasColumnType("text")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<NpgsqlTsVector>("SearchVector")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("tsvector")
+                        .HasColumnName("search_vector")
+                        .HasAnnotation("Npgsql:TsVectorConfig", "english")
+                        .HasAnnotation("Npgsql:TsVectorProperties", new[] { "Content" });
+
+                    b.HasKey("MessageId")
+                        .HasName("pk_message_search_entries");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_message_search_entries_channel_id");
+
+                    b.HasIndex("ConversationId")
+                        .HasDatabaseName("ix_message_search_entries_conversation_id");
+
+                    b.HasIndex("SearchVector")
+                        .HasDatabaseName("ix_message_search_entries_search_vector");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
+
+                    b.ToTable("message_search_entries", (string)null);
                 });
 
             modelBuilder.Entity("Messaging.Domain.Entities.ConversationMember", b =>

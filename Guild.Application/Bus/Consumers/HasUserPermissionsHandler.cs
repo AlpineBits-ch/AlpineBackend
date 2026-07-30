@@ -62,6 +62,8 @@ public  class HasUserPermissionsHandler
             ExternalPermission.ModerateMembers        => Permissions.ModerateMembers,
             ExternalPermission.ManageGuild            => Permissions.ManageGuild,
             ExternalPermission.ViewAuditLog           => Permissions.ViewAuditLog,
+            ExternalPermission.ManageEmojis           => Permissions.ManageEmojis,
+            ExternalPermission.ManageEvents           => Permissions.ManageEvents,
 
 
             // Throws on unknown values rather than silently defaulting to None,

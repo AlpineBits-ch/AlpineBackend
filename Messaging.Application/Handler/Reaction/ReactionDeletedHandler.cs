@@ -17,9 +17,19 @@ public class ReactionDeletedHandler
             var conversationMembers = await ctx.Members
                 .Where(m => m.ConversationId == reactionDeleted.ConversationId && m.UserId != reactionDeleted.UserId)
                 .AsNoTracking().ToListAsync();
-            
+
             await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.ReactionRemoved", reactionDeleted);
         }
-        
+
+        if (!string.IsNullOrWhiteSpace(reactionDeleted.ChannelId))
+        {
+            await bus.SendAsync(new Guild.Contracts.Bus.Events.ReactionRemovedEvent
+            {
+                ChannelId = reactionDeleted.ChannelId,
+                MessageId = reactionDeleted.MessageId,
+                Emoji = reactionDeleted.Emoji,
+                UserId = reactionDeleted.UserId,
+            });
+        }
     }
 }

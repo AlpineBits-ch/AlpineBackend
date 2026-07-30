@@ -130,6 +130,7 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddGracefulShutdownHealthCheck();
+builder.Services.AddHostedService<Identity.Application.Services.AccountDeletionPurgeSweepService>();
 
 builder.UseWolverine(opts =>
 {

@@ -7,6 +7,7 @@ using Guild.Contracts.Bus.Response;
 using Messaging.Application.Commands;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
+using Messaging.Application.Services;
 using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Entities;
@@ -14,7 +15,9 @@ using Messaging.Domain.Events.Message;
 using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Wolverine;
 using Wolverine.Http;
 
@@ -25,7 +28,7 @@ namespace Messaging.Application.Endpoints;
 public class MessagingEndpoints
 {
     [WolverinePost("/api/v1/messaging")]
-    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus)
+    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return (Results.Unauthorized(), null);
@@ -44,8 +47,26 @@ public class MessagingEndpoints
                     UserId = userId,
                     Permission = ExternalPermission.SendMessages
                 });
-            
+
             if(!response.IsAllowed) return (Results.Forbid(), null);
+
+            // Bots/webhooks intentionally bypass auto-mod - a guild that installs a bot has
+            // already made an explicit trust decision about what it posts.
+            if (authorIdType != AuthorIdType.Bot)
+            {
+                var blockedReason = await AutoModeration.CheckAsync(dto.ChannelId, userId, dto.Content, cache, bus);
+                if (blockedReason is not null)
+                {
+                    await bus.PublishAsync(new Guild.Contracts.Bus.Events.AutoModTriggeredEvent
+                    {
+                        ChannelId = dto.ChannelId,
+                        UserId = userId,
+                        Reason = blockedReason,
+                    });
+
+                    return (Results.Json(new { error = "automod_blocked", reason = blockedReason }, statusCode: StatusCodes.Status403Forbidden), null);
+                }
+            }
         }
         else
         {
@@ -163,7 +184,120 @@ public class MessagingEndpoints
 
         return Results.Accepted(value: new { messageId, content = dto.Content });
     }
-    
-    
-    
+
+    [WolverinePost("/api/v1/messaging/{messageId}/pin")]
+    public async Task<IResult> PinMessage(string messageId, [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService conversationPermissionService, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var message = await repo.GetMessageAsync(messageId);
+        if (message is null) return Results.NotFound();
+
+        if (!string.IsNullOrWhiteSpace(message.ChannelId))
+        {
+            var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+                new HasUserPermissionToChannelRequest()
+                {
+                    ChannelId = message.ChannelId,
+                    UserId = userId,
+                    Permission = ExternalPermission.PinMessages
+                });
+
+            if (!response.IsAllowed) return Results.Forbid();
+        }
+        else if (!string.IsNullOrWhiteSpace(message.ConversationId))
+        {
+            if (!await conversationPermissionService.HasPermission(userId, message.ConversationId)) return Results.Forbid();
+        }
+        else
+        {
+            return Results.NotFound();
+        }
+
+        var result = await bus.InvokeAsync<PinMessageResponse>(new PinMessageCommand
+        {
+            MessageId = messageId,
+            RequestingUserId = userId,
+        });
+
+        if (result.NotFound) return Results.NotFound();
+        return Results.Ok(result);
+    }
+
+    [WolverineDelete("/api/v1/messaging/{messageId}/pin")]
+    public async Task<IResult> UnpinMessage(string messageId, [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService conversationPermissionService, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var message = await repo.GetMessageAsync(messageId);
+        if (message is null) return Results.NotFound();
+
+        if (!string.IsNullOrWhiteSpace(message.ChannelId))
+        {
+            var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+                new HasUserPermissionToChannelRequest()
+                {
+                    ChannelId = message.ChannelId,
+                    UserId = userId,
+                    Permission = ExternalPermission.PinMessages
+                });
+
+            if (!response.IsAllowed) return Results.Forbid();
+        }
+        else if (!string.IsNullOrWhiteSpace(message.ConversationId))
+        {
+            if (!await conversationPermissionService.HasPermission(userId, message.ConversationId)) return Results.Forbid();
+        }
+        else
+        {
+            return Results.NotFound();
+        }
+
+        var result = await bus.InvokeAsync<PinMessageResponse>(new UnpinMessageCommand
+        {
+            MessageId = messageId,
+            RequestingUserId = userId,
+        });
+
+        if (result.NotFound) return Results.NotFound();
+        return Results.Ok(result);
+    }
+
+    [WolverineGet("/api/v1/messaging/pins")]
+    public async Task<IResult> GetPinnedMessages([FromQuery] string? channelId, [FromQuery] string? conversationId,
+        [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService conversationPermissionService, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(channelId) && string.IsNullOrWhiteSpace(conversationId)) return Results.BadRequest();
+
+        string contextId;
+        if (!string.IsNullOrWhiteSpace(channelId))
+        {
+            var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+                new HasUserPermissionToChannelRequest()
+                {
+                    ChannelId = channelId,
+                    UserId = userId,
+                    Permission = ExternalPermission.ViewChannel
+                });
+
+            if (!response.IsAllowed) return Results.Forbid();
+            contextId = channelId;
+        }
+        else
+        {
+            if (!await conversationPermissionService.HasPermission(userId, conversationId!)) return Results.Forbid();
+            contextId = conversationId!;
+        }
+
+        var pinned = await repo.GetPinnedMessagesAsync(contextId);
+        return Results.Ok(pinned.Select(m => m.ToFacet<Message, MessageDto>()));
+    }
 }

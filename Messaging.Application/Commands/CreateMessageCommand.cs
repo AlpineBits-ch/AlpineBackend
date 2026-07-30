@@ -14,7 +14,7 @@ namespace Messaging.Application.Commands;
 
 public class CreateMessageCommandHandler
 {
-    public async Task<(Message, MessageCreated)> Handle(CreateMessageCommand command, IMessageRepository ctx)
+    public async Task<(Message, MessageCreated)> Handle(CreateMessageCommand command, IMessageRepository ctx, MicroserviceContext db)
     {
 
         var encryptionState = MessageEncryptionState.Plain;
@@ -58,6 +58,22 @@ public class CreateMessageCommandHandler
             })).ToList()
         });
         await ctx.CreateMessageAsync(message);
+
+        // Only Plain-encryption ordinary messages get indexed - there's nothing to search in an
+        // MLS-encrypted ciphertext blob server-side, and system messages (join/leave/invite) have
+        // no user-authored content worth searching.
+        if (encryptionState == MessageEncryptionState.Plain && type == DomainMessageType.Message && message.Content.Length > 0)
+        {
+            db.MessageSearchEntries.Add(new MessageSearchEntry
+            {
+                MessageId = message.Id,
+                ChannelId = message.ChannelId,
+                ConversationId = message.ConversationId,
+                AuthorId = message.AuthorId,
+                Content = System.Text.Encoding.UTF8.GetString(message.Content),
+                CreatedAt = message.CreatedAt.UtcDateTime,
+            });
+        }
 
         return (message, new MessageCreated()
         {

@@ -27,6 +27,13 @@ public class MicroserviceContext : DbContext
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
     public DbSet<GuildAuditLogEntry> AuditLogEntries { get; set; }
     public DbSet<GuildBan> GuildBans { get; set; }
+    public DbSet<GuildEmoji> GuildEmojis { get; set; }
+    public DbSet<GuildAutoModConfig> GuildAutoModConfigs { get; set; }
+    public DbSet<GuildOnboardingConfig> GuildOnboardingConfigs { get; set; }
+    public DbSet<GuildScheduledEvent> GuildScheduledEvents { get; set; }
+    public DbSet<GuildScheduledEventInterest> GuildScheduledEventInterests { get; set; }
+    public DbSet<GuildTemplate> GuildTemplates { get; set; }
+    public DbSet<GuildChannelFollow> GuildChannelFollows { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -43,6 +50,8 @@ public class MicroserviceContext : DbContext
             options.MapEnum<RoleType>();
             options.MapEnum<WikiVisibility>();
             options.MapEnum<AuditActionType>();
+            options.MapEnum<GuildVerificationLevel>();
+            options.MapEnum<GuildScheduledEventStatus>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -274,6 +283,90 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             banBuilder.HasIndex(x => new { x.GuildId, x.BannedUserId }).IsUnique();
+        });
+
+        modelBuilder.Entity<GuildEmoji>(emojiBuilder =>
+        {
+            emojiBuilder.HasOne(x => x.Guild)
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            emojiBuilder.HasIndex(x => new { x.GuildId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<GuildAutoModConfig>(autoModBuilder =>
+        {
+            autoModBuilder.HasKey(x => x.GuildId);
+
+            autoModBuilder.HasOne(x => x.Guild)
+                .WithOne()
+                .HasForeignKey<GuildAutoModConfig>(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            autoModBuilder.Property(x => x.BlockedWords).HasColumnType("text[]");
+        });
+
+        modelBuilder.Entity<GuildOnboardingConfig>(onboardingBuilder =>
+        {
+            onboardingBuilder.HasKey(x => x.GuildId);
+
+            onboardingBuilder.HasOne(x => x.Guild)
+                .WithOne()
+                .HasForeignKey<GuildOnboardingConfig>(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            onboardingBuilder.Property(x => x.DefaultChannelIds).HasColumnType("text[]");
+        });
+
+        modelBuilder.Entity<GuildScheduledEvent>(eventBuilder =>
+        {
+            eventBuilder.HasOne(x => x.Guild)
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            eventBuilder.HasOne(x => x.VoiceChannel)
+                .WithMany()
+                .HasForeignKey(x => x.VoiceChannelId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .IsRequired(false);
+
+            eventBuilder.HasIndex(x => new { x.GuildId, x.StartsAt });
+        });
+
+        modelBuilder.Entity<GuildScheduledEventInterest>(interestBuilder =>
+        {
+            interestBuilder.HasKey(x => new { x.EventId, x.UserId });
+
+            interestBuilder.HasOne(x => x.Event)
+                .WithMany(x => x.Interested)
+                .HasForeignKey(x => x.EventId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GuildTemplate>(templateBuilder =>
+        {
+            // No FK to Guild - SourceGuildId is advisory-only and must survive the source
+            // guild being deleted (see TemplateSnapshot's doc comment). Every nested
+            // collection needs its own explicit OwnsMany - ToJson() on the root doesn't
+            // recurse into further-nested owned collections automatically.
+            templateBuilder.OwnsOne(x => x.Snapshot, snapshotBuilder =>
+            {
+                snapshotBuilder.ToJson();
+                snapshotBuilder.OwnsMany(s => s.Roles);
+                snapshotBuilder.OwnsMany(s => s.UncategorizedChannels);
+                snapshotBuilder.OwnsMany(s => s.Categories, categoryBuilder =>
+                {
+                    categoryBuilder.OwnsMany(c => c.Channels);
+                });
+            });
+        });
+
+        modelBuilder.Entity<GuildChannelFollow>(followBuilder =>
+        {
+            followBuilder.HasIndex(x => x.SourceChannelId);
+            followBuilder.HasIndex(x => new { x.SourceChannelId, x.TargetChannelId }).IsUnique();
         });
     }
     

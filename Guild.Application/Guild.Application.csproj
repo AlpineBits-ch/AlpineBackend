@@ -43,6 +43,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
       <ProjectReference Include="..\Guild.Infrastructure\Guild.Infrastructure.csproj" />
       <ProjectReference Include="..\Messaging.Contracts\Messaging.Contracts.csproj" />

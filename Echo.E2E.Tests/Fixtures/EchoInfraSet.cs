@@ -1,5 +1,3 @@
-using DotNet.Testcontainers.Builders;
-using DotNet.Testcontainers.Containers;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Testcontainers.RabbitMq;
@@ -24,7 +22,6 @@ public sealed class EchoInfraSet : IAsyncDisposable
     private readonly PostgreSqlContainer _postgres;
     private readonly RabbitMqContainer _rabbitMq;
     private readonly RedisContainer _redis;
-    private readonly IContainer _scylla;
 
     public string PostgresHost { get; private set; } = null!;
     public int PostgresPort { get; private set; }
@@ -32,16 +29,13 @@ public sealed class EchoInfraSet : IAsyncDisposable
     public int RabbitMqPort { get; private set; }
     public string RedisHost { get; private set; } = null!;
     public int RedisPort { get; private set; }
-    public string ScyllaHost { get; private set; } = null!;
-    public int ScyllaPort { get; private set; }
 
     private EchoInfraSet(
-        PostgreSqlContainer postgres, RabbitMqContainer rabbitMq, RedisContainer redis, IContainer scylla)
+        PostgreSqlContainer postgres, RabbitMqContainer rabbitMq, RedisContainer redis)
     {
         _postgres = postgres;
         _rabbitMq = rabbitMq;
         _redis = redis;
-        _scylla = scylla;
     }
 
     public static async Task<EchoInfraSet> StartAsync()
@@ -64,31 +58,11 @@ public sealed class EchoInfraSet : IAsyncDisposable
             .WithCommand("redis-server", "--requirepass", RedisPassword)
             .Build();
 
-        // Messaging.Application connects to Scylla unconditionally at startup (there's no
-        // in-memory/skip fallback), so this is needed just to get the service to boot, not only
-        // for message-store scenarios.
-        //
-        // Deliberately a generic container, not the Testcontainers.Cassandra module: that
-        // module's default wait strategy opens a real CQL session through the Cassandra C#
-        // driver to confirm readiness, and against a real scylladb/scylla image that handshake
-        // never completed in practice - the server logs itself as fully ready and serving CQL
-        // within ~15s, but the module's own wrapper Task hung indefinitely (likely a Scylla/
-        // Cassandra-protocol compatibility gap in that specific check). Waiting for the exact log
-        // line Scylla itself prints once its native CQL listener is up is far more reliable.
-        var scylla = new ContainerBuilder()
-            .WithImage("scylladb/scylla:5.4")
-            .WithCommand("--smp", "1", "--memory", "750M", "--overprovisioned", "1")
-            .WithPortBinding(9042, true)
-            .WithWaitStrategy(Wait.ForUnixContainer()
-                .UntilMessageIsLogged("Starting listening for CQL clients"))
-            .Build();
-
-        var set = new EchoInfraSet(postgres, rabbitMq, redis, scylla);
+        var set = new EchoInfraSet(postgres, rabbitMq, redis);
 
         // A bounded timeout here beats a silent multi-minute hang if a wait strategy ever
-        // misbehaves again (see the comment on the Scylla wait strategy above for exactly that
-        // happening once already).
-        await Task.WhenAll(postgres.StartAsync(), rabbitMq.StartAsync(), redis.StartAsync(), scylla.StartAsync())
+        // misbehaves.
+        await Task.WhenAll(postgres.StartAsync(), rabbitMq.StartAsync(), redis.StartAsync())
             .WaitAsync(TimeSpan.FromMinutes(3));
 
         set.PostgresHost = postgres.Hostname;
@@ -97,8 +71,6 @@ public sealed class EchoInfraSet : IAsyncDisposable
         set.RabbitMqPort = rabbitMq.GetMappedPublicPort(5672);
         set.RedisHost = redis.Hostname;
         set.RedisPort = redis.GetMappedPublicPort(6379);
-        set.ScyllaHost = scylla.Hostname;
-        set.ScyllaPort = scylla.GetMappedPublicPort(9042);
 
         return set;
     }
@@ -129,7 +101,6 @@ public sealed class EchoInfraSet : IAsyncDisposable
         await Task.WhenAll(
             _postgres.DisposeAsync().AsTask(),
             _rabbitMq.DisposeAsync().AsTask(),
-            _redis.DisposeAsync().AsTask(),
-            _scylla.DisposeAsync().AsTask());
+            _redis.DisposeAsync().AsTask());
     }
 }

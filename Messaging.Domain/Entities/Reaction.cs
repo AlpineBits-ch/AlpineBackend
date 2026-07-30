@@ -11,6 +11,10 @@ public class CreateReactionParams
     public string UserId { get; set; }
     public string? ConversationId { get; set; }
     public string? ChannelId { get; set; }
+
+    /// <summary>Guild custom emoji id - when set, Emoji carries the emoji's *name* (shortcode)
+    /// instead of a unicode character, mirroring Discord's emoji{id,name} object shape.</summary>
+    public string? EmojiId { get; set; }
 }
 public class Reaction
 {
@@ -21,16 +25,25 @@ public class Reaction
     public DateTime CreatedAt { get; set; }
     public string? ConversationId { get; set; }
     public string? ChannelId { get; set; }
+    public string? EmojiId { get; set; }
 
     public static Reaction Create(CreateReactionParams createReactionParams)
     {
-        if(!IsSingleEmoji(createReactionParams.Emoji)) throw new ArgumentException("Reaction must be a single emoji", nameof(createReactionParams.Emoji));
+        if (string.IsNullOrWhiteSpace(createReactionParams.EmojiId))
+        {
+            if (!IsSingleEmoji(createReactionParams.Emoji))
+                throw new ArgumentException("Reaction must be a single emoji", nameof(createReactionParams.Emoji));
+        }
+        else if (string.IsNullOrWhiteSpace(createReactionParams.Emoji))
+        {
+            throw new ArgumentException("Custom emoji reactions must carry the emoji's name", nameof(createReactionParams.Emoji));
+        }
 
         string contextId = string.Empty;
         if(!string.IsNullOrEmpty(createReactionParams.ConversationId)) contextId = createReactionParams.ConversationId;
         else if(!string.IsNullOrEmpty(createReactionParams.ChannelId)) contextId = createReactionParams.ChannelId;
         else throw new ArgumentNullException(nameof(createReactionParams.ConversationId), "Reaction must have a conversation or channel id");
-        
+
         return new Reaction()
         {
             ContextId = contextId,
@@ -39,7 +52,8 @@ public class Reaction
             UserId = createReactionParams.UserId,
             CreatedAt = DateTime.UtcNow,
             ConversationId = createReactionParams.ConversationId,
-            ChannelId = createReactionParams.ChannelId
+            ChannelId = createReactionParams.ChannelId,
+            EmojiId = createReactionParams.EmojiId,
         };
     }
     public static bool IsSingleEmoji(string value)

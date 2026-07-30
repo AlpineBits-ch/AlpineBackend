@@ -27,7 +27,7 @@ namespace Identity.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "direct_message_settings", new[] { "allow_all", "filter_all", "filter_non_friends" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "privacy_settings", new[] { "allow_data_collection", "allow_data_use_for_personalization", "allow_voice_recorded_in_clips", "none" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "theme", new[] { "dark", "light", "midnight", "system" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_status", new[] { "active", "banned", "inactive" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_status", new[] { "active", "banned", "deleted", "inactive", "pending_deletion", "purge_in_progress" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "user_type", new[] { "admin", "bot", "default", "moderator" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -62,6 +62,10 @@ namespace Identity.Infrastructure.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DeletionRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deletion_requested_at");
 
                     b.Property<string>("Email")
                         .HasMaxLength(256)
@@ -118,6 +122,10 @@ namespace Identity.Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("PhoneVerifiedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("phone_verified_at");
+
+                    b.Property<DateTimeOffset?>("PurgeScheduledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("purge_scheduled_at");
 
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text")

@@ -53,6 +53,29 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 logger.LogInformation("User {username} is not allowed to sign in", request.Username);
                 return Forbid("User is not allowed to sign in");
             }
+
+            if (user.TwoFactorEnabled)
+            {
+                var mfaCode = (string?)request.GetParameter("mfa_code");
+                if (string.IsNullOrWhiteSpace(mfaCode))
+                {
+                    logger.LogInformation("User {username} has MFA enabled but supplied no code", request.Username);
+                    return StatusCode(StatusCodes.Status401Unauthorized, "mfa_required");
+                }
+
+                var isValidTotp = await manager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, mfaCode);
+                if (!isValidTotp)
+                {
+                    // Fall back to a recovery code - distinct format (8-char, one-time-use), so
+                    // trying it only after a failed TOTP check costs nothing on the common path.
+                    var recoveryResult = await manager.RedeemTwoFactorRecoveryCodeAsync(user, mfaCode);
+                    if (!recoveryResult.Succeeded)
+                    {
+                        logger.LogInformation("Invalid MFA code for user {username}", request.Username);
+                        return StatusCode(StatusCodes.Status401Unauthorized, "mfa_invalid");
+                    }
+                }
+            }
         }
         else if (request.IsRefreshTokenGrantType())
         {

@@ -22,14 +22,18 @@ namespace Guild.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "auto_mod_config_updated", "auto_mod_message_blocked", "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "category_updated", "channel_created", "channel_deleted", "channel_follow_created", "channel_follow_removed", "channel_permission_changed", "channel_updated", "emoji_created", "emoji_deleted", "guild_created_from_template", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_unbanned", "member_unmuted", "message_pinned", "message_unpinned", "onboarding_config_updated", "role_created", "role_deleted", "role_positions_changed", "role_updated", "scheduled_event_cancelled", "scheduled_event_created", "scheduled_event_deleted", "scheduled_event_updated", "template_created" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "forum", "text", "thread", "ticket", "voice" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "auto_mod_config_updated", "auto_mod_message_blocked", "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "category_updated", "channel_created", "channel_deleted", "channel_follow_created", "channel_follow_removed", "channel_permission_changed", "channel_updated", "emoji_created", "emoji_deleted", "forum_config_updated", "forum_tag_created", "forum_tag_deleted", "forum_tag_updated", "forum_tags_reordered", "guild_created_from_template", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_unbanned", "member_unmuted", "message_pinned", "message_unpinned", "onboarding_config_updated", "onboarding_prompt_created", "onboarding_prompt_deleted", "onboarding_prompt_updated", "role_created", "role_deleted", "role_positions_changed", "role_updated", "scheduled_event_cancelled", "scheduled_event_created", "scheduled_event_deleted", "scheduled_event_updated", "template_created", "thread_lock_changed", "thread_pin_changed", "thread_tags_updated", "welcome_screen_updated" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "forum", "media", "text", "thread", "ticket", "voice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "encryption_state", new[] { "encrypted", "encrypted_without_fallback_key", "plain" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "forum_layout", new[] { "gallery", "list" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "forum_sort_order", new[] { "creation_date", "latest_activity" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "guild_scheduled_event_status", new[] { "active", "cancelled", "completed", "scheduled" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "guild_verification_level", new[] { "high", "low", "medium", "none" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_state", new[] { "active", "expired" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_type", new[] { "one_time", "permanent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "member_type", new[] { "bot", "default", "persona" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "onboarding_mode", new[] { "advanced", "default" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "onboarding_prompt_type", new[] { "dropdown", "multiple_choice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "permission_state", new[] { "allow", "deny", "inherit" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "role_type", new[] { "everyone", "none" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "wiki_visibility", new[] { "private", "public" });
@@ -40,6 +44,14 @@ namespace Guild.Persistence.Migrations
                     b.Property<string>("Id")
                         .HasColumnType("text")
                         .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("AutoArchiveAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("auto_archive_at");
+
+                    b.Property<int?>("AutoArchiveMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("auto_archive_minutes");
 
                     b.Property<string>("CategoryId")
                         .HasColumnType("text")
@@ -74,9 +86,25 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_archived");
 
+                    b.Property<bool>("IsLocked")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_locked");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_pinned");
+
                     b.Property<bool>("IsPrivate")
                         .HasColumnType("boolean")
                         .HasColumnName("is_private");
+
+                    b.Property<DateTimeOffset?>("LastActivityAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_activity_at");
+
+                    b.Property<int>("MessageCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("message_count");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -112,8 +140,11 @@ namespace Guild.Persistence.Migrations
                     b.HasIndex("GuildId")
                         .HasDatabaseName("ix_channels_guild_id");
 
-                    b.HasIndex("ParentChannelId")
-                        .HasDatabaseName("ix_channels_parent_channel_id");
+                    b.HasIndex("ParentChannelId", "IsPinned", "CreatedAt")
+                        .HasDatabaseName("IX_channels_forum_created");
+
+                    b.HasIndex("ParentChannelId", "IsPinned", "LastActivityAt")
+                        .HasDatabaseName("IX_channels_forum_activity");
 
                     b.ToTable("channels", (string)null);
                 });
@@ -319,6 +350,137 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("IX_channel_permissions_role_member");
 
                     b.ToTable("channel_permissions", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ForumConfig", b =>
+                {
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<int>("DefaultAutoArchiveMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("default_auto_archive_minutes");
+
+                    b.Property<ForumLayout>("DefaultLayout")
+                        .HasColumnType("forum_layout")
+                        .HasColumnName("default_layout");
+
+                    b.Property<string>("DefaultReactionEmojiId")
+                        .HasColumnType("text")
+                        .HasColumnName("default_reaction_emoji_id");
+
+                    b.Property<string>("DefaultReactionEmojiName")
+                        .HasColumnType("text")
+                        .HasColumnName("default_reaction_emoji_name");
+
+                    b.Property<ForumSortOrder>("DefaultSortOrder")
+                        .HasColumnType("forum_sort_order")
+                        .HasColumnName("default_sort_order");
+
+                    b.Property<int>("DefaultThreadSlowModeSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("default_thread_slow_mode_seconds");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<bool>("RequireTag")
+                        .HasColumnType("boolean")
+                        .HasColumnName("require_tag");
+
+                    b.HasKey("ChannelId")
+                        .HasName("pk_forum_configs");
+
+                    b.ToTable("forum_configs", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ForumPostTag", b =>
+                {
+                    b.Property<string>("ThreadChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("thread_channel_id");
+
+                    b.Property<string>("TagId")
+                        .HasColumnType("text")
+                        .HasColumnName("tag_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("ThreadChannelId", "TagId")
+                        .HasName("pk_forum_post_tags");
+
+                    b.HasIndex("TagId")
+                        .HasDatabaseName("ix_forum_post_tags_tag_id");
+
+                    b.ToTable("forum_post_tags", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ForumTag", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("color");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EmojiId")
+                        .HasColumnType("text")
+                        .HasColumnName("emoji_id");
+
+                    b.Property<string>("EmojiName")
+                        .HasColumnType("text")
+                        .HasColumnName("emoji_name");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<bool>("Moderated")
+                        .HasColumnType("boolean")
+                        .HasColumnName("moderated");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_forum_tags");
+
+                    b.HasIndex("ChannelId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_forum_tags_channel_id_name");
+
+                    b.HasIndex("ChannelId", "Position")
+                        .HasDatabaseName("ix_forum_tags_channel_id_position");
+
+                    b.ToTable("forum_tags", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.GuildAuditLogEntry", b =>
@@ -682,6 +844,34 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("guild_members", (string)null);
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildMemberOnboardingResponse", b =>
+                {
+                    b.Property<string>("MemberId")
+                        .HasColumnType("text")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("OptionId")
+                        .HasColumnType("text")
+                        .HasColumnName("option_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("PromptId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("prompt_id");
+
+                    b.HasKey("MemberId", "OptionId")
+                        .HasName("pk_guild_member_onboarding_responses");
+
+                    b.HasIndex("OptionId")
+                        .HasDatabaseName("ix_guild_member_onboarding_responses_option_id");
+
+                    b.ToTable("guild_member_onboarding_responses", (string)null);
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingConfig", b =>
                 {
                     b.Property<string>("GuildId")
@@ -697,6 +887,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("enabled");
 
+                    b.Property<OnboardingMode>("Mode")
+                        .HasColumnType("onboarding_mode")
+                        .HasColumnName("mode");
+
                     b.Property<string>("RulesText")
                         .HasColumnType("text")
                         .HasColumnName("rules_text");
@@ -709,6 +903,164 @@ namespace Guild.Persistence.Migrations
                         .HasName("pk_guild_onboarding_configs");
 
                     b.ToTable("guild_onboarding_configs", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingGrant", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("ChannelPermissionId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_permission_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("MemberId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("member_id");
+
+                    b.Property<string>("OptionId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("option_id");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("role_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_onboarding_grants");
+
+                    b.HasIndex("MemberId", "OptionId")
+                        .HasDatabaseName("ix_guild_onboarding_grants_member_id_option_id");
+
+                    b.ToTable("guild_onboarding_grants", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingPrompt", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<bool>("InOnboarding")
+                        .HasColumnType("boolean")
+                        .HasColumnName("in_onboarding");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<bool>("Required")
+                        .HasColumnType("boolean")
+                        .HasColumnName("required");
+
+                    b.Property<bool>("SingleSelect")
+                        .HasColumnType("boolean")
+                        .HasColumnName("single_select");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<OnboardingPromptType>("Type")
+                        .HasColumnType("onboarding_prompt_type")
+                        .HasColumnName("type");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_onboarding_prompts");
+
+                    b.HasIndex("GuildId", "Position")
+                        .HasDatabaseName("ix_guild_onboarding_prompts_guild_id_position");
+
+                    b.ToTable("guild_onboarding_prompts", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingPromptOption", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.PrimitiveCollection<List<string>>("ChannelIds")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("channel_ids");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Emoji")
+                        .HasColumnType("text")
+                        .HasColumnName("emoji");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<string>("PromptId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("prompt_id");
+
+                    b.PrimitiveCollection<List<string>>("RoleIds")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("role_ids");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_onboarding_prompt_options");
+
+                    b.HasIndex("PromptId", "Position")
+                        .HasDatabaseName("ix_guild_onboarding_prompt_options_prompt_id_position");
+
+                    b.ToTable("guild_onboarding_prompt_options", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.GuildScheduledEvent", b =>
@@ -836,6 +1188,76 @@ namespace Guild.Persistence.Migrations
                         .HasName("pk_guild_templates");
 
                     b.ToTable("guild_templates", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildWelcomeChannel", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Emoji")
+                        .HasColumnType("text")
+                        .HasColumnName("emoji");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_welcome_channels");
+
+                    b.HasIndex("GuildId", "Position")
+                        .HasDatabaseName("ix_guild_welcome_channels_guild_id_position");
+
+                    b.ToTable("guild_welcome_channels", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildWelcomeScreen", b =>
+                {
+                    b.Property<string>("GuildId")
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enabled");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("GuildId")
+                        .HasName("pk_guild_welcome_screens");
+
+                    b.ToTable("guild_welcome_screens", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.PublicKeyStore", b =>
@@ -1292,6 +1714,43 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("Role");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.ForumConfig", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithOne()
+                        .HasForeignKey("Guild.Domain.Entity.ForumConfig", "ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_forum_configs_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ForumPostTag", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.ForumTag", null)
+                        .WithMany()
+                        .HasForeignKey("TagId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_forum_post_tags_forum_tags_tag_id");
+
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ThreadChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_forum_post_tags_channels_thread_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ForumTag", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_forum_tags_channels_channel_id");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildAuditLogEntry", b =>
                 {
                     b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
@@ -1380,6 +1839,27 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("Invite");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildMemberOnboardingResponse", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.GuildMember", "Member")
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_member_onboarding_responses_guild_members_member_id");
+
+                    b.HasOne("Guild.Domain.Entity.GuildOnboardingPromptOption", "Option")
+                        .WithMany()
+                        .HasForeignKey("OptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_member_onboarding_responses_guild_onboarding_prompt_o");
+
+                    b.Navigation("Member");
+
+                    b.Navigation("Option");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingConfig", b =>
                 {
                     b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
@@ -1390,6 +1870,42 @@ namespace Guild.Persistence.Migrations
                         .HasConstraintName("fk_guild_onboarding_configs_guilds_guild_id");
 
                     b.Navigation("Guild");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingGrant", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.GuildMember", "Member")
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_onboarding_grants_guild_members_member_id");
+
+                    b.Navigation("Member");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingPrompt", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_onboarding_prompts_guilds_guild_id");
+
+                    b.Navigation("Guild");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingPromptOption", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.GuildOnboardingPrompt", "Prompt")
+                        .WithMany("Options")
+                        .HasForeignKey("PromptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_onboarding_prompt_options_guild_onboarding_prompts_pr");
+
+                    b.Navigation("Prompt");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.GuildScheduledEvent", b =>
@@ -1494,6 +2010,97 @@ namespace Guild.Persistence.Migrations
                                     b2.Navigation("Channels");
                                 });
 
+                            b1.OwnsOne("Guild.Domain.Entity.TemplateOnboarding", "Onboarding", b2 =>
+                                {
+                                    b2.Property<string>("TemplateSnapshotGuildTemplateId");
+
+                                    b2.PrimitiveCollection<string>("DefaultChannelNames")
+                                        .IsRequired();
+
+                                    b2.Property<bool>("Enabled");
+
+                                    b2.Property<OnboardingMode>("Mode");
+
+                                    b2.Property<string>("RulesText");
+
+                                    b2.HasKey("TemplateSnapshotGuildTemplateId")
+                                        .HasName("pk_guild_templates");
+
+                                    b2.ToTable("guild_templates");
+
+                                    b2.WithOwner()
+                                        .HasForeignKey("TemplateSnapshotGuildTemplateId")
+                                        .HasConstraintName("fk_guild_templates_guild_templates_template_snapshot_guild_templa");
+
+                                    b2.OwnsMany("Guild.Domain.Entity.TemplateOnboardingPrompt", "Prompts", b3 =>
+                                        {
+                                            b3.Property<string>("TemplateOnboardingTemplateSnapshotGuildTemplateId");
+
+                                            b3.Property<int>("__synthesizedOrdinal")
+                                                .ValueGeneratedOnAdd();
+
+                                            b3.Property<bool>("InOnboarding");
+
+                                            b3.Property<int>("Position");
+
+                                            b3.Property<bool>("Required");
+
+                                            b3.Property<bool>("SingleSelect");
+
+                                            b3.Property<string>("Title")
+                                                .IsRequired();
+
+                                            b3.Property<OnboardingPromptType>("Type");
+
+                                            b3.HasKey("TemplateOnboardingTemplateSnapshotGuildTemplateId", "__synthesizedOrdinal")
+                                                .HasName("pk_guild_templates");
+
+                                            b3.ToTable("guild_templates");
+
+                                            b3.WithOwner()
+                                                .HasForeignKey("TemplateOnboardingTemplateSnapshotGuildTemplateId")
+                                                .HasConstraintName("fk_guild_templates_guild_templates_template_onboarding_template_s");
+
+                                            b3.OwnsMany("Guild.Domain.Entity.TemplateOnboardingOption", "Options", b4 =>
+                                                {
+                                                    b4.Property<string>("TemplateOnboardingPromptTemplateOnboardingTemplateSnapshotGuildTemplateId")
+                                                        .HasColumnName("TemplateOnboardingPromptTemplateOnboardingTemplateSnapshotGuil~");
+
+                                                    b4.Property<int>("TemplateOnboardingPrompt__synthesizedOrdinal");
+
+                                                    b4.Property<int>("__synthesizedOrdinal")
+                                                        .ValueGeneratedOnAdd();
+
+                                                    b4.PrimitiveCollection<string>("ChannelNames")
+                                                        .IsRequired();
+
+                                                    b4.Property<string>("Description");
+
+                                                    b4.Property<string>("Emoji");
+
+                                                    b4.Property<int>("Position");
+
+                                                    b4.PrimitiveCollection<string>("RoleNames")
+                                                        .IsRequired();
+
+                                                    b4.Property<string>("Title")
+                                                        .IsRequired();
+
+                                                    b4.HasKey("TemplateOnboardingPromptTemplateOnboardingTemplateSnapshotGuildTemplateId", "TemplateOnboardingPrompt__synthesizedOrdinal", "__synthesizedOrdinal");
+
+                                                    b4.ToTable("guild_templates");
+
+                                                    b4.WithOwner()
+                                                        .HasForeignKey("TemplateOnboardingPromptTemplateOnboardingTemplateSnapshotGuildTemplateId", "TemplateOnboardingPrompt__synthesizedOrdinal")
+                                                        .HasConstraintName("fk_guild_templates_guild_templates_template_onboarding_prompt_tem");
+                                                });
+
+                                            b3.Navigation("Options");
+                                        });
+
+                                    b2.Navigation("Prompts");
+                                });
+
                             b1.OwnsMany("Guild.Domain.Entity.TemplateRole", "Roles", b2 =>
                                 {
                                     b2.Property<string>("TemplateSnapshotGuildTemplateId");
@@ -1549,6 +2156,8 @@ namespace Guild.Persistence.Migrations
 
                             b1.Navigation("Categories");
 
+                            b1.Navigation("Onboarding");
+
                             b1.Navigation("Roles");
 
                             b1.Navigation("UncategorizedChannels");
@@ -1556,6 +2165,30 @@ namespace Guild.Persistence.Migrations
 
                     b.Navigation("Snapshot")
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildWelcomeChannel", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.GuildWelcomeScreen", "WelcomeScreen")
+                        .WithMany("Channels")
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_welcome_channels_guild_welcome_screens_guild_id");
+
+                    b.Navigation("WelcomeScreen");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildWelcomeScreen", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
+                        .WithOne()
+                        .HasForeignKey("Guild.Domain.Entity.GuildWelcomeScreen", "GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_welcome_screens_guilds_guild_id");
+
+                    b.Navigation("Guild");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.PublicKeyStore", b =>
@@ -1732,9 +2365,19 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("RoleMembers");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingPrompt", b =>
+                {
+                    b.Navigation("Options");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildScheduledEvent", b =>
                 {
                     b.Navigation("Interested");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildWelcomeScreen", b =>
+                {
+                    b.Navigation("Channels");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.WikiPage", b =>

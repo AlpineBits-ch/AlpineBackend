@@ -20,6 +20,39 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class MemberEndpoint
 {
+    /// <summary>Members who joined while onboarding was enabled and never accepted - they can read
+    /// but not participate. Gives moderators the "3 people are stuck on the rules screen" view that
+    /// was otherwise only derivable one member at a time.</summary>
+    [WolverineGet("/api/v1/guilds/{guildId}/members/pending")]
+    public async Task<IResult> ListPendingMembersAsync(string guildId, int? limit, int? offset,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        [NotBody] GuildPermissionService permissionService)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canModerate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ModerateMembers)
+                          || await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageGuild);
+        if (!canModerate) return Results.Forbid();
+
+        var members = await ctx.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.GuildId == guildId && m.OnboardingCompletedAt == null)
+            .OrderBy(m => m.JoinedAt)
+            .Skip(Math.Max(offset ?? 0, 0))
+            .Take(Math.Clamp(limit ?? 100, 1, 500))
+            .Select(m => new
+            {
+                memberId = m.Id,
+                userId = m.UserId,
+                nickname = m.Nickname,
+                joinedAt = m.JoinedAt,
+            })
+            .ToListAsync();
+
+        return Results.Ok(members);
+    }
+
     [WolverinePost("/api/v1/guilds/{guildId}/bans")]
     public async Task<IResult> BanMemberAsync(string guildId, CreateBanDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,

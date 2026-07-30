@@ -1,5 +1,9 @@
 # Forum channels — frontend integration guide
 
+> **Superseded in part by [forum-parity-frontend-guide.md](forum-parity-frontend-guide.md)**, which
+> adds tags, per-forum config, pinning/locking, and a filtered, paginated post list. The v1
+> behaviour below still holds; the limitations at the bottom of this page are addressed there.
+
 Backend support for Forum channels is done and live. There's no new entity behind this - a Forum
 channel is a container, and each "post" in it is exactly the same `Thread` channel type already
 used for text-channel threads, just parented to a Forum instead of a Text channel.

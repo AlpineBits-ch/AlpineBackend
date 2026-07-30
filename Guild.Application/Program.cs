@@ -130,7 +130,12 @@ builder.Services.AddScoped<GuildPermissionService>();
 builder.Services.AddScoped<GuildThumbnailService>();
 builder.Services.AddScoped<GuildEmojiService>();
 builder.Services.AddScoped<AuditLogService>();
+builder.Services.AddScoped<OnboardingValidationService>();
+builder.Services.AddScoped<OnboardingGrantService>();
+builder.Services.AddScoped<OnboardingConfigService>();
+builder.Services.AddScoped<ForumService>();
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
+builder.Services.AddHostedService<ForumAutoArchiveService>();
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 if (args.Contains("codegen") || args.Contains("describe"))
 {

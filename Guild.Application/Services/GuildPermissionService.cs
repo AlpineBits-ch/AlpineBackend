@@ -76,7 +76,17 @@ public class GuildPermissionService(
         var memberAllow = memberRow?.AllowPermissions ?? Permissions.None;
         var memberDeny = memberRow?.DenyPermissions ?? Permissions.None;
         var mutedUntil = memberRow?.MutedUntil;
-        var onboardingPending = memberRow is not null && memberRow.OnboardingCompletedAt is null;
+
+        // A never-accepted member only counts as pending while the guild actually has onboarding
+        // switched on. Without this check, turning onboarding off would leave everyone who joined
+        // while it was on permanently participation-restricted with no rules screen left to accept
+        // (the disable path in OnboardingEndpoint also back-fills them, this is the read-side net).
+        // Only paid for when the member is un-accepted, which is the rare case.
+        var onboardingPending = memberRow is not null
+                                && memberRow.OnboardingCompletedAt is null
+                                && await ctx.Set<GuildOnboardingConfig>()
+                                    .AsNoTracking()
+                                    .AnyAsync(c => c.GuildId == guildId && c.Enabled);
 
         var roleIds = memberId == null
             ? []

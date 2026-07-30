@@ -74,6 +74,8 @@ public class GuildTemplateEndpoint
             snapshot.Roles.Insert(0, new TemplateRole { Name = "Everyone", Position = 0, Permissions = everyoneRole.Permissions });
         }
 
+        snapshot.Onboarding = await CaptureOnboardingAsync(ctx, guild);
+
         var template = GuildTemplate.Create(new CreateGuildTemplateParams
         {
             Name = dto.Name,
@@ -143,15 +145,22 @@ public class GuildTemplateEndpoint
         var everyoneTemplate = template.Snapshot.Roles.FirstOrDefault(r => r.Position == 0 && r.Name == "Everyone");
         if (everyoneTemplate is not null) everyoneRole.Permissions = everyoneTemplate.Permissions;
 
+        // Onboarding in a template references roles and channels by name (ids don't survive into a
+        // new guild), so the replay needs a name -> freshly-generated-id map.
+        var roleIdsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var channelIdsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var roleTemplate in template.Snapshot.Roles.Where(r => r != everyoneTemplate))
         {
-            ctx.Roles.Add(Role.Create(new CreateRoleParams
+            var role = Role.Create(new CreateRoleParams
             {
                 Name = roleTemplate.Name,
                 Color = roleTemplate.Color,
                 GuildId = guild.Id,
                 Permissions = roleTemplate.Permissions,
-            }));
+            });
+            ctx.Roles.Add(role);
+            roleIdsByName.TryAdd(role.Name, role.Id);
         }
 
         string? firstTextChannelId = null;
@@ -173,6 +182,7 @@ public class GuildTemplateEndpoint
                     Position = channelTemplate.Position,
                 });
                 ctx.Channels.Add(channel);
+                channelIdsByName.TryAdd(channel.Name, channel.Id);
                 firstTextChannelId ??= channelTemplate.Type == ChannelType.Text ? channel.Id : null;
             }
         }
@@ -188,11 +198,14 @@ public class GuildTemplateEndpoint
                 Position = channelTemplate.Position,
             });
             ctx.Channels.Add(channel);
+            channelIdsByName.TryAdd(channel.Name, channel.Id);
             firstTextChannelId ??= channelTemplate.Type == ChannelType.Text ? channel.Id : null;
         }
 
         guild.SystemChannelId = firstTextChannelId;
         template.UsageCount++;
+
+        ReplayOnboarding(ctx, guild.Id, template.Snapshot.Onboarding, roleIdsByName, channelIdsByName);
 
         // Same FK ordering hack as GuildEndpoint.CreateGuild - SystemChannelId points at a row
         // being inserted in the same batch, so it has to go in after the initial save.
@@ -217,5 +230,129 @@ public class GuildTemplateEndpoint
         }
 
         return Results.Ok(new { guild.Id, guild.Name });
+    }
+
+    /// <summary>Captures the guild's onboarding into the snapshot, referencing roles and channels by
+    /// name so it can be replayed into a guild whose ids don't exist yet.</summary>
+    private static async Task<TemplateOnboarding?> CaptureOnboardingAsync(MicroserviceContext ctx,
+        Domain.Aggregates.Guild guild)
+    {
+        var config = await ctx.Set<GuildOnboardingConfig>().AsNoTracking()
+            .FirstOrDefaultAsync(c => c.GuildId == guild.Id);
+
+        var prompts = await ctx.Set<GuildOnboardingPrompt>().AsNoTracking()
+            .Include(p => p.Options)
+            .Where(p => p.GuildId == guild.Id)
+            .OrderBy(p => p.Position)
+            .ToListAsync();
+
+        if (config is null && prompts.Count == 0) return null;
+
+        var roleNamesById = guild.Roles.ToDictionary(r => r.Id, r => r.Name);
+        var channelNamesById = guild.Channels
+            .Concat(guild.Categories.SelectMany(c => c.Channels))
+            .GroupBy(c => c.Id)
+            .ToDictionary(g => g.Key, g => g.First().Name);
+
+        List<string> ResolveChannelNames(IEnumerable<string> ids) =>
+            ids.Where(channelNamesById.ContainsKey).Select(id => channelNamesById[id]).ToList();
+
+        return new TemplateOnboarding
+        {
+            Enabled = config?.Enabled ?? false,
+            RulesText = config?.RulesText,
+            Mode = config?.Mode ?? OnboardingMode.Default,
+            DefaultChannelNames = ResolveChannelNames(config?.DefaultChannelIds ?? []),
+            Prompts = prompts.Select(p => new TemplateOnboardingPrompt
+            {
+                Title = p.Title,
+                Type = p.Type,
+                SingleSelect = p.SingleSelect,
+                Required = p.Required,
+                InOnboarding = p.InOnboarding,
+                Position = p.Position,
+                Options = p.Options.OrderBy(o => o.Position).Select(o => new TemplateOnboardingOption
+                {
+                    Title = o.Title,
+                    Description = o.Description,
+                    Emoji = o.Emoji,
+                    RoleNames = o.RoleIds.Where(roleNamesById.ContainsKey).Select(id => roleNamesById[id]).ToList(),
+                    ChannelNames = ResolveChannelNames(o.ChannelIds),
+                    Position = o.Position,
+                }).ToList(),
+            }).ToList(),
+        };
+    }
+
+    /// <summary>Replays a captured onboarding config into the new guild. References that don't
+    /// resolve by name are dropped, and an option left with nothing to grant is dropped with them -
+    /// a template is a best-effort starting point, not a contract.</summary>
+    private static void ReplayOnboarding(MicroserviceContext ctx, string guildId, TemplateOnboarding? onboarding,
+        Dictionary<string, string> roleIdsByName, Dictionary<string, string> channelIdsByName)
+    {
+        if (onboarding is null) return;
+
+        List<string> ResolveChannels(IEnumerable<string> names) =>
+            names.Where(channelIdsByName.ContainsKey).Select(n => channelIdsByName[n]).ToList();
+
+        var now = DateTimeOffset.UtcNow;
+
+        ctx.Set<GuildOnboardingConfig>().Add(new GuildOnboardingConfig
+        {
+            GuildId = guildId,
+            Enabled = onboarding.Enabled,
+            RulesText = onboarding.RulesText,
+            Mode = onboarding.Mode,
+            DefaultChannelIds = ResolveChannels(onboarding.DefaultChannelNames),
+            UpdatedAt = now,
+        });
+
+        var position = 0;
+        foreach (var promptTemplate in onboarding.Prompts.OrderBy(p => p.Position))
+        {
+            var options = promptTemplate.Options.OrderBy(o => o.Position).Select(o => new
+            {
+                Template = o,
+                RoleIds = o.RoleNames.Where(roleIdsByName.ContainsKey).Select(n => roleIdsByName[n]).ToList(),
+                ChannelIds = ResolveChannels(o.ChannelNames),
+            })
+            .Where(o => o.RoleIds.Count + o.ChannelIds.Count > 0)
+            .ToList();
+
+            if (options.Count == 0) continue;
+
+            var prompt = new GuildOnboardingPrompt
+            {
+                Id = GuildOnboardingPrompt.GenerateId(),
+                CreatedAt = now,
+                UpdatedAt = now,
+                GuildId = guildId,
+                Title = promptTemplate.Title,
+                Type = promptTemplate.Type,
+                SingleSelect = promptTemplate.SingleSelect,
+                Required = promptTemplate.Required,
+                InOnboarding = promptTemplate.InOnboarding,
+                Position = position++,
+            };
+            ctx.Set<GuildOnboardingPrompt>().Add(prompt);
+
+            var optionPosition = 0;
+            foreach (var option in options)
+            {
+                ctx.Set<GuildOnboardingPromptOption>().Add(new GuildOnboardingPromptOption
+                {
+                    Id = GuildOnboardingPromptOption.GenerateId(),
+                    CreatedAt = now,
+                    UpdatedAt = now,
+                    PromptId = prompt.Id,
+                    Title = option.Template.Title,
+                    Description = option.Template.Description,
+                    Emoji = option.Template.Emoji,
+                    RoleIds = option.RoleIds,
+                    ChannelIds = option.ChannelIds,
+                    Position = optionPosition++,
+                });
+            }
+        }
     }
 }

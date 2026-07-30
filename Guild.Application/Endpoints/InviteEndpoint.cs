@@ -86,7 +86,7 @@ public class InviteEndpoint
             invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Code == inviteId);
         }
         if(invite is null) return Results.NotFound();
-        return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
+        return Results.Ok(await WithWelcomeScreenAsync(invite, ctx));
     }
 
     [WolverineGet("/api/v1/invites/code/{code}")]
@@ -94,7 +94,17 @@ public class InviteEndpoint
     {
         var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Code == code);
         if(invite is null) return Results.NotFound();
-        return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
+        return Results.Ok(await WithWelcomeScreenAsync(invite, ctx));
+    }
+
+    /// <summary>The invite preview is the only place a not-yet-member can see the guild's welcome
+    /// splash, which is the whole point of the feature - so it is attached here rather than left to
+    /// the membership-gated welcome-screen endpoint.</summary>
+    private static async Task<InviteDto> WithWelcomeScreenAsync(GuildInvite invite, MicroserviceContext ctx)
+    {
+        var dto = invite.ToFacet<GuildInvite, InviteDto>();
+        dto.WelcomeScreen = await WelcomeScreenEndpoint.LoadAsync(ctx, invite.GuildId, enabledOnly: true);
+        return dto;
     }
     [WolverineDelete("/api/v1/invites/{inviteId}")]
     public async Task<IResult> DeleteInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx,  [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService)

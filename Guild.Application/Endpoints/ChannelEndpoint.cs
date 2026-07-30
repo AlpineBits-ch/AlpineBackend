@@ -27,8 +27,10 @@ public class ChannelEndpoint
     // channels are containers whose "posts" are exactly those same threads (see ThreadEndpoint,
     // which now also accepts a Forum parent). Announcement channels are creatable and behave like
     // Text channels for reads/writes, with cross-posting layered on top (see AnnouncementEndpoint).
+    // Media is a Forum in every respect the backend cares about - only the client's intended
+    // rendering differs - which is why it's creatable here rather than behind a flag on Forum.
     private static readonly HashSet<ChannelType> CreatableTypes =
-        [ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Announcement];
+        [ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media, ChannelType.Announcement];
 
     [WolverinePost("/api/v1/guilds/{guildId}/channels")]
     public async Task<IResult> CreateChannel(string guildId, CreateChannelDto dto,

@@ -3,6 +3,7 @@
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
+using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +40,8 @@ public class MessageCreatedHandler
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
 
         await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("guild.MessageCreated", message);
+
+        await TouchThreadActivityAsync(message.ChannelId, context);
 
         // Bots.Application can't join the SignalR/Redis backplane the hub broadcast above rides
         // on, so it gets its own event - carrying the GuildId this handler just resolved, since
@@ -116,5 +119,28 @@ public class MessageCreatedHandler
             readState.MentionCount++;
         }
 
+    }
+
+    /// <summary>Denormalizes "when did this post last see activity" onto the thread's channel row.
+    /// The forum post list sorts on it, and the sort has to be a plain index scan - Messaging owns
+    /// the messages, so the alternative is a cross-service call per post per page.
+    ///
+    /// Deliberately no-ops for non-thread channels: a text channel has no such listing. Posting
+    /// also pushes the auto-archive deadline out, which is what makes a dormant post revivable by
+    /// anyone replying to it.</summary>
+    private static async Task TouchThreadActivityAsync(string channelId, MicroserviceContext context)
+    {
+        var thread = await context.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.Type == ChannelType.Thread);
+        if (thread is null) return;
+
+        var now = DateTimeOffset.UtcNow;
+
+        thread.LastActivityAt = now;
+        thread.MessageCount++;
+
+        // Slides against the stored window, not against the previous deadline - the duration is
+        // fixed for the post's lifetime, only the deadline moves.
+        if (thread.AutoArchiveMinutes is > 0)
+            thread.AutoArchiveAt = now.AddMinutes(thread.AutoArchiveMinutes.Value);
     }
 }

@@ -1585,6 +1585,11 @@ public class GuildPermissionServiceTests
     // "completed", not "pending" (see the OnboardingConfig feature's project notes).
     // ══════════════════════════════════════════════════════════════════════════
 
+    private static GuildOnboardingConfig MakeOnboardingConfig(bool enabled = true, string guildId = GuildId) => new()
+    {
+        GuildId = guildId, Enabled = enabled, RulesText = "Be nice", UpdatedAt = DateTimeOffset.UtcNow,
+    };
+
     [Test]
     public async Task OnboardingPending_StripsSendMessagesAndConnect_ButKeepsViewChannel()
     {
@@ -1592,6 +1597,7 @@ public class GuildPermissionServiceTests
         _context.Guilds.Add(MakeGuild());
         _context.Channels.Add(MakeChannel());
         _context.Roles.Add(MakeRole(permissions: rolePerms));
+        _context.Set<GuildOnboardingConfig>().Add(MakeOnboardingConfig());
         var member = MakeGuildMember();
         member.OnboardingCompletedAt = null; // pending
         _context.GuildMembers.Add(member);
@@ -1628,6 +1634,52 @@ public class GuildPermissionServiceTests
     }
 
     [Test]
+    public async Task OnboardingPending_ButOnboardingDisabled_DoesNotStripPermissions()
+    {
+        // A member can be un-accepted while the guild's onboarding is switched off - they joined
+        // while it was on and an admin turned it off before they got around to accepting. Gating
+        // on OnboardingCompletedAt alone would leave them permanently unable to participate with
+        // no rules screen left to accept.
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages | Permissions.Connect;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        _context.Set<GuildOnboardingConfig>().Add(MakeOnboardingConfig(enabled: false));
+        var member = MakeGuildMember();
+        member.OnboardingCompletedAt = null;
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(perms.HasFlag(Permissions.SendMessages), Is.True);
+            Assert.That(perms.HasFlag(Permissions.Connect), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task OnboardingPending_NoConfigRowAtAll_DoesNotStripPermissions()
+    {
+        var rolePerms = Permissions.ViewChannel | Permissions.SendMessages;
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(permissions: rolePerms));
+        var member = MakeGuildMember();
+        member.OnboardingCompletedAt = null;
+        _context.GuildMembers.Add(member);
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await GetComputedForChannel();
+
+        Assert.That(perms.HasFlag(Permissions.SendMessages), Is.True,
+            "a guild that never configured onboarding must not gate anyone");
+    }
+
+    [Test]
     public async Task OnboardingPending_Owner_KeepsAllPermissions()
     {
         _context.Guilds.Add(MakeGuild(ownerId: UserId));
@@ -1651,6 +1703,7 @@ public class GuildPermissionServiceTests
         _context.Guilds.Add(MakeGuild());
         _context.Channels.Add(MakeChannel());
         _context.Roles.Add(MakeRole(permissions: rolePerms));
+        _context.Set<GuildOnboardingConfig>().Add(MakeOnboardingConfig());
         var member = MakeGuildMember();
         member.OnboardingCompletedAt = null;
         member.MutedUntil = DateTimeOffset.UtcNow.AddMinutes(10);

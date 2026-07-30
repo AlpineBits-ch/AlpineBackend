@@ -51,6 +51,40 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     public string? CreatedByUserId { get; set; }
     public bool IsArchived { get; set; }
 
+    // ── Forum post state (Type == Thread under a Forum/Media parent) ─────────────────────────
+    // These live on Channel rather than in a side table because every one of them is either a
+    // sort key or a filter on the forum post listing - a join there would cost more than the
+    // columns do on the ~all-null rows of every other channel type.
+
+    /// <summary>Pinned posts sort above unpinned ones within the forum's ordering, so they land at
+    /// the top of page one. Distinct from pinning a *message inside* a post, which Messaging owns.</summary>
+    public bool IsPinned { get; set; }
+
+    /// <summary>Moderator-imposed "no new messages". Orthogonal to <see cref="IsArchived"/>: a post
+    /// can be locked without being archived (a settled argument left visible) or archived without
+    /// being locked (dormant, revivable by anyone posting).</summary>
+    public bool IsLocked { get; set; }
+
+    /// <summary>Timestamp of the most recent message, maintained by MessageCreatedHandler. Null
+    /// until the post receives its first message - and null on every post created before this
+    /// field shipped, which is why the activity sort falls back to CreatedAt.</summary>
+    public DateTimeOffset? LastActivityAt { get; set; }
+
+    /// <summary>Denormalized message count for post cards. Best-effort: it counts creates and
+    /// deletes seen on the bus, so it can drift from Messaging's true count under message loss and
+    /// is never used for anything but display.</summary>
+    public int MessageCount { get; set; }
+
+    /// <summary>When this post auto-archives absent further activity; pushed forward by each new
+    /// message. Honoured by a periodic sweep, so the flip can lag the timestamp by minutes.</summary>
+    public DateTimeOffset? AutoArchiveAt { get; set; }
+
+    /// <summary>The post's auto-archive window, snapshotted from the forum config at creation.
+    /// Stored alongside the deadline rather than derived from it: deriving the window as
+    /// (AutoArchiveAt - CreatedAt) makes it grow by the elapsed time on every slide, so a busy
+    /// 3-day post would drift to a 3-week one.</summary>
+    public int? AutoArchiveMinutes { get; set; }
+
     public ICollection<ChannelPermission> Permissions { get; set; } = [];
     
     public virtual ICollection<ReadState> ReadStates { get; set; } = [];

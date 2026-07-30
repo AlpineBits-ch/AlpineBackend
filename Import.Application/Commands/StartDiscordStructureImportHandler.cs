@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
 using Guild.Contracts.Bus.Commands;
+using Guild.Contracts.Bus.Request;
+using Guild.Contracts.Bus.Response;
 using Import.Application.Discord;
 using Import.Application.Mapping;
 using Import.Domain.Entity;
@@ -87,6 +89,21 @@ public class StartDiscordStructureImportHandler
             {
                 ctx.ImportEntityMappings.Add(NewMapping(link.Id, discordId, ImportEntityType.Role, echoId));
             }
+
+            // Deliberately swallowed: the guild, its channels, roles and link are already imported
+            // and the job is Completed above. Failing the whole import because the source guild's
+            // onboarding couldn't be read or applied would be a far worse outcome than a guild that
+            // simply arrives without it.
+            try
+            {
+                await ImportOnboardingAsync(command, response, discordApi, bus, logger, ct);
+            }
+            catch (Exception onboardingEx)
+            {
+                logger.LogWarning(onboardingEx,
+                    "Imported guild {EchoGuildId} kept its structure but its onboarding could not be imported",
+                    response.GuildId);
+            }
         }
         catch (Exception ex)
         {
@@ -94,6 +111,85 @@ public class StartDiscordStructureImportHandler
                 job.Id, command.DiscordGuildId);
             job.Status = ImportJobStatus.Failed;
             job.ErrorMessage = ex.Message;
+        }
+    }
+
+    /// <summary>
+    /// Pulls the Discord guild's onboarding and welcome screen and applies them to the new Echo
+    /// guild, remapping every role/channel reference onto the ids the structure import just
+    /// created. Best-effort by design: a guild without onboarding, a bot without MANAGE_GUILD, or a
+    /// config our validation rejects all leave the imported guild intact and un-onboarded rather
+    /// than failing an import that otherwise succeeded.
+    /// </summary>
+    private static async Task ImportOnboardingAsync(
+        StartDiscordStructureImportCommand command,
+        ImportGuildStructureResponse response,
+        DiscordApiClient discordApi,
+        IMessageBus bus,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var onboarding = await discordApi.GetGuildOnboardingAsync(command.DiscordGuildId, ct);
+        var welcomeScreen = await discordApi.GetGuildWelcomeScreenAsync(command.DiscordGuildId, ct);
+
+        if (onboarding is null && welcomeScreen is null) return;
+
+        var channels = response.DiscordToEchoChannelIds;
+        var roles = response.DiscordToEchoRoleIds;
+
+        List<string> MapChannels(IEnumerable<string> discordIds) =>
+            discordIds.Where(channels.ContainsKey).Select(id => channels[id]).ToList();
+
+        var request = new ImportGuildOnboardingRequest
+        {
+            GuildId = response.GuildId!,
+            ActorUserId = command.RequestedByUserId,
+            Onboarding = onboarding is null ? null : new GuildOnboardingContract
+            {
+                Enabled = onboarding.Enabled,
+                Mode = onboarding.Mode,
+                DefaultChannelIds = MapChannels(onboarding.DefaultChannelIds),
+                Prompts = onboarding.Prompts.Select((p, index) => new GuildOnboardingPromptContract
+                {
+                    Title = p.Title,
+                    Type = p.Type,
+                    SingleSelect = p.SingleSelect,
+                    Required = p.Required,
+                    InOnboarding = p.InOnboarding,
+                    Position = index,
+                    Options = p.Options.Select((o, optionIndex) => new GuildOnboardingOptionContract
+                    {
+                        Title = o.Title,
+                        Description = o.Description,
+                        Emoji = o.Emoji?.Name,
+                        RoleIds = o.RoleIds.Where(roles.ContainsKey).Select(id => roles[id]).ToList(),
+                        ChannelIds = MapChannels(o.ChannelIds),
+                        Position = optionIndex,
+                    }).ToList(),
+                }).ToList(),
+            },
+            WelcomeScreen = welcomeScreen is null ? null : new ImportedWelcomeScreen
+            {
+                Description = welcomeScreen.Description,
+                Channels = welcomeScreen.WelcomeChannels
+                    .Where(c => channels.ContainsKey(c.ChannelId))
+                    .Select(c => new ImportedWelcomeChannel
+                    {
+                        ChannelId = channels[c.ChannelId],
+                        Description = c.Description,
+                        Emoji = c.EmojiName,
+                    })
+                    .ToList(),
+            },
+        };
+
+        var result = await bus.InvokeAsync<ImportGuildOnboardingResponse>(request, ct);
+
+        if (result.ErrorMessage is not null)
+        {
+            logger.LogWarning(
+                "Imported guild {EchoGuildId} kept its structure but not its onboarding: {Error}",
+                response.GuildId, result.ErrorMessage);
         }
     }
 

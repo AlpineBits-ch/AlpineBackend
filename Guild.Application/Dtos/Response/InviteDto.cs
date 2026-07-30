@@ -13,3 +13,22 @@ public partial class InviteDto
     /// the Facet mapping - the invite preview endpoints fill it in.</summary>
     public Request.UpdateWelcomeScreenDto? WelcomeScreen { get; set; }
 }
+
+/// <summary>
+/// The invite a member joined through, without the nested Guild and Channel objects. Those are
+/// redundant on any endpoint scoped to a guild the caller is already in, and expanding them drags
+/// each aggregate's collections (including PublicKeys) into the query — see
+/// <see cref="FlatChannelPermissionDto"/> for what that cost us.
+/// </summary>
+[Facet(typeof(GuildInvite),
+    Include =
+    [
+        "Id", "CreatedAt", "UpdatedAt",
+        nameof(GuildInvite.GuildId), nameof(GuildInvite.Type), nameof(GuildInvite.State),
+        nameof(GuildInvite.Code), nameof(GuildInvite.ExpiresAt), nameof(GuildInvite.MaxUses),
+        nameof(GuildInvite.UseCount), nameof(GuildInvite.ChannelId),
+    ])]
+public partial class FlatInviteDto
+{
+
+}

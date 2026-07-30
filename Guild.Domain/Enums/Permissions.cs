@@ -68,6 +68,21 @@ public enum Permissions : ulong
     ManageEmojis            = 1ul << 37,
     ManageEvents            = 1ul << 38,
 
+    // ── Household modules ────────────────────────────────────────────────────
+    // Each belongs to a GuildFeatures module (see GuildFeatureMap.PermissionOwners), so all of
+    // these are stripped wholesale in a guild that doesn't have the module switched on.
+    ManageLists             = 1ul << 39,
+    AddListItems            = 1ul << 40,
+    CheckOffListItems       = 1ul << 41,
+    ManageChores            = 1ul << 42,
+    CompleteChores          = 1ul << 43,
+    ManageLedger            = 1ul << 44,
+    AddExpenses             = 1ul << 45,
+    ManagePantry            = 1ul << 46,
+    CreateDecisions         = 1ul << 47,
+    VoteDecisions           = 1ul << 48,
+    ManageGuests            = 1ul << 49,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
     Superadmin              = 1ul << 63,
 }

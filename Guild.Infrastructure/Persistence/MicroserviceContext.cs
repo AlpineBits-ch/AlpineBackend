@@ -44,6 +44,21 @@ public class MicroserviceContext : DbContext
     public DbSet<ForumPostTag> ForumPostTags { get; set; }
     public DbSet<ForumConfig> ForumConfigs { get; set; }
 
+    // ── Household modules ────────────────────────────────────────────────────
+    public DbSet<ListItem> ListItems { get; set; }
+    public DbSet<PantryItem> PantryItems { get; set; }
+    public DbSet<PantryConfig> PantryConfigs { get; set; }
+    public DbSet<Chore> Chores { get; set; }
+    public DbSet<ChoreOccurrence> ChoreOccurrences { get; set; }
+    public DbSet<Expense> Expenses { get; set; }
+    public DbSet<ExpenseShare> ExpenseShares { get; set; }
+    public DbSet<Settlement> Settlements { get; set; }
+    public DbSet<LedgerConfig> LedgerConfigs { get; set; }
+    public DbSet<Decision> Decisions { get; set; }
+    public DbSet<DecisionOption> DecisionOptions { get; set; }
+    public DbSet<DecisionVote> DecisionVotes { get; set; }
+    public DbSet<GuildQuietHoursConfig> GuildQuietHoursConfigs { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -68,6 +83,9 @@ public class MicroserviceContext : DbContext
             options.MapEnum<OnboardingMode>();
             options.MapEnum<ForumSortOrder>();
             options.MapEnum<ForumLayout>();
+            options.MapEnum<ExpenseSplitKind>();
+            options.MapEnum<DecisionStatus>();
+            options.MapEnum<DecisionVoteKind>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -517,6 +535,166 @@ public class MicroserviceContext : DbContext
                 .WithOne()
                 .HasForeignKey<ForumConfig>(x => x.ChannelId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Household modules ────────────────────────────────────────────────
+        // Every one of these hangs off Channel with HasOne<Channel>() and NO inverse navigation,
+        // for the reason spelled out on ForumTag: ChannelDto is Facet-generated and nested inside
+        // GuildDto, so a collection on the Channel aggregate widens that materialization graph and
+        // has crashed it before. Cascade delete still applies - deleting a list drops its items.
+
+        modelBuilder.Entity<ListItem>(itemBuilder =>
+        {
+            itemBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The board query is "unchecked items of this list, in order".
+            itemBuilder.HasIndex(x => new { x.ChannelId, x.IsChecked, x.Position });
+        });
+
+        modelBuilder.Entity<PantryItem>(itemBuilder =>
+        {
+            itemBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            itemBuilder.HasIndex(x => new { x.ChannelId, x.Name });
+
+            // Drives the "eat me first" board across every pantry in a guild.
+            itemBuilder.HasIndex(x => new { x.GuildId, x.ExpiresAt });
+        });
+
+        modelBuilder.Entity<PantryConfig>(configBuilder =>
+        {
+            configBuilder.HasKey(x => x.ChannelId);
+
+            configBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithOne()
+                .HasForeignKey<PantryConfig>(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Chore>(choreBuilder =>
+        {
+            choreBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The reconcile sweep's query: unpaused chores whose next occurrence is already due.
+            choreBuilder.HasIndex(x => new { x.IsPaused, x.NextDueAt });
+            choreBuilder.HasIndex(x => x.ChannelId);
+        });
+
+        modelBuilder.Entity<ChoreOccurrence>(occurrenceBuilder =>
+        {
+            occurrenceBuilder.HasOne<Chore>()
+                .WithMany()
+                .HasForeignKey(x => x.ChoreId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            occurrenceBuilder.HasIndex(x => new { x.ChannelId, x.DueAt });
+
+            // The fairness balance: completed effort per member over a window.
+            occurrenceBuilder.HasIndex(x => new { x.GuildId, x.AssignedUserId, x.CompletedAt });
+
+            // One occurrence per chore per due date - the guard that makes generation idempotent
+            // when both ScheduleAsync and the reconcile sweep fire for the same slot.
+            occurrenceBuilder.HasIndex(x => new { x.ChoreId, x.DueAt }).IsUnique();
+        });
+
+        modelBuilder.Entity<Expense>(expenseBuilder =>
+        {
+            expenseBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            expenseBuilder.HasIndex(x => new { x.ChannelId, x.OccurredAt });
+        });
+
+        modelBuilder.Entity<ExpenseShare>(shareBuilder =>
+        {
+            shareBuilder.HasKey(x => new { x.ExpenseId, x.UserId });
+
+            shareBuilder.HasOne(x => x.Expense)
+                .WithMany(x => x.Shares)
+                .HasForeignKey(x => x.ExpenseId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Settlement>(settlementBuilder =>
+        {
+            settlementBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            settlementBuilder.HasIndex(x => new { x.ChannelId, x.SettledAt });
+        });
+
+        modelBuilder.Entity<LedgerConfig>(configBuilder =>
+        {
+            configBuilder.HasKey(x => x.ChannelId);
+
+            configBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithOne()
+                .HasForeignKey<LedgerConfig>(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Decision>(decisionBuilder =>
+        {
+            decisionBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            decisionBuilder.HasIndex(x => new { x.ChannelId, x.Status });
+
+            // The sweep that expires decisions whose ClosesAt has passed.
+            decisionBuilder.HasIndex(x => new { x.Status, x.ClosesAt });
+        });
+
+        modelBuilder.Entity<DecisionOption>(optionBuilder =>
+        {
+            optionBuilder.HasOne<Decision>()
+                .WithMany(x => x.Options)
+                .HasForeignKey(x => x.DecisionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            optionBuilder.HasIndex(x => new { x.DecisionId, x.Position });
+        });
+
+        modelBuilder.Entity<DecisionVote>(voteBuilder =>
+        {
+            // One vote per member per decision; re-voting replaces rather than accumulates.
+            voteBuilder.HasKey(x => new { x.DecisionId, x.UserId });
+
+            voteBuilder.HasOne<Decision>()
+                .WithMany(x => x.Votes)
+                .HasForeignKey(x => x.DecisionId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GuildQuietHoursConfig>(configBuilder =>
+        {
+            configBuilder.HasKey(x => x.GuildId);
+
+            configBuilder.HasOne(x => x.Guild)
+                .WithOne()
+                .HasForeignKey<GuildQuietHoursConfig>(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<RoleMember>(roleMemberBuilder =>
+        {
+            // Guest-role expiry is filtered on every permission resolution, so it needs to be
+            // cheap - see GuildPermissionService.GetMembershipAsync.
+            roleMemberBuilder.HasIndex(x => x.ExpiresAt);
         });
     }
     

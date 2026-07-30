@@ -13,7 +13,7 @@ public class GetGuildSnapshotForBotHandler
         var guild = await ctx.Guilds
             .AsNoTracking()
             .Where(g => g.Id == request.GuildId)
-            .Select(g => new { g.Id, g.Name, g.OwnerId })
+            .Select(g => new { g.Id, g.Name, g.OwnerId, g.Kind, g.Features })
             .FirstOrDefaultAsync();
 
         if (guild is null) return new GetGuildSnapshotForBotResponse { Guild = null };
@@ -64,6 +64,8 @@ public class GetGuildSnapshotForBotHandler
                 Id = guild.Id,
                 Name = guild.Name,
                 OwnerId = guild.OwnerId,
+                Kind = guild.Kind.ToString(),
+                Features = (ulong)guild.Features,
                 Channels = channels,
                 Roles = roles,
                 Self = self,

@@ -10,6 +10,15 @@ public class GuildSnapshot
     public string Id { get; set; }
     public string Name { get; set; }
     public string OwnerId { get; set; }
+
+    /// <summary>Guild.Domain.Enums.GuildKind's enum name - same string-not-enum convention as
+    /// ChannelSnapshot.Type, since Guild.Contracts has no reference to Guild.Domain.</summary>
+    public string Kind { get; set; } = "Community";
+
+    /// <summary>Guild.Domain.Enums.GuildFeatures as a raw bitmask, so a bot can avoid advertising
+    /// commands for modules the guild doesn't have.</summary>
+    public ulong Features { get; set; }
+
     public List<ChannelSnapshot> Channels { get; set; } = new();
     public List<RoleSnapshot> Roles { get; set; } = new();
 

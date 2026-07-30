@@ -69,6 +69,10 @@ public class ImportGuildStructureHandler
             OwnerSearchValue = searchValue,
             OwnerNickname = profileResponse.Profile?.UserName,
             SkipDefaultChannels = true,
+            // Explicit rather than relying on the default: anything coming out of Discord is a
+            // community server by definition, and its imported tree assumes every community
+            // module (forums, announcements, automod, bots) is present.
+            Kind = GuildKind.Community,
         });
 
         ctx.Guilds.Add(guild);

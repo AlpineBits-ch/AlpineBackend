@@ -14,4 +14,13 @@ public class UpdateGuildDto
 
     /// <summary>Null/omitted leaves the guild's current verification level untouched.</summary>
     public GuildVerificationLevel? VerificationLevel { get; set; }
+
+    /// <summary>Changing the kind re-seeds <see cref="Features"/> from the new kind's preset,
+    /// unless Features is sent in the same request - so "switch this server to a household"
+    /// is one call, while "switch it and keep exactly these modules" is still possible.</summary>
+    public GuildKind? Kind { get; set; }
+
+    /// <summary>Explicit module set. Disabling a module hides it and strips its permissions but
+    /// never deletes its data, so this is always reversible.</summary>
+    public GuildFeatures? Features { get; set; }
 }

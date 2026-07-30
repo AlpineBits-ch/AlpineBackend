@@ -45,6 +45,7 @@ public class GuildEndpoint
             OwnerId = user.FindFirstValue(ClaimTypes.NameIdentifier)!,
             OwnerSearchValue = searchValue.ToUpperInvariant(),
             OwnerNickname = profileResponse.Profile.UserName,
+            Kind = dto.Kind,
         });
         
         ctx.Guilds.Add(guild);
@@ -139,6 +140,17 @@ public class GuildEndpoint
         {
             guild.VerificationLevel = dto.VerificationLevel.Value;
         }
+
+        if (dto.Kind is not null) guild.Kind = dto.Kind.Value;
+
+        // Explicit features win; a kind change on its own re-seeds from that kind's preset.
+        // Either way the cached mask has to go, or the gate keeps answering from the old value
+        // for up to 15 minutes.
+        if (dto.Features is not null) guild.Features = dto.Features.Value;
+        else if (dto.Kind is not null) guild.Features = GuildFeaturePresets.For(dto.Kind.Value);
+
+        if (dto.Features is not null || dto.Kind is not null)
+            await permissionService.InvalidateGuildFeaturesCacheAsync(id);
 
         auditLog.Log(id, userId, AuditActionType.GuildUpdated, id);
 

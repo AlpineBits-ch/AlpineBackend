@@ -48,6 +48,13 @@ public class ChannelEndpoint
         if (!CreatableTypes.Contains(dto.Type))
             return Results.BadRequest($"Channel type '{dto.Type}' is not creatable directly.");
 
+        // Second half of the feature gate: GuildPermissionService strips a disabled module's
+        // permissions, but channel types like Forum own no permission bits of their own, so the
+        // container itself has to be refused here.
+        var requiredFeature = GuildFeatureMap.RequiredFeatureFor(dto.Type);
+        if (requiredFeature is not null && !await permissionService.IsFeatureEnabledAsync(guildId, requiredFeature.Value))
+            return Results.BadRequest($"Channel type '{dto.Type}' is not enabled for this guild.");
+
         var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 

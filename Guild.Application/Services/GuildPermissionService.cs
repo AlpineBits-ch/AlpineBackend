@@ -59,6 +59,47 @@ public class GuildPermissionService(
             .FirstOrDefaultAsync();
     }
 
+    private static string FeaturesCacheKey(string guildId)
+    {
+        var g = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(guildId));
+        return $"guild:{g}:features";
+    }
+
+    /// <summary>The guild's enabled modules. Cached separately from the per-user permission set
+    /// (rather than folded into it) so that flipping a feature only has to invalidate one key per
+    /// guild instead of one per member.</summary>
+    public async Task<GuildFeatures> GetGuildFeaturesAsync(string guildId)
+    {
+        var cacheKey = FeaturesCacheKey(guildId);
+        var cached = await cache.GetStringAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached) && ulong.TryParse(cached, out var parsed))
+            return (GuildFeatures)parsed;
+
+        var features = await ctx.Guilds
+            .AsNoTracking()
+            .Where(g => g.Id == guildId)
+            .Select(g => (GuildFeatures?)g.Features)
+            .FirstOrDefaultAsync();
+
+        // A missing guild resolves to no modules, which denies every gated permission. The
+        // callers below all fail closed on an unknown guild anyway, so this only decides which
+        // of the two "no" paths a caller takes.
+        var resolved = features ?? GuildFeatures.None;
+
+        await cache.SetStringAsync(cacheKey, ((ulong)resolved).ToString(), new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15)
+        });
+
+        return resolved;
+    }
+
+    public async Task<bool> IsFeatureEnabledAsync(string guildId, GuildFeatures feature) =>
+        (await GetGuildFeaturesAsync(guildId)).HasFlag(feature);
+
+    public async Task InvalidateGuildFeaturesCacheAsync(string guildId) =>
+        await cache.RemoveAsync(FeaturesCacheKey(guildId));
+
     private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, DateTimeOffset? mutedUntil, bool onboardingPending)> GetMembershipAsync(
         string userId, string guildId)
     {
@@ -113,6 +154,13 @@ public class GuildPermissionService(
                 userId, channelId);
             return false;
         }
+
+        // Ahead of the owner short-circuit on purpose: a module that is switched off is off for
+        // everybody, including the owner. Otherwise Superadmin's blanket "yes" (see
+        // PermissionExtensions.HasPermission and the all-bits BasePermissions built for owners
+        // below) would walk straight through the gate.
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
+            return false;
 
         var (isOwner, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return true;
@@ -449,6 +497,11 @@ public class GuildPermissionService(
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(guildId))
             throw new ArgumentException("UserId and GuildId cannot be null or whitespace");
 
+        // See CanUserPerformActionAsync - the feature gate runs before permission resolution so
+        // no role, override or ownership can escalate past a disabled module.
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
+            return false;
+
         var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
         return (userPermissions.BasePermissions & requiredPermission) == requiredPermission;
     }
@@ -489,6 +542,12 @@ public class GuildPermissionService(
     /// </summary>
     public async Task<Permissions> ClampToGrantableAsync(string actorUserId, string guildId, Permissions requested)
     {
+        // Clamped against the guild's modules as well as the actor's own bits - an owner holds
+        // every permission, so without this a bot installed by the owner would come away holding
+        // permissions for modules the guild doesn't have.
+        var enabled = await GetGuildFeaturesAsync(guildId);
+        requested = GuildFeatureMap.ClampToEnabled(enabled, requested);
+
         var actorPermissions = await ComputePermissionsForUserAsync(actorUserId, guildId);
         return requested & actorPermissions.BasePermissions;
     }

@@ -27,8 +27,12 @@ internal sealed class FakeSubscriber : ISubscriber
         return Task.FromResult(1L);
     }
 
+    /// <summary>Captured by GatewayConnectionRegistry.Start() - tests can invoke this directly
+    /// to simulate a Redis pub/sub message arriving, without a real Redis instance.</summary>
+    public Action<RedisChannel, RedisValue>? SubscribedHandler { get; private set; }
+
     public IConnectionMultiplexer Multiplexer => throw new NotImplementedException();
-    public void Subscribe(RedisChannel channel, Action<RedisChannel, RedisValue> handler, CommandFlags flags = CommandFlags.None) => throw new NotImplementedException();
+    public void Subscribe(RedisChannel channel, Action<RedisChannel, RedisValue> handler, CommandFlags flags = CommandFlags.None) => SubscribedHandler = handler;
     public ChannelMessageQueue Subscribe(RedisChannel channel, CommandFlags flags = CommandFlags.None) => throw new NotImplementedException();
     public Task SubscribeAsync(RedisChannel channel, Action<RedisChannel, RedisValue> handler, CommandFlags flags = CommandFlags.None) => throw new NotImplementedException();
     public Task<ChannelMessageQueue> SubscribeAsync(RedisChannel channel, CommandFlags flags = CommandFlags.None) => throw new NotImplementedException();

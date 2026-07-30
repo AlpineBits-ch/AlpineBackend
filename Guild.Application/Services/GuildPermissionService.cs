@@ -122,11 +122,14 @@ public class GuildPermissionService(
                                     .AsNoTracking()
                                     .AnyAsync(c => c.GuildId == guildId && c.Enabled);
 
+        // Expired guest roles are filtered here rather than relying on a sweep having deleted the
+        // row, so a lapsed guest loses access at the instant it expires even if cleanup is behind.
+        var now = DateTimeOffset.UtcNow;
         var roleIds = memberId == null
             ? []
             : await ctx.RoleMembers
                 .AsNoTracking()
-                .Where(rm => rm.MemberId == memberId)
+                .Where(rm => rm.MemberId == memberId && (rm.ExpiresAt == null || rm.ExpiresAt > now))
                 .Select(rm => rm.RoleId)
                 .ToListAsync();
 

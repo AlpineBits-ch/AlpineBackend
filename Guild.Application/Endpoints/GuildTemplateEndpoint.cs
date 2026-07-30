@@ -57,14 +57,15 @@ public class GuildTemplateEndpoint
                     Name = c.Name,
                     Position = c.Position,
                     Channels = c.Channels
-                        .Where(ch => ch.Type is ChannelType.Text or ChannelType.Voice or ChannelType.Forum or ChannelType.Announcement)
+                        .Where(ch => ch.Type != ChannelType.Thread && ch.Type != ChannelType.Ticket)
                         .OrderBy(ch => ch.Position)
                         .Select(ch => new TemplateChannel { Name = ch.Name, Type = ch.Type, Description = ch.Description, Position = ch.Position })
                         .ToList(),
                 })
                 .ToList(),
+            // Excludes Thread (needs a parent) and Ticket (no behaviour behind it yet).
             UncategorizedChannels = guild.Channels
-                .Where(ch => ch.CategoryId is null && ch.Type is ChannelType.Text or ChannelType.Voice or ChannelType.Forum or ChannelType.Announcement)
+                .Where(ch => ch.CategoryId is null && ch.Type != ChannelType.Thread && ch.Type != ChannelType.Ticket)
                 .OrderBy(ch => ch.Position)
                 .Select(ch => new TemplateChannel { Name = ch.Name, Type = ch.Type, Description = ch.Description, Position = ch.Position })
                 .ToList(),

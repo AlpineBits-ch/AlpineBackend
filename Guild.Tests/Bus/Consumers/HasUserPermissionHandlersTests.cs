@@ -162,6 +162,117 @@ public class HasUserPermissionHandlersTests
         Assert.That(response.IsAllowed, Is.EqualTo(IsAvailableToCommunityGuild(permission)));
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // SlowModeSeconds / CanBypassSlowMode ride-along
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>Seeds a guild whose only channel has slowmode configured, plus a plain member
+    /// holding just SendMessages (so they are allowed to post but not exempt).</summary>
+    private async Task SeedSlowModeChannel(int slowModeSeconds, Permissions memberPermissions)
+    {
+        _context.Guilds.Add(new Guild.Domain.Aggregates.Guild
+        {
+            Id = GuildId, OwnerId = OwnerId, Name = "g", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        _context.Channels.Add(new Channel
+        {
+            Id = ChannelId, GuildId = GuildId, Name = "c", Description = "d", Type = ChannelType.Text,
+            SlowModeSeconds = slowModeSeconds,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        _context.Roles.Add(new Role
+        {
+            Id = "role-member", GuildId = GuildId, Name = "member", Permissions = memberPermissions,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        _context.GuildMembers.Add(new GuildMember
+        {
+            Id = "member-1", GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = "USER-1",
+        });
+        _context.RoleMembers.Add(new RoleMember
+        {
+            Id = "rm-1", RoleId = "role-member", MemberId = "member-1",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task ChannelHandler_SendMessages_CarriesSlowModeSeconds()
+    {
+        await SeedSlowModeChannel(30, Permissions.ViewChannel | Permissions.SendMessages);
+
+        var response = await HasUserPermissionsHandler.Handle(
+            new HasUserPermissionToChannelRequest { UserId = UserId, ChannelId = ChannelId, Permission = ExternalPermission.SendMessages },
+            _service);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.IsAllowed, Is.True);
+            Assert.That(response.SlowModeSeconds, Is.EqualTo(30));
+            Assert.That(response.CanBypassSlowMode, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task ChannelHandler_SendMessages_ManageChannelHolderCanBypass()
+    {
+        await SeedSlowModeChannel(30, Permissions.ViewChannel | Permissions.SendMessages | Permissions.ManageChannel);
+
+        var response = await HasUserPermissionsHandler.Handle(
+            new HasUserPermissionToChannelRequest { UserId = UserId, ChannelId = ChannelId, Permission = ExternalPermission.SendMessages },
+            _service);
+
+        Assert.That(response.CanBypassSlowMode, Is.True);
+    }
+
+    [Test]
+    public async Task ChannelHandler_NonSendMessagesPermission_DoesNotResolveSlowMode()
+    {
+        await SeedSlowModeChannel(30, Permissions.ViewChannel | Permissions.SendMessages);
+
+        var response = await HasUserPermissionsHandler.Handle(
+            new HasUserPermissionToChannelRequest { UserId = UserId, ChannelId = ChannelId, Permission = ExternalPermission.ViewChannel },
+            _service);
+
+        Assert.That(response.SlowModeSeconds, Is.Zero,
+            "only the send path acts on it - every other query would pay for a value it discards");
+    }
+
+    [Test]
+    public async Task ChannelHandler_DeniedSendMessages_DoesNotResolveSlowMode()
+    {
+        await SeedSlowModeChannel(30, Permissions.ViewChannel);
+
+        var response = await HasUserPermissionsHandler.Handle(
+            new HasUserPermissionToChannelRequest { UserId = UserId, ChannelId = ChannelId, Permission = ExternalPermission.SendMessages },
+            _service);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.IsAllowed, Is.False);
+            Assert.That(response.SlowModeSeconds, Is.Zero);
+        });
+    }
+
+    [Test]
+    public async Task ChannelHandler_SlowModeOff_SkipsTheBypassResolutionEntirely()
+    {
+        await SeedSlowModeChannel(0, Permissions.ViewChannel | Permissions.SendMessages | Permissions.ManageChannel);
+
+        var response = await HasUserPermissionsHandler.Handle(
+            new HasUserPermissionToChannelRequest { UserId = UserId, ChannelId = ChannelId, Permission = ExternalPermission.SendMessages },
+            _service);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.SlowModeSeconds, Is.Zero);
+            Assert.That(response.CanBypassSlowMode, Is.False,
+                "there is nothing to be exempt from, so the extra resolution is skipped");
+        });
+    }
+
     private static IEnumerable<ExternalPermission> AllExternalPermissions() => Enum.GetValues<ExternalPermission>();
 
     /// <summary>Whether a Community guild (what SeedOwner creates) offers this permission at all.

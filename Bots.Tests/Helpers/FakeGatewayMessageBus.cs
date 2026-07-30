@@ -1,6 +1,7 @@
 using Guild.Contracts;
 using Guild.Contracts.Bus.Response;
 using Identity.Contracts.Bus.Response;
+using Messaging.Contracts.Bus.Response;
 using Wolverine;
 using Wolverine.Runtime.Routing;
 using Wolverine.Transports;
@@ -19,6 +20,7 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
     public GetUserByIdResponse UserResponse { get; set; } = new() { User = null };
     public HasUserPermissionToChannelResponse PermissionResponse { get; set; } = new() { IsAllowed = true, Permission = ExternalPermission.SendMessages };
     public GetGuildSnapshotForBotResponse GuildSnapshotResponse { get; set; } = new() { Guild = null };
+    public GetMessageResponse MessageResponse { get; set; } = new() { Message = null };
 
     public Task<T> InvokeAsync<T>(object message, CancellationToken cancellation = default, TimeSpan? timeout = null)
     {
@@ -30,6 +32,7 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
             _ when typeof(T) == typeof(GetUserByIdResponse) => UserResponse,
             _ when typeof(T) == typeof(HasUserPermissionToChannelResponse) => PermissionResponse,
             _ when typeof(T) == typeof(GetGuildSnapshotForBotResponse) => GuildSnapshotResponse,
+            _ when typeof(T) == typeof(GetMessageResponse) => MessageResponse,
             _ => throw new NotImplementedException($"FakeGatewayMessageBus has no canned response for {message.GetType().Name}"),
         };
 

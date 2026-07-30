@@ -3,6 +3,7 @@ using Guild.Application.Services;
 using Guild.Contracts.Bus.Commands;
 using Guild.Domain.Entity;
 using Guild.Tests.Helpers;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Guild.Tests.Bus.Consumers;
 
@@ -18,6 +19,7 @@ public class ChannelSyncHandlersTests
     private string _dbName = null!;
     private TestGuildContext _context = null!;
     private AuditLogService _auditLog = null!;
+    private GuildPermissionService _permissionService = null!;
 
     [SetUp]
     public void SetUp()
@@ -25,6 +27,8 @@ public class ChannelSyncHandlersTests
         _dbName = Guid.NewGuid().ToString();
         _context = new TestGuildContext(_dbName);
         _auditLog = new AuditLogService(_context);
+        _permissionService = new GuildPermissionService(new FakeDistributedCache(), _context,
+            NullLogger<GuildPermissionService>.Instance);
     }
 
     [TearDown]
@@ -37,7 +41,7 @@ public class ChannelSyncHandlersTests
     /// reflect uncommitted Added/Modified entities in a plain LINQ query).</summary>
     private async Task<UpsertChannelFromSyncResponse> Upsert(UpsertChannelFromSyncCommand command)
     {
-        var response = await UpsertChannelFromSyncHandler.Handle(command, _context, _auditLog);
+        var response = await UpsertChannelFromSyncHandler.Handle(command, _context, _auditLog, _permissionService);
         await _context.SaveChangesAsync();
         return response;
     }

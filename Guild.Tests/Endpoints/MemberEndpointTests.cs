@@ -365,4 +365,127 @@ public class MemberEndpointTests
         Assert.That(await _context.GuildMembers.AsNoTracking().AnyAsync(m => m.Id == TargetMemberId), Is.False);
         Assert.That(_bus.Published.OfType<MemberRemovedForBots>().Any(e => e.UserId == UserId && e.Reason == "Left"), Is.True);
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // UpdateOwnNicknameAsync / UpdateMemberNicknameAsync
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task UpdateOwnNickname_LacksChangeNickname_ReturnsForbid()
+    {
+        await SeedModeratorAndTarget(Permissions.None);
+
+        var result = await _endpoint.UpdateOwnNicknameAsync(GuildId, new UpdateNicknameDto { Nickname = "Newt" },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task UpdateOwnNickname_Valid_SetsNicknameAndSearchValue()
+    {
+        await SeedModeratorAndTarget(Permissions.ChangeNickname);
+
+        var result = await _endpoint.UpdateOwnNicknameAsync(GuildId, new UpdateNicknameDto { Nickname = "  Newt  " },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.Not.InstanceOf<ForbidHttpResult>().And.Not.InstanceOf<BadRequest<string>>());
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == ModMemberId);
+        Assert.That(member.Nickname, Is.EqualTo("Newt"), "surrounding whitespace is trimmed");
+        Assert.That(member.SearchValue, Does.Contain("NEWT"), "nickname must be searchable");
+        Assert.That(member.SearchValue, Does.Contain(UserId.ToUpperInvariant()),
+            "the username segment must survive the rewrite");
+    }
+
+    [Test]
+    public async Task UpdateOwnNickname_TooLong_ReturnsBadRequest()
+    {
+        await SeedModeratorAndTarget(Permissions.ChangeNickname);
+
+        var result = await _endpoint.UpdateOwnNicknameAsync(GuildId, new UpdateNicknameDto { Nickname = new string('x', 33) },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task UpdateOwnNickname_Empty_ClearsNickname()
+    {
+        var target = await SeedModeratorAndTarget(Permissions.ChangeNickname);
+        var mod = await _context.GuildMembers.FirstAsync(m => m.Id == ModMemberId);
+        mod.Nickname = "Existing";
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateOwnNicknameAsync(GuildId, new UpdateNicknameDto { Nickname = "   " },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == ModMemberId);
+        Assert.That(reloaded.Nickname, Is.Null);
+        Assert.That(reloaded.SearchValue, Does.Not.Contain("EXISTING"));
+    }
+
+    [Test]
+    public async Task UpdateMemberNickname_LacksManageNicknames_ReturnsForbid()
+    {
+        await SeedModeratorAndTarget(Permissions.ChangeNickname);
+
+        var result = await _endpoint.UpdateMemberNicknameAsync(GuildId, TargetMemberId, new UpdateNicknameDto { Nickname = "Renamed" },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>(),
+            "ChangeNickname covers only your own nickname, never someone else's");
+    }
+
+    [Test]
+    public async Task UpdateMemberNickname_TargetOutranksActor_ReturnsForbid()
+    {
+        // Actor at position 1 with ManageNicknames, target at position 5 - hierarchy must win.
+        _context.Guilds.Add(MakeGuild());
+        _context.Roles.Add(new Role { Id = ModRoleId, GuildId = GuildId, Name = "mod", Permissions = Permissions.ManageNicknames, Position = 1, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.GuildMembers.Add(new GuildMember { Id = ModMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
+        _context.RoleMembers.Add(new RoleMember { Id = "rm-mod", RoleId = ModRoleId, MemberId = ModMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Roles.Add(new Role { Id = TargetRoleId, GuildId = GuildId, Name = "target-role", Position = 5, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.GuildMembers.Add(new GuildMember { Id = TargetMemberId, GuildId = GuildId, UserId = TargetUserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{TargetUserId}#{GuildId}" });
+        _context.RoleMembers.Add(new RoleMember { Id = "rm-target", RoleId = TargetRoleId, MemberId = TargetMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.UpdateMemberNicknameAsync(GuildId, TargetMemberId, new UpdateNicknameDto { Nickname = "Renamed" },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task UpdateMemberNickname_Valid_RenamesAndWritesAuditLog()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageNicknames);
+
+        await _endpoint.UpdateMemberNicknameAsync(GuildId, TargetMemberId, new UpdateNicknameDto { Nickname = "Renamed" },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _context.SaveChangesAsync();
+
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == TargetMemberId);
+        Assert.That(member.Nickname, Is.EqualTo("Renamed"));
+
+        var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.ActionType == AuditActionType.MemberNicknameChanged).ToList();
+        Assert.That(entries, Has.Count.EqualTo(1));
+        Assert.That(entries[0].TargetId, Is.EqualTo(TargetUserId));
+        Assert.That(_bus.Published.OfType<MemberUpdatedForBots>().Any(e => e.UserId == TargetUserId), Is.True);
+    }
+
+    [Test]
+    public async Task UpdateMemberNickname_SelfViaMemberIdRoute_OnlyNeedsChangeNickname()
+    {
+        await SeedModeratorAndTarget(Permissions.ChangeNickname);
+
+        var result = await _endpoint.UpdateMemberNicknameAsync(GuildId, ModMemberId, new UpdateNicknameDto { Nickname = "Self" },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.Not.InstanceOf<ForbidHttpResult>());
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == ModMemberId);
+        Assert.That(member.Nickname, Is.EqualTo("Self"));
+    }
 }

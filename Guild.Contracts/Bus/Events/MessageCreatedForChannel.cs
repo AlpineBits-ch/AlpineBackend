@@ -33,6 +33,9 @@ public class MessageCreatedForChannel
     /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
     public string? EmbedsJson { get; set; }
 
+    /// <summary>Raw JSON array of interactive components - see Message.ComponentsJson.</summary>
+    public string? ComponentsJson { get; set; }
+
     public MessageType Type { get; set; } = MessageType.Message;
     public int? SystemMessageVariant { get; set; }
 

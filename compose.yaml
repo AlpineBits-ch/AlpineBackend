@@ -1,3 +1,11 @@
+# =====================================================================================
+#  Local development stack. NOT the self-hosting deployment.
+#
+#  For an actual installation use deploy/install.sh (Linux) or
+#  deploy/Install-VentaStack.ps1 (Windows), which drive deploy/compose.yaml. That file
+#  covers all nine services (this one predates bots/import/isle), bootstraps the
+#  databases on external servers too, terminates TLS, and boots on host start.
+# =====================================================================================
 
 # Shared environment for all application services
 x-app-env: &app-env

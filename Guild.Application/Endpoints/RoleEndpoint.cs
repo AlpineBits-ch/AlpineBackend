@@ -28,7 +28,7 @@ public class RoleEndpoint()
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
-        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions);
+        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageRoles);
         if (!isAuthorized) return Results.Forbid();
 
         var canGrant = await permissionService.CanGrantPermissionsAsync(userId, guildId, parameters.Permissions);
@@ -68,7 +68,7 @@ public class RoleEndpoint()
 
         if(role == null) return (Results.NotFound(), null);
 
-        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManagePermissions);
+        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManageRoles);
         if (!isAuthorized) return (Results.Forbid(), null);
 
         var canManageRole = await permissionService.CanManageRoleAsync(userId, role.GuildId, roleId);
@@ -100,7 +100,7 @@ public class RoleEndpoint()
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions);
+        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageRoles);
         if (!isAuthorized) return Results.Forbid();
 
         if (dto.Roles.Count == 0) return Results.NoContent();
@@ -144,7 +144,7 @@ public class RoleEndpoint()
 
         if (role == null) return (Results.NotFound(), null);
 
-        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManagePermissions);
+        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManageRoles);
         if (!isAuthorized) return (Results.Forbid(), null);
 
         var canManageRole = await permissionService.CanManageRoleAsync(userId, role.GuildId, roleId);
@@ -183,7 +183,7 @@ public class RoleEndpoint()
 
         if (role == null) return (Results.NotFound(), null);
 
-        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManagePermissions);
+        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManageRoles);
         if (!isAuthorized) return (Results.Forbid(), null);
 
         var canManageRole = await permissionService.CanManageRoleAsync(userId, role.GuildId, roleId);
@@ -215,7 +215,7 @@ public class RoleEndpoint()
 
         if(role == null) return (Results.NotFound(), null);
 
-        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManagePermissions);
+        var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ManageRoles);
         if (!isAuthorized) return (Results.Forbid(), null);
 
         var canManageRole = await permissionService.CanManageRoleAsync(userId, role.GuildId, roleId);

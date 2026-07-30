@@ -28,7 +28,12 @@ public class OnboardingValidationService(MicroserviceContext ctx, GuildPermissio
         Permissions.ModerateMembers | Permissions.ViewAuditLog | Permissions.ManageEmojis |
         Permissions.ManageEvents | Permissions.EditAnyMessage | Permissions.DeleteAnyMessage |
         Permissions.ManageAnyThread | Permissions.EditAnyWikiPage | Permissions.DeleteWikiPages |
-        Permissions.ManageWikiStructure | Permissions.ManageWikiRevisions;
+        Permissions.ManageWikiStructure | Permissions.ManageWikiRevisions |
+        // ManageRoles/ManageWebhooks/ManageNicknames are straightforward escalation;
+        // MentionEveryone is here because self-service acquisition of "ping the whole guild" is a
+        // spam vector even though it grants no moderation power.
+        Permissions.ManageRoles | Permissions.ManageWebhooks | Permissions.ManageNicknames |
+        Permissions.MentionEveryone;
 
     /// <summary>Returns null when the config is valid, otherwise a client-facing reason.</summary>
     public async Task<string?> ValidateAsync(string guildId, string actorUserId, UpdateOnboardingConfigDto dto)

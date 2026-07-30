@@ -28,8 +28,29 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
     private static (int Offset, int Limit) NormalizePaging(int offset, int limit) =>
         (Math.Max(0, offset), limit <= 0 ? DefaultPageSize : Math.Min(limit, MaxPageSize));
 
+    /// <summary>
+    /// Resolves the optional cursor triplet into a repository query, or null when the caller
+    /// supplied none - in which case the legacy offset path is used unchanged.
+    /// </summary>
+    private static MessagePageQuery? BuildCursorQuery(string contextId, string? before, string? after, string? around, int limit)
+    {
+        var (_, size) = NormalizePaging(0, limit);
+
+        if (!string.IsNullOrWhiteSpace(before))
+            return new MessagePageQuery { ContextId = contextId, AnchorMessageId = before, Direction = MessageCursorDirection.Before, Limit = size };
+
+        if (!string.IsNullOrWhiteSpace(after))
+            return new MessagePageQuery { ContextId = contextId, AnchorMessageId = after, Direction = MessageCursorDirection.After, Limit = size };
+
+        if (!string.IsNullOrWhiteSpace(around))
+            return new MessagePageQuery { ContextId = contextId, AnchorMessageId = around, Direction = MessageCursorDirection.Around, Limit = size };
+
+        return null;
+    }
+
     [HttpGet("conversations/{conversationId}/messages")]
-    public async Task<IActionResult> GetMessages(string conversationId, [FromQuery] int offset, [FromQuery] int limit)
+    public async Task<IActionResult> GetMessages(string conversationId, [FromQuery] int offset, [FromQuery] int limit,
+        [FromQuery] string? before = null, [FromQuery] string? after = null, [FromQuery] string? around = null)
     {
         if (string.IsNullOrEmpty(conversationId))
         {
@@ -49,8 +70,19 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
             // (see MessagingInfrastructure's UseScyllaDb switch) - this endpoint previously always
             // hit Scylla directly regardless of that setting, throwing a NullReferenceException on
             // any self-hosted deployment (or test harness) that disables it.
-            var (page, size) = NormalizePaging(offset, limit);
-            var (result, reactionsByMessage) = await repo.GetMessagesByConversationIdAsync(conversationId, size, page);
+            var cursor = BuildCursorQuery(conversationId, before, after, around, limit);
+
+            // Response shape is identical on both paths, so a client can adopt cursors without any
+            // parsing change - it just stops sending offset.
+            var (result, reactionsByMessage) = cursor is not null
+                ? await repo.GetMessagePageByCursorAsync(cursor)
+                : await GetByOffsetAsync();
+
+            async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetByOffsetAsync()
+            {
+                var (page, size) = NormalizePaging(offset, limit);
+                return await repo.GetMessagesByConversationIdAsync(conversationId, size, page);
+            }
 
             var messages = result.SelectFacets<Message, MessageDto>();
 
@@ -69,7 +101,8 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
     }
 
     [HttpGet("channels/{channelId}/messages")]
-    public async Task<IActionResult> GetMessagesForChannelAsync(string channelId, [FromQuery] int offset, [FromQuery] int limit)
+    public async Task<IActionResult> GetMessagesForChannelAsync(string channelId, [FromQuery] int offset, [FromQuery] int limit,
+        [FromQuery] string? before = null, [FromQuery] string? after = null, [FromQuery] string? around = null)
     {
         if (string.IsNullOrEmpty(channelId))
         {
@@ -92,8 +125,17 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
 
         try
         {
-            var (page, size) = NormalizePaging(offset, limit);
-            var (result, reactionsByMessage) = await repo.GetMessagesByChannelIdAsync(channelId, size, page);
+            var cursor = BuildCursorQuery(channelId, before, after, around, limit);
+
+            var (result, reactionsByMessage) = cursor is not null
+                ? await repo.GetMessagePageByCursorAsync(cursor)
+                : await GetByOffsetAsync();
+
+            async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetByOffsetAsync()
+            {
+                var (page, size) = NormalizePaging(offset, limit);
+                return await repo.GetMessagesByChannelIdAsync(channelId, size, page);
+            }
 
             var messages = result.SelectFacets<Message, MessageDto>();
 

@@ -67,6 +67,7 @@ public class Role : Aggregate<Role>, IPrefixedEntity
                 Enums.Permissions.Connect |
                 Enums.Permissions.Speak |
                 Enums.Permissions.CreateInvite |
+                Enums.Permissions.ChangeNickname |
                 Enums.Permissions.Stream
         };
 

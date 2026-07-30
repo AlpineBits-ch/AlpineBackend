@@ -3,6 +3,7 @@ using Social.Api.Dtos.Request;
 using Social.Api.Endpoints;
 using Social.Domain.Aggregate;
 using Social.Domain.Enums;
+using Social.Domain.Events.Relationship;
 using Social.Tests.Helpers;
 
 namespace Social.Tests.Endpoints;
@@ -208,6 +209,80 @@ public class FriendshipEndpointsTests
         });
     }
 
+    // ── AcceptAsync idempotency (double accept) ──────────────────────────────
+
+    [Test]
+    public async Task AcceptAsync_CalledTwice_StillLeavesExactlyOneRelationshipPair()
+    {
+        // Full flow rather than a seeded pair: the concern is that a double accept could end up
+        // duplicating the relationship rows themselves, so the create path has to be in scope.
+        var initiator = await AddProfile("user-a", "initiator");
+        await AddProfile("user-b", "target");
+
+        await FriendshipEndpoints.CreateAsync(
+            new CreateFriendshipDto { UserName = "target" }, _context, MakeUser("user-a"));
+        await _context.SaveChangesAsync();
+
+        var incoming = _context.Relationships.Single(r => r.OwnerId != initiator.Id);
+
+        // SaveChangesAsync between the two calls stands in for WolverineHttp's per-request
+        // auto-commit, so the second call is a genuine second request against committed state.
+        var first = await FriendshipEndpoints.AcceptAsync(incoming.Id, _context, _cache, MakeUser("user-b"));
+        await _context.SaveChangesAsync();
+        var second = await FriendshipEndpoints.AcceptAsync(incoming.Id, _context, _cache, MakeUser("user-b"));
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.Accepted>());
+            Assert.That(second, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.Accepted>(),
+                "a repeated accept must stay successful/idempotent, not error");
+            Assert.That(_context.Relationships.Count(), Is.EqualTo(2),
+                "accepting twice must not add a second pair of relationship rows");
+            Assert.That(_context.Relationships.Count(r => r.Status == RelationshipStatus.Friends), Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task AcceptAsync_CalledTwice_RaisesFriendRequestAcceptedOnlyOnce()
+    {
+        // The event is what drives both the federation outbound message and the
+        // social.FriendRequestAccepted push - raising it twice would show the friend twice
+        // client-side and re-federate an already-federated acceptance.
+        var initiator = await AddProfile("user-a", "initiator");
+        var target = await AddProfile("user-b", "target");
+        var (incoming, outgoing) = await SeedPendingPair(initiator, target);
+
+        await FriendshipEndpoints.AcceptAsync("rlsp_in", _context, _cache, MakeUser("user-b"));
+        await FriendshipEndpoints.AcceptAsync("rlsp_in", _context, _cache, MakeUser("user-b"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(incoming.GetDomainEvents().OfType<FriendRequestAccepted>().Count(), Is.EqualTo(1));
+            Assert.That(outgoing.GetDomainEvents(), Is.Empty,
+                "the mirrored PendingOutgoing side never raises the accepted event");
+        });
+    }
+
+    [Test]
+    public async Task AcceptAsync_OnClearedRelationship_ReturnsBadRequestAndStaysCleared()
+    {
+        // A rejected/revoked request keeps its rows around at Status = None.
+        var initiator = await AddProfile("user-a", "initiator");
+        var target = await AddProfile("user-b", "target");
+        await SeedPendingPair(initiator, target);
+        await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
+
+        var result = await FriendshipEndpoints.AcceptAsync("rlsp_in", _context, _cache, MakeUser("user-b"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.BadRequest<string>>());
+            Assert.That(_context.Relationships.Single(r => r.Id == "rlsp_in").Status, Is.EqualTo(RelationshipStatus.None));
+            Assert.That(_context.Relationships.Single(r => r.Id == "rlsp_out").Status, Is.EqualTo(RelationshipStatus.None));
+        });
+    }
+
     // ── RejectAsync ──────────────────────────────────────────────────────────
 
     [Test]
@@ -276,6 +351,36 @@ public class FriendshipEndpointsTests
             Assert.That(_context.Relationships.Single(r => r.Id == "rlsp_out").Status, Is.EqualTo(RelationshipStatus.None));
             Assert.That(_context.Relationships.Single(r => r.Id == "rlsp_in").Status, Is.EqualTo(RelationshipStatus.None),
                 "previously never persisted at all without a SaveChangesAsync call");
+        });
+    }
+
+    [Test]
+    public async Task RejectAsync_CalledTwice_RaisesFriendRequestRejectedOnlyOnce()
+    {
+        var initiator = await AddProfile("user-a", "initiator");
+        var target = await AddProfile("user-b", "target");
+        var (incoming, _) = await SeedPendingPair(initiator, target);
+
+        await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
+        await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
+
+        Assert.That(incoming.GetDomainEvents().OfType<FriendRequestRejected>().Count(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task RevokeAsync_CalledTwice_RaisesFriendRemovedOnlyOnce()
+    {
+        var initiator = await AddProfile("user-a", "initiator");
+        var target = await AddProfile("user-b", "target");
+        var (incoming, outgoing) = await SeedPendingPair(initiator, target);
+
+        await FriendshipEndpoints.RevokeAsync("rlsp_out", _context);
+        await FriendshipEndpoints.RevokeAsync("rlsp_out", _context);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outgoing.GetDomainEvents().OfType<FriendRemoved>().Count(), Is.EqualTo(1));
+            Assert.That(incoming.GetDomainEvents().OfType<FriendRemoved>().Count(), Is.EqualTo(1));
         });
     }
 }

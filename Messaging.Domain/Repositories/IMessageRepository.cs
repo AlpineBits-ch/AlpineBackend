@@ -16,9 +16,16 @@ public interface IMessageRepository
     public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(
         string channelId, int take, int skip);
 
+    /// <summary>Cursor-anchored page, oldest-first like the offset overloads above.</summary>
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagePageByCursorAsync(
+        MessagePageQuery query);
+
     public Task<Message> UpdateMessageAsync(Message message);
 
     public Task DeleteMessageAsync(Message message);
+
+    /// <summary>Deletes a batch of already-loaded messages.</summary>
+    public Task DeleteMessagesAsync(IReadOnlyCollection<Message> messages);
 
     public Task<Message> PinMessageAsync(Message message, string pinnedById);
 

@@ -75,6 +75,12 @@ public class HasUserPermissionToGuildHandler
             ExternalPermission.VoteDecisions          => Permissions.VoteDecisions,
             ExternalPermission.ManageGuests           => Permissions.ManageGuests,
 
+            ExternalPermission.MentionEveryone        => Permissions.MentionEveryone,
+            ExternalPermission.ManageRoles            => Permissions.ManageRoles,
+            ExternalPermission.ManageWebhooks         => Permissions.ManageWebhooks,
+            ExternalPermission.ChangeNickname         => Permissions.ChangeNickname,
+            ExternalPermission.ManageNicknames        => Permissions.ManageNicknames,
+
             _ => throw new ArgumentOutOfRangeException(
                 nameof(permission),
                 permission,

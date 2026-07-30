@@ -37,6 +37,9 @@ public class MessagingEndpoints
 
         if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
 
+        // Authoritative copies of the client's mention flags.
+        var mentionsEveryone = dto.MentionsEveryone;
+        var mentionsHere = dto.MentionsHere;
 
         if (!string.IsNullOrWhiteSpace(dto.ChannelId))
         {
@@ -49,6 +52,24 @@ public class MessagingEndpoints
                 });
 
             if(!response.IsAllowed) return (Results.Forbid(), null);
+
+            // @everyone/@here is a permission, not a client decision.
+            if (mentionsEveryone || mentionsHere)
+            {
+                var mentionResponse = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+                    new HasUserPermissionToChannelRequest()
+                    {
+                        ChannelId = dto.ChannelId,
+                        UserId = userId,
+                        Permission = ExternalPermission.MentionEveryone
+                    });
+
+                if (!mentionResponse.IsAllowed)
+                {
+                    mentionsEveryone = false;
+                    mentionsHere = false;
+                }
+            }
 
             // Bots/webhooks intentionally bypass auto-mod - a guild that installs a bot has
             // already made an explicit trust decision about what it posts.
@@ -65,6 +86,21 @@ public class MessagingEndpoints
                     });
 
                     return (Results.Json(new { error = "automod_blocked", reason = blockedReason }, statusCode: StatusCodes.Status403Forbidden), null);
+                }
+
+                // Deliberately the last gate before the message is created: passing the check
+                // consumes the author's slowmode window, so anything that can still reject the send
+                // (permissions, auto-mod) has to have run first, or a message blocked for an
+                // unrelated reason would silently start the cooldown anyway.
+                if (response.SlowModeSeconds > 0 && !response.CanBypassSlowMode)
+                {
+                    var retryAfter = await SlowModeGuard.CheckAsync(dto.ChannelId, userId, response.SlowModeSeconds, cache);
+                    if (retryAfter is not null)
+                    {
+                        return (Results.Json(
+                            new { error = "slowmode", retry_after = retryAfter.Value, global = false },
+                            statusCode: StatusCodes.Status429TooManyRequests), null);
+                    }
                 }
             }
         }
@@ -111,8 +147,8 @@ public class MessagingEndpoints
             InReplyTo = dto.InReplyTo,
             Mentions = dto.Mentions.ToList(),
             RoleMentions = dto.RoleMentions.ToList(),
-            MentionsEveryone = dto.MentionsEveryone,
-            MentionsHere = dto.MentionsHere,
+            MentionsEveryone = mentionsEveryone,
+            MentionsHere = mentionsHere,
             EncryptionState = encryptionState,
             MlsEpoch = dto.MlsEpoch,
             MlsSequenceNumber = dto.MlsSequenceNumber,
@@ -143,17 +179,103 @@ public class MessagingEndpoints
             });
     }
 
+    /// <summary>Hard cap on one bulk-delete call, matching Discord's.</summary>
+    private const int MaxBulkDeleteMessages = 100;
+
+    /// <summary>
+    /// Moderator sweep of up to <see cref="MaxBulkDeleteMessages"/> messages in one channel.
+    /// </summary>
+    [WolverinePost("/api/v1/messaging/bulk-delete")]
+    public async Task<IResult> BulkDeleteMessages(BulkDeleteMessagesDto dto, [NotBody] IMessageRepository repo,
+        [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus, [NotBody] ILogger<MessagingEndpoints> logger)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(dto.ChannelId)) return Results.BadRequest("channelId is required");
+
+        var requestedIds = dto.MessageIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();
+        if (requestedIds.Count == 0) return Results.BadRequest("messageIds is required");
+        if (requestedIds.Count > MaxBulkDeleteMessages)
+            return Results.BadRequest($"messageIds may not exceed {MaxBulkDeleteMessages} entries.");
+
+        var permission = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+            new HasUserPermissionToChannelRequest
+            {
+                ChannelId = dto.ChannelId,
+                UserId = userId,
+                Permission = ExternalPermission.DeleteAnyMessage,
+            });
+
+        if (!permission.IsAllowed) return Results.Forbid();
+
+        var resolved = await Task.WhenAll(requestedIds.Select(repo.GetMessageAsync));
+
+        // Silently skipping ids that don't exist or belong elsewhere would make a partially-wrong
+        // request look like a clean sweep, so the count of what was actually removed is returned
+        // and any discrepancy is logged - the caller can diff it against what it asked for.
+        var deletable = resolved
+            .Where(m => m is not null && m!.ChannelId == dto.ChannelId)
+            .Select(m => m!)
+            .ToList();
+
+        if (deletable.Count != requestedIds.Count)
+        {
+            logger.LogInformation(
+                "Bulk delete in channel {ChannelId} by {UserId}: {Requested} requested, {Deletable} resolved to this channel",
+                dto.ChannelId, userId, requestedIds.Count, deletable.Count);
+        }
+
+        if (deletable.Count == 0) return Results.Ok(new { deleted = 0, messageIds = Array.Empty<string>() });
+
+        await repo.DeleteMessagesAsync(deletable);
+
+        foreach (var message in deletable)
+        {
+            await bus.PublishAsync(new MessageDeleted
+            {
+                MessageId = message.Id,
+                ChannelId = message.ChannelId,
+                ConversationId = message.ConversationId,
+                AuthorId = message.AuthorId,
+            });
+        }
+
+        var deletedIds = deletable.Select(m => m.Id).ToList();
+        await bus.PublishAsync(new Guild.Contracts.Bus.Events.MessagesBulkDeletedForChannel
+        {
+            ChannelId = dto.ChannelId,
+            MessageIds = deletedIds,
+            ActorUserId = userId,
+        });
+
+        return Results.Ok(new { deleted = deletedIds.Count, messageIds = deletedIds });
+    }
+
     [WolverineDelete("/api/v1/messaging/{messageId}")]
-    public async Task<(IResult, MessageDeleted?)> DeleteMessage(string messageId, [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user)
+    public async Task<(IResult, MessageDeleted?)> DeleteMessage(string messageId, [NotBody] IMessageRepository repo,
+        [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return (Results.Unauthorized(), null);
 
         var message = await repo.GetMessageAsync(messageId);
         if (message is null) return (Results.NotFound(), null);
+
+        // Authors may always delete their own.
         if (message.AuthorId != userId)
         {
-            return (Results.Forbid(), null);
+            if (string.IsNullOrWhiteSpace(message.ChannelId)) return (Results.Forbid(), null);
+
+            var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+                new HasUserPermissionToChannelRequest
+                {
+                    ChannelId = message.ChannelId,
+                    UserId = userId,
+                    Permission = ExternalPermission.DeleteAnyMessage,
+                });
+
+            if (!response.IsAllowed) return (Results.Forbid(), null);
         }
 
         await repo.DeleteMessageAsync(message);

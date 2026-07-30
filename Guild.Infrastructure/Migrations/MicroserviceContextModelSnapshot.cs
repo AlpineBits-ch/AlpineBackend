@@ -22,7 +22,7 @@ namespace Guild.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "auto_mod_config_updated", "auto_mod_message_blocked", "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "category_updated", "channel_created", "channel_deleted", "channel_follow_created", "channel_follow_removed", "channel_permission_changed", "channel_updated", "emoji_created", "emoji_deleted", "forum_config_updated", "forum_tag_created", "forum_tag_deleted", "forum_tag_updated", "forum_tags_reordered", "guild_created_from_template", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_unbanned", "member_unmuted", "message_pinned", "message_unpinned", "onboarding_config_updated", "onboarding_prompt_created", "onboarding_prompt_deleted", "onboarding_prompt_updated", "role_created", "role_deleted", "role_positions_changed", "role_updated", "scheduled_event_cancelled", "scheduled_event_created", "scheduled_event_deleted", "scheduled_event_updated", "template_created", "thread_lock_changed", "thread_pin_changed", "thread_tags_updated", "welcome_screen_updated" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "auto_mod_config_updated", "auto_mod_message_blocked", "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "category_updated", "channel_created", "channel_deleted", "channel_follow_created", "channel_follow_removed", "channel_permission_changed", "channel_updated", "emoji_created", "emoji_deleted", "forum_config_updated", "forum_tag_created", "forum_tag_deleted", "forum_tag_updated", "forum_tags_reordered", "guild_created_from_template", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "member_banned", "member_kicked", "member_left", "member_muted", "member_nickname_changed", "member_unbanned", "member_unmuted", "message_pinned", "message_unpinned", "onboarding_config_updated", "onboarding_prompt_created", "onboarding_prompt_deleted", "onboarding_prompt_updated", "role_created", "role_deleted", "role_positions_changed", "role_updated", "scheduled_event_cancelled", "scheduled_event_created", "scheduled_event_deleted", "scheduled_event_updated", "template_created", "thread_lock_changed", "thread_pin_changed", "thread_tags_updated", "welcome_screen_updated" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "chores", "decisions", "forum", "ledger", "list", "media", "pantry", "text", "thread", "ticket", "voice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "decision_status", new[] { "blocked", "cancelled", "decided", "expired", "open" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "decision_vote_kind", new[] { "abstain", "block", "support" });
@@ -1250,6 +1250,55 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("guild_member_onboarding_responses", (string)null);
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildNotificationSetting", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Level")
+                        .HasColumnType("integer")
+                        .HasColumnName("level");
+
+                    b.Property<string>("MemberId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("member_id");
+
+                    b.Property<bool>("MobilePush")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mobile_push");
+
+                    b.Property<DateTimeOffset?>("MutedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("muted_until");
+
+                    b.Property<bool>("SuppressEveryone")
+                        .HasColumnType("boolean")
+                        .HasColumnName("suppress_everyone");
+
+                    b.Property<bool>("SuppressRoleMentions")
+                        .HasColumnType("boolean")
+                        .HasColumnName("suppress_role_mentions");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_notification_settings");
+
+                    b.HasIndex("MemberId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_guild_notification_settings_member_id");
+
+                    b.ToTable("guild_notification_settings", (string)null);
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingConfig", b =>
                 {
                     b.Property<string>("GuildId")
@@ -1776,6 +1825,63 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("list_items", (string)null);
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.NotificationOverride", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CategoryId")
+                        .HasColumnType("text")
+                        .HasColumnName("category_id");
+
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int?>("Level")
+                        .HasColumnType("integer")
+                        .HasColumnName("level");
+
+                    b.Property<string>("MemberId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("member_id");
+
+                    b.Property<DateTimeOffset?>("MutedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("muted_until");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_notification_overrides");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_notification_overrides_category_id");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_notification_overrides_channel_id");
+
+                    b.HasIndex("MemberId", "CategoryId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_notification_overrides_member_id_category_id")
+                        .HasFilter("category_id IS NOT NULL");
+
+                    b.HasIndex("MemberId", "ChannelId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_notification_overrides_member_id_channel_id")
+                        .HasFilter("channel_id IS NOT NULL");
+
+                    b.ToTable("notification_overrides", (string)null);
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.PantryConfig", b =>
                 {
                     b.Property<string>("ChannelId")
@@ -2061,6 +2167,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<string>("AvatarUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("avatar_url");
+
                     b.Property<string>("ChannelId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -2084,6 +2194,15 @@ namespace Guild.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("name");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("token");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer")
+                        .HasColumnName("type");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2606,6 +2725,18 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("Option");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildNotificationSetting", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.GuildMember", "GuildMember")
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_notification_settings_guild_members_member_id");
+
+                    b.Navigation("GuildMember");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildOnboardingConfig", b =>
                 {
                     b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
@@ -2971,6 +3102,34 @@ namespace Guild.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_list_items_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.NotificationOverride", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.Category", "Category")
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_notification_overrides_categories_category_id");
+
+                    b.HasOne("Guild.Domain.Aggregates.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_notification_overrides_channels_channel_id");
+
+                    b.HasOne("Guild.Domain.Entity.GuildMember", "GuildMember")
+                        .WithMany()
+                        .HasForeignKey("MemberId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_notification_overrides_guild_members_member_id");
+
+                    b.Navigation("Category");
+
+                    b.Navigation("Channel");
+
+                    b.Navigation("GuildMember");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.PantryConfig", b =>

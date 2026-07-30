@@ -69,8 +69,21 @@ builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("PerUserPolicy", context =>
     {
+        // Webhook execution is authenticated by a token in the path, not by a signed-in user, so
+        // the usual identity partition doesn't exist for it.
+        if (TryGetWebhookId(context.Request.Path, out var webhookId))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter($"webhook:{webhookId}", _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+        }
+
         var username = context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
-        
+
         return RateLimitPartition.GetFixedWindowLimiter(username, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 100,
@@ -175,3 +188,24 @@ app.UseInfrastructure();
 
 
 await app.RunJasperFxCommands(args);
+
+/// <summary>
+/// Extracts the webhook id from "/api/webhooks/{webhookId}/{token}", the one unauthenticated write
+/// route on the gateway (see the webhook-execute-route in ProxyConfig).
+/// </summary>
+static bool TryGetWebhookId(PathString path, out string webhookId)
+{
+    webhookId = string.Empty;
+    if (!path.HasValue) return false;
+
+    var value = path.Value!;
+    const string prefix = "/api/webhooks/";
+    if (!value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+
+    var rest = value[prefix.Length..];
+    var slash = rest.IndexOf('/');
+    if (slash <= 0) return false;
+
+    webhookId = rest[..slash];
+    return true;
+}

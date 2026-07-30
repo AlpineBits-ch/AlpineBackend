@@ -34,22 +34,29 @@ public class MessageCreatedHandler
             var profile =await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest() { UserId = messageCreated.AuthorId });
             await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.MessageCreated", messageCreated);
 
-            var response = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = conversationMembers.Select(m => m.UserId).ToList() });
-            string body = Encoding.UTF8.GetString(messageCreated.Content);
-            if (messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted)
+            // Muted members still receive the realtime push above (their unread badge must stay
+            // accurate) - the mute only suppresses the phone notification.
+            var now = DateTimeOffset.UtcNow;
+            var pushUserIds = conversationMembers.Where(m => !m.IsMuted(now)).Select(m => m.UserId).ToList();
+
+            if (pushUserIds.Count > 0)
             {
-                body = "You have a new encrypted message";
-            }
-            foreach (var token in response.Tokens)
-            {
-                
-                await PushNotifiaction.SendPushNotification(new PushNotificationParams()
+                var response = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = pushUserIds });
+                string body = Encoding.UTF8.GetString(messageCreated.Content);
+                if (messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted)
                 {
-                    Token = token,
-                    Title = profile.Profile?.UserName ?? "New message",
-                    Body = body,
-                    Data = new Dictionary<string, string> { ["conversationId"] = messageCreated.ConversationId },
-                });
+                    body = "You have a new encrypted message";
+                }
+                foreach (var token in response.Tokens)
+                {
+                    await PushNotifiaction.SendPushNotification(new PushNotificationParams()
+                    {
+                        Token = token,
+                        Title = profile.Profile?.UserName ?? "New message",
+                        Body = body,
+                        Data = new Dictionary<string, string> { ["conversationId"] = messageCreated.ConversationId },
+                    });
+                }
             }
         }
 
@@ -67,6 +74,7 @@ public class MessageCreatedHandler
                 MentionsHere = messageCreated.MentionsHere,
                 EncryptionState = MessageEncryptionState.Plain,
                 EmbedsJson = messageCreated.EmbedsJson,
+                ComponentsJson = messageCreated.ComponentsJson,
                 Type = messageCreated.Type switch
                 {
                     DomainMessageType.Invite => ChannelMessageType.Invite,

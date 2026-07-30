@@ -152,6 +152,24 @@ public enum ExternalPermission
  
     /// <summary>Superadmin / guild owner.</summary>
     Superadmin,
+
+    // ── Appended after Superadmin, deliberately ────────────────────────────── This is a plain
+    // (non-[Flags]) enum whose ordinal values cross the bus.
+
+    /// <summary>Ping the whole channel with @everyone / @here.</summary>
+    MentionEveryone,
+
+    /// <summary>Create, edit, delete and reorder the guild's roles.</summary>
+    ManageRoles,
+
+    /// <summary>Create, edit, delete and regenerate the token of a channel webhook.</summary>
+    ManageWebhooks,
+
+    /// <summary>Change your own nickname in this guild.</summary>
+    ChangeNickname,
+
+    /// <summary>Change other members' nicknames (also subject to the role hierarchy).</summary>
+    ManageNicknames,
 }
  
 // ─────────────────────────────────────────────────────────────────────────────

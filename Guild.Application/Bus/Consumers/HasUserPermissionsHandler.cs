@@ -18,13 +18,34 @@ public  class HasUserPermissionsHandler
             userId: request.UserId,
             channelId: request.ChannelId,
             requiredPermission: internalPermission);
- 
+
+        // Only resolved for an allowed SendMessages check - that is the one call site that acts on
+        // them, and every other permission query would pay for values it discards.
+        var slowModeSeconds = 0;
+        var canBypassSlowMode = false;
+
+        if (isAllowed && request.Permission == ExternalPermission.SendMessages)
+        {
+            slowModeSeconds = await guildPermissionService.GetChannelSlowModeSecondsAsync(request.ChannelId);
+
+            // Skipped entirely when the channel has no slowmode, which is the overwhelming
+            // majority of sends - there is nothing to be exempt from.
+            if (slowModeSeconds > 0)
+            {
+                canBypassSlowMode =
+                    await guildPermissionService.CanUserPerformActionAsync(request.UserId, request.ChannelId, Permissions.ManageChannel) ||
+                    await guildPermissionService.CanUserPerformActionAsync(request.UserId, request.ChannelId, Permissions.ManageAnyThread);
+            }
+        }
+
         return new HasUserPermissionToChannelResponse
         {
             IsAllowed = isAllowed,
             UserId = request.UserId,
             ChannelId = request.ChannelId,
             Permission = request.Permission,
+            SlowModeSeconds = slowModeSeconds,
+            CanBypassSlowMode = canBypassSlowMode,
         };
     }
     
@@ -76,6 +97,12 @@ public  class HasUserPermissionsHandler
             ExternalPermission.CreateDecisions        => Permissions.CreateDecisions,
             ExternalPermission.VoteDecisions          => Permissions.VoteDecisions,
             ExternalPermission.ManageGuests           => Permissions.ManageGuests,
+
+            ExternalPermission.MentionEveryone        => Permissions.MentionEveryone,
+            ExternalPermission.ManageRoles            => Permissions.ManageRoles,
+            ExternalPermission.ManageWebhooks         => Permissions.ManageWebhooks,
+            ExternalPermission.ChangeNickname         => Permissions.ChangeNickname,
+            ExternalPermission.ManageNicknames        => Permissions.ManageNicknames,
 
 
             // Throws on unknown values rather than silently defaulting to None,

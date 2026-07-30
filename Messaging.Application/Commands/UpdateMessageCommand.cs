@@ -15,13 +15,17 @@ public class UpdateMessageCommandHandler
             return (new UpdateMessageResponse { NotFound = true }, null);
         }
 
-        if (message.AuthorId != command.RequestingAuthorId)
+        // AllowBotAuthorEdit is the UPDATE_MESSAGE path: a component interaction editing the very
+        // message that carried the component.
+        if (!command.AllowBotAuthorEdit && message.AuthorId != command.RequestingAuthorId)
         {
             return (new UpdateMessageResponse { Forbidden = true }, null);
         }
 
         message.Content = command.Content;
         message.EmbedsJson = command.EmbedsJson;
+        // Null means "leave the components alone"; an empty array clears them.
+        if (command.ComponentsJson is not null) message.ComponentsJson = command.ComponentsJson;
         message.UpdatedAt = DateTime.UtcNow;
         await repo.UpdateMessageAsync(message);
 

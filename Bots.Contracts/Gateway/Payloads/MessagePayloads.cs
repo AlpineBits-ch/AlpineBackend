@@ -55,3 +55,16 @@ public class MessageDeletePayload
     [JsonPropertyName("guild_id")]
     public string? GuildId { get; set; }
 }
+
+/// <summary>Dispatched as MESSAGE_DELETE_BULK.</summary>
+public class MessageDeleteBulkPayload
+{
+    [JsonPropertyName("ids")]
+    public List<string> Ids { get; set; } = [];
+
+    [JsonPropertyName("channel_id")]
+    public string ChannelId { get; set; } = "";
+
+    [JsonPropertyName("guild_id")]
+    public string? GuildId { get; set; }
+}

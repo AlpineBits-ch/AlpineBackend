@@ -83,6 +83,24 @@ public enum Permissions : ulong
     VoteDecisions           = 1ul << 48,
     ManageGuests            = 1ul << 49,
 
+    // ── Mentions ─────────────────────────────────────────────────────────────
+    /// <summary>Ping the whole channel with @everyone / @here.</summary>
+    MentionEveryone         = 1ul << 50,
+
+    // ── Moderation (split out of coarser bits) ───────────────────────────────
+    /// <summary>Create, edit, delete and reorder the guild's roles.</summary>
+    ManageRoles             = 1ul << 51,
+
+    /// <summary>Create, edit, delete and regenerate the token of a channel webhook.</summary>
+    ManageWebhooks          = 1ul << 52,
+
+    // ── Nicknames ────────────────────────────────────────────────────────────
+    /// <summary>Change your own nickname in this guild. Part of the @everyone defaults.</summary>
+    ChangeNickname          = 1ul << 53,
+
+    /// <summary>Change other members' nicknames.</summary>
+    ManageNicknames         = 1ul << 54,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
     Superadmin              = 1ul << 63,
 }

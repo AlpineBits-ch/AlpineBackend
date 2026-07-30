@@ -18,7 +18,8 @@ public class UpsertChannelFromSyncHandler
     public static async Task<UpsertChannelFromSyncResponse> Handle(
         UpsertChannelFromSyncCommand command,
         MicroserviceContext ctx,
-        AuditLogService auditLog)
+        AuditLogService auditLog,
+        GuildPermissionService permissionService)
     {
         if (command.IsCategory)
         {
@@ -82,6 +83,10 @@ public class UpsertChannelFromSyncHandler
             channel.Position = command.Position;
             channel.CategoryId = command.EchoParentCategoryId;
             channel.Type = channelType;
+
+            // Discord is authoritative for rate_limit_per_user on a synced channel, so a sync
+            // that lowers it must not leave Messaging enforcing the old window from cache.
+            await permissionService.InvalidateChannelSlowModeCacheAsync(channel.Id);
         }
 
         await ApplyOverwritesAsync(ctx, command.Overwrites, categoryId: null, channelId: channel.Id);

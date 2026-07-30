@@ -56,3 +56,23 @@ public class MessageDeletedForChannel
     public string MessageId { get; set; }
     public string AuthorId { get; set; }
 }
+
+/// <summary>
+/// Published once per bulk-delete call, in addition to the individual MessageDeleted events the
+/// same call fans out.
+/// </summary>
+public class MessagesBulkDeletedForChannel
+{
+    public string ChannelId { get; set; }
+    public List<string> MessageIds { get; set; } = [];
+    public string ActorUserId { get; set; }
+}
+
+/// <summary>Guild-resolved form of <see cref="MessagesBulkDeletedForChannel"/>, consumed by
+/// Bots.Application to dispatch Discord's MESSAGE_DELETE_BULK.</summary>
+public class MessagesBulkDeletedForBots
+{
+    public string GuildId { get; set; }
+    public string ChannelId { get; set; }
+    public List<string> MessageIds { get; set; } = [];
+}

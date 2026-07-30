@@ -65,8 +65,13 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
     }
 
 
-    public void Accept()
+    /// <summary>Transitions this side of the pair to Friends.</summary>
+    /// <returns>True if this call actually changed the status.</returns>
+    public bool Accept()
     {
+        if (this.Status is not (RelationshipStatus.PendingIncoming or RelationshipStatus.PendingOutgoing))
+            return false;
+
         if (this.Status == RelationshipStatus.PendingIncoming)
         {
             this.AddDomainEvent(new FriendRequestAccepted()
@@ -77,11 +82,16 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
             });
         }
         this.Status = RelationshipStatus.Friends;
-        
+        return true;
     }
 
-    public void Reject()
+    /// <summary>Idempotent for the same reason as <see cref="Accept"/> - an already-cleared
+    /// relationship is a no-op rather than a second FriendRequestRejected.</summary>
+    /// <returns>True if this call actually changed the status.</returns>
+    public bool Reject()
     {
+        if (this.Status == RelationshipStatus.None) return false;
+
         if (this.Status == RelationshipStatus.PendingIncoming)
         {
             this.AddDomainEvent(new FriendRequestRejected()
@@ -92,13 +102,18 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
             });
         }
         this.Status = RelationshipStatus.None;
+        return true;
     }
 
     /// <summary>Covers both "revoke my own pending outgoing request" and "unfriend an accepted
     /// friendship" - FriendEndpoint.RevokeAsync uses this for both, and federation only cares
-    /// that the relationship no longer exists either way.</summary>
-    public void Remove()
+    /// that the relationship no longer exists either way. Idempotent: removing an already-removed
+    /// relationship raises nothing.</summary>
+    /// <returns>True if this call actually changed the status.</returns>
+    public bool Remove()
     {
+        if (this.Status == RelationshipStatus.None) return false;
+
         this.AddDomainEvent(new FriendRemoved()
         {
             TargetProfileId = this.OwnerId,
@@ -106,6 +121,7 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
             RelationshipId = this.Id
         });
         this.Status = RelationshipStatus.None;
+        return true;
     }
     
     

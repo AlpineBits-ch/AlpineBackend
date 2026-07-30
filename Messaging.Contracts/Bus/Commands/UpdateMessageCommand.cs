@@ -6,4 +6,12 @@ public class UpdateMessageCommand
     public string RequestingAuthorId { get; set; }
     public byte[] Content { get; set; }
     public string? EmbedsJson { get; set; }
+
+    /// <summary>Replacement components.</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>Set when a bot edits its own message through the interaction callback path
+    /// (UPDATE_MESSAGE). The ordinary author check compares against the human who sent the
+    /// message, which a component-driven edit by definition is not.</summary>
+    public bool AllowBotAuthorEdit { get; set; }
 }

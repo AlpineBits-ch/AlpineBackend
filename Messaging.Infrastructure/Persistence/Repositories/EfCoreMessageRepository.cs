@@ -87,6 +87,62 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
         return Task.CompletedTask;
     }
 
+    public Task DeleteMessagesAsync(IReadOnlyCollection<Message> messages)
+    {
+        context.Messages.RemoveRange(messages);
+        return Task.CompletedTask;
+    }
+
+    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagePageByCursorAsync(
+        MessagePageQuery query)
+    {
+        var empty = ((ICollection<Message>)new List<Message>(), new Dictionary<string, List<Reaction>>());
+        if (query.Limit <= 0) return empty;
+
+        var anchor = await context.Messages.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == query.AnchorMessageId && m.ContextId == query.ContextId);
+        if (anchor is null) return empty;
+
+        List<Message> page;
+        if (query.Direction == MessageCursorDirection.Around)
+        {
+            var half = Math.Max(1, (query.Limit - 1) / 2);
+            var older = await RelativePageAsync(query.ContextId, anchor, before: true, limit: half);
+            var newer = await RelativePageAsync(query.ContextId, anchor, before: false, limit: half);
+            page = [.. older, anchor, .. newer];
+        }
+        else
+        {
+            page = await RelativePageAsync(query.ContextId, anchor,
+                before: query.Direction == MessageCursorDirection.Before, limit: query.Limit);
+        }
+
+        var ordered = page.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id).ToList();
+        return (ordered, await FetchReactionsForMessages(ordered));
+    }
+
+    /// <summary>The relational twin of ScyllaMessageRepository.FetchRelativeAsync - and it has to
+    /// break the (created_at, message_id) tuple comparison out longhand, because EF Core cannot
+    /// translate a ValueTuple comparison into SQL's row-value syntax. Same semantics, same reason:
+    /// created_at is not unique, so ordering and paging both have to fall through to the id.</summary>
+    private async Task<List<Message>> RelativePageAsync(string contextId, Message anchor, bool before, int limit)
+    {
+        var scoped = context.Messages.AsNoTracking().Where(m => m.ContextId == contextId);
+
+        var filtered = before
+            ? scoped.Where(m => m.CreatedAt < anchor.CreatedAt
+                             || (m.CreatedAt == anchor.CreatedAt && string.Compare(m.Id, anchor.Id) < 0))
+            : scoped.Where(m => m.CreatedAt > anchor.CreatedAt
+                             || (m.CreatedAt == anchor.CreatedAt && string.Compare(m.Id, anchor.Id) > 0));
+
+        // Ordered toward the anchor so LIMIT takes the adjacent rows, then flipped by the caller.
+        var ordered = before
+            ? filtered.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id)
+            : filtered.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id);
+
+        return await ordered.Take(limit).Include(m => m.Attachments).ToListAsync();
+    }
+
     public Task<Message> PinMessageAsync(Message message, string pinnedById)
     {
         message.IsPinned = true;

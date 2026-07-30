@@ -74,6 +74,13 @@ internal sealed class FakeRedisMultiplexer(ISubscriber subscriber) : IConnection
     public IServer GetServer(IPAddress host, int port) => throw new NotImplementedException();
     public IServer GetServer(EndPoint endpoint, object? asyncState = null) => throw new NotImplementedException();
     public IServer[] GetServers() => throw new NotImplementedException();
+
+    /// <summary>Added by a newer StackExchange.Redis, pulled in transitively when
+    /// Bots.Application took a dependency on Microsoft.AspNetCore.SignalR.StackExchangeRedis.
+    /// Unimplemented like every other server-topology member on this fake - nothing under test
+    /// inspects the cluster.</summary>
+    public IServer GetServer(RedisKey key, object? asyncState = null, CommandFlags flags = CommandFlags.None) =>
+        throw new NotImplementedException();
     public string GetStatus() => throw new NotImplementedException();
     public void GetStatus(TextWriter log) => throw new NotImplementedException();
     public void Close(bool allowCommandsToComplete = true) => throw new NotImplementedException();

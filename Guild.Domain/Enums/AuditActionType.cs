@@ -8,6 +8,7 @@ public enum AuditActionType
     MemberMuted,
     MemberUnmuted,
     MemberLeft,
+    MemberNicknameChanged,
     RoleCreated,
     RoleUpdated,
     RoleDeleted,

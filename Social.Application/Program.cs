@@ -35,6 +35,17 @@ builder.Services.AddStackExchangeRedisCache(config =>
 });
 
 
+// Social pushes relationship-lifecycle events (social.*) at the two users involved through
+// IHubContext<EchoRealtimeHub>.
+builder.Services.AddSignalR(config =>
+    {
+        config.EnableDetailedErrors = true;
+    }).AddJsonProtocol(options =>
+    {
+        options.PayloadSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    })
+    .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
+
 builder.Services.AddWolverineHttp();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

@@ -27,12 +27,22 @@ public class CreateMessageParams
     
     public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
 
+    /// <summary>See Message.AuthorDisplayName - webhook executions only.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    /// <summary>See Message.AuthorAvatarUrl - webhook executions only.</summary>
+    public string? AuthorAvatarUrl { get; set; }
+
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
 
     /// <summary>Raw JSON array of structured Discord-shaped embeds (see Bots.Contracts'
     /// EmbedPayload), stored opaquely here - same convention as BotCommand.OptionsJson. Null/empty
     /// when the message has no embeds.</summary>
     public string? EmbedsJson { get; set; }
+
+    /// <summary>Raw JSON array of interactive components (see Bots.Contracts' ComponentPayload).
+    /// Same opaque-storage convention and same reasoning as EmbedsJson.</summary>
+    public string? ComponentsJson { get; set; }
 }
 public class Message : BaseEntity<Message>, IPrefixedEntity
 {
@@ -52,7 +62,13 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     /// needing two different mapping strategies. Clients JSON.parse this to render rich cards;
     /// Content still carries a plain-text fallback for any unmodified consumer.</summary>
     public string? EmbedsJson { get; set; }
-    
+
+    /// <summary>Buttons, select menus and their action rows, as the same opaque JSON array the bot
+    /// wire format uses (Bots.Contracts' ComponentPayload). Stored rather than modelled for the
+    /// reasons on <see cref="EmbedsJson"/>; nothing server-side interprets it beyond checking that
+    /// an incoming interaction names a custom_id this array actually contains.</summary>
+    public string? ComponentsJson { get; set; }
+
     public string? InReplyTo { get; set; }
     
     public MessageType Type { get; set; } = MessageType.Message;
@@ -62,7 +78,14 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public int? SystemMessageVariant { get; set; }
 
     public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
-    
+
+    /// <summary>Per-message author name override.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    /// <summary>Companion to <see cref="AuthorDisplayName"/> - the avatar to render for this one
+    /// message. Same rules: webhook-only, null otherwise.</summary>
+    public string? AuthorAvatarUrl { get; set; }
+
     public List<string> Mentions { get; set; } = new();
     public List<string> RoleMentions { get; set; } = new();
     public bool MentionsEveryone { get; set; }
@@ -84,7 +107,8 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "context_id, message_id, author_id, content, created_at, updated_at, in_reply_to, " +
         "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
-        "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id";
+        "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id, " +
+        "author_display_name, author_avatar_url, components_json";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       
@@ -116,6 +140,9 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             SenderDeviceId = createMessageParams.SenderDeviceId,
             AuthorIdType = createMessageParams.AuthorIdType,
             EmbedsJson = createMessageParams.EmbedsJson,
+            ComponentsJson = createMessageParams.ComponentsJson,
+            AuthorDisplayName = createMessageParams.AuthorDisplayName,
+            AuthorAvatarUrl = createMessageParams.AuthorAvatarUrl,
         };
         
         return message;

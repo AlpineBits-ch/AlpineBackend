@@ -194,6 +194,10 @@ public class ChannelEndpoint
             return Results.ValidationProblem(errors);
         }
 
+        // Slowmode is read from a 15-minute cache on Messaging's send path; without this an
+        // operator turning slowmode off would watch it keep rejecting messages for a quarter hour.
+        await permissionService.InvalidateChannelSlowModeCacheAsync(channelId);
+
         auditLog.Log(channel.GuildId, userId, AuditActionType.ChannelUpdated, channelId);
 
         var presence = await guildHydrateService.GetGuildPresenceAsync(channel.GuildId);

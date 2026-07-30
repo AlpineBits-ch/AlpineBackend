@@ -26,7 +26,7 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     public required string Name { get; set; }
     public string? Description { get; set; }
     
-    public string OwnerId { get; init; }
+    public string OwnerId { get; set; }
     public virtual ICollection<Channel> Channels { get; set; } = new List<Channel>();
     public virtual ICollection<Role> Roles { get; set; } = new List<Role>();
     public virtual ICollection<Category> Categories { get; set; } = new List<Category>();
@@ -46,6 +46,8 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
 
     /// <summary>Null for a locally-created guild.</summary>
     public string? OriginInstanceId { get; set; }
+
+    public GuildVerificationLevel VerificationLevel { get; set; } = GuildVerificationLevel.None;
 
     public static Guild Create(CreateGuildParams parameters)
     {
@@ -71,6 +73,7 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
                 GuildId = id,
                 Nickname = parameters.OwnerNickname,
                 SearchValue = parameters.OwnerSearchValue,
+                OnboardingCompletedAt = date,
             }],
             Roles = [Role.CreateEveryoneRole(id, memberId)]
         };

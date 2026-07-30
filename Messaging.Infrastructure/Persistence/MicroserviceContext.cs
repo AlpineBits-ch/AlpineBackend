@@ -18,6 +18,7 @@ public class MicroserviceContext : DbContext
     public DbSet<Message> Messages { get; set; }
     public DbSet<MinimalAttachment> MinimalAttachments { get; set; }
     public DbSet<Reaction> Reactions { get; set; }
+    public DbSet<MessageSearchEntry> MessageSearchEntries { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -56,7 +57,30 @@ public class MicroserviceContext : DbContext
             messageBuilder.HasIndex(x => x.AuthorId);
             messageBuilder.HasIndex(x => x.ContextId);
             messageBuilder.HasIndex(x => x.ChannelId);
+            messageBuilder.HasIndex(x => new { x.ContextId, x.IsPinned });
 
+        });
+
+        modelBuilder.Entity<MessageSearchEntry>(searchBuilder =>
+        {
+            searchBuilder.HasIndex(x => x.ChannelId);
+            searchBuilder.HasIndex(x => x.ConversationId);
+
+            // NpgsqlTsVector isn't a type the InMemory provider (used by the unit test suite,
+            // see TestMessagingContext) understands at all - ignoring it there is fine since
+            // nothing in-memory needs full-text search; Postgres still gets the real generated
+            // column + GIN index.
+            if (Database.IsNpgsql())
+            {
+                searchBuilder.HasGeneratedTsVectorColumn(
+                        x => x.SearchVector, "english", x => x.Content)
+                    .HasIndex(x => x.SearchVector)
+                    .HasMethod("GIN");
+            }
+            else
+            {
+                searchBuilder.Ignore(x => x.SearchVector);
+            }
         });
 
         modelBuilder.Entity<Reaction>(reactionBuilder =>

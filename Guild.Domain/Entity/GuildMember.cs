@@ -45,6 +45,12 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     /// GuildPermissionService.ComputePermissionsForUserAsync).</summary>
     public DateTimeOffset? MutedUntil { get; set; }
 
+    /// <summary>
+    /// Null while the guild's onboarding (rules acceptance) is still pending - same
+    /// participation-permission stripping as MutedUntil applies until this is set.
+    /// </summary>
+    public DateTimeOffset? OnboardingCompletedAt { get; set; } = DateTimeOffset.UtcNow;
+
     public virtual ICollection<RoleMember> RoleMembers { get; set; } = [];
     public virtual ICollection<ChannelPermission> PermissionOverwrites { get; set; } = [];
     public virtual ICollection<ReadState> ReadStates { get; set; } = [];
@@ -54,13 +60,14 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     {
         var id = GenerateId();
         var searchValue = parameters.Username;
+        var date = DateTime.UtcNow;
 
         return new GuildMember
         {
             Id = id,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
-            JoinedAt = DateTime.UtcNow,
+            CreatedAt = date,
+            UpdatedAt = date,
+            JoinedAt = date,
             GuildId = parameters.GuildId,
             UserId = parameters.UserId,
             Bio = parameters.Bio,
@@ -68,6 +75,11 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
             Type = parameters.Type,
             SearchValue = searchValue.ToUpperInvariant(),
             InviteId = parameters.InviteId,
+            // Onboarding only gates the organic invite-redemption join path (InviteEndpoint
+            // constructs GuildMember directly and sets this explicitly) - bot installs and
+            // federated shadow members created through this factory were never shown a rules
+            // screen to begin with, so they shouldn't be silently participation-restricted.
+            OnboardingCompletedAt = date,
         };
     }
 

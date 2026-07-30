@@ -1,4 +1,5 @@
 ﻿using Echo.Realtime;
+using Guild.Contracts.Bus.Events;
 using Messaging.Domain.Events.Message;
 using Messaging.Domain.Events.Reactions;
 using Messaging.Infrastructure.Persistence;
@@ -17,8 +18,23 @@ public class ReactionCreatedHandler
             var conversationMembers = await ctx.Members
                 .Where(m => m.ConversationId == reactionCreated.ConversationId && m.UserId != reactionCreated.UserId)
                 .AsNoTracking().ToListAsync();
-            
+
             await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.ReactionCreated", reactionCreated);
+        }
+
+        // Previously nothing fanned a channel reaction out at all - Guild.Application's
+        // ReactionHandler already knows how to broadcast guild.ReactionCreated and republish for
+        // Bots, it just never received anything to react to.
+        if (!string.IsNullOrWhiteSpace(reactionCreated.ChannelId))
+        {
+            await bus.SendAsync(new Guild.Contracts.Bus.Events.ReactionCreatedEvent
+            {
+                ChannelId = reactionCreated.ChannelId,
+                MessageId = reactionCreated.MessageId,
+                Emoji = reactionCreated.Emoji,
+                UserId = reactionCreated.UserId,
+                EmojiId = reactionCreated.EmojiId,
+            });
         }
     }
 }

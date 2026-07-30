@@ -19,4 +19,14 @@ public interface IMessageRepository
     public Task<Message> UpdateMessageAsync(Message message);
 
     public Task DeleteMessageAsync(Message message);
+
+    public Task<Message> PinMessageAsync(Message message, string pinnedById);
+
+    public Task<Message> UnpinMessageAsync(Message message);
+
+    public Task<ICollection<Message>> GetPinnedMessagesAsync(string contextId, int limit = 50);
+
+    public Task AddReactionAsync(Reaction reaction);
+
+    public Task RemoveReactionAsync(string contextId, string messageId, string emoji, string userId);
 }

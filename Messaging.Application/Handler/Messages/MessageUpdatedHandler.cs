@@ -14,6 +14,14 @@ public class MessageUpdatedHandler
     public async Task Handle(MessageUpdated messageUpdated, IHubContext<EchoRealtimeHub> hubContext,
         MicroserviceContext ctx, IMessageBus bus)
     {
+        // Only messages that were originally indexed (Plain-encryption ordinary messages) have a
+        // search entry to update - an encrypted message being edited still has nothing to index.
+        var searchEntry = await ctx.MessageSearchEntries.FirstOrDefaultAsync(e => e.MessageId == messageUpdated.MessageId);
+        if (searchEntry is not null)
+        {
+            searchEntry.Content = System.Text.Encoding.UTF8.GetString(messageUpdated.Content);
+        }
+
         if (!string.IsNullOrWhiteSpace(messageUpdated.ConversationId))
         {
             var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageUpdated.ConversationId && m.UserId != messageUpdated.AuthorId).AsNoTracking().ToListAsync();

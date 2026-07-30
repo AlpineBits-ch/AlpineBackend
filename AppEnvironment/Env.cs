@@ -48,6 +48,8 @@ public static class Env
 
     public static readonly ApnsConfiguration Apns = new();
 
+    public static readonly AccountDeletionConfiguration AccountDeletion = new();
+
 }
 
 public class RabbitMQConfig
@@ -267,6 +269,19 @@ public class ApnsConfiguration
     public string AuthKeyContent => string.IsNullOrEmpty(AuthKeyBase64)
         ? string.Empty
         : Encoding.UTF8.GetString(Convert.FromBase64String(AuthKeyBase64));
+}
+
+/// <summary>Grace-period/sweep tuning for the "delete my account" flow (Identity's
+/// ApplicationUser.RequestDeletion + AccountDeletionPurgeSweepService). Defaults match a
+/// realistic 30-day cancellable window; E2E tests override both to single-digit seconds so the
+/// real scheduled-purge path can be exercised without an actual multi-day wait.</summary>
+public class AccountDeletionConfiguration
+{
+    public TimeSpan GracePeriod { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("ACCOUNT_DELETION_GRACE_PERIOD_SECONDS") ?? (30 * 24 * 60 * 60).ToString()));
+
+    public TimeSpan SweepInterval { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS") ?? (5 * 60).ToString()));
 }
 
 public class DiscordImportConfiguration

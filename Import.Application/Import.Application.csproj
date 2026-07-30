@@ -32,6 +32,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Import.Contracts\Import.Contracts.csproj" />
       <ProjectReference Include="..\Import.Infrastructure\Import.Infrastructure.csproj" />
       <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />

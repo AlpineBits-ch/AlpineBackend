@@ -47,6 +47,7 @@
     </ItemGroup>
     <ItemGroup>
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
+      <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Social.Contracts\Social.Contracts.csproj" />
       <ProjectReference Include="..\Social.Infrastructure\Social.Infrastructure.csproj" />
       <ProjectReference Include="..\Federation.Contracts\Federation.Contracts.csproj" />

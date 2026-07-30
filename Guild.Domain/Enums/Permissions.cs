@@ -64,6 +64,10 @@ public enum Permissions : ulong
     ManageGuild             = 1ul << 35,
     ViewAuditLog            = 1ul << 36,
 
+    // ── Customization ────────────────────────────────────────────────────────
+    ManageEmojis            = 1ul << 37,
+    ManageEvents            = 1ul << 38,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
     Superadmin              = 1ul << 63,
 }

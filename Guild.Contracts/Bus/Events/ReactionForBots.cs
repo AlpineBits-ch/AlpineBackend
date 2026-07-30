@@ -11,6 +11,7 @@ public class ReactionCreatedForBots
     public string MessageId { get; set; }
     public string Emoji { get; set; }
     public string UserId { get; set; }
+    public string? EmojiId { get; set; }
 }
 
 public class ReactionRemovedForBots

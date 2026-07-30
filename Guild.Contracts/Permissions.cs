@@ -103,6 +103,14 @@ public enum ExternalPermission
     /// <summary>View the guild's moderation audit log.</summary>
     ViewAuditLog,
 
+    // ── Customization ────────────────────────────────────────────────────────
+
+    /// <summary>Create, rename, or delete the guild's custom emoji.</summary>
+    ManageEmojis,
+
+    /// <summary>Create, update, or cancel the guild's scheduled events.</summary>
+    ManageEvents,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
  
     /// <summary>Superadmin / guild owner.</summary>

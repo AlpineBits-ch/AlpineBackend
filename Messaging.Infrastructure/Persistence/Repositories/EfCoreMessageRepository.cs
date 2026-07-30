@@ -85,6 +85,50 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
         await context.SaveChangesAsync();
     }
 
+    public async Task<Message> PinMessageAsync(Message message, string pinnedById)
+    {
+        message.IsPinned = true;
+        message.PinnedAt = DateTime.UtcNow;
+        message.PinnedById = pinnedById;
+        context.Messages.Update(message);
+        await context.SaveChangesAsync();
+        return message;
+    }
+
+    public async Task<Message> UnpinMessageAsync(Message message)
+    {
+        message.IsPinned = false;
+        message.PinnedAt = null;
+        message.PinnedById = null;
+        context.Messages.Update(message);
+        await context.SaveChangesAsync();
+        return message;
+    }
+
+    public async Task<ICollection<Message>> GetPinnedMessagesAsync(string contextId, int limit = 50)
+    {
+        return await context.Messages
+            .AsNoTracking()
+            .Where(m => m.ContextId == contextId && m.IsPinned)
+            .OrderByDescending(m => m.PinnedAt)
+            .Take(limit)
+            .Include(m => m.Attachments)
+            .ToListAsync();
+    }
+
+    public async Task AddReactionAsync(Reaction reaction)
+    {
+        context.Reactions.Add(reaction);
+        await context.SaveChangesAsync();
+    }
+
+    public async Task RemoveReactionAsync(string contextId, string messageId, string emoji, string userId)
+    {
+        await context.Reactions
+            .Where(r => r.MessageId == messageId && r.Emoji == emoji && r.UserId == userId)
+            .ExecuteDeleteAsync();
+    }
+
     private async Task<Dictionary<string, List<Reaction>>> FetchReactionsForMessages(List<Message> messages)
     {
         var messageIds = messages.Select(m => m.Id).ToList();

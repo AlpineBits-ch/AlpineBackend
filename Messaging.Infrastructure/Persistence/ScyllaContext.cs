@@ -73,7 +73,8 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(r => r.UserId, cm => cm.WithName("user_id"))
                 .Column(r => r.CreatedAt, cm => cm.WithName("created_at"))
                 .Column(r => r.ConversationId, cm => cm.WithName("conversation_id"))
-                .Column(r => r.ChannelId, cm => cm.WithName("channel_id")));
+                .Column(r => r.ChannelId, cm => cm.WithName("channel_id"))
+                .Column(r => r.EmojiId, cm => cm.WithName("emoji_id")));
         
         config.Define(
             new Map<Message>()
@@ -102,7 +103,21 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.Attachments, cm => cm.WithName("attachments").AsFrozen())
                 .Column(m => m.EncryptionState, cm => cm.WithName("encryption_state").WithDbType<string>())
                 .Column(m => m.EmbedsJson, cm => cm.WithName("embeds_json"))
-                .Column(m => m.SystemMessageVariant, cm => cm.WithName("system_message_variant")));
+                .Column(m => m.SystemMessageVariant, cm => cm.WithName("system_message_variant"))
+                .Column(m => m.IsPinned, cm => cm.WithName("is_pinned"))
+                .Column(m => m.PinnedAt, cm => cm.WithName("pinned_at"))
+                .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id")));
+
+        config.Define(
+            new Map<PinnedMessage>()
+                .TableName("pinned_messages")
+                .PartitionKey(p => p.ContextId)
+                .ClusteringKey(p => p.PinnedAt, SortOrder.Descending)
+                .ClusteringKey(p => p.MessageId, SortOrder.Ascending)
+                .Column(p => p.ContextId, cm => cm.WithName("context_id"))
+                .Column(p => p.MessageId, cm => cm.WithName("message_id"))
+                .Column(p => p.PinnedAt, cm => cm.WithName("pinned_at"))
+                .Column(p => p.PinnedById, cm => cm.WithName("pinned_by_id")));
 
         config.Define(
             new Map<MinimalAttachment>()
@@ -260,5 +275,54 @@ public class ScyllaContext : IAsyncDisposable
         catch (InvalidQueryException)
         {
         }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD is_pinned boolean;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD pinned_at timestamp;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD pinned_by_id text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE reactions ADD emoji_id text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // Denormalized lookup table so "list pinned messages for a channel/conversation" doesn't
+        // require scanning every message in the (potentially huge, unindexed-on-is_pinned)
+        // partition - mirrors the messages/reactions modeling style above.
+        await session.ExecuteAsync(new SimpleStatement(@"
+            CREATE TABLE IF NOT EXISTS pinned_messages (
+            context_id   text,
+            pinned_at    timestamp,
+            message_id   text,
+            pinned_by_id text,
+            PRIMARY KEY (context_id, pinned_at, message_id)
+    ) WITH CLUSTERING ORDER BY (pinned_at DESC, message_id ASC);
+"));
     }
 }

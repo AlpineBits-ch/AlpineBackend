@@ -1,3 +1,5 @@
+using Guild.Domain.Enums;
+
 namespace Guild.Application.Dtos.Request;
 
 public class UpdateGuildDto
@@ -9,4 +11,7 @@ public class UpdateGuildDto
     /// Discord. Null/omitted leaves the guild's current system channel untouched (not cleared),
     /// so older clients that don't send this field can't accidentally unset it.</summary>
     public string? SystemChannelId { get; set; }
+
+    /// <summary>Null/omitted leaves the guild's current verification level untouched.</summary>
+    public GuildVerificationLevel? VerificationLevel { get; set; }
 }

@@ -59,7 +59,7 @@ public class GuildPermissionService(
             .FirstOrDefaultAsync();
     }
 
-    private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, DateTimeOffset? mutedUntil)> GetMembershipAsync(
+    private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, DateTimeOffset? mutedUntil, bool onboardingPending)> GetMembershipAsync(
         string userId, string guildId)
     {
         var isOwner = await ctx.Guilds
@@ -69,13 +69,14 @@ public class GuildPermissionService(
         var memberRow = await ctx.GuildMembers
             .AsNoTracking()
             .Where(m => m.UserId == userId && m.GuildId == guildId)
-            .Select(m => new { m.Id, m.AllowPermissions, m.DenyPermissions, m.MutedUntil })
+            .Select(m => new { m.Id, m.AllowPermissions, m.DenyPermissions, m.MutedUntil, m.OnboardingCompletedAt })
             .FirstOrDefaultAsync();
 
         var memberId = memberRow?.Id;
         var memberAllow = memberRow?.AllowPermissions ?? Permissions.None;
         var memberDeny = memberRow?.DenyPermissions ?? Permissions.None;
         var mutedUntil = memberRow?.MutedUntil;
+        var onboardingPending = memberRow is not null && memberRow.OnboardingCompletedAt is null;
 
         var roleIds = memberId == null
             ? []
@@ -85,7 +86,7 @@ public class GuildPermissionService(
                 .Select(rm => rm.RoleId)
                 .ToListAsync();
 
-        return (isOwner, roleIds, memberId, memberAllow, memberDeny, mutedUntil);
+        return (isOwner, roleIds, memberId, memberAllow, memberDeny, mutedUntil, onboardingPending);
     }
 
     public async Task<bool> CanUserPerformActionAsync(
@@ -103,7 +104,7 @@ public class GuildPermissionService(
             return false;
         }
 
-        var (isOwner, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return true;
 
         var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
@@ -147,7 +148,7 @@ public class GuildPermissionService(
             return JsonSerializer.Deserialize<GuildPermissionsForUser>(cachedData)!;
         }
 
-        var (isOwner, userRoleIds, memberId, memberAllow, memberDeny, mutedUntil) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, userRoleIds, memberId, memberAllow, memberDeny, mutedUntil, onboardingPending) = await GetMembershipAsync(userId, guildId);
 
         if (isOwner)
         {
@@ -293,7 +294,8 @@ public class GuildPermissionService(
 
         // A muted (timed-out) member keeps their other permissions but loses the ability to speak:
         // sending messages, reacting, starting threads, or connecting to voice.
-        if (mutedUntil is not null && mutedUntil > DateTimeOffset.UtcNow && !expandedBase.HasFlag(Permissions.Superadmin))
+        if (((mutedUntil is not null && mutedUntil > DateTimeOffset.UtcNow) || onboardingPending)
+            && !expandedBase.HasFlag(Permissions.Superadmin))
         {
             expandedBase &= ~MuteStrippedPermissions;
             foreach (var channelPermission in channelPermissions)
@@ -475,7 +477,7 @@ public class GuildPermissionService(
     /// <summary>Highest role Position the user holds in this guild.</summary>
     public async Task<int> GetHighestRolePositionAsync(string userId, string guildId)
     {
-        var (isOwner, roleIds, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, roleIds, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return int.MaxValue;
 
         if (roleIds.Count == 0) return int.MinValue;

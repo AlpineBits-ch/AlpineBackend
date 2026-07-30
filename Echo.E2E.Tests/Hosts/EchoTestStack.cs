@@ -50,8 +50,6 @@ public sealed class EchoTestStack : IAsyncDisposable
             ["REDIS_HOST"] = infra.RedisHost,
             ["REDIS_PORT"] = infra.RedisPort.ToString(),
             ["REDIS_PASSWORD"] = EchoInfraSet.RedisPassword,
-            ["SCYLLA_HOST"] = infra.ScyllaHost,
-            ["SCYLLA_PORT"] = infra.ScyllaPort.ToString(),
             ["AUTH_REQUIRE_USER_EMAIL_VERIFICATION"] = "false",
         };
 
@@ -63,6 +61,13 @@ public sealed class EchoTestStack : IAsyncDisposable
 
         var identityEnv = Common($"identity_{databaseSuffix}");
         identityEnv["INSTANCE_URL"] = identityUrl;
+        // Real 30-day default grace period/sweep interval (AppEnvironment.AccountDeletionConfiguration)
+        // would make AccountDeletionFlowTests wait days for the real scheduled-purge path to fire -
+        // shrunk to single-digit seconds so the harness can still exercise the real
+        // AccountDeletionPurgeSweepService -> AccountPurgeStartedEvent -> AccountDeletionSaga chain
+        // over the real broker instead of bypassing it with a test-only trigger endpoint.
+        identityEnv["ACCOUNT_DELETION_GRACE_PERIOD_SECONDS"] = "3";
+        identityEnv["ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS"] = "2";
         stack.Identity = await SpawnedServiceProcess.StartAsync(
             "Identity.Application", "/identity/health", identityEnv, identityPort);
 
@@ -70,6 +75,9 @@ public sealed class EchoTestStack : IAsyncDisposable
         guildEnv["INSTANCE_URL"] = identityUrl;
         var messagingEnv = Common($"messaging_{databaseSuffix}");
         messagingEnv["INSTANCE_URL"] = identityUrl;
+        // Production defaults message storage to Scylla (compose.yaml sets USE_SCYLLA_DB=true; see
+        // Messaging.Infrastructure.MessagingInfrastructure).
+        messagingEnv["USE_SCYLLA_DB"] = "false";
         var socialEnv = Common($"social_{databaseSuffix}");
         socialEnv["INSTANCE_URL"] = identityUrl;
         var federationEnv = Common($"federation_{databaseSuffix}");

@@ -22,10 +22,9 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class ChannelEndpoint
 {
-    // Only these types can be created through the general endpoint — Forum/Ticket/Announcement
-    // have no behavior implemented behind them, and Thread is only created via its own
-    // endpoint (POST /api/v1/channels/{channelId}/threads) since it requires a parent.
-    private static readonly HashSet<ChannelType> CreatableTypes = [ChannelType.Text, ChannelType.Voice];
+    // Ticket has no behavior implemented behind it yet.
+    private static readonly HashSet<ChannelType> CreatableTypes =
+        [ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Announcement];
 
     [WolverinePost("/api/v1/guilds/{guildId}/channels")]
     public async Task<IResult> CreateChannel(string guildId, CreateChannelDto dto,

@@ -13,6 +13,8 @@ public class MessageDeletedHandler
     public async Task Handle(MessageDeleted messageDeleted, IHubContext<EchoRealtimeHub> hubContext,
         MicroserviceContext ctx, IMessageBus bus)
     {
+        await ctx.MessageSearchEntries.Where(e => e.MessageId == messageDeleted.MessageId).ExecuteDeleteAsync();
+
         if (!string.IsNullOrWhiteSpace(messageDeleted.ConversationId))
         {
             var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageDeleted.ConversationId && m.UserId != messageDeleted.AuthorId).AsNoTracking().ToListAsync();

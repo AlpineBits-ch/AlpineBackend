@@ -10,4 +10,6 @@ public  class ApplicationUserDto
     public string? SteamId { get; set; }
     public string? UserName { get; set; }
     public bool IsBot { get; set; }
+    public bool EmailConfirmed { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
 }

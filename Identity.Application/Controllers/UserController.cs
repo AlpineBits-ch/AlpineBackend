@@ -1,5 +1,6 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
+using AppEnvironment;
 using Facet.Extensions;
 using Identity.Application.Dtos.Request;
 using Identity.Domain.Aggregates;
@@ -151,5 +152,41 @@ public class UserController(MicroserviceContext ctx) : ControllerBase
         await ctx.SaveChangesAsync();
         return Created();
 
+    }
+
+    /// <summary>Starts the grace-period countdown rather than deleting anything immediately -
+    /// see ApplicationUser.RequestDeletion. Login is blocked from this point on
+    /// (IsSigninAllowed), but the request is reversible via self/cancel-deletion until the
+    /// purge sweep picks it up.</summary>
+    [HttpDelete("self")]
+    public async Task<IActionResult> RequestDeletionAsync()
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+
+        var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null) return NotFound();
+
+        var purgeScheduledAt = DateTimeOffset.UtcNow.Add(Env.AccountDeletion.GracePeriod);
+        user.RequestDeletion(purgeScheduledAt);
+        await ctx.SaveChangesAsync();
+
+        return Ok(new { purgeScheduledAt });
+    }
+
+    [HttpPost("self/cancel-deletion")]
+    public async Task<IActionResult> CancelDeletionAsync()
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+
+        var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null) return NotFound();
+
+        if (!user.CancelDeletionRequest())
+            return Conflict("Account is not pending deletion, or the purge has already started.");
+
+        await ctx.SaveChangesAsync();
+        return Ok();
     }
 }

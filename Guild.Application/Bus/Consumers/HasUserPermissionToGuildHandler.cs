@@ -60,6 +60,8 @@ public class HasUserPermissionToGuildHandler
             ExternalPermission.ModerateMembers        => Permissions.ModerateMembers,
             ExternalPermission.ManageGuild            => Permissions.ManageGuild,
             ExternalPermission.ViewAuditLog           => Permissions.ViewAuditLog,
+            ExternalPermission.ManageEmojis           => Permissions.ManageEmojis,
+            ExternalPermission.ManageEvents           => Permissions.ManageEvents,
 
             _ => throw new ArgumentOutOfRangeException(
                 nameof(permission),

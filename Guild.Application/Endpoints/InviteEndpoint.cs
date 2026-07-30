@@ -9,6 +9,8 @@ using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Messaging.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -148,20 +150,44 @@ public class InviteEndpoint
         var guild = await ctx.Guilds.Include(guild => guild.Channels).Include(guild => guild.Roles).FirstOrDefaultAsync(g => g.Id == invite.GuildId);
         if(guild is null) return Results.NotFound();
 
+        if (guild.VerificationLevel != GuildVerificationLevel.None)
+        {
+            var userResponse = await bus.InvokeAsync<GetUserByIdResponse>(new GetUserByIdRequest { UserId = userId });
+            var identityUser = userResponse.User;
+            if (identityUser is null) return Results.BadRequest("User not found");
+
+            var accountAge = DateTimeOffset.UtcNow - identityUser.CreatedAt;
+            var meetsRequirement = guild.VerificationLevel.MeetsRequirement(identityUser.EmailConfirmed, accountAge);
+
+            if (!meetsRequirement)
+            {
+                return Results.Json(new { error = "verification_level_not_met", requiredLevel = guild.VerificationLevel.ToString() },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+        }
+
+        var onboardingConfig = await ctx.Set<GuildOnboardingConfig>().AsNoTracking()
+            .FirstOrDefaultAsync(c => c.GuildId == guild.Id);
+        var onboardingRequired = onboardingConfig is { Enabled: true } && !string.IsNullOrWhiteSpace(onboardingConfig.RulesText);
+
         var id = GuildMember.GenerateId();
+        var joinedAt = DateTime.UtcNow;
         var member = new GuildMember()
         {
             Id = id,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            CreatedAt = joinedAt,
+            UpdatedAt = joinedAt,
             GuildId = guild.Id,
             UserId = userId,
-            JoinedAt = DateTime.UtcNow,
+            JoinedAt = joinedAt,
             InviteId = invite.Id,
             Nickname = profileResponse.Profile.UserName,
-            SearchValue = searchValue.ToUpperInvariant()
+            SearchValue = searchValue.ToUpperInvariant(),
+            // Only members who join while onboarding is actually configured are gated by it -
+            // everyone else is auto-completed at join time, same as today's ungated join.
+            OnboardingCompletedAt = onboardingRequired ? null : joinedAt,
         };
-        
+
         ctx.GuildMembers.Add(member);
 
         var role = guild.Roles.FirstOrDefault(r => r.Type == RoleType.Everyone);

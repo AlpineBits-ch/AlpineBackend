@@ -47,18 +47,20 @@ public static class FriendshipEndpoints
 
         var first = relationships.First();
         var second = relationships.Last();
-        
+
+        // Relationship.Create() cross-links RelatedId (first -> second, second -> first) - a
+        // circular FK within the same table.
         first.RelatedId = null;
-        
+
         ctx.Relationships.Add(first);
         await ctx.SaveChangesAsync();
-        
+
         ctx.Relationships.Add(second);
         first.RelatedId = second.Id;
 
-        var firstUserCache = $"integration_profile:user_id:{targetProfile.UserId}";
-        var scondUserCache = $"integration_profile:user_id:{initiator.UserId}";
-
+        // No second SaveChangesAsync here - WolverineHttp endpoints auto-commit the ambient
+        // DbContext once the endpoint returns (opts.Policies.AutoApplyTransactions(), same as bus
+        // handlers), so `second`'s insert and `first.RelatedId`'s update land in that commit.
         return Results.Ok();
     }
 
@@ -87,10 +89,10 @@ public static class FriendshipEndpoints
         friendship.Accept();
 
         friendship.Related.Accept();
-        
+
         var firstUserCache = $"integration_profile:user_id:{friendship.Target.UserId}";
         var secondUserCache = $"integration_profile:user_id:{friendship.Owner.UserId}";
-        
+
         await cache.RemoveAsync(firstUserCache);
         await cache.RemoveAsync(secondUserCache);
 
@@ -99,7 +101,7 @@ public static class FriendshipEndpoints
 
     [WolverinePost("/api/v1/relationships/{id}/reject")]
     public static async Task<IResult> RejectAsync(
-        string id, 
+        string id,
         [NotBody]MicroserviceContext ctx)
     {
         var friendship = await ctx.Relationships
@@ -109,14 +111,18 @@ public static class FriendshipEndpoints
         if (friendship == null) return Results.NotFound();
 
         friendship.Reject();
-        
+
+        // Mirrors AcceptAsync/RevokeAsync, which both update the Related side too - without this
+        // the initiator's own (PendingOutgoing) row was left stuck forever, so a rejected request
+        // kept showing as "pending" to the initiator even though the recipient had rejected it.
+        friendship.Related.Reject();
 
         return Results.Accepted();
     }
 
     [WolverinePost("/api/v1/relationships/{id}/revoke")]
     public static async Task<IResult> RevokeAsync(
-        string id, 
+        string id,
         [NotBody]MicroserviceContext ctx)
     {
         var friendship = await ctx.Relationships

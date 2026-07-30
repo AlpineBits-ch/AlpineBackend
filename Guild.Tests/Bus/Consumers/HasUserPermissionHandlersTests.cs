@@ -99,13 +99,13 @@ public class HasUserPermissionHandlersTests
     public async Task GuildHandler_EveryExternalPermission_MapsWithoutThrowing(ExternalPermission permission)
     {
         await SeedOwner();
-        // Owner short-circuits to Superadmin, so every mapped permission must resolve to true
-        // without the mapping switch throwing ArgumentOutOfRangeException.
+        // The point of this case is that MapToInternal covers every contract value - an unmapped
+        // one throws ArgumentOutOfRangeException before any permission logic runs.
         var response = await HasUserPermissionToGuildHandler.Handle(
             new HasUserPermissionToGuildRequest { UserId = OwnerId, GuildId = GuildId, Permission = permission },
             _service);
 
-        Assert.That(response.IsAllowed, Is.True);
+        Assert.That(response.IsAllowed, Is.EqualTo(IsAvailableToCommunityGuild(permission)));
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -158,8 +158,19 @@ public class HasUserPermissionHandlersTests
             new HasUserPermissionToChannelRequest { UserId = OwnerId, ChannelId = ChannelId, Permission = permission },
             _service);
 
-        Assert.That(response.IsAllowed, Is.True);
+        // Same reasoning as the guild-scoped case above.
+        Assert.That(response.IsAllowed, Is.EqualTo(IsAvailableToCommunityGuild(permission)));
     }
 
     private static IEnumerable<ExternalPermission> AllExternalPermissions() => Enum.GetValues<ExternalPermission>();
+
+    /// <summary>Whether a Community guild (what SeedOwner creates) offers this permission at all.
+    /// Household-module permissions are gated off there for everyone, owner included.</summary>
+    private static bool IsAvailableToCommunityGuild(ExternalPermission permission) =>
+        permission is not (ExternalPermission.ManageLists or ExternalPermission.AddListItems
+            or ExternalPermission.CheckOffListItems or ExternalPermission.ManageChores
+            or ExternalPermission.CompleteChores or ExternalPermission.ManageLedger
+            or ExternalPermission.AddExpenses or ExternalPermission.ManagePantry
+            or ExternalPermission.CreateDecisions or ExternalPermission.VoteDecisions
+            or ExternalPermission.ManageGuests);
 }

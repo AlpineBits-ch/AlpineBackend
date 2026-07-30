@@ -65,6 +65,18 @@ public  class HasUserPermissionsHandler
             ExternalPermission.ManageEmojis           => Permissions.ManageEmojis,
             ExternalPermission.ManageEvents           => Permissions.ManageEvents,
 
+            ExternalPermission.ManageLists            => Permissions.ManageLists,
+            ExternalPermission.AddListItems           => Permissions.AddListItems,
+            ExternalPermission.CheckOffListItems      => Permissions.CheckOffListItems,
+            ExternalPermission.ManageChores           => Permissions.ManageChores,
+            ExternalPermission.CompleteChores         => Permissions.CompleteChores,
+            ExternalPermission.ManageLedger           => Permissions.ManageLedger,
+            ExternalPermission.AddExpenses            => Permissions.AddExpenses,
+            ExternalPermission.ManagePantry           => Permissions.ManagePantry,
+            ExternalPermission.CreateDecisions        => Permissions.CreateDecisions,
+            ExternalPermission.VoteDecisions          => Permissions.VoteDecisions,
+            ExternalPermission.ManageGuests           => Permissions.ManageGuests,
+
 
             // Throws on unknown values rather than silently defaulting to None,
             // which would incorrectly deny every permission check for new enum

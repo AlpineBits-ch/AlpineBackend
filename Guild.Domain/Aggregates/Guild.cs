@@ -79,7 +79,9 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
             Features = parameters.Features is null or GuildFeatures.None
                 ? GuildFeaturePresets.For(parameters.Kind)
                 : parameters.Features.Value,
-            Categories = parameters.SkipDefaultChannels ? new List<Category>() : Category.GetDefault(id),
+            Categories = parameters.SkipDefaultChannels
+                ? new List<Category>()
+                : Category.GetDefaultForKind(parameters.Kind, id),
             Members = [new GuildMember()
             {
                 Id = memberId,

@@ -24,7 +24,12 @@ public class ChannelEndpoint
 {
     // Ticket has no behavior implemented behind it yet.
     private static readonly HashSet<ChannelType> CreatableTypes =
-        [ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media, ChannelType.Announcement];
+    [
+        ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media,
+        ChannelType.Announcement,
+        ChannelType.List, ChannelType.Chores, ChannelType.Ledger, ChannelType.Pantry,
+        ChannelType.Decisions,
+    ];
 
     [WolverinePost("/api/v1/guilds/{guildId}/channels")]
     public async Task<IResult> CreateChannel(string guildId, CreateChannelDto dto,

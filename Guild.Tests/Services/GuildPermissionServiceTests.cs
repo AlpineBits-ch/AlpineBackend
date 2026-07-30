@@ -174,12 +174,20 @@ public class GuildPermissionServiceTests
         _context.Channels.Add(MakeChannel());
         await _context.SaveChangesAsync();
 
-        // Owner should pass for every defined permission.
-        foreach (var perm in Enum.GetValues<Permissions>().Where(p => p != Permissions.None))
+        // Owner should pass for every permission the guild's feature set actually offers.
+        foreach (var perm in AvailableTo(GuildFeaturePresets.Community))
         {
             var result = await _service.CanUserPerformActionAsync(UserId, ChannelId, perm);
             Assert.That(result, Is.True, $"Owner must have {perm}");
         }
+    }
+
+    /// <summary>Every defined permission that <paramref name="features"/> does not gate off.</summary>
+    private static IEnumerable<Permissions> AvailableTo(GuildFeatures features)
+    {
+        var disabled = GuildFeatureMap.DisabledPermissions(features);
+        return Enum.GetValues<Permissions>()
+            .Where(p => p != Permissions.None && (p & disabled) == Permissions.None);
     }
 
     [Test]
@@ -323,7 +331,8 @@ public class GuildPermissionServiceTests
         _context.Guilds.Add(MakeGuild(ownerId: UserId));
         await _context.SaveChangesAsync();
 
-        foreach (var perm in Enum.GetValues<Permissions>().Where(p => p != Permissions.None))
+        // Scoped to the guild's feature set for the same reason as the channel-level test above.
+        foreach (var perm in AvailableTo(GuildFeaturePresets.Community))
         {
             var result = await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, perm);
             Assert.That(result, Is.True, $"Owner must have {perm}");

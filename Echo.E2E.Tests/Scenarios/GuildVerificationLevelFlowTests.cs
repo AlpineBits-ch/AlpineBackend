@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
+using Echo.E2E.Tests.Support;
 using Npgsql;
 
 namespace Echo.E2E.Tests.Scenarios;
@@ -31,39 +32,6 @@ public class GuildVerificationLevelFlowTests
     {
         if (_stack is not null)
             await _stack.DisposeAsync();
-    }
-
-    private static async Task<(string userId, string token)> RegisterAndGetTokenAsync(
-        SpawnedServiceProcess identity, string username)
-    {
-        var email = $"{username}-{Guid.NewGuid()}@example.com";
-        const string password = "SecurePass123!";
-
-        var register = await identity.Client.PostAsJsonAsync("/api/v1/authentication/register", new
-        {
-            Email = email,
-            Password = password,
-            Username = username,
-            BirthDate = DateTime.UtcNow.AddYears(-20),
-        });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
-        var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
-        var userId = registerBody.GetProperty("userId").GetString()!;
-
-        var tokenResponse = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
-            new Dictionary<string, string>
-            {
-                ["grant_type"] = "password",
-                ["username"] = username,
-                ["password"] = password,
-                ["client_id"] = "echo",
-            }));
-        Assert.That(tokenResponse.IsSuccessStatusCode, Is.True,
-            $"Token request failed: {await tokenResponse.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
-        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
-
-        return (userId, tokenBody.GetProperty("access_token").GetString()!);
     }
 
     private static HttpClient AuthedClient(SpawnedServiceProcess service, string token)
@@ -97,7 +65,7 @@ public class GuildVerificationLevelFlowTests
     [Test]
     public async Task MediumVerificationLevel_RejectsFreshAccount_ThenAllowsAgedAccount()
     {
-        var (_, ownerToken) = await RegisterAndGetTokenAsync(_stack.Identity, "verifyowner");
+        var (_, ownerToken) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "verifyowner");
         using var guildOwner = AuthedClient(_stack.Guild, ownerToken);
 
         var createGuildResponse = await guildOwner.PostAsJsonAsync("/api/v1/guilds", new { Name = "Verification Gated Guild" });
@@ -129,7 +97,7 @@ public class GuildVerificationLevelFlowTests
 
         // --- Act: a brand-new account (age ~0) tries to redeem - must be rejected. ---
 
-        var (newUserId, newUserToken) = await RegisterAndGetTokenAsync(_stack.Identity, "freshjoiner");
+        var (newUserId, newUserToken) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "freshjoiner");
         using var newUserGuild = AuthedClient(_stack.Guild, newUserToken);
 
         var rejectedResponse = await newUserGuild.PostAsync($"/api/v1/invites/{inviteId}/redeem", null);
@@ -154,7 +122,7 @@ public class GuildVerificationLevelFlowTests
     [Test]
     public async Task NoneVerificationLevel_AllowsFreshAccountToJoin()
     {
-        var (_, ownerToken) = await RegisterAndGetTokenAsync(_stack.Identity, "noverifyowner");
+        var (_, ownerToken) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "noverifyowner");
         using var guildOwner = AuthedClient(_stack.Guild, ownerToken);
 
         var createGuildResponse = await guildOwner.PostAsJsonAsync("/api/v1/guilds", new { Name = "Ungated Guild" });
@@ -167,7 +135,7 @@ public class GuildVerificationLevelFlowTests
         var invite = await createInviteResponse.Content.ReadFromJsonAsync<JsonElement>();
         var inviteId = invite.GetProperty("id").GetString()!;
 
-        var (_, freshToken) = await RegisterAndGetTokenAsync(_stack.Identity, "freshjoinerok");
+        var (_, freshToken) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "freshjoinerok");
         using var freshGuild = AuthedClient(_stack.Guild, freshToken);
 
         var redeemResponse = await freshGuild.PostAsync($"/api/v1/invites/{inviteId}/redeem", null);

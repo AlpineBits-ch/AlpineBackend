@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
+using Echo.E2E.Tests.Support;
 using Npgsql;
 
 namespace Echo.E2E.Tests.Scenarios;
@@ -32,39 +33,6 @@ public class AccountDeletionFlowTests
     {
         if (_stack is not null)
             await _stack.DisposeAsync();
-    }
-
-    private static async Task<(string userId, string token)> RegisterAndGetTokenAsync(
-        SpawnedServiceProcess identity, string username)
-    {
-        var email = $"{username}-{Guid.NewGuid()}@example.com";
-        const string password = "SecurePass123!";
-
-        var register = await identity.Client.PostAsJsonAsync("/api/v1/authentication/register", new
-        {
-            Email = email,
-            Password = password,
-            Username = username,
-            BirthDate = DateTime.UtcNow.AddYears(-20),
-        });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
-        var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
-        var userId = registerBody.GetProperty("userId").GetString()!;
-
-        var tokenResponse = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
-            new Dictionary<string, string>
-            {
-                ["grant_type"] = "password",
-                ["username"] = username,
-                ["password"] = password,
-                ["client_id"] = "echo",
-            }));
-        Assert.That(tokenResponse.IsSuccessStatusCode, Is.True,
-            $"Token request failed: {await tokenResponse.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
-        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
-
-        return (userId, tokenBody.GetProperty("access_token").GetString()!);
     }
 
     private static HttpClient AuthedClient(SpawnedServiceProcess service, string token)
@@ -113,8 +81,8 @@ public class AccountDeletionFlowTests
     [Test]
     public async Task DeleteAccount_PurgesAcrossAllServices_WhilePreservingOtherUsersData()
     {
-        var (userIdA, tokenA) = await RegisterAndGetTokenAsync(_stack.Identity, "acctdel_a");
-        var (userIdB, tokenB) = await RegisterAndGetTokenAsync(_stack.Identity, "acctdel_b");
+        var (userIdA, tokenA) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "acctdel_a");
+        var (userIdB, tokenB) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "acctdel_b");
 
         using var identityA = AuthedClient(_stack.Identity, tokenA);
         using var guildA = AuthedClient(_stack.Guild, tokenA);

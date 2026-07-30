@@ -51,7 +51,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             if (!user.IsSigninAllowed())
             {
                 logger.LogInformation("User {username} is not allowed to sign in", request.Username);
-                return Forbid("User is not allowed to sign in");
+                return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
 
             if (user.TwoFactorEnabled)
@@ -86,7 +86,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             if (!user.IsSigninAllowed())
             {
                 logger.LogInformation("User {username} is not allowed to sign in", request.Username);
-                return Forbid("User is not allowed to sign in");
+                return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
             if (user.EmailVerifiedAt == null)
             {
@@ -120,7 +120,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             if (!user.IsSigninAllowed())
             {
                 logger.LogInformation("User {userId} is not allowed to sign in", userId);
-                return Forbid("User is not allowed to sign in");
+                return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
         }
         else if (request.IsClientCredentialsGrantType())
@@ -134,7 +134,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             if (!user.IsSigninAllowed())
             {
                 logger.LogInformation("Bot {clientId} is not allowed to sign in", request.ClientId);
-                return Forbid("Bot account is disabled.");
+                return StatusCode(StatusCodes.Status403Forbidden, "Bot account is disabled.");
             }
         }
         else { return BadRequest("The grant type is not supported."); }

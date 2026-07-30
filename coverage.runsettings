@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <!--
+            EF Core migrations are generated DDL (~80% of most services' line count) that's
+            verified by actually applying them in E2E/deploy environments, not unit tests - counting
+            them drags every project's line-rate toward 0 regardless of real business-logic coverage.
+            Facet source-generated mapping code (obj/**/Facet/**, *.g.cs) is compiler output, not
+            hand-written logic, and is excluded for the same reason.
+          -->
+          <ExcludeByFile>**/Migrations/**/*.cs,**/*.g.cs,**/obj/**/*.cs</ExcludeByFile>
+          <ExcludeByAttribute>ExcludeFromCodeCoverage,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

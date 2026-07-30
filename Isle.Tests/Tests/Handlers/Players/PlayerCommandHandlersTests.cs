@@ -221,6 +221,9 @@ public class PlayerCommandHandlersTests
         var handler = new WipeDeployedSlotsCommandHandler(_context, NullLogger<WipeDeployedSlotsCommandHandler>.Instance);
 
         await handler.Handle(new WipeDeployedSlotsCommand { SteamId = "steam-1" });
+        // The handler only mutates the tracked entity; Wolverine's transaction middleware is what
+        // commits it in production. This SQLite unit test has no such middleware, so it saves itself.
+        await _context.SaveChangesAsync();
 
         // Storage.WipeDeployed() removes the deployed slot outright (frees the capacity for a
         // new dino), it does not merely flip IsDeployed back to false.

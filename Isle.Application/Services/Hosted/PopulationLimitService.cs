@@ -37,7 +37,7 @@ public sealed class PopulationLimitService(
         }
     }
 
-    private async Task SafeEnforceAsync()
+    internal async Task SafeEnforceAsync()
     {
         try
         {
@@ -49,7 +49,8 @@ public sealed class PopulationLimitService(
         }
     }
 
-    private async Task EnforceAsync()
+    /// <summary>Internal (rather than private) so unit tests can drive one enforcement pass directly without waiting on <see cref="Interval"/>.</summary>
+    internal async Task EnforceAsync()
     {
         var players = await rcon.ExecuteAsync(client => client.GetPlayerData());
 

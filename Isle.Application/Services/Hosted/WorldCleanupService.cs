@@ -51,7 +51,8 @@ public sealed class WorldCleanupService(
         }
     }
 
-    private async Task<bool> IsBelowPopulationGateAsync()
+    /// <summary>Internal (rather than private) so unit tests can exercise the gate check without a real RCON socket or the hourly loop.</summary>
+    internal async Task<bool> IsBelowPopulationGateAsync()
     {
         try
         {
@@ -73,7 +74,7 @@ public sealed class WorldCleanupService(
         return true;
     }
 
-    private async Task SafeAnnounceAsync()
+    internal async Task SafeAnnounceAsync()
     {
         try
         {
@@ -86,7 +87,7 @@ public sealed class WorldCleanupService(
         }
     }
 
-    private async Task SafeCleanupAsync()
+    internal async Task SafeCleanupAsync()
     {
         try
         {
@@ -98,7 +99,8 @@ public sealed class WorldCleanupService(
         }
     }
 
-    private static async Task<bool> DelayUntil(DateTimeOffset target, CancellationToken ct)
+    /// <summary>Internal (rather than private) so unit tests can exercise its edge cases (already-past target, cancellation) directly.</summary>
+    internal static async Task<bool> DelayUntil(DateTimeOffset target, CancellationToken ct)
     {
         var delay = target - DateTimeOffset.UtcNow;
         if (delay <= TimeSpan.Zero) return true;
@@ -114,6 +116,7 @@ public sealed class WorldCleanupService(
         }
     }
 
-    private static DateTimeOffset NextFullHour(DateTimeOffset now) =>
+    /// <summary>Internal (rather than private) so unit tests can exercise its scheduling math directly.</summary>
+    internal static DateTimeOffset NextFullHour(DateTimeOffset now) =>
         new DateTimeOffset(now.Year, now.Month, now.Day, now.Hour, 0, 0, TimeSpan.Zero).AddHours(1);
 }

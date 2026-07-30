@@ -32,7 +32,9 @@ public class WipeDeployedSlotsCommandHandler(MicroserviceContext context, ILogge
             return;
         }
 
-        await context.SaveChangesAsync();
+        // No manual SaveChangesAsync here: Wolverine's AutoApplyTransactions/UseEntityFrameworkCoreTransactions
+        // middleware already commits this tracked DbContext after the handler returns. Calling it again here
+        // double-saves against the same context (this exact pattern caused a production incident before).
         logger.LogInformation("Wiped {Count} deployed storage slot(s) for {Steam} after death", wiped, command.SteamId);
     }
 }

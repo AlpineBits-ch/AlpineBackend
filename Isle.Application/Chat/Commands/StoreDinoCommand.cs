@@ -40,7 +40,7 @@ public class StoreDinoCommand(MicroserviceContext microserviceContext, IBridgeCl
         }
 
         // Pull the current mutation loadout so it can be restored on load.
-        MutationsData? mutations = null;
+        MutationsData mutations = new();
         try
         {
             mutations = await bridgeClient.GetMutationsAsync(context.PlayerSteam);

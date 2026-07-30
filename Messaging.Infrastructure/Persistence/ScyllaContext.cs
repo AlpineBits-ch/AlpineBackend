@@ -27,6 +27,16 @@ public class ScyllaContext : IAsyncDisposable
         return new ScyllaContext(default, default);
     }
 
+    /// <summary>
+    /// Builds a context around a caller-supplied mapper and no session - the seam that lets
+    /// ScyllaMessageRepository be unit tested without a live cluster (only DisposeAsync touches
+    /// the session, so don't dispose one of these).
+    /// </summary>
+    public static ScyllaContext CreateDebug(IMapper mapper)
+    {
+        return new ScyllaContext(default!, mapper);
+    }
+
     public static async Task<ScyllaContext> CreateAsync()
     {
         var cluster = Cluster.Builder()

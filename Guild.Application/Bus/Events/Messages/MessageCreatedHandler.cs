@@ -19,7 +19,8 @@ public class MessageCreatedHandler
         return $"channel:{channelId}:guild";
     }
     public async Task Handle(MessageCreatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger)
+        MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger,
+        NotificationResolutionService notificationService)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -119,6 +120,78 @@ public class MessageCreatedHandler
             readState.MentionCount++;
         }
 
+        await PublishPushRecipientsAsync(message, cachedGuildId, presence, mentionedMemberIds, context, notificationService, bus);
+    }
+
+    /// <summary>
+    /// Works out who should get a phone notification for this message and hands the list to
+    /// Messaging, which owns Firebase.
+    ///
+    /// Until this existed, guild channels produced no push at all - only DMs did - so a mention in
+    /// a server was invisible unless the app happened to be open.
+    /// </summary>
+    private static async Task PublishPushRecipientsAsync(
+        MessageCreatedForChannel message,
+        string guildId,
+        IReadOnlyCollection<MemberPresenceState> presence,
+        HashSet<string> mentionedMemberIds,
+        MicroserviceContext context,
+        NotificationResolutionService notificationService,
+        IMessageBus bus)
+    {
+        // Everyone who could conceivably be notified. AllMessages members are included even
+        // though they weren't mentioned - that setting means "tell me about every message", which
+        // is precisely the case the mention set does not cover.
+        var candidates = await context.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.GuildId == guildId && m.UserId != message.AuthorId)
+            .Select(m => new { m.Id, m.UserId })
+            .ToListAsync();
+
+        if (candidates.Count == 0) return;
+
+        // Connected members already received the message over the realtime hub a few lines above;
+        // pushing to them as well is how a notification arrives on the phone for something the
+        // user is actively looking at on their desktop.
+        var connectedUserIds = presence.Select(p => p.UserId).ToHashSet();
+
+        var resolved = await notificationService.ResolveForChannelAsync(
+            message.ChannelId, candidates.Select(c => c.Id).ToList());
+
+        var roleMentionedMemberIds = message.RoleMentions.Count > 0
+            ? (await context.RoleMembers.AsNoTracking()
+                .Where(rm => message.RoleMentions.Contains(rm.RoleId))
+                .Select(rm => rm.MemberId)
+                .ToListAsync()).ToHashSet()
+            : [];
+
+        var recipients = new List<string>();
+        foreach (var candidate in candidates)
+        {
+            if (connectedUserIds.Contains(candidate.UserId)) continue;
+            if (!resolved.TryGetValue(candidate.Id, out var settings)) continue;
+            if (!settings.MobilePush) continue;
+
+            var isDirectMention = message.Mentions.Contains(candidate.UserId);
+            var isRoleMention = roleMentionedMemberIds.Contains(candidate.Id);
+            var isEveryoneMention = message.MentionsEveryone || message.MentionsHere;
+
+            if (settings.ShouldNotify(isDirectMention, isRoleMention, isEveryoneMention))
+                recipients.Add(candidate.UserId);
+        }
+
+        if (recipients.Count == 0) return;
+
+        await bus.PublishAsync(new ChannelPushRequested
+        {
+            GuildId = guildId,
+            ChannelId = message.ChannelId,
+            MessageId = message.MessageId,
+            UserIds = recipients,
+            AuthorId = message.AuthorId,
+            Content = message.Content,
+            IsEncrypted = message.EncryptionState != MessageEncryptionState.Plain,
+        });
     }
 
     /// <summary>Denormalizes "when did this post last see activity" onto the thread's channel row.

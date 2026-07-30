@@ -40,6 +40,11 @@ public enum EchoPermissions : ulong
     ModerateMembers = 1ul << 34,
     ManageGuild = 1ul << 35,
     ViewAuditLog = 1ul << 36,
+    MentionEveryone = 1ul << 50,
+    ManageRoles = 1ul << 51,
+    ManageWebhooks = 1ul << 52,
+    ChangeNickname = 1ul << 53,
+    ManageNicknames = 1ul << 54,
     Superadmin = 1ul << 63,
 }
 
@@ -60,12 +65,16 @@ public static class DiscordPermissionMapper
     private const ulong ManageMessages = 1ul << 13;
     private const ulong EmbedLinks = 1ul << 14;
     private const ulong AttachFiles = 1ul << 15;
+    private const ulong MentionEveryone = 1ul << 17;
     private const ulong Connect = 1ul << 20;
     private const ulong Speak = 1ul << 21;
     private const ulong MuteMembers = 1ul << 22;
     private const ulong DeafenMembers = 1ul << 23;
     private const ulong MoveMembers = 1ul << 24;
+    private const ulong ChangeNickname = 1ul << 26;
+    private const ulong ManageNicknames = 1ul << 27;
     private const ulong ManageRoles = 1ul << 28;
+    private const ulong ManageWebhooks = 1ul << 29;
     private const ulong ManageThreads = 1ul << 34;
     private const ulong CreatePublicThreads = 1ul << 35;
     private const ulong CreatePrivateThreads = 1ul << 36;
@@ -75,9 +84,9 @@ public static class DiscordPermissionMapper
     /// <summary>
     /// Parses Discord's decimal-string permission bitmask (kept as a string in JSON to avoid JS
     /// Number precision loss) and remaps it bit-by-bit to <see cref="EchoPermissions"/>.
-    /// Everything without an Echo equivalent (manage emojis/stickers/webhooks/events/nicknames,
-    /// priority speaker, request-to-speak, etc.) is silently dropped. Echo's Wiki permission
-    /// block has no Discord source and is never set here.
+    /// Everything without an Echo equivalent (manage emojis/stickers/events, priority speaker,
+    /// request-to-speak, etc.) is silently dropped. Echo's Wiki permission block has no Discord
+    /// source and is never set here.
     /// </summary>
     public static ulong ToEchoPermissions(string discordPermissionsDecimalString)
     {
@@ -105,7 +114,13 @@ public static class DiscordPermissionMapper
         if ((discord & SendMessagesInThreads) != 0) echo |= EchoPermissions.SendMessagesInThreads;
         if ((discord & ManageThreads) != 0) echo |= EchoPermissions.ManageAnyThread;
         if ((discord & ManageChannels) != 0) echo |= EchoPermissions.ManageChannel;
-        if ((discord & ManageRoles) != 0) echo |= EchoPermissions.ManagePermissions;
+        // Discord's single MANAGE_ROLES covers both editing roles and setting per-channel
+        // overwrites; Echo splits those into ManageRoles and ManagePermissions, so it maps to both.
+        if ((discord & ManageRoles) != 0) echo |= EchoPermissions.ManageRoles | EchoPermissions.ManagePermissions;
+        if ((discord & ManageWebhooks) != 0) echo |= EchoPermissions.ManageWebhooks;
+        if ((discord & MentionEveryone) != 0) echo |= EchoPermissions.MentionEveryone;
+        if ((discord & ChangeNickname) != 0) echo |= EchoPermissions.ChangeNickname;
+        if ((discord & ManageNicknames) != 0) echo |= EchoPermissions.ManageNicknames;
         if ((discord & CreateInstantInvite) != 0) echo |= EchoPermissions.CreateInvite;
         if ((discord & KickMembers) != 0) echo |= EchoPermissions.KickMembers;
         if ((discord & BanMembers) != 0) echo |= EchoPermissions.BanMembers;

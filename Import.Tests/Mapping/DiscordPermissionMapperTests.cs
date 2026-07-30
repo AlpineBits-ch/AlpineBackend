@@ -26,7 +26,10 @@ public class DiscordPermissionMapperTests
     [TestCase(34, EchoPermissions.ManageAnyThread)] // MANAGE_THREADS
     [TestCase(38, EchoPermissions.SendMessagesInThreads)] // SEND_MESSAGES_IN_THREADS
     [TestCase(4, EchoPermissions.ManageChannel)] // MANAGE_CHANNELS
-    [TestCase(28, EchoPermissions.ManagePermissions)] // MANAGE_ROLES
+    [TestCase(17, EchoPermissions.MentionEveryone)] // MENTION_EVERYONE
+    [TestCase(26, EchoPermissions.ChangeNickname)] // CHANGE_NICKNAME
+    [TestCase(27, EchoPermissions.ManageNicknames)] // MANAGE_NICKNAMES
+    [TestCase(29, EchoPermissions.ManageWebhooks)] // MANAGE_WEBHOOKS
     [TestCase(0, EchoPermissions.CreateInvite)] // CREATE_INSTANT_INVITE
     [TestCase(1, EchoPermissions.KickMembers)] // KICK_MEMBERS
     [TestCase(2, EchoPermissions.BanMembers)] // BAN_MEMBERS
@@ -62,11 +65,20 @@ public class DiscordPermissionMapperTests
     }
 
     [Test]
+    public void ToEchoPermissions_ManageRoles_MapsToBothManageRolesAndManagePermissions()
+    {
+        // Discord's single MANAGE_ROLES covers editing roles *and* setting per-channel overwrites;
+        // Echo splits those into two bits, so one Discord bit has to light up both.
+        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(28));
+        Assert.That(result, Is.EqualTo(EchoPermissions.ManageRoles | EchoPermissions.ManagePermissions));
+    }
+
+    [Test]
     public void ToEchoPermissions_UnmappedDiscordBits_ProduceNoEchoPermissions()
     {
-        // MANAGE_NICKNAMES (27), MANAGE_WEBHOOKS (29), MANAGE_GUILD_EXPRESSIONS (30),
-        // PRIORITY_SPEAKER (8) - none have an Echo equivalent.
-        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(27, 29, 30, 8));
+        // MANAGE_GUILD_EXPRESSIONS (30), PRIORITY_SPEAKER (8), USE_VAD (25),
+        // REQUEST_TO_SPEAK (32) - none have an Echo equivalent.
+        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(30, 8, 25, 32));
         Assert.That(result, Is.EqualTo(EchoPermissions.None));
     }
 

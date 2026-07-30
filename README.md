@@ -34,21 +34,30 @@
 
 ## Self-Hosting
 
-The quickest way to run a local instance is with Docker Compose:
+One installer brings up the whole stack — every service, its infrastructure, and a
+TLS-terminating reverse proxy — and keeps it running across reboots:
 
 ```bash
-./deploy/setup.sh
+sudo ./deploy/install.sh                # Linux
 ```
 
-The setup script will setup all required local resources and start the services. You can later adjust the env variables further - if you wish to do so.
+```powershell
+.\deploy\Install-VentaStack.ps1         # Windows (elevated PowerShell)
+```
 
+It generates all secrets (including the Ed25519 federation identity and the token-signing
+certificate), writes `deploy/.env`, configures Caddy with automatic Let's Encrypt
+certificates, registers a boot hook, and starts everything. Run it again at any time to
+upgrade — existing secrets are preserved. Options exist for an external PostgreSQL, an
+external S3 bucket, running behind your own reverse proxy, or a plain-HTTP LAN install.
 
-The API gateway will be available at `http://localhost:8080/api/v1/configuration`.
+Afterwards, `ventactl status | logs | update | backup` manages the instance.
 
-You can find the federation document at `http://localhost:8080/.well-known/federation` when both endpoints return a 200, you're fully set up!.
+Once `https://<your-domain>/health` and `https://<your-domain>/.well-known/federation`
+both return 200, you're fully set up.
 
-As a side note: The gateway expects a terminated TLS connection, if you host it behind a proxy: GG, you're done. 
-If you don't, you need to setup a reverse proxy that handles SSL. Maybe Traefik, Caddy, or even a simple reverse proxy like Nginx.
+See [`deploy/README.md`](deploy/README.md) for the full guide: TLS modes, federating with
+another instance, configuration reference, backups and troubleshooting.
 
 ---
 

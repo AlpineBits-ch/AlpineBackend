@@ -1,25 +1,46 @@
-﻿namespace Guild.Application.Dtos.Request;
+using System.Text.Json.Serialization;
 
+namespace Guild.Application.Dtos.Request;
+
+/// <summary>
+/// Body of an execute-webhook call. `username` and `avatar_url` carry explicit snake_case
+/// [JsonPropertyName]s so that a payload written for Discord's own webhook endpoint posts here
+/// unchanged - which is the entire point of the /api/webhooks/{id}/{token} route. GitHub,
+/// Grafana, Sentry and every "Discord webhook" preset emit exactly this shape, and asking
+/// integrators to reshape it would defeat the compatibility.
+/// </summary>
 public class WebhookRequestDto
 {
-    public string UserName { get; set; }
-    public string AvatarUrl { get; set; }
-    public string Content { get; set; }
+    /// <summary>Per-execution display-name override. Falls back to the webhook's configured Name
+    /// when absent.</summary>
+    [JsonPropertyName("username")]
+    public string? UserName { get; set; }
+
+    [JsonPropertyName("avatar_url")]
+    public string? AvatarUrl { get; set; }
+
+    public string? Content { get; set; }
+
     public List<WebhookEmbedDto> Embeds { get; set; } = [];
 }
 
 public class WebhookEmbedDto
 {
-    public string Title { get; set; }
-    public string Description { get; set; }
-    public string Url { get; set; }
-    public string Color { get; set; }
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public string? Url { get; set; }
+
+    /// <summary>Discord sends this as a decimal integer, venta's stored embeds keep it as a string
+    /// (see Bots.Contracts' EmbedPayload.Color). Typed as string and left as whatever arrived -
+    /// rendering is the client's decision and both spellings round-trip.</summary>
+    public string? Color { get; set; }
+
     public List<WebhookEmbedFieldDto> Fields { get; set; } = [];
 }
 
 public class WebhookEmbedFieldDto
 {
-    public string Name { get; set; }
-    public string Value { get; set; }
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
     public bool Inline { get; set; }
 }

@@ -100,6 +100,44 @@ public class GuildPermissionService(
     public async Task InvalidateGuildFeaturesCacheAsync(string guildId) =>
         await cache.RemoveAsync(FeaturesCacheKey(guildId));
 
+    private static string SlowModeCacheKey(string channelId)
+    {
+        var c = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channelId));
+        return $"channel:{c}:slowmode";
+    }
+
+    /// <summary>The channel's configured slowmode window in seconds (0 = off). Cached the same way
+    /// and for the same reason as <see cref="GetGuildFeaturesAsync"/>: it is read on every single
+    /// message send, so it rides along on the permission check rather than costing its own query.
+    /// Messaging - which owns the send path but not the Channel row - receives it on
+    /// HasUserPermissionToChannelResponse instead of asking separately.</summary>
+    public async Task<int> GetChannelSlowModeSecondsAsync(string channelId)
+    {
+        var cacheKey = SlowModeCacheKey(channelId);
+        var cached = await cache.GetStringAsync(cacheKey);
+        if (!string.IsNullOrWhiteSpace(cached) && int.TryParse(cached, out var parsed)) return parsed;
+
+        var seconds = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.Id == channelId)
+            .Select(c => (int?)c.SlowModeSeconds)
+            .FirstOrDefaultAsync();
+
+        // An unknown channel resolves to "no slowmode" rather than blocking - the caller has
+        // already failed the permission check by that point, so this value never reaches a send.
+        var resolved = seconds ?? 0;
+
+        await cache.SetStringAsync(cacheKey, resolved.ToString(), new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15)
+        });
+
+        return resolved;
+    }
+
+    public async Task InvalidateChannelSlowModeCacheAsync(string channelId) =>
+        await cache.RemoveAsync(SlowModeCacheKey(channelId));
+
     private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, DateTimeOffset? mutedUntil, bool onboardingPending)> GetMembershipAsync(
         string userId, string guildId)
     {

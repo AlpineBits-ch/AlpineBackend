@@ -79,6 +79,18 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/api/discord/v10/{**catch-all}" }
         },
 
+        // Webhook execution keeps Discord's own path shape for the same reason the Discord-compat
+        // surface above does: an existing "Discord webhook" integration (GitHub, Grafana, Sentry,
+        // any CI) then works by changing the host and nothing else. No service-segment rewrite,
+        // and no auth - the token in the path is the credential, so this route is reached by
+        // callers with no venta account, which is exactly the point.
+        new RouteConfig
+        {
+            RouteId = "webhook-execute-route",
+            ClusterId = "guild-cluster",
+            Match = new RouteMatch { Path = "/api/webhooks/{webhookId}/{token}" }
+        },
+
         new RouteConfig
         {
             RouteId = "imports-route",
@@ -443,7 +455,11 @@ public static class ProxyConfig
                 },
                 Active = new ActiveHealthCheckConfig()
                 {
-                    Path = "imports/health",
+                    // Singular: Import.Application maps "/import/health" (the route prefix
+                    // is plural, the health endpoint is not). The plural form 404s, which
+                    // marks the cluster's only destination unhealthy and 503s every
+                    // /api/v1/imports/* request.
+                    Path = "import/health",
                     Timeout = TimeSpan.FromSeconds(10),
                     Interval = TimeSpan.FromSeconds(15),
                 }

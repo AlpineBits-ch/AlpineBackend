@@ -17,6 +17,15 @@ public class CreateMessageCommand
     /// <summary>Raw JSON array of Discord-shaped embeds - see Messaging.Domain.Entities.Message.EmbedsJson.</summary>
     public string? EmbedsJson { get; set; }
 
+    /// <summary>Raw JSON array of interactive components - see Message.ComponentsJson.</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>Per-message author name/avatar override - see Message.AuthorDisplayName. Set only
+    /// by the webhook execute path; every other caller leaves these null.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    public string? AuthorAvatarUrl { get; set; }
+
     public List<string> Mentions { get; set; } = new List<string>();
     public List<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }

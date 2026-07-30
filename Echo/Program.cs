@@ -71,8 +71,25 @@ builder.Services.AddRateLimiter(options =>
 {
     options.AddPolicy("PerUserPolicy", context =>
     {
+        // Webhook execution is authenticated by a token in the path, not by a signed-in user, so
+        // the usual identity partition doesn't exist for it. Falling through to the remote-IP
+        // branch below would be actively wrong behind a load balancer or ingress: every webhook
+        // call in the deployment would share one 100/min bucket keyed on the proxy's address, so
+        // one noisy CI pipeline would throttle every other integration on the instance.
+        // Partitioning on the webhook id gives each integration its own budget.
+        if (TryGetWebhookId(context.Request.Path, out var webhookId))
+        {
+            return RateLimitPartition.GetFixedWindowLimiter($"webhook:{webhookId}", _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 100,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+        }
+
         var username = context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
-        
+
         return RateLimitPartition.GetFixedWindowLimiter(username, _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 100,
@@ -179,3 +196,30 @@ app.UseInfrastructure();
 
 
 await app.RunJasperFxCommands(args);
+
+/// <summary>
+/// Extracts the webhook id from "/api/webhooks/{webhookId}/{token}", the one unauthenticated
+/// write route on the gateway (see the webhook-execute-route in ProxyConfig). Matched by shape
+/// rather than by asking YARP which route was selected, because the rate limiter runs before
+/// route selection is available on the context.
+///
+/// The token segment is deliberately never used as part of the partition key: a wrong token still
+/// costs the *correct* webhook's budget, so brute-forcing a token cannot be made cheaper by
+/// varying it, and a valid integration cannot be starved by someone guessing against its id.
+/// </summary>
+static bool TryGetWebhookId(PathString path, out string webhookId)
+{
+    webhookId = string.Empty;
+    if (!path.HasValue) return false;
+
+    var value = path.Value!;
+    const string prefix = "/api/webhooks/";
+    if (!value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+
+    var rest = value[prefix.Length..];
+    var slash = rest.IndexOf('/');
+    if (slash <= 0) return false;
+
+    webhookId = rest[..slash];
+    return true;
+}

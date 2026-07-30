@@ -12,10 +12,19 @@ public class InteractionPayload
     [JsonPropertyName("application_id")]
     public string ApplicationId { get; set; } = "";
 
-    /// <summary>2 = APPLICATION_COMMAND - the only interaction type this compat layer produces
-    /// (no components/autocomplete, per the "slash commands only" v1 scope decision).</summary>
+    /// <summary>Discord's interaction type. 2 = APPLICATION_COMMAND (a slash command),
+    /// 3 = MESSAGE_COMPONENT (a button click or select), 4 = APPLICATION_COMMAND_AUTOCOMPLETE,
+    /// 5 = MODAL_SUBMIT. Defaults to 2 because that was the only type this layer produced
+    /// originally and every existing caller relies on the default.</summary>
     [JsonPropertyName("type")]
-    public int Type { get; set; } = 2;
+    public int Type { get; set; } = InteractionType.ApplicationCommand;
+
+    /// <summary>Present on MESSAGE_COMPONENT interactions: the message whose component was used.
+    /// discord.js reads it to build `interaction.message`, which is what an "update this message
+    /// in place" handler operates on.</summary>
+    [JsonPropertyName("message")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public InteractionMessagePayload? Message { get; set; }
 
     [JsonPropertyName("data")]
     public InteractionDataPayload Data { get; set; } = null!;
@@ -84,6 +93,42 @@ public class InteractionChannelPayload
     public int Type { get; set; }
 }
 
+/// <summary>Discord's interaction type numbers.</summary>
+public static class InteractionType
+{
+    public const int ApplicationCommand = 2;
+    public const int MessageComponent = 3;
+    public const int Autocomplete = 4;
+    public const int ModalSubmit = 5;
+}
+
+/// <summary>Discord's interaction *callback* type numbers - what a bot sends back.</summary>
+public static class InteractionCallbackType
+{
+    public const int ChannelMessageWithSource = 4;
+    public const int DeferredChannelMessageWithSource = 5;
+    public const int DeferredUpdateMessage = 6;
+    public const int UpdateMessage = 7;
+    public const int AutocompleteResult = 8;
+    public const int Modal = 9;
+}
+
+/// <summary>The subset of a message discord.js needs to construct `interaction.message`.</summary>
+public class InteractionMessagePayload
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("channel_id")]
+    public string ChannelId { get; set; } = "";
+
+    [JsonPropertyName("content")]
+    public string Content { get; set; } = "";
+
+    [JsonPropertyName("components")]
+    public List<ComponentPayload> Components { get; set; } = new();
+}
+
 public class InteractionDataPayload
 {
     [JsonPropertyName("id")]
@@ -98,6 +143,29 @@ public class InteractionDataPayload
 
     [JsonPropertyName("options")]
     public List<InteractionOptionPayload> Options { get; set; } = new();
+
+    // ── MESSAGE_COMPONENT / MODAL_SUBMIT ─────────────────────────────────────
+
+    /// <summary>Which component was used (type 3) or which modal was submitted (type 5).</summary>
+    [JsonPropertyName("custom_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CustomId { get; set; }
+
+    /// <summary>The used component's own type - lets a bot distinguish a button from a select
+    /// without re-deriving it from custom_id.</summary>
+    [JsonPropertyName("component_type")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? ComponentType { get; set; }
+
+    /// <summary>Selected values, for the select components. Empty for a button.</summary>
+    [JsonPropertyName("values")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Values { get; set; }
+
+    /// <summary>Submitted modal rows, each an ActionRow wrapping one filled-in TextInput.</summary>
+    [JsonPropertyName("components")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<ComponentPayload>? Components { get; set; }
 }
 
 public class InteractionOptionPayload
@@ -137,11 +205,47 @@ public class InteractionResponseDataPayload
     [JsonPropertyName("embeds")]
     public List<EmbedPayload> Embeds { get; set; } = new();
 
-    /// <summary>64 = EPHEMERAL. Accepted but not enforced in v1 - posts as a normal channel
-    /// message, since there's no "only visible to the invoker" concept in venta's channel model
-    /// today. A known, deliberate limitation, not an oversight.</summary>
+    /// <summary>64 = EPHEMERAL, and now enforced: the response is delivered over the realtime hub
+    /// to the invoking user alone and never written to the message store, so it is absent from
+    /// history and gone on reload. That matches Discord's own semantics, where an ephemeral reply
+    /// is not a message anyone can scroll back to.</summary>
     [JsonPropertyName("flags")]
     public int Flags { get; set; }
+
+    /// <summary>Interactive components to attach. Carried opaquely - see ComponentPayload.</summary>
+    [JsonPropertyName("components")]
+    public List<ComponentPayload> Components { get; set; } = new();
+
+    // ── Modal (callback type 9) ──────────────────────────────────────────────
+
+    /// <summary>Modal identifier, echoed back on submit as the MODAL_SUBMIT custom_id.</summary>
+    [JsonPropertyName("custom_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CustomId { get; set; }
+
+    /// <summary>Modal window title.</summary>
+    [JsonPropertyName("title")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; set; }
+
+    /// <summary>Autocomplete choices (callback type 8).</summary>
+    [JsonPropertyName("choices")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AutocompleteChoicePayload>? Choices { get; set; }
+}
+
+public class AutocompleteChoicePayload
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    /// <summary>Nullable, not a bare JsonElement: a default(JsonElement) has ValueKind.Undefined,
+    /// and System.Text.Json throws InvalidOperationException when asked to write one. A bot that
+    /// omits `value` on a choice would otherwise take down the whole callback rather than losing
+    /// one suggestion. Null is simply omitted from the serialized choice.</summary>
+    [JsonPropertyName("value")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public JsonElement? Value { get; set; }
 }
 
 /// <summary>Subset of Discord's real embed object - just enough to render a readable plain-text

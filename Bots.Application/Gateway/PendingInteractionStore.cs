@@ -15,7 +15,29 @@ public record PendingInteraction(
     string ChannelId,
     string InvokingUserId,
     string CommandName,
-    bool Acknowledged);
+    bool Acknowledged,
+    /// <summary>The message carrying the component that was used - set only for a
+    /// MESSAGE_COMPONENT interaction, and what UPDATE_MESSAGE (callback type 7) edits in place.
+    /// Null for slash commands, which have no originating message.</summary>
+    string? MessageId = null,
+    /// <summary>Which InteractionType this is, so the callback endpoint can reject a response
+    /// shape that makes no sense for it (an UPDATE_MESSAGE against a slash command has nothing
+    /// to update).</summary>
+    int InteractionType = Bots.Contracts.Gateway.Payloads.InteractionType.ApplicationCommand);
+
+/// <summary>
+/// An ephemeral response's components, kept in Redis instead of on a message row - the message
+/// itself is never persisted (see DiscordInteractionEndpoint's ephemeral branch), so there is
+/// nothing to validate a later button click against. Shares the interaction TTL, which also gives
+/// the right expiry semantics for free: once the interaction is dead, so are its buttons.
+/// </summary>
+public record EphemeralMessageRecord(
+    string EphemeralId,
+    string BotUserId,
+    string? GuildId,
+    string ChannelId,
+    string InvokingUserId,
+    List<string> CustomIds);
 
 public class PendingInteractionStore(IDistributedCache cache)
 {
@@ -35,4 +57,34 @@ public class PendingInteractionStore(IDistributedCache cache)
 
     public Task MarkAcknowledgedAsync(string token, PendingInteraction current) =>
         SaveAsync(token, current with { Acknowledged = true });
+
+    private static string EphemeralKey(string ephemeralId) => $"ephemeral:{ephemeralId}";
+
+    public Task SaveEphemeralAsync(EphemeralMessageRecord record) =>
+        cache.SetStringAsync(EphemeralKey(record.EphemeralId), JsonSerializer.Serialize(record),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = Ttl });
+
+    public async Task<EphemeralMessageRecord?> GetEphemeralAsync(string ephemeralId)
+    {
+        var json = await cache.GetStringAsync(EphemeralKey(ephemeralId));
+        return json is null ? null : JsonSerializer.Deserialize<EphemeralMessageRecord>(json);
+    }
+
+    // ── Autocomplete ─────────────────────────────────────────────────────────
+    // Autocomplete is the one interaction that needs a *synchronous-shaped* answer: the client is
+    // waiting to render a dropdown. The bot's reply arrives on a different connection entirely
+    // (its gateway callback), so the invoking request parks on this key until it appears or the
+    // short timeout wins. Redis rather than an in-process TaskCompletionSource because the two
+    // halves can land on different pods.
+
+    private static string AutocompleteKey(string interactionId) => $"autocomplete:{interactionId}";
+
+    private static readonly TimeSpan AutocompleteTtl = TimeSpan.FromSeconds(30);
+
+    public Task SaveAutocompleteResultAsync(string interactionId, string choicesJson) =>
+        cache.SetStringAsync(AutocompleteKey(interactionId), choicesJson,
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = AutocompleteTtl });
+
+    public Task<string?> GetAutocompleteResultAsync(string interactionId) =>
+        cache.GetStringAsync(AutocompleteKey(interactionId));
 }

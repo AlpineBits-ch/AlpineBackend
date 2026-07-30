@@ -113,6 +113,9 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.Attachments, cm => cm.WithName("attachments").AsFrozen())
                 .Column(m => m.EncryptionState, cm => cm.WithName("encryption_state").WithDbType<string>())
                 .Column(m => m.EmbedsJson, cm => cm.WithName("embeds_json"))
+                .Column(m => m.AuthorDisplayName, cm => cm.WithName("author_display_name"))
+                .Column(m => m.AuthorAvatarUrl, cm => cm.WithName("author_avatar_url"))
+                .Column(m => m.ComponentsJson, cm => cm.WithName("components_json"))
                 .Column(m => m.SystemMessageVariant, cm => cm.WithName("system_message_variant"))
                 .Column(m => m.IsPinned, cm => cm.WithName("is_pinned"))
                 .Column(m => m.PinnedAt, cm => cm.WithName("pinned_at"))
@@ -317,6 +320,41 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE reactions ADD emoji_id text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // Both sort alphabetically *before* several existing columns ("author_display_name" <
+        // "author_id", "author_avatar_url" < "author_id"), which is precisely the hazard
+        // Message.SelectColumns exists to neutralize - a "SELECT *" reader holding a prepared
+        // statement from before this alter would start decoding these two as author_id and
+        // author_id_type. Nothing may read this table with "SELECT *"; see the remarks on
+        // Message.SelectColumns.
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD author_display_name text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD author_avatar_url text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // "components_json" sorts before "content" and "context_id" - the same alphabetical hazard
+        // as the two columns above. Safe only because Message.SelectColumns pins the read order.
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD components_json text;"));
         }
         catch (InvalidQueryException)
         {

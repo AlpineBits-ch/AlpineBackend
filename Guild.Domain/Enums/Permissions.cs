@@ -83,6 +83,33 @@ public enum Permissions : ulong
     VoteDecisions           = 1ul << 48,
     ManageGuests            = 1ul << 49,
 
+    // ── Mentions ─────────────────────────────────────────────────────────────
+    /// <summary>Ping the whole channel with @everyone / @here. Deliberately NOT part of the
+    /// @everyone role's defaults (unlike Discord, where it is) - granting every member the
+    /// ability to ping every member is the abuse vector this bit exists to close. Absence of
+    /// this permission strips the mention flags off the message rather than rejecting it, so a
+    /// message that merely contains the literal text still sends.</summary>
+    MentionEveryone         = 1ul << 50,
+
+    // ── Moderation (split out of coarser bits) ───────────────────────────────
+    /// <summary>Create, edit, delete and reorder the guild's roles. Split out of
+    /// <see cref="ManagePermissions"/>, which now means only what its name says: setting
+    /// per-channel/per-category permission overwrites.</summary>
+    ManageRoles             = 1ul << 51,
+
+    /// <summary>Create, edit, delete and regenerate the token of a channel webhook. Split out of
+    /// <see cref="ManageChannel"/> - a webhook token is a standing unauthenticated write
+    /// credential for the channel, which is a strictly bigger grant than renaming it.</summary>
+    ManageWebhooks          = 1ul << 52,
+
+    // ── Nicknames ────────────────────────────────────────────────────────────
+    /// <summary>Change your own nickname in this guild. Part of the @everyone defaults.</summary>
+    ChangeNickname          = 1ul << 53,
+
+    /// <summary>Change other members' nicknames. Additionally subject to the role hierarchy -
+    /// see GuildPermissionService.CanActOnUserAsync.</summary>
+    ManageNicknames         = 1ul << 54,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
     Superadmin              = 1ul << 63,
 }

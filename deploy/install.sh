@@ -1,0 +1,918 @@
+#!/usr/bin/env bash
+# =====================================================================================
+#  Venta / Echo self-hosted installer - Linux
+#
+#  Produces a complete, auto-booting deployment of the whole stack:
+#
+#    infrastructure   PostgreSQL, Redis, RabbitMQ, ScyllaDB (optional), MinIO (optional)
+#    services         Identity, Guild, Messaging, Social, Federation, Bots, Import,
+#                     Isle (optional) and the Echo gateway
+#    edge             Caddy in front of everything for TLS termination, with automatic
+#                     Let's Encrypt issuance and renewal
+#    lifecycle        systemd unit + docker restart policies, so the stack comes back
+#                     on reboot, and a `ventactl` helper for day-to-day operation
+#
+#  Usage:
+#      sudo ./install.sh                       interactive
+#      sudo ./install.sh --non-interactive \
+#           --domain chat.example.com --acme-email admin@example.com
+#
+#  Run it again at any time: existing secrets in deploy/.env are preserved (rotating the
+#  federation keypair would break every instance you are already federated with), images
+#  are refreshed, and the stack is restarted.
+# =====================================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$SCRIPT_DIR/.env"
+GENERATED_DIR="$SCRIPT_DIR/generated"
+COMPOSE_FILE="$SCRIPT_DIR/compose.yaml"
+PROJECT_NAME="venta"
+VENTACTL_PATH="/usr/local/bin/ventactl"
+SYSTEMD_UNIT="/etc/systemd/system/venta-stack.service"
+
+# ANSI-C quoting, not '\033[...]': these are interpolated into here-documents as well as
+# printf format strings, and only a real escape character renders in both.
+GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; YELLOW=$'\033[1;33m'; RED=$'\033[0;31m'
+BOLD=$'\033[1m'; DIM=$'\033[2m'; NC=$'\033[0m'
+
+log()   { printf "${CYAN}==>${NC} %s\n" "$*"; }
+ok()    { printf "${GREEN} ok${NC} %s\n" "$*"; }
+warn()  { printf "${YELLOW}  ! ${NC}%s\n" "$*"; }
+die()   { printf "${RED}error:${NC} %s\n" "$*" >&2; exit 1; }
+step()  { printf "\n${BOLD}%s${NC}\n" "$*"; }
+
+# ── Defaults / CLI flags ─────────────────────────────────────────────────────────────
+NON_INTERACTIVE=false
+RECONFIGURE=false
+SKIP_DEPS=false
+NO_START=false
+UNINSTALL=false
+
+ARG_DOMAIN=""
+ARG_STORAGE_DOMAIN=""
+ARG_INSTANCE_NAME=""
+ARG_ACME_EMAIL=""
+ARG_TLS_MODE=""              # letsencrypt | local | external-proxy
+ARG_IMAGE_SOURCE=""          # registry | build
+ARG_IMAGE_PREFIX="ghcr.io/alpinebits-ch"
+ARG_IMAGE_TAG="latest"
+ARG_EXTERNAL_DB=""           # yes | no
+ARG_DB_HOST=""; ARG_DB_PORT=""; ARG_DB_USER=""; ARG_DB_PASSWORD=""
+ARG_SCYLLA=""                # yes | no
+ARG_ISLE=""                  # yes | no
+ARG_EXTERNAL_STORAGE=""      # yes | no
+
+usage() {
+    cat <<'USAGE'
+Venta self-hosted installer (Linux)
+
+  --domain <host>              public hostname for the API (e.g. chat.example.com)
+  --storage-domain <host>      public hostname for attachments (default: storage.<domain>)
+  --instance-name <name>       federation display name for this instance
+  --acme-email <email>         contact address for Let's Encrypt
+  --tls <mode>                 letsencrypt (default) | local | external-proxy
+  --image-source <src>         registry (default) | build
+  --image-prefix <prefix>      container registry namespace (default ghcr.io/alpinebits-ch)
+  --image-tag <tag>            image tag to deploy (default latest)
+  --external-postgres          use an existing PostgreSQL server
+  --db-host/--db-port/--db-user/--db-password
+                               external PostgreSQL connection details
+  --scylla / --no-scylla       enable/disable the ScyllaDB message store
+  --isle / --no-isle           enable/disable the Isle game-server integration
+  --external-storage           use external S3-compatible storage instead of MinIO
+  --non-interactive            never prompt; use flags and defaults
+  --reconfigure                re-run the questionnaire instead of reusing deploy/.env
+  --skip-dependencies          do not attempt to install Docker/openssl
+  --no-start                   write configuration but do not boot the stack
+  --uninstall                  stop the stack and remove the systemd unit (keeps data)
+  -h, --help                   this message
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --domain)             ARG_DOMAIN="$2"; shift 2 ;;
+        --storage-domain)     ARG_STORAGE_DOMAIN="$2"; shift 2 ;;
+        --instance-name)      ARG_INSTANCE_NAME="$2"; shift 2 ;;
+        --acme-email)         ARG_ACME_EMAIL="$2"; shift 2 ;;
+        --tls)                ARG_TLS_MODE="$2"; shift 2 ;;
+        --image-source)       ARG_IMAGE_SOURCE="$2"; shift 2 ;;
+        --image-prefix)       ARG_IMAGE_PREFIX="$2"; shift 2 ;;
+        --image-tag)          ARG_IMAGE_TAG="$2"; shift 2 ;;
+        --external-postgres)  ARG_EXTERNAL_DB="yes"; shift ;;
+        --db-host)            ARG_DB_HOST="$2"; shift 2 ;;
+        --db-port)            ARG_DB_PORT="$2"; shift 2 ;;
+        --db-user)            ARG_DB_USER="$2"; shift 2 ;;
+        --db-password)        ARG_DB_PASSWORD="$2"; shift 2 ;;
+        --scylla)             ARG_SCYLLA="yes"; shift ;;
+        --no-scylla)          ARG_SCYLLA="no"; shift ;;
+        --isle)               ARG_ISLE="yes"; shift ;;
+        --no-isle)            ARG_ISLE="no"; shift ;;
+        --external-storage)   ARG_EXTERNAL_STORAGE="yes"; shift ;;
+        --non-interactive)    NON_INTERACTIVE=true; shift ;;
+        --reconfigure)        RECONFIGURE=true; shift ;;
+        --skip-dependencies)  SKIP_DEPS=true; shift ;;
+        --no-start)           NO_START=true; shift ;;
+        --uninstall)          UNINSTALL=true; shift ;;
+        -h|--help)            usage; exit 0 ;;
+        *) die "unknown option: $1 (try --help)" ;;
+    esac
+done
+
+# ── Helpers ──────────────────────────────────────────────────────────────────────────
+ask() {
+    local prompt="$1" default="${2:-}" answer=""
+    if [[ "$NON_INTERACTIVE" == true || ! -t 0 ]]; then
+        printf '%s' "$default"; return
+    fi
+    read -r -p "$(printf "${BOLD}?${NC} %s ${DIM}[%s]${NC}: " "$prompt" "$default")" answer </dev/tty || true
+    printf '%s' "${answer:-$default}"
+}
+
+ask_secret() {
+    local prompt="$1" answer=""
+    if [[ "$NON_INTERACTIVE" == true || ! -t 0 ]]; then printf ''; return; fi
+    read -r -s -p "$(printf "${BOLD}?${NC} %s: " "$prompt")" answer </dev/tty || true
+    printf '\n' >&2
+    printf '%s' "$answer"
+}
+
+ask_yes_no() {
+    local prompt="$1" default="$2" answer
+    answer="$(ask "$prompt (y/n)" "$default")"
+    case "${answer,,}" in y|yes|true) echo "yes" ;; *) echo "no" ;; esac
+}
+
+# Values land in a .env that is both sourced by this script and parsed by compose, so
+# strip the characters that would make either interpretation ambiguous.
+sanitize() { printf '%s' "$1" | tr -d '"\\$`'; }
+
+rand_hex() { openssl rand -hex "${1:-24}"; }
+b64_file() { base64 < "$1" | tr -d '\n\r'; }
+
+compose_cmd() {
+    docker compose -p "$PROJECT_NAME" \
+        --project-directory "$SCRIPT_DIR" \
+        -f "$COMPOSE_FILE" \
+        --env-file "$ENV_FILE" "$@"
+}
+
+require_root() {
+    if [[ "$(id -u)" -ne 0 ]]; then
+        die "this installer must run as root (try: sudo $0 $*)"
+    fi
+}
+
+# ── Uninstall ────────────────────────────────────────────────────────────────────────
+if [[ "$UNINSTALL" == true ]]; then
+    require_root
+    step "Uninstalling"
+    if [[ -f "$ENV_FILE" ]]; then compose_cmd down || true; fi
+    systemctl disable --now venta-stack.service 2>/dev/null || true
+    rm -f "$SYSTEMD_UNIT" "$VENTACTL_PATH"
+    systemctl daemon-reload 2>/dev/null || true
+    ok "stack stopped, systemd unit and ventactl removed"
+    warn "Data volumes were kept. Remove them with: docker volume rm \$(docker volume ls -q -f name=${PROJECT_NAME}_)"
+    exit 0
+fi
+
+printf "${CYAN}${BOLD}"
+cat <<'BANNER'
+ ┌──────────────────────────────────────────────────────┐
+ │        Venta / Echo  ·  self-hosted installer        │
+ │        federated chat stack · Linux edition          │
+ └──────────────────────────────────────────────────────┘
+BANNER
+printf "${NC}\n"
+
+require_root "$@"
+
+# =====================================================================================
+# 1. Host dependencies
+# =====================================================================================
+step "1/9  Host dependencies"
+
+detect_pkg_manager() {
+    for m in apt-get dnf yum zypper pacman apk; do
+        command -v "$m" >/dev/null 2>&1 && { echo "$m"; return; }
+    done
+    echo ""
+}
+PKG="$(detect_pkg_manager)"
+
+pkg_install() {
+    [[ $# -eq 0 ]] && return 0
+    case "$PKG" in
+        apt-get) DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" ;;
+        dnf)     dnf install -y "$@" ;;
+        yum)     yum install -y "$@" ;;
+        zypper)  zypper --non-interactive install "$@" ;;
+        pacman)  pacman -Sy --noconfirm "$@" ;;
+        apk)     apk add --no-cache "$@" ;;
+        *)       warn "no supported package manager found; install manually: $*" ;;
+    esac
+}
+
+if [[ "$SKIP_DEPS" == false ]]; then
+    missing=()
+    command -v openssl >/dev/null 2>&1 || missing+=("openssl")
+    command -v curl    >/dev/null 2>&1 || missing+=("curl")
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log "installing: ${missing[*]}"
+        if [[ "$PKG" == "apt-get" ]]; then apt-get update -qq || true; fi
+        pkg_install "${missing[@]}"
+    fi
+
+    if ! command -v docker >/dev/null 2>&1; then
+        log "installing Docker Engine via get.docker.com"
+        curl -fsSL https://get.docker.com | sh
+    fi
+
+    if ! docker compose version >/dev/null 2>&1; then
+        log "installing the Docker Compose plugin"
+        pkg_install docker-compose-plugin || true
+    fi
+fi
+
+command -v docker >/dev/null 2>&1 || die "docker is not installed"
+docker compose version >/dev/null 2>&1 || die "the 'docker compose' plugin is required (v2)"
+command -v openssl >/dev/null 2>&1 || die "openssl is required to generate keys and certificates"
+
+systemctl enable --now docker >/dev/null 2>&1 || true
+docker info >/dev/null 2>&1 || die "the Docker daemon is not reachable"
+ok "docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '?') ready"
+
+# =====================================================================================
+# 2. Existing configuration
+# =====================================================================================
+step "2/9  Configuration"
+
+REUSE_ENV=false
+if [[ -f "$ENV_FILE" && "$RECONFIGURE" == false ]]; then
+    REUSE_ENV=true
+    log "found an existing deploy/.env - reusing it (pass --reconfigure to start over)"
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+fi
+
+if [[ "$REUSE_ENV" == false ]]; then
+    INSTANCE_NAME="$(sanitize "${ARG_INSTANCE_NAME:-$(ask 'Instance display name (shown to federated peers)' 'Venta')}")"
+
+    INSTANCE_DOMAIN="$(sanitize "${ARG_DOMAIN:-$(ask 'Public hostname for the API (blank for a LAN-only install)' '')}")"
+
+    if [[ -n "$ARG_TLS_MODE" ]]; then
+        TLS_MODE="$ARG_TLS_MODE"
+    elif [[ -z "$INSTANCE_DOMAIN" ]]; then
+        TLS_MODE="local"
+    elif [[ "$NON_INTERACTIVE" == true ]]; then
+        TLS_MODE="letsencrypt"
+    else
+        printf "\n  How should TLS be handled?\n"
+        printf "    1) Bundled Caddy with automatic Let's Encrypt certificates (recommended)\n"
+        printf "    2) I already run my own reverse proxy in front of this host\n"
+        printf "    3) No TLS - plain HTTP on the LAN (development only)\n"
+        case "$(ask 'Selection' '1')" in
+            2) TLS_MODE="external-proxy" ;;
+            3) TLS_MODE="local" ;;
+            *) TLS_MODE="letsencrypt" ;;
+        esac
+    fi
+
+    case "$TLS_MODE" in
+        letsencrypt|external-proxy)
+            [[ -n "$INSTANCE_DOMAIN" ]] || die "--domain is required for TLS mode '$TLS_MODE'"
+            STORAGE_DOMAIN="$(sanitize "${ARG_STORAGE_DOMAIN:-$(ask 'Public hostname for attachments/avatars' "storage.$INSTANCE_DOMAIN")}")"
+            INSTANCE_URL="https://$INSTANCE_DOMAIN"
+            STORAGE_PUBLIC_URL="https://$STORAGE_DOMAIN"
+            ;;
+        local)
+            LAN_IP="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')"
+            LAN_IP="${LAN_IP:-127.0.0.1}"
+            # Not localhost: every service resolves INSTANCE_URL from *inside* its own
+            # container to fetch Identity's OpenID metadata, and "localhost" there is the
+            # container itself.
+            INSTANCE_DOMAIN="$(sanitize "$(ask 'Address other machines reach this host on' "$LAN_IP")")"
+            STORAGE_DOMAIN="$INSTANCE_DOMAIN"
+            INSTANCE_URL="http://$INSTANCE_DOMAIN:8080"
+            STORAGE_PUBLIC_URL="http://$INSTANCE_DOMAIN:9000"
+            ;;
+        *) die "unknown TLS mode '$TLS_MODE'" ;;
+    esac
+
+    ACME_EMAIL=""
+    if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+        ACME_EMAIL="$(sanitize "${ARG_ACME_EMAIL:-$(ask "Contact e-mail for Let's Encrypt" "admin@$INSTANCE_DOMAIN")}")"
+    fi
+
+    # --- Database ---
+    USE_EXTERNAL_DB="${ARG_EXTERNAL_DB:-$(ask_yes_no 'Use an existing external PostgreSQL server?' 'n')}"
+    if [[ "$USE_EXTERNAL_DB" == "yes" ]]; then
+        DATABASE_HOSTNAME="$(sanitize "${ARG_DB_HOST:-$(ask 'PostgreSQL host' '')}")"
+        DATABASE_PORT="$(sanitize "${ARG_DB_PORT:-$(ask 'PostgreSQL port' '5432')}")"
+        DATABASE_USERNAME="$(sanitize "${ARG_DB_USER:-$(ask 'PostgreSQL user (must be allowed to CREATE DATABASE)' 'postgres')}")"
+        DATABASE_PASSWORD="$(sanitize "${ARG_DB_PASSWORD:-$(ask_secret 'PostgreSQL password')}")"
+        [[ -n "$DATABASE_HOSTNAME" ]] || die "--db-host is required with --external-postgres"
+    else
+        DATABASE_HOSTNAME="postgres"
+        DATABASE_PORT="5432"
+        DATABASE_USERNAME="postgres"
+        DATABASE_PASSWORD="$(rand_hex 24)"
+    fi
+
+    # --- Message store ---
+    USE_SCYLLA="${ARG_SCYLLA:-$(ask_yes_no 'Enable the ScyllaDB message store? (needs ~4 GB RAM; Postgres is used otherwise)' 'y')}"
+
+    # --- Object storage ---
+    USE_EXTERNAL_STORAGE="${ARG_EXTERNAL_STORAGE:-$(ask_yes_no 'Use external S3-compatible storage instead of the bundled MinIO?' 'n')}"
+    if [[ "$USE_EXTERNAL_STORAGE" == "yes" ]]; then
+        BUCKET_NAME="$(sanitize "$(ask 'Bucket name' 'echo-chat')")"
+        ACCESS_KEY_ID="$(sanitize "$(ask 'S3 access key id' '')")"
+        SECRET_ACCESS_KEY="$(sanitize "$(ask_secret 'S3 secret access key')")"
+        STORAGE_SERVICE_URL="$(sanitize "$(ask 'S3 endpoint URL' 'https://storage.googleapis.com')")"
+        STORAGE_PUBLIC_URL="$(sanitize "$(ask 'Public base URL objects are served from' "$STORAGE_SERVICE_URL")")"
+        STORAGE_USE_SERVICE_URL="true"
+        STORAGE_REGION="$(sanitize "$(ask 'Region' 'us-east-1')")"
+    else
+        BUCKET_NAME="echo-chat"
+        ACCESS_KEY_ID="venta_$(openssl rand -hex 6)"
+        SECRET_ACCESS_KEY="$(rand_hex 24)"
+        STORAGE_SERVICE_URL="http://minio:9000"
+        STORAGE_USE_SERVICE_URL="true"
+        STORAGE_REGION="us-east-1"
+    fi
+
+    # --- Optional modules ---
+    ENABLE_ISLE="${ARG_ISLE:-$(ask_yes_no 'Enable the Isle game-server integration service?' 'n')}"
+    ISLE_IP_ADDRESS="10.0.0.0"; ISLE_BRIDGE_PORT="8080"; ISLE_RCON_PORT="8888"; ISLE_RCON_PASSWORD=""
+    if [[ "$ENABLE_ISLE" == "yes" ]]; then
+        ISLE_IP_ADDRESS="$(sanitize "$(ask 'Isle dedicated-server address' '10.0.0.0')")"
+        ISLE_BRIDGE_PORT="$(sanitize "$(ask 'IsleBridge plugin HTTP port' '8080')")"
+        ISLE_RCON_PORT="$(sanitize "$(ask 'Isle RCON port' '8888')")"
+        ISLE_RCON_PASSWORD="$(sanitize "$(ask_secret 'Isle RCON password')")"
+    fi
+
+    # --- Secrets ---
+    REDIS_PASSWORD="$(rand_hex 24)"
+    RABBITMQ_USERNAME="venta"
+    RABBITMQ_PASSWORD="$(rand_hex 24)"
+    SCYLLA_PASSWORD="$(rand_hex 20)"
+    IDENTITY_KEY_PASSWORD="$(rand_hex 32)"
+
+    IMAGE_SOURCE="${ARG_IMAGE_SOURCE:-registry}"
+    IMAGE_PREFIX="$ARG_IMAGE_PREFIX"
+    IMAGE_TAG="$ARG_IMAGE_TAG"
+
+    AUTH_REQUIRE_USER_EMAIL_VERIFICATION="false"
+    MICROSOFT_GRAPH_CLIENT_ID=""; MICROSOFT_GRAPH_CLIENT_SECRET=""
+    CLOUDFLARE_APP_ID="mock_app_id"; CLOUDFLARE_API_TOKEN="mock_tocken"
+    DISCORD_IMPORT_BOT_TOKEN=""; DISCORD_IMPORT_CLIENT_ID=""
+    STEAM_WEB_API_KEY=""
+    SENTRY_URL=""; PERSONAL_ACCESS_TOKEN=""
+    FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64=""; GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64=""
+    APNS_BUNDLE_ID="gg.venta.mobile"; APNS_KEY_ID=""; APNS_TEAM_ID=""; APNS_AUTH_KEY_BASE_64=""; APNS_USE_SANDBOX="true"
+else
+    IMAGE_SOURCE="${ARG_IMAGE_SOURCE:-${IMAGE_SOURCE:-registry}}"
+    if [[ "$ARG_IMAGE_TAG" != "latest" ]]; then IMAGE_TAG="$ARG_IMAGE_TAG"; fi
+    IMAGE_TAG="${IMAGE_TAG:-latest}"
+    IMAGE_PREFIX="${IMAGE_PREFIX:-$ARG_IMAGE_PREFIX}"
+fi
+
+# A .env written by an older installer (or hand-edited) will not define everything the
+# steps below read, and `set -u` would abort on the first one. Fill the gaps rather than
+# forcing a full --reconfigure.
+: "${INSTANCE_NAME:=Venta}"
+: "${INSTANCE_DOMAIN:=}"
+: "${TLS_MODE:=local}"
+: "${ACME_EMAIL:=}"
+: "${STORAGE_DOMAIN:=$INSTANCE_DOMAIN}"
+: "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
+: "${USE_EXTERNAL_DB:=no}"
+: "${DATABASE_HOSTNAME:=postgres}"
+: "${DATABASE_PORT:=5432}"
+: "${DATABASE_USERNAME:=postgres}"
+: "${DATABASE_PASSWORD:=$(rand_hex 24)}"
+: "${USE_SCYLLA:=no}"
+: "${SCYLLA_PASSWORD:=$(rand_hex 20)}"
+: "${USE_EXTERNAL_STORAGE:=no}"
+: "${BUCKET_NAME:=echo-chat}"
+: "${ACCESS_KEY_ID:=venta_$(openssl rand -hex 6)}"
+: "${SECRET_ACCESS_KEY:=$(rand_hex 24)}"
+: "${STORAGE_PUBLIC_URL:=$INSTANCE_URL}"
+: "${STORAGE_SERVICE_URL:=http://minio:9000}"
+: "${STORAGE_USE_SERVICE_URL:=true}"
+: "${STORAGE_REGION:=us-east-1}"
+: "${REDIS_PASSWORD:=$(rand_hex 24)}"
+: "${RABBITMQ_USERNAME:=venta}"
+: "${RABBITMQ_PASSWORD:=$(rand_hex 24)}"
+: "${IDENTITY_KEY_PASSWORD:=$(rand_hex 32)}"
+: "${AUTH_REQUIRE_USER_EMAIL_VERIFICATION:=false}"
+: "${ENABLE_ISLE:=no}"
+
+# =====================================================================================
+# 3. Cryptographic material
+# =====================================================================================
+step "3/9  Keys and certificates"
+
+mkdir -p "$GENERATED_DIR"
+chmod 700 "$GENERATED_DIR"
+
+# --- Ed25519 federation keypair ------------------------------------------------------
+# Federation.Application signs and verifies with NSec, importing both halves as
+# KeyBlobFormat.Pkix*Text - i.e. PEM text, base64-encoded once more for transport in the
+# environment. Random bytes (what the previous installer produced) are rejected outright
+# by Key.Import, so every outbound event would throw on signing.
+if [[ -z "${FEDERATION_PRIVATE_KEY_BASE_64:-}" || -z "${FEDERATION_PUBLIC_KEY_BASE_64:-}" ]]; then
+    fed_priv="$GENERATED_DIR/federation-ed25519.key.pem"
+    fed_pub="$GENERATED_DIR/federation-ed25519.pub.pem"
+    openssl genpkey -algorithm ed25519 -out "$fed_priv" 2>/dev/null \
+        || die "this OpenSSL build cannot generate Ed25519 keys (needs OpenSSL 1.1.1+)"
+    openssl pkey -in "$fed_priv" -pubout -out "$fed_pub"
+    chmod 600 "$fed_priv"
+    FEDERATION_PRIVATE_KEY_BASE_64="$(b64_file "$fed_priv")"
+    FEDERATION_PUBLIC_KEY_BASE_64="$(b64_file "$fed_pub")"
+    ok "generated a new Ed25519 federation identity"
+else
+    ok "kept the existing federation keypair (peers stay valid)"
+fi
+
+# --- Identity token-signing certificate ----------------------------------------------
+# In Production, Identity.Application loads a PKCS#12 bundle from IDENTITY_SIGNING_CERT
+# for OpenIddict signing + encryption. Without one it falls back to OpenIddict's
+# development certificate, which is regenerated on every container start - so every
+# access token issued before a restart stops validating.
+if [[ -z "${IDENTITY_SIGNING_CERT:-}" ]]; then
+    cert_dir="$GENERATED_DIR/identity"
+    mkdir -p "$cert_dir"; chmod 700 "$cert_dir"
+    openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+        -keyout "$cert_dir/identity.key.pem" -out "$cert_dir/identity.crt.pem" \
+        -subj "/CN=${INSTANCE_DOMAIN:-venta} Identity Signing" >/dev/null 2>&1
+    openssl pkcs12 -export \
+        -inkey "$cert_dir/identity.key.pem" -in "$cert_dir/identity.crt.pem" \
+        -out "$cert_dir/identity.p12" -passout "pass:$IDENTITY_KEY_PASSWORD" >/dev/null 2>&1
+    chmod 600 "$cert_dir"/*
+    IDENTITY_SIGNING_CERT="$(b64_file "$cert_dir/identity.p12")"
+    ok "generated a persistent OpenIddict signing certificate (10 year validity)"
+else
+    ok "kept the existing Identity signing certificate"
+fi
+
+# =====================================================================================
+# 4. Derived settings
+# =====================================================================================
+step "4/9  Deployment layout"
+
+PROFILES=()
+if [[ "$USE_EXTERNAL_DB"      != "yes" ]]; then PROFILES+=("pg-local");      fi
+if [[ "$USE_EXTERNAL_STORAGE" != "yes" ]]; then PROFILES+=("storage-local"); fi
+if [[ "$USE_SCYLLA"           == "yes" ]]; then PROFILES+=("scylla");        fi
+if [[ "$ENABLE_ISLE"          == "yes" ]]; then PROFILES+=("isle");          fi
+if [[ "$TLS_MODE"     == "letsencrypt" ]]; then PROFILES+=("caddy");         fi
+COMPOSE_PROFILES="$(IFS=,; printf '%s' "${PROFILES[*]:-}")"
+
+USE_SCYLLA_DB="false"
+if [[ "$USE_SCYLLA" == "yes" ]]; then USE_SCYLLA_DB="true"; fi
+
+# Port publishing and in-network name resolution differ per TLS mode:
+#   letsencrypt    only Caddy is public; it also carries a network alias for the public
+#                  hostname so containers resolve INSTANCE_URL without NAT hairpinning
+#   external-proxy the gateway/MinIO listen on loopback for the host's own proxy, and the
+#                  public hostname is pointed back at the docker host
+#   local          the gateway and MinIO are published on the LAN directly
+case "$TLS_MODE" in
+    letsencrypt)
+        GATEWAY_BIND="127.0.0.1:8080"; MINIO_BIND="127.0.0.1:9000"
+        HAIRPIN_HOST_ENTRY="venta-hairpin.invalid:127.0.0.1"
+        ;;
+    external-proxy)
+        GATEWAY_BIND="127.0.0.1:8080"; MINIO_BIND="127.0.0.1:9000"
+        HAIRPIN_HOST_ENTRY="${INSTANCE_DOMAIN}:host-gateway"
+        ;;
+    local)
+        GATEWAY_BIND="0.0.0.0:8080"; MINIO_BIND="0.0.0.0:9000"
+        HAIRPIN_HOST_ENTRY="venta-hairpin.invalid:127.0.0.1"
+        ;;
+esac
+
+# =====================================================================================
+# 5. Write deploy/.env
+# =====================================================================================
+step "5/9  Writing deploy/.env"
+
+umask 077
+cat > "$ENV_FILE" <<ENV
+# =====================================================================================
+#  Venta stack configuration - generated by deploy/install.sh on $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+#  Contains secrets. Keep mode 0600, keep out of version control.
+#  Re-run the installer after editing, or apply with: ventactl up
+# =====================================================================================
+
+COMPOSE_PROJECT_NAME=$PROJECT_NAME
+COMPOSE_PROFILES="$COMPOSE_PROFILES"
+
+# ── Identity of this instance ────────────────────────────────────────────────────────
+INSTANCE_NAME="$INSTANCE_NAME"
+INSTANCE_DOMAIN="$INSTANCE_DOMAIN"
+INSTANCE_URL="$INSTANCE_URL"
+INSTANCE_VERSION="1.0.0"
+TLS_MODE="$TLS_MODE"
+ACME_EMAIL="${ACME_EMAIL:-}"
+STORAGE_DOMAIN="${STORAGE_DOMAIN:-}"
+ASPNETCORE_ENVIRONMENT="Production"
+
+# ── Images ───────────────────────────────────────────────────────────────────────────
+IMAGE_SOURCE="$IMAGE_SOURCE"
+IMAGE_PREFIX="$IMAGE_PREFIX"
+IMAGE_TAG="$IMAGE_TAG"
+
+# ── Networking ───────────────────────────────────────────────────────────────────────
+HTTP_BIND="0.0.0.0:80"
+HTTPS_BIND="0.0.0.0:443"
+GATEWAY_BIND="$GATEWAY_BIND"
+MINIO_BIND="$MINIO_BIND"
+MINIO_CONSOLE_BIND="127.0.0.1:9001"
+RABBITMQ_MGMT_BIND="127.0.0.1:15672"
+HAIRPIN_HOST_ENTRY="$HAIRPIN_HOST_ENTRY"
+
+# ── PostgreSQL ───────────────────────────────────────────────────────────────────────
+USE_EXTERNAL_DB="$USE_EXTERNAL_DB"
+DATABASE_HOSTNAME="$DATABASE_HOSTNAME"
+DATABASE_PORT="$DATABASE_PORT"
+DATABASE_USERNAME="$DATABASE_USERNAME"
+DATABASE_PASSWORD="$DATABASE_PASSWORD"
+
+# ── Redis ────────────────────────────────────────────────────────────────────────────
+REDIS_HOST="redis"
+REDIS_PORT="6379"
+REDIS_USERNAME=""
+REDIS_PASSWORD="$REDIS_PASSWORD"
+
+# ── RabbitMQ ─────────────────────────────────────────────────────────────────────────
+RABBITMQ_HOST="rabbitmq"
+RABBITMQ_PORT="5672"
+RABBITMQ_USERNAME="$RABBITMQ_USERNAME"
+RABBITMQ_PASSWORD="$RABBITMQ_PASSWORD"
+
+# ── ScyllaDB (message store) ─────────────────────────────────────────────────────────
+USE_SCYLLA="$USE_SCYLLA"
+USE_SCYLLA_DB="$USE_SCYLLA_DB"
+SCYLLA_HOST="scylladb"
+SCYLLA_PORT="9042"
+SCYLLA_USERNAME="cassandra"
+SCYLLA_PASSWORD="$SCYLLA_PASSWORD"
+SCYLLA_SMP="1"
+
+# ── Object storage ───────────────────────────────────────────────────────────────────
+USE_EXTERNAL_STORAGE="$USE_EXTERNAL_STORAGE"
+BUCKET_NAME="$BUCKET_NAME"
+ACCESS_KEY_ID="$ACCESS_KEY_ID"
+SECRET_ACCESS_KEY="$SECRET_ACCESS_KEY"
+STORAGE_PUBLIC_URL="$STORAGE_PUBLIC_URL"
+STORAGE_SERVICE_URL="$STORAGE_SERVICE_URL"
+STORAGE_USE_SERVICE_URL="$STORAGE_USE_SERVICE_URL"
+STORAGE_REGION="$STORAGE_REGION"
+
+# ── Auth ─────────────────────────────────────────────────────────────────────────────
+AUTH_REQUIRE_USER_EMAIL_VERIFICATION="$AUTH_REQUIRE_USER_EMAIL_VERIFICATION"
+IS_USER_HASH_GENERATION_ENABLED="true"
+IDENTITY_KEY_PASSWORD="$IDENTITY_KEY_PASSWORD"
+IDENTITY_SIGNING_CERT="$IDENTITY_SIGNING_CERT"
+ACCOUNT_DELETION_GRACE_PERIOD_SECONDS="2592000"
+ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS="300"
+
+# ── Federation (Ed25519, PEM text, base64-encoded) ───────────────────────────────────
+FEDERATION_PRIVATE_KEY_BASE_64="$FEDERATION_PRIVATE_KEY_BASE_64"
+FEDERATION_PUBLIC_KEY_BASE_64="$FEDERATION_PUBLIC_KEY_BASE_64"
+
+# ── Transactional e-mail (Microsoft Graph) ───────────────────────────────────────────
+# Set both, then flip AUTH_REQUIRE_USER_EMAIL_VERIFICATION to "true" to require
+# verified addresses at sign-up.
+MICROSOFT_GRAPH_CLIENT_ID="${MICROSOFT_GRAPH_CLIENT_ID:-}"
+MICROSOFT_GRAPH_CLIENT_SECRET="${MICROSOFT_GRAPH_CLIENT_SECRET:-}"
+
+# ── Voice / video (Cloudflare Calls SFU) ─────────────────────────────────────────────
+CLOUDFLARE_APP_ID="${CLOUDFLARE_APP_ID:-mock_app_id}"
+CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-mock_tocken}"
+
+# ── Push notifications ───────────────────────────────────────────────────────────────
+FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64="${FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64="${GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+APNS_BUNDLE_ID="${APNS_BUNDLE_ID:-gg.venta.mobile}"
+APNS_KEY_ID="${APNS_KEY_ID:-}"
+APNS_TEAM_ID="${APNS_TEAM_ID:-}"
+APNS_AUTH_KEY_BASE_64="${APNS_AUTH_KEY_BASE_64:-}"
+APNS_USE_SANDBOX="${APNS_USE_SANDBOX:-true}"
+
+# ── Steam login ──────────────────────────────────────────────────────────────────────
+STEAM_PUBLIC_BASE_URL="$INSTANCE_URL"
+STEAM_PUBLIC_CALLBACK_PATH="/api/v1/identity/authentication/steam/callback"
+STEAM_CLIENT_RETURN_URL="venta://steam-auth"
+STEAM_WEB_API_KEY="${STEAM_WEB_API_KEY:-}"
+
+# ── Discord import ───────────────────────────────────────────────────────────────────
+DISCORD_IMPORT_BOT_TOKEN="${DISCORD_IMPORT_BOT_TOKEN:-}"
+DISCORD_IMPORT_CLIENT_ID="${DISCORD_IMPORT_CLIENT_ID:-}"
+DISCORD_IMPORT_PUBLIC_BASE_URL="$INSTANCE_URL"
+DISCORD_IMPORT_PUBLIC_CALLBACK_PATH="/api/v1/imports/discord/callback"
+DISCORD_IMPORT_CLIENT_RETURN_URL="venta://discord-import"
+
+# ── The Isle integration ─────────────────────────────────────────────────────────────
+ENABLE_ISLE="$ENABLE_ISLE"
+ISLE_IP_ADDRESS="${ISLE_IP_ADDRESS:-10.0.0.0}"
+ISLE_BRIDGE_PORT="${ISLE_BRIDGE_PORT:-8080}"
+ISLE_RCON_PORT="${ISLE_RCON_PORT:-8888}"
+ISLE_RCON_PASSWORD="${ISLE_RCON_PASSWORD:-}"
+
+# ── Misc ─────────────────────────────────────────────────────────────────────────────
+SENTRY_URL="${SENTRY_URL:-}"
+PERSONAL_ACCESS_TOKEN="${PERSONAL_ACCESS_TOKEN:-}"
+ENV
+chmod 600 "$ENV_FILE"
+umask 022
+ok "wrote $ENV_FILE"
+
+# =====================================================================================
+# 6. Reverse proxy configuration
+# =====================================================================================
+step "6/9  Reverse proxy"
+
+if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+    cat > "$GENERATED_DIR/Caddyfile" <<CADDY
+# Generated by deploy/install.sh - edited copies are overwritten on re-run.
+{
+	email $ACME_EMAIL
+}
+
+$INSTANCE_DOMAIN {
+	encode zstd gzip
+
+	request_body {
+		max_size 100MB
+	}
+
+	# WebSockets (the /api/v1/ws/hub SignalR hub and the Discord-compatible bot gateway
+	# at /api/discord/v10/gateway) are upgraded transparently by reverse_proxy.
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		flush_interval -1
+	}
+}
+
+$STORAGE_DOMAIN {
+	encode zstd gzip
+
+	request_body {
+		max_size 500MB
+	}
+
+	# Attachment URLs are path-style: {STORAGE_PUBLIC_URL}/{bucket}/{key}
+	reverse_proxy minio:9000
+}
+CADDY
+    ok "wrote $GENERATED_DIR/Caddyfile (Let's Encrypt, HTTP-01 on :80)"
+
+    for port in 80 443; do
+        if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+            ufw allow "$port"/tcp >/dev/null 2>&1 || true
+        elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+            firewall-cmd --permanent --add-port="$port"/tcp >/dev/null 2>&1 || true
+        fi
+    done
+    command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --reload >/dev/null 2>&1 || true
+else
+    mkdir -p "$GENERATED_DIR"
+    : > "$GENERATED_DIR/Caddyfile"
+    if [[ "$TLS_MODE" == "external-proxy" ]]; then
+        cat <<PROXY
+
+  Point your own reverse proxy at this host:
+
+    ${BOLD}https://$INSTANCE_DOMAIN${NC}   ->  http://127.0.0.1:8080     (must forward WebSocket upgrades)
+    ${BOLD}https://${STORAGE_DOMAIN}${NC}  ->  http://127.0.0.1:9000
+
+  Forward the usual X-Forwarded-For / -Proto / -Host headers, and allow request bodies
+  of at least 100 MB (500 MB on the storage host).
+PROXY
+    else
+        warn "no TLS: federation with other instances requires a public HTTPS endpoint"
+    fi
+fi
+
+# =====================================================================================
+# 7. ventactl + systemd
+# =====================================================================================
+step "7/9  Lifecycle management"
+
+cat > "$VENTACTL_PATH" <<CTL
+#!/usr/bin/env bash
+# Venta stack control wrapper - generated by deploy/install.sh
+set -euo pipefail
+DEPLOY_DIR="$SCRIPT_DIR"
+PROJECT="$PROJECT_NAME"
+
+# COMPOSE_PROFILES decides which optional services exist at all, so it has to be in the
+# environment for every single command - not just the ones that read other settings.
+set -a
+. "\$DEPLOY_DIR/.env"
+set +a
+
+dc() {
+    docker compose -p "\$PROJECT" \\
+        --project-directory "\$DEPLOY_DIR" \\
+        -f "\$DEPLOY_DIR/compose.yaml" \\
+        --env-file "\$DEPLOY_DIR/.env" "\$@"
+}
+
+case "\${1:-help}" in
+    up|start)   dc up -d --remove-orphans ;;
+    stop)       dc stop ;;
+    down)       dc down ;;
+    restart)    shift; dc restart "\$@" ;;
+    ps|status)  dc ps ;;
+    logs)       shift; dc logs -f --tail=200 "\$@" ;;
+    config)     dc config ;;
+    update)
+        if [ "\${IMAGE_SOURCE:-registry}" = "build" ]; then
+            (cd "\$DEPLOY_DIR/.." && git pull --ff-only) || true
+            dc build --pull
+        else
+            dc pull
+        fi
+        dc up -d --remove-orphans
+        ;;
+    backup)
+        out="\${2:-/var/backups/venta}"
+        mkdir -p "\$out"
+        stamp="\$(date -u +%Y%m%dT%H%M%SZ)"
+        cp "\$DEPLOY_DIR/.env" "\$out/env-\$stamp.bak"
+        chmod 600 "\$out/env-\$stamp.bak"
+        if [ "\${USE_EXTERNAL_DB:-no}" = "yes" ]; then
+            echo "external database: dump it with your own pg_dumpall against \$DATABASE_HOSTNAME"
+        else
+            dc exec -T postgres pg_dumpall -U "\$DATABASE_USERNAME" > "\$out/postgres-\$stamp.sql"
+        fi
+        echo "backup written to \$out"
+        ;;
+    federation-doc)
+        curl -fsS "\$INSTANCE_URL/.well-known/federation" && echo
+        ;;
+    *)
+        cat <<'USAGE'
+ventactl <command>
+
+  up | start        start the stack (also run at boot by venta-stack.service)
+  stop              stop containers, keep them defined
+  down              stop and remove containers (volumes are kept)
+  restart [svc]     restart everything or one service
+  ps | status       container status
+  logs [svc]        follow logs
+  update            pull/build the current images and restart
+  backup [dir]      dump .env and the built-in PostgreSQL
+  federation-doc    print this instance's public federation document
+  config            render the fully-resolved compose configuration
+USAGE
+        ;;
+esac
+CTL
+chmod 755 "$VENTACTL_PATH"
+ok "installed $VENTACTL_PATH"
+
+if command -v systemctl >/dev/null 2>&1; then
+    cat > "$SYSTEMD_UNIT" <<UNIT
+[Unit]
+Description=Venta / Echo self-hosted stack
+Documentation=file://$SCRIPT_DIR/README.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$VENTACTL_PATH up
+ExecStop=$VENTACTL_PATH stop
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    # Never fatal: a container build host or a systemd-less init still gets a working
+    # stack, since the containers' own restart policy brings them back with the daemon.
+    if systemctl daemon-reload 2>/dev/null && systemctl enable venta-stack.service >/dev/null 2>&1; then
+        ok "enabled venta-stack.service (starts the stack on boot)"
+    else
+        warn "could not enable venta-stack.service - start the stack with 'ventactl up'"
+    fi
+else
+    warn "systemd not found - the containers' restart policy still brings them back with the Docker daemon"
+fi
+
+# =====================================================================================
+# 8. Images and boot
+# =====================================================================================
+step "8/9  Images"
+
+export COMPOSE_PROFILES
+
+if [[ "$IMAGE_SOURCE" == "build" ]]; then
+    if [[ ! -s "$REPO_ROOT/Messaging.Application/Credentials/sixlabors.lic" ]]; then
+        warn "Messaging.Application/Credentials/sixlabors.lic is missing - a source build of the"
+        warn "Messaging service needs a SixLabors ImageSharp license file there."
+    fi
+    log "building images from source (this takes a while)"
+    compose_cmd build --pull
+else
+    log "pulling images from $IMAGE_PREFIX (tag: $IMAGE_TAG)"
+    if ! compose_cmd pull; then
+        warn "pull failed (private or unpublished registry?) - falling back to a source build"
+        IMAGE_SOURCE="build"
+        sed -i 's|^IMAGE_SOURCE=.*|IMAGE_SOURCE="build"|' "$ENV_FILE"
+        compose_cmd build --pull
+    fi
+fi
+ok "images ready"
+
+step "9/9  Boot"
+
+if [[ "$NO_START" == true ]]; then
+    warn "--no-start given; run 'ventactl up' when you are ready"
+    exit 0
+fi
+
+log "starting the stack"
+compose_cmd up -d --remove-orphans
+
+# Waiting on the gateway is enough of a smoke test: it only reports healthy once its own
+# Wolverine host, database and Redis connection are up, and it actively health-checks
+# every downstream service through YARP.
+log "waiting for the gateway to report healthy (up to 5 minutes)"
+deadline=$(( $(date +%s) + 300 ))
+gateway_ok=false
+while [[ $(date +%s) -lt $deadline ]]; do
+    state="$(docker inspect -f '{{.State.Health.Status}}' "$(compose_cmd ps -q echo)" 2>/dev/null || echo starting)"
+    if [[ "$state" == "healthy" ]]; then gateway_ok=true; break; fi
+    sleep 5
+done
+
+if [[ "$gateway_ok" == true ]]; then
+    ok "gateway healthy"
+else
+    warn "the gateway did not report healthy in time - check: ventactl logs echo"
+fi
+
+# =====================================================================================
+# Summary
+# =====================================================================================
+probe() {
+    local url="$1" label="$2"
+    if curl -fsS --max-time 15 -o /dev/null "$url" 2>/dev/null; then
+        printf "  ${GREEN}✓${NC} %-34s %s\n" "$label" "$url"
+    else
+        printf "  ${YELLOW}·${NC} %-34s %s ${DIM}(not answering yet)${NC}\n" "$label" "$url"
+    fi
+}
+
+printf "\n${BOLD}Installation summary${NC}\n"
+printf "  instance          %s\n" "$INSTANCE_NAME"
+printf "  public URL        %s\n" "$INSTANCE_URL"
+printf "  attachments       %s\n" "$STORAGE_PUBLIC_URL"
+printf "  TLS               %s\n" "$TLS_MODE"
+printf "  images            %s (%s:%s)\n" "$IMAGE_SOURCE" "$IMAGE_PREFIX" "$IMAGE_TAG"
+printf "  profiles          %s\n" "${COMPOSE_PROFILES:-<none>}"
+printf "  configuration     %s\n" "$ENV_FILE"
+
+printf "\n${BOLD}Endpoint checks${NC}\n"
+probe "$INSTANCE_URL/health"                          "gateway health"
+probe "$INSTANCE_URL/.well-known/openid-configuration" "OpenID discovery"
+probe "$INSTANCE_URL/.well-known/federation"           "federation document"
+
+cat <<NEXT
+
+${BOLD}Federating with another instance${NC}
+  Your public key and capabilities are published at
+      $INSTANCE_URL/.well-known/federation
+  Start a handshake with a peer (admin token required):
+      curl -X POST $INSTANCE_URL/api/v1/admin/federation/initiate \\
+           -H "Authorization: Bearer <admin-token>" \\
+           -H 'Content-Type: application/json' \\
+           -d '{"host":"https://peer.example.com"}'
+  Then approve inbound requests:
+      curl $INSTANCE_URL/api/v1/admin/federation/instances -H "Authorization: Bearer <admin-token>"
+      curl -X POST $INSTANCE_URL/api/v1/admin/federation/<id>/approve -H "Authorization: Bearer <admin-token>"
+
+${BOLD}Day to day${NC}
+  ventactl status | logs [service] | restart [service] | update | backup
+
+NEXT
+
+if [[ "$TLS_MODE" == "letsencrypt" ]]; then
+    printf "${DIM}Certificates are issued and renewed by Caddy; make sure %s and %s\nresolve to this host's public IP and that ports 80/443 are reachable.${NC}\n\n" \
+        "$INSTANCE_DOMAIN" "$STORAGE_DOMAIN"
+fi
+
+ok "done"

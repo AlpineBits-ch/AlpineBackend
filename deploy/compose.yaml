@@ -1,0 +1,537 @@
+# =====================================================================================
+# Venta / Echo self-hosted stack - production compose file.
+#
+# Generated-config contract: every value below comes from deploy/.env, which is written
+# by deploy/install.sh (Linux) or deploy/Install-VentaStack.ps1 (Windows). Do not edit
+# secrets here - edit .env and re-run `ventactl up`.
+#
+# Always invoke through the wrapper so the project name / env file / project directory
+# are consistent:
+#
+#   docker compose -p venta --project-directory <deploy> -f <deploy>/compose.yaml \
+#                  --env-file <deploy>/.env <command>
+#
+# Profiles
+#   pg-local       built-in PostgreSQL (omit when pointing at an external database)
+#   storage-local  built-in MinIO S3 (omit when pointing at external S3/GCS)
+#   scylla         ScyllaDB message store (Messaging falls back to Postgres without it)
+#   caddy          bundled TLS-terminating reverse proxy
+#   isle           The Isle game-server integration service
+# =====================================================================================
+
+name: venta
+
+# ── Shared application environment ───────────────────────────────────────────────────
+# Mirrors AppEnvironment/Env.cs one-for-one. Anything a service reads at runtime is
+# either here or in that service's own `environment:` block below.
+x-app-env: &app-env
+  # --- Postgres (per-service database, DATABASE_NAME is set per service) -------------
+  DATABASE_HOSTNAME: "${DATABASE_HOSTNAME}"
+  DATABASE_PORT: "${DATABASE_PORT}"
+  DATABASE_USERNAME: "${DATABASE_USERNAME}"
+  DATABASE_PASSWORD: "${DATABASE_PASSWORD}"
+
+  # --- Redis (distributed cache, SignalR backplane, DataProtection ring) -------------
+  REDIS_HOST: "${REDIS_HOST}"
+  REDIS_PORT: "${REDIS_PORT}"
+  REDIS_USERNAME: "${REDIS_USERNAME:-}"
+  REDIS_PASSWORD: "${REDIS_PASSWORD}"
+
+  # --- RabbitMQ (Wolverine transport - every service must share one broker) ---------
+  RABBITMQ_HOST: "${RABBITMQ_HOST}"
+  RABBITMQ_PORT: "${RABBITMQ_PORT}"
+  RABBITMQ_USERNAME: "${RABBITMQ_USERNAME}"
+  RABBITMQ_PASSWORD: "${RABBITMQ_PASSWORD}"
+
+  # --- Host / identity ---------------------------------------------------------------
+  # INSTANCE_URL is load-bearing in three separate ways:
+  #   1. OpenIddict issuer minted into every access token (Identity)
+  #   2. JwtBearer Authority every other service uses to fetch
+  #      {INSTANCE_URL}/.well-known/openid-configuration + /.well-known/jwks
+  #   3. the federation `host` field remote instances sign against and call back into
+  # It must therefore be the *public* URL and be resolvable from inside the containers -
+  # see the caddy service's network alias / HAIRPIN_HOST_ENTRY below.
+  INSTANCE_URL: "${INSTANCE_URL}"
+  INSTANCE_NAME: "${INSTANCE_NAME}"
+  VERSION: "${INSTANCE_VERSION:-1.0.0}"
+  ASPNETCORE_URLS: http://+:8080
+  ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
+
+  # --- Auth ---------------------------------------------------------------------------
+  AUTH_REQUIRE_USER_EMAIL_VERIFICATION: "${AUTH_REQUIRE_USER_EMAIL_VERIFICATION:-false}"
+  IDENTITY_KEY_PASSWORD: "${IDENTITY_KEY_PASSWORD}"
+  IDENTITY_SIGNING_CERT: "${IDENTITY_SIGNING_CERT:-}"
+  IS_USER_HASH_GENERATION_ENABLED: "${IS_USER_HASH_GENERATION_ENABLED:-true}"
+
+  # --- Federation (Ed25519 keypair, PEM/PKIX text, base64-encoded) --------------------
+  FEDERATION_PRIVATE_KEY_BASE_64: "${FEDERATION_PRIVATE_KEY_BASE_64}"
+  FEDERATION_PUBLIC_KEY_BASE_64: "${FEDERATION_PUBLIC_KEY_BASE_64}"
+
+  # --- Object storage (S3-compatible; PUBLIC_URL is what clients see) -----------------
+  BUCKET_NAME: "${BUCKET_NAME:-echo-chat}"
+  ACCESS_KEY_ID: "${ACCESS_KEY_ID}"
+  SECRET_ACCESS_KEY: "${SECRET_ACCESS_KEY}"
+  PUBLIC_URL: "${STORAGE_PUBLIC_URL}"
+  SERVICE_URL: "${STORAGE_SERVICE_URL:-http://minio:9000}"
+  USE_SERVICE_URL: "${STORAGE_USE_SERVICE_URL:-true}"
+  REGION: "${STORAGE_REGION:-us-east-1}"
+
+  # --- Transactional email (Microsoft Graph; only used when verification is on) -------
+  MICROSOFT_GRAPH_CLIENT_ID: "${MICROSOFT_GRAPH_CLIENT_ID:-}"
+  MICROSOFT_GRAPH_CLIENT_SECRET: "${MICROSOFT_GRAPH_CLIENT_SECRET:-}"
+
+  # --- Optional third-party integrations ----------------------------------------------
+  CLOUDFLARE_APP_ID: "${CLOUDFLARE_APP_ID:-mock_app_id}"
+  CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-mock_tocken}"
+  SENTRY_URL: "${SENTRY_URL:-}"
+  ACCOUNT_DELETION_GRACE_PERIOD_SECONDS: "${ACCOUNT_DELETION_GRACE_PERIOD_SECONDS:-2592000}"
+  ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS: "${ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS:-300}"
+
+# Lets containers resolve INSTANCE_URL's hostname when TLS is terminated by a proxy that
+# is NOT part of this compose project. Defaults to an inert entry so the key is always
+# valid YAML with exactly one element.
+x-hairpin: &hairpin
+  - "${HAIRPIN_HOST_ENTRY:-venta-hairpin.invalid:127.0.0.1}"
+
+# The .NET runtime images ship no curl/wget (removed upstream in .NET 8), so the classic
+# `curl -f .../health` healthcheck can never pass in them. This probe falls back to a raw
+# bash /dev/tcp request when neither tool exists.
+x-probe-mount: &probe-mount
+  - ./healthcheck.sh:/opt/venta/healthcheck.sh:ro
+
+x-app-common: &app-common
+  restart: unless-stopped
+  extra_hosts: *hairpin
+  volumes: *probe-mount
+  depends_on:
+    postgres-init:
+      condition: service_completed_successfully
+    redis:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+
+services:
+
+  # ── Infrastructure ─────────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["pg-local"]
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: "${DATABASE_USERNAME}"
+      POSTGRES_PASSWORD: "${DATABASE_PASSWORD}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Creates the nine per-service databases idempotently, and waits for the server to
+  # accept connections first. Deliberately NOT the postgres image's
+  # /docker-entrypoint-initdb.d hook: that only fires on a first-ever init of an empty
+  # data directory, so it silently skips both external databases and every upgrade that
+  # adds a new service (bots/import/isle were exactly that case).
+  postgres-init:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: "${DATABASE_PASSWORD}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        echo "Waiting for PostgreSQL at ${DATABASE_HOSTNAME}:${DATABASE_PORT} ..."
+        for i in $$(seq 1 120); do
+          if pg_isready -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" -U "${DATABASE_USERNAME}" >/dev/null 2>&1; then
+            break
+          fi
+          sleep 2
+        done
+        pg_isready -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" -U "${DATABASE_USERNAME}"
+        for db in identity_db guild_db messaging_db social_db federation_db bots_db import_db isle_db echo_db; do
+          psql -v ON_ERROR_STOP=1 -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" \
+               -U "${DATABASE_USERNAME}" -d postgres <<SQL
+        SELECT 'CREATE DATABASE $$db' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$$db')\gexec
+        SQL
+        done
+        echo "Databases ready."
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: "${RABBITMQ_USERNAME}"
+      RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD}"
+    ports:
+      # Management UI, bound to loopback by default - never expose this publicly.
+      - "${RABBITMQ_MGMT_BIND:-127.0.0.1:15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  scylladb:
+    image: scylladb/scylla:6.2
+    profiles: ["scylla"]
+    command: >-
+      --authenticator=PasswordAuthenticator
+      --authorizer=CassandraAuthorizer
+      --smp=${SCYLLA_SMP:-1}
+      --overprovisioned=1
+    volumes:
+      - scylla_data:/var/lib/scylla
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep -q '^UN' || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 20
+      start_period: 120s
+    restart: unless-stopped
+
+  # Scylla's PasswordAuthenticator always starts with the built-in cassandra/cassandra
+  # superuser. Handing the app a generated SCYLLA_PASSWORD without ever applying it to the
+  # cluster (as the old compose file did) means Messaging can never authenticate, so roll
+  # the password here. Idempotent: a rerun finds the default login already gone and exits.
+  scylla-init:
+    image: scylladb/scylla:6.2
+    profiles: ["scylla"]
+    depends_on:
+      scylladb:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -u
+        if cqlsh scylladb 9042 -u cassandra -p "${SCYLLA_PASSWORD:-cassandra}" -e "DESCRIBE KEYSPACES" >/dev/null 2>&1; then
+          echo "Scylla credentials already provisioned."
+          exit 0
+        fi
+        for i in $$(seq 1 30); do
+          if cqlsh scylladb 9042 -u cassandra -p cassandra \
+               -e "ALTER ROLE cassandra WITH PASSWORD = '${SCYLLA_PASSWORD:-cassandra}';" >/dev/null 2>&1; then
+            echo "Scylla superuser password rotated."
+            exit 0
+          fi
+          sleep 5
+        done
+        echo "ERROR: could not provision Scylla credentials." >&2
+        exit 1
+    restart: "no"
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["storage-local"]
+    environment:
+      MINIO_ROOT_USER: "${ACCESS_KEY_ID}"
+      MINIO_ROOT_PASSWORD: "${SECRET_ACCESS_KEY}"
+    command: server /data --console-address ":9001"
+    ports:
+      - "${MINIO_BIND:-127.0.0.1:9000}:9000"
+      - "${MINIO_CONSOLE_BIND:-127.0.0.1:9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    profiles: ["storage-local"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set localminio http://minio:9000 "${ACCESS_KEY_ID}" "${SECRET_ACCESS_KEY}"
+        mc mb --ignore-existing "localminio/${BUCKET_NAME:-echo-chat}"
+        mc anonymous set download "localminio/${BUCKET_NAME:-echo-chat}"
+        echo "Bucket ready."
+    restart: "no"
+
+  # ── Application services ───────────────────────────────────────────────────────────
+  # Each one applies its own EF Core migrations at startup (Database.Migrate() in its
+  # *.Infrastructure module), so no separate migration step exists or is needed.
+
+  identity:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/identity-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Identity.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: identity_db
+      STEAM_PUBLIC_BASE_URL: "${STEAM_PUBLIC_BASE_URL:-${INSTANCE_URL}}"
+      STEAM_PUBLIC_CALLBACK_PATH: "${STEAM_PUBLIC_CALLBACK_PATH:-/api/v1/identity/authentication/steam/callback}"
+      STEAM_CLIENT_RETURN_URL: "${STEAM_CLIENT_RETURN_URL:-venta://steam-auth}"
+      STEAM_WEB_API_KEY: "${STEAM_WEB_API_KEY:-}"
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/identity/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  guild:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/guild-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Guild.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: guild_db
+      FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64: "${FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64: "${GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/guild/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  messaging:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/messaging-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Messaging.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: messaging_db
+      # With USE_SCYLLA_DB=false the message store is plain Postgres and the scylla
+      # profile can stay off entirely.
+      USE_SCYLLA_DB: "${USE_SCYLLA_DB:-true}"
+      SCYLLA_HOST: "${SCYLLA_HOST:-scylladb}"
+      SCYLLA_PORT: "${SCYLLA_PORT:-9042}"
+      SCYLLA_USERNAME: "${SCYLLA_USERNAME:-cassandra}"
+      SCYLLA_PASSWORD: "${SCYLLA_PASSWORD:-cassandra}"
+      # Push notifications: FCM for regular pushes, direct APNs for VoIP/CallKit.
+      FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64: "${FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+      GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64: "${GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+      APNS_BUNDLE_ID: "${APNS_BUNDLE_ID:-gg.venta.mobile}"
+      APNS_KEY_ID: "${APNS_KEY_ID:-}"
+      APNS_TEAM_ID: "${APNS_TEAM_ID:-}"
+      APNS_AUTH_KEY_BASE_64: "${APNS_AUTH_KEY_BASE_64:-}"
+      APNS_USE_SANDBOX: "${APNS_USE_SANDBOX:-true}"
+    # Intentionally no depends_on for scylladb: it lives in an optional profile, and a
+    # cross-profile dependency would make every no-Scylla deployment fail to start.
+    # Messaging crash-loops until Scylla answers, which `restart: unless-stopped` covers.
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/messaging/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+
+  social:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/social-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Social.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: social_db
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/social/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  federation:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/federation-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Federation.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: federation_db
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/federation/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  bots:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/bots-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Bots.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: bots_db
+      Services__Identity: http://identity:8080
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/bots/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  import:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/import-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Import.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: import_db
+      # Without a bot token the Discord gateway client no-ops and the service idles.
+      DISCORD_IMPORT_BOT_TOKEN: "${DISCORD_IMPORT_BOT_TOKEN:-}"
+      DISCORD_IMPORT_CLIENT_ID: "${DISCORD_IMPORT_CLIENT_ID:-}"
+      DISCORD_IMPORT_PUBLIC_BASE_URL: "${DISCORD_IMPORT_PUBLIC_BASE_URL:-${INSTANCE_URL}}"
+      DISCORD_IMPORT_PUBLIC_CALLBACK_PATH: "${DISCORD_IMPORT_PUBLIC_CALLBACK_PATH:-/api/v1/imports/discord/callback}"
+      DISCORD_IMPORT_CLIENT_RETURN_URL: "${DISCORD_IMPORT_CLIENT_RETURN_URL:-venta://discord-import}"
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/import/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  isle:
+    <<: *app-common
+    profiles: ["isle"]
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/isle-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Isle.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: isle_db
+      ISLE_IP_ADDRESS: "${ISLE_IP_ADDRESS:-10.0.0.0}"
+      ISLE_BRIDGE_PORT: "${ISLE_BRIDGE_PORT:-8080}"
+      ISLE_RCON_PORT: "${ISLE_RCON_PORT:-8888}"
+      RCON_PASSWORD: "${ISLE_RCON_PASSWORD:-}"
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/isle/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ── Gateway ────────────────────────────────────────────────────────────────────────
+  # YARP reverse proxy + the SignalR realtime hub + the cross-service sagas
+  # (Echo/Sagas/*). Not optional: user registration completes through a saga hosted here.
+  echo:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/echo:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Echo/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: echo_db
+      Services__Identity: http://identity:8080
+      Services__Guild: http://guild:8080
+      Services__Messaging: http://messaging:8080
+      Services__Social: http://social:8080
+      Services__Federation: http://federation:8080
+      Services__Bots: http://bots:8080
+      Services__Import: http://import:8080
+      Services__Isle: http://isle:8080
+      PERSONAL_ACCESS_TOKEN: "${PERSONAL_ACCESS_TOKEN:-}"
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1:8080}:8080"
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      identity:
+        condition: service_started
+      guild:
+        condition: service_started
+      messaging:
+        condition: service_started
+      social:
+        condition: service_started
+      federation:
+        condition: service_started
+      bots:
+        condition: service_started
+      import:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ── TLS termination ────────────────────────────────────────────────────────────────
+  # Caddy fetches and renews Let's Encrypt certificates on its own (HTTP-01 on :80), so
+  # nothing else has to run certbot. The network alias makes the public hostname resolve
+  # to this container from inside the compose network: services fetch
+  # {INSTANCE_URL}/.well-known/openid-configuration over real TLS without depending on
+  # the host's router doing NAT hairpinning.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["caddy"]
+    depends_on:
+      echo:
+        condition: service_started
+    ports:
+      - "${HTTP_BIND:-0.0.0.0:80}:80"
+      - "${HTTPS_BIND:-0.0.0.0:443}:443"
+      - "${HTTPS_BIND:-0.0.0.0:443}:443/udp"
+    volumes:
+      - ./generated/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        aliases:
+          - "${INSTANCE_DOMAIN:-venta-app.invalid}"
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  scylla_data:
+  minio_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  default:
+    name: venta_net

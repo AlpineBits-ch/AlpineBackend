@@ -14,6 +14,8 @@ using Messaging.Infrastructure.Persistence.Repositories;
 using Messaging.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Logging.Abstractions;
+using MessageDeleted = Messaging.Domain.Events.Message.MessageDeleted;
 using PinMessageCommand = Messaging.Contracts.Bus.Commands.PinMessageCommand;
 using UnpinMessageCommand = Messaging.Contracts.Bus.Commands.UnpinMessageCommand;
 using UpdateMessageCommand = Messaging.Contracts.Bus.Commands.UpdateMessageCommand;
@@ -148,6 +150,213 @@ public class MessagingEndpointsTests
     }
 
     [Test]
+    public async Task CreateMessage_ChannelScope_LacksMentionEveryone_StripsMentionFlagsButStillSends()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            // Allowed to speak, not allowed to ping the room.
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = r.Permission != ExternalPermission.MentionEveryone,
+                Permission = r.Permission,
+            },
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "@everyone lunch?", ChannelId = "chan-1", MentionsEveryone = true, MentionsHere = true };
+
+        var (result, _) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Created<MessageDto>>(), "the message still sends - only the ping is dropped");
+            Assert.That(command.MentionsEveryone, Is.False);
+            Assert.That(command.MentionsHere, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task CreateMessage_ChannelScope_HasMentionEveryone_KeepsMentionFlags()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "@everyone deploy is out", ChannelId = "chan-1", MentionsEveryone = true, MentionsHere = true };
+
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(command.MentionsEveryone, Is.True);
+            Assert.That(command.MentionsHere, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task CreateMessage_ChannelScope_NoMentionFlagsRequested_SkipsThePermissionCheckEntirely()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "ordinary message", ChannelId = "chan-1" };
+
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>()
+                .Any(r => r.Permission == ExternalPermission.MentionEveryone), Is.False,
+            "the extra round trip must only happen when the client actually asked for a ping");
+    }
+
+    [Test]
+    public async Task CreateMessage_ConversationScope_KeepsMentionFlagsWithoutPermissionCheck()
+    {
+        const string conversationId = "conv-mention";
+        _context.Conversations.Add(new Conversation
+        {
+            Id = conversationId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Members = [MakeMember("cm-1", "user-1", conversationId)],
+        });
+        await _context.SaveChangesAsync();
+
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "@everyone", ConversationId = conversationId, MentionsEveryone = true };
+
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(command.MentionsEveryone, Is.True, "a DM has no MentionEveryone permission concept");
+            Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task CreateMessage_ChannelScope_SlowModeSecondSend_Returns429WithRetryAfter()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = true, Permission = r.Permission, SlowModeSeconds = 30, CanBypassSlowMode = false,
+            },
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-slow" };
+
+        var (first, _) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+        var (second, secondEvt) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(first, Is.InstanceOf<Created<MessageDto>>());
+            Assert.That(second, Is.InstanceOf<IStatusCodeHttpResult>());
+            Assert.That(((IStatusCodeHttpResult)second).StatusCode, Is.EqualTo(429));
+            Assert.That(secondEvt, Is.Null, "a throttled send must not emit MessageCreated");
+        });
+    }
+
+    [Test]
+    public async Task CreateMessage_ChannelScope_SlowModeButUserCanBypass_Allows()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = true, Permission = r.Permission, SlowModeSeconds = 30, CanBypassSlowMode = true,
+            },
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-slow" };
+
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("mod-1"), _context, bus, _cache);
+        var (second, _) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("mod-1"), _context, bus, _cache);
+
+        Assert.That(second, Is.InstanceOf<Created<MessageDto>>());
+    }
+
+    [Test]
+    public async Task CreateMessage_ChannelScope_SlowModeDoesNotApplyToBots()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = true, Permission = r.Permission, SlowModeSeconds = 30, CanBypassSlowMode = false,
+            },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            // No auto-mod branch and no slowmode rejection: a Bot author skips both gates.
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-slow" };
+
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache);
+        var (second, _) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache);
+
+        Assert.That(second, Is.InstanceOf<Created<MessageDto>>());
+    }
+
+    [Test]
+    public async Task CreateMessage_ChannelScope_AutoModBlock_DoesNotConsumeSlowModeWindow()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = true, Permission = r.Permission, SlowModeSeconds = 30, CanBypassSlowMode = false,
+            },
+            GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = true, BlockedWords = ["badword"] },
+            CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+
+        // Blocked by auto-mod, so it must never have reached the slowmode gate...
+        var (blocked, _) = await endpoint.CreateMessage(
+            new CreateMessageDto { Content = "badword", ChannelId = "chan-slow" },
+            ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        // ...so the author's very next clean message is still their first real send.
+        var (clean, _) = await endpoint.CreateMessage(
+            new CreateMessageDto { Content = "sorry", ChannelId = "chan-slow" },
+            ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(((IStatusCodeHttpResult)blocked).StatusCode, Is.EqualTo(403));
+            Assert.That(clean, Is.InstanceOf<Created<MessageDto>>());
+        });
+    }
+
+    [Test]
     public async Task CreateMessage_ChannelScope_BotAuthor_BypassesAutoMod_EvenIfWordWouldBeBlocked()
     {
         var endpoint = new MessagingEndpoints();
@@ -273,7 +482,7 @@ public class MessagingEndpointsTests
     {
         var endpoint = new MessagingEndpoints();
 
-        var (result, evt) = await endpoint.DeleteMessage("msg-1", _repo, TestPrincipal.Anonymous());
+        var (result, evt) = await endpoint.DeleteMessage("msg-1", _repo, TestPrincipal.Anonymous(), new FakeMessageBus());
 
         Assert.Multiple(() =>
         {
@@ -287,7 +496,7 @@ public class MessagingEndpointsTests
     {
         var endpoint = new MessagingEndpoints();
 
-        var (result, evt) = await endpoint.DeleteMessage("nope", _repo, TestPrincipal.ForUser("user-1"));
+        var (result, evt) = await endpoint.DeleteMessage("nope", _repo, TestPrincipal.ForUser("user-1"), new FakeMessageBus());
 
         Assert.Multiple(() =>
         {
@@ -305,7 +514,7 @@ public class MessagingEndpointsTests
 
         var endpoint = new MessagingEndpoints();
 
-        var (result, evt) = await endpoint.DeleteMessage(message.Id, _repo, TestPrincipal.ForUser("someone-else"));
+        var (result, evt) = await endpoint.DeleteMessage(message.Id, _repo, TestPrincipal.ForUser("someone-else"), new FakeMessageBus());
 
         Assert.Multiple(() =>
         {
@@ -328,7 +537,7 @@ public class MessagingEndpointsTests
 
         var endpoint = new MessagingEndpoints();
 
-        var (result, evt) = await endpoint.DeleteMessage(message.Id, _repo, TestPrincipal.ForUser("author-1"));
+        var (result, evt) = await endpoint.DeleteMessage(message.Id, _repo, TestPrincipal.ForUser("author-1"), new FakeMessageBus());
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -338,6 +547,190 @@ public class MessagingEndpointsTests
             Assert.That(evt!.MessageId, Is.EqualTo(message.Id));
         });
         Assert.That(_context.Messages.Any(m => m.Id == message.Id), Is.False);
+    }
+
+    [Test]
+    public async Task DeleteMessage_NonAuthorWithDeleteAnyMessage_InChannel_Deletes()
+    {
+        var message = Message.Create(new CreateMessageParams { Content = "hi"u8.ToArray(), ChannelId = "chan-1", AuthorId = "author-1" });
+        await _context.Messages.AddAsync(message);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var endpoint = new MessagingEndpoints();
+
+        var (result, evt) = await endpoint.DeleteMessage(message.Id, _repo, TestPrincipal.ForUser("moderator-1"), bus);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Accepted>());
+            Assert.That(evt, Is.Not.Null);
+            Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>().Single().Permission,
+                Is.EqualTo(ExternalPermission.DeleteAnyMessage));
+        });
+        Assert.That(_context.Messages.Any(m => m.Id == message.Id), Is.False);
+    }
+
+    [Test]
+    public async Task DeleteMessage_NonAuthorWithoutDeleteAnyMessage_ReturnsForbid()
+    {
+        var message = Message.Create(new CreateMessageParams { Content = "hi"u8.ToArray(), ChannelId = "chan-1", AuthorId = "author-1" });
+        await _context.Messages.AddAsync(message);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = false, Permission = r.Permission },
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+        var endpoint = new MessagingEndpoints();
+
+        var (result, _) = await endpoint.DeleteMessage(message.Id, _repo, TestPrincipal.ForUser("nobody"), bus);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+        Assert.That(_context.Messages.Any(m => m.Id == message.Id), Is.True);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // BulkDeleteMessages
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Seeds n channel messages and returns their ids, tracker cleared - same
+    /// identity-conflict reason as DeleteMessage_AuthorDeletesOwnMessage above.</summary>
+    private async Task<List<string>> SeedChannelMessages(int count, string channelId)
+    {
+        var ids = new List<string>();
+        for (var i = 0; i < count; i++)
+        {
+            var message = Message.Create(new CreateMessageParams
+            {
+                Content = "hi"u8.ToArray(), ChannelId = channelId, AuthorId = $"author-{i}",
+            });
+            await _context.Messages.AddAsync(message);
+            ids.Add(message.Id);
+        }
+
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+        return ids;
+    }
+
+    private static FakeMessageBus AllowingBus(bool allowed = true) => new(msg => msg switch
+    {
+        HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = allowed, Permission = r.Permission },
+        _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+    });
+
+    [Test]
+    public async Task BulkDelete_Unauthenticated_ReturnsUnauthorized()
+    {
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto { ChannelId = "chan-1", MessageIds = ["a"] };
+
+        var result = await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.Anonymous(), AllowingBus(), NullLogger<MessagingEndpoints>.Instance);
+
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    [Test]
+    public async Task BulkDelete_LacksDeleteAnyMessage_ReturnsForbid()
+    {
+        var ids = await SeedChannelMessages(2, "chan-1");
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto { ChannelId = "chan-1", MessageIds = ids };
+
+        var result = await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.ForUser("user-1"), AllowingBus(allowed: false), NullLogger<MessagingEndpoints>.Instance);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+        Assert.That(_context.Messages.Count(), Is.EqualTo(2), "nothing may be removed on a denied call");
+    }
+
+    [Test]
+    public async Task BulkDelete_OverTheCap_ReturnsBadRequest()
+    {
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto
+        {
+            ChannelId = "chan-1",
+            MessageIds = Enumerable.Range(0, 101).Select(i => $"msg-{i}").ToList(),
+        };
+
+        var result = await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.ForUser("mod-1"), AllowingBus(), NullLogger<MessagingEndpoints>.Instance);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task BulkDelete_EmptyIds_ReturnsBadRequest()
+    {
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto { ChannelId = "chan-1", MessageIds = [] };
+
+        var result = await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.ForUser("mod-1"), AllowingBus(), NullLogger<MessagingEndpoints>.Instance);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task BulkDelete_Valid_RemovesAllAndPublishesPerMessageAndAggregateEvents()
+    {
+        var ids = await SeedChannelMessages(3, "chan-1");
+        var bus = AllowingBus();
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto { ChannelId = "chan-1", MessageIds = ids };
+
+        var result = await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.ForUser("mod-1"), bus, NullLogger<MessagingEndpoints>.Instance);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(((IStatusCodeHttpResult)result).StatusCode, Is.EqualTo(200));
+            Assert.That(_context.Messages.Count(), Is.Zero);
+            Assert.That(bus.Published.OfType<MessageDeleted>().Count(), Is.EqualTo(3),
+                "the per-message pipeline (search index, bot MESSAGE_DELETE, reply counts) must still run for each");
+            Assert.That(bus.Published.OfType<MessagesBulkDeletedForChannel>().Count(), Is.EqualTo(1),
+                "plus exactly one aggregate event for the client's single-update path");
+        });
+    }
+
+    [Test]
+    public async Task BulkDelete_IdsFromAnotherChannel_AreSkippedNotDeleted()
+    {
+        var mine = await SeedChannelMessages(2, "chan-1");
+        var theirs = await SeedChannelMessages(2, "chan-2");
+        var bus = AllowingBus();
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto { ChannelId = "chan-1", MessageIds = [.. mine, .. theirs] };
+
+        await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.ForUser("mod-1"), bus, NullLogger<MessagingEndpoints>.Instance);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_context.Messages.Count(), Is.EqualTo(2), "the other channel's messages survive");
+            Assert.That(_context.Messages.All(m => m.ChannelId == "chan-2"), Is.True);
+            Assert.That(bus.Published.OfType<MessageDeleted>().Count(), Is.EqualTo(2),
+                "the permission check covered chan-1 only, so chan-2 ids must not be acted on");
+        });
+    }
+
+    [Test]
+    public async Task BulkDelete_AllIdsUnknown_ReturnsZeroAndPublishesNothing()
+    {
+        var bus = AllowingBus();
+        var endpoint = new MessagingEndpoints();
+        var dto = new BulkDeleteMessagesDto { ChannelId = "chan-1", MessageIds = ["nope-1", "nope-2"] };
+
+        await endpoint.BulkDeleteMessages(dto, _repo, TestPrincipal.ForUser("mod-1"), bus, NullLogger<MessagingEndpoints>.Instance);
+
+        Assert.That(bus.Published, Is.Empty);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

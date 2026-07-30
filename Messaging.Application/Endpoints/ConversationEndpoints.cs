@@ -147,6 +147,30 @@ public class ConversationEndpoints
 
   
 
+    /// <summary>Mute or unmute a DM/group conversation for the caller. Only a mute, no level -
+    /// see ConversationMember.MutedUntil for why "only mentions" has no meaning in a DM.</summary>
+    [WolverinePut("/api/v1/conversations/{id}/notification-settings")]
+    public async Task<IResult> UpdateNotificationSettings(string id, UpdateConversationNotificationDto dto,
+        [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var member = await ctx.Members.FirstOrDefaultAsync(m => m.ConversationId == id && m.UserId == userId);
+        if (member is null) return Results.NotFound();
+
+        member.MutedUntil = dto switch
+        {
+            { MuteForever: true } => new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero),
+            { MuteMinutes: null } => member.MutedUntil,
+            { MuteMinutes: <= 0 } => null,
+            _ => DateTimeOffset.UtcNow.AddMinutes(dto.MuteMinutes!.Value),
+        };
+        member.UpdatedAt = DateTimeOffset.UtcNow;
+
+        return Results.Ok(new { conversationId = id, mutedUntil = member.MutedUntil });
+    }
+
     [WolverineDelete("/api/v1/conversations/{id}")]
     public async Task<IResult> DeleteConversation(string id, [NotBody] IMessageBus messageBus,
         [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx)

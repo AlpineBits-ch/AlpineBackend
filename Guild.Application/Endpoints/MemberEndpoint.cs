@@ -235,6 +235,95 @@ public class MemberEndpoint
         return Results.NoContent();
     }
 
+    /// <summary>Maximum nickname length, matching Discord's. Enforced on the trimmed value.</summary>
+    private const int MaxNicknameLength = 32;
+
+    [WolverinePatch("/api/v1/guilds/{guildId}/members/me/nickname")]
+    public async Task<IResult> UpdateOwnNicknameAsync(string guildId, UpdateNicknameDto dto,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ChangeNickname))
+            return Results.Forbid();
+
+        var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.GuildId == guildId && m.UserId == userId);
+        if (member is null) return Results.NotFound();
+
+        return await ApplyNicknameAsync(dto, member, guildId, userId, ctx, auditLog, hub, guildHydrateService, bus);
+    }
+
+    [WolverinePatch("/api/v1/guilds/{guildId}/members/{memberId}/nickname")]
+    public async Task<IResult> UpdateMemberNicknameAsync(string guildId, string memberId, UpdateNicknameDto dto,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
+        if (member is null) return Results.NotFound();
+
+        // Renaming yourself through the moderator route needs only ChangeNickname - otherwise a
+        // member whose client happens to address them by member id would be refused for lacking a
+        // permission over other people that they are not exercising.
+        if (member.UserId == userId)
+        {
+            if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ChangeNickname))
+                return Results.Forbid();
+        }
+        else
+        {
+            if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageNicknames))
+                return Results.Forbid();
+
+            // Same hierarchy rule as kick/ban/mute: you cannot rename someone who outranks you,
+            // and nobody can rename the owner.
+            if (!await permissionService.CanModerateTargetAsync(userId, member.UserId, guildId))
+                return Results.Forbid();
+        }
+
+        return await ApplyNicknameAsync(dto, member, guildId, userId, ctx, auditLog, hub, guildHydrateService, bus);
+    }
+
+    private static async Task<IResult> ApplyNicknameAsync(UpdateNicknameDto dto, GuildMember member,
+        string guildId, string actorUserId, MicroserviceContext ctx, AuditLogService auditLog,
+        IHubContext<EchoRealtimeHub> hub, GuildHydrateService guildHydrateService, IMessageBus bus)
+    {
+        var trimmed = dto.Nickname?.Trim();
+        var nickname = string.IsNullOrEmpty(trimmed) ? null : trimmed;
+
+        if (nickname is { Length: > MaxNicknameLength })
+            return Results.BadRequest($"Nickname may not exceed {MaxNicknameLength} characters.");
+
+        var previous = member.Nickname;
+        if (previous == nickname) return Results.NoContent();
+
+        member.Nickname = nickname;
+        // SearchValue is the member-search haystack and must keep tracking the nickname, or a
+        // renamed member becomes unfindable by the name everyone actually sees.
+        member.SearchValue = GuildMember.BuildSearchValue(member.SearchUsernamePart(), nickname);
+        member.UpdatedAt = DateTime.UtcNow;
+
+        auditLog.Log(guildId, actorUserId, AuditActionType.MemberNicknameChanged, member.UserId,
+            new { Previous = previous, Current = nickname });
+
+        var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
+        var audience = presence.Select(p => p.UserId).Append(member.UserId).Distinct();
+        await hub.Clients.Users(audience).SendAsync("guild.MemberUpdated",
+            new { GuildId = guildId, UserId = member.UserId, Nickname = nickname });
+
+        await bus.PublishAsync(new MemberUpdatedForBots { GuildId = guildId, UserId = member.UserId });
+
+        return Results.Ok(new { member.UserId, Nickname = nickname });
+    }
+
     [WolverineDelete("/api/v1/guilds/{guildId}/members/me")]
     public async Task<IResult> LeaveGuildAsync(string guildId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,

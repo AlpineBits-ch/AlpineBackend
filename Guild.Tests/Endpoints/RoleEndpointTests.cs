@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Guild.Tests.Endpoints;
 
 /// <summary>
-/// Covers RoleEndpoint: CreateRole (ManagePermissions + CanGrantPermissions escalation guard),
+/// Covers RoleEndpoint: CreateRole (ManageRoles + CanGrantPermissions escalation guard),
 /// UpdateRole/DeleteRole/AddMemberToRole/RemoveMemberFromRole (all additionally gated by
 /// CanManageRoleAsync - actor must outrank the target role), and ReorderRoles.
 /// </summary>
@@ -57,9 +57,9 @@ public class RoleEndpointTests
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
     };
 
-    /// <summary>Seeds a member holding ManagePermissions at role Position=5 (so it can outrank
+    /// <summary>Seeds a member holding ManageRoles at role Position=5 (so it can outrank
     /// lower-positioned roles it needs to manage, per CanManageRoleAsync).</summary>
-    private async Task SeedManagerMember(Permissions permissions = Permissions.ManagePermissions, int position = 5)
+    private async Task SeedManagerMember(Permissions permissions = Permissions.ManageRoles, int position = 5)
     {
         _context.Guilds.Add(MakeGuild());
         _context.Roles.Add(new Role { Id = ManagerRoleId, GuildId = GuildId, Name = "manager", Permissions = permissions, Position = position, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
@@ -102,7 +102,7 @@ public class RoleEndpointTests
     [Test]
     public async Task CreateRole_RequestsPermissionActorDoesNotHold_ReturnsForbid()
     {
-        // Manager only holds ManagePermissions, not BanMembers - requesting BanMembers on the
+        // Manager only holds ManageRoles, not BanMembers - requesting BanMembers on the
         // new role must be rejected by the escalation guard.
         await SeedManagerMember();
 
@@ -113,7 +113,7 @@ public class RoleEndpointTests
     [Test]
     public async Task CreateRole_Valid_PersistsAtNextPosition()
     {
-        await SeedManagerMember(Permissions.ManagePermissions | Permissions.ManageChannel);
+        await SeedManagerMember(Permissions.ManageRoles | Permissions.ManageChannel);
         await SeedTargetRole(position: 1);
 
         var result = await _endpoint.CreateRoleAsync(GuildId, new CreateRoleParams { Name = "new-role", GuildId = GuildId, Permissions = Permissions.ManageChannel }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);

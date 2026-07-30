@@ -28,7 +28,15 @@ public class ConversationMember : BaseEntity<ConversationMember>, IPrefixedEntit
     
     public string? LastReadMessageId { get; set; }
     public int MentionCount { get; set; }
-    
+
+    /// <summary>Null when not muted; a far-future value means "until I turn it back on". A DM has
+    /// no channel/category hierarchy to inherit from, so unlike a guild channel this single field
+    /// is the whole of the setting - there is deliberately no notification *level* here, because
+    /// "only mentions" is meaningless in a conversation you are one of two people in.</summary>
+    public DateTimeOffset? MutedUntil { get; set; }
+
+    public bool IsMuted(DateTimeOffset now) => MutedUntil is not null && MutedUntil > now;
+
     public string? FederatedServerId { get; set; }
 
     

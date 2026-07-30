@@ -44,6 +44,9 @@ public class MicroserviceContext : DbContext
     public DbSet<ForumPostTag> ForumPostTags { get; set; }
     public DbSet<ForumConfig> ForumConfigs { get; set; }
 
+    public DbSet<GuildNotificationSetting> GuildNotificationSettings { get; set; }
+    public DbSet<NotificationOverride> NotificationOverrides { get; set; }
+
     // ── Household modules ────────────────────────────────────────────────────
     public DbSet<ListItem> ListItems { get; set; }
     public DbSet<PantryItem> PantryItems { get; set; }
@@ -141,9 +144,51 @@ public class MicroserviceContext : DbContext
                 .WithMany(x => x.ReadStates)
                 .HasForeignKey(x => x.ChannelId)
                 .OnDelete(DeleteBehavior.Cascade);
-         
+
         });
-        
+
+        modelBuilder.Entity<GuildNotificationSetting>(settingBuilder =>
+        {
+            settingBuilder.HasOne(x => x.GuildMember)
+                .WithMany()
+                .HasForeignKey(x => x.MemberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One row per member, enforced rather than merely assumed - the endpoints upsert, and
+            // a duplicate would make "which of these is my setting" a coin flip.
+            settingBuilder.HasIndex(x => x.MemberId).IsUnique();
+        });
+
+        modelBuilder.Entity<NotificationOverride>(overrideBuilder =>
+        {
+            overrideBuilder.HasOne(x => x.GuildMember)
+                .WithMany()
+                .HasForeignKey(x => x.MemberId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            overrideBuilder.HasOne(x => x.Channel)
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            overrideBuilder.HasOne(x => x.Category)
+                .WithMany()
+                .HasForeignKey(x => x.CategoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Filtered so the uniqueness only applies to rows of that kind - a member's category
+            // override and channel override are different rows with one of the two ids null, and
+            // an unfiltered composite index would treat every null-channel row as colliding.
+            overrideBuilder.HasIndex(x => new { x.MemberId, x.ChannelId })
+                .IsUnique()
+                .HasFilter("channel_id IS NOT NULL");
+
+            overrideBuilder.HasIndex(x => new { x.MemberId, x.CategoryId })
+                .IsUnique()
+                .HasFilter("category_id IS NOT NULL");
+        });
+
+
         modelBuilder.Entity<Category>(categoryBuilder =>
         {
             categoryBuilder.HasOne(x => x.Guild)

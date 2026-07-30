@@ -25,14 +25,35 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     
     public MemberType Type { get; init; } = MemberType.Default;
     
-    public string? Nickname { get; init; }
+    public string? Nickname { get; set; }
     public string? Bio { get; set; }
 
     public string? InviteId { get; init; }
     public GuildInvite? Invite { get; init; }
     
+    /// <summary>Uppercased haystack for the member-search endpoint's <c>Contains</c> query.
+    /// Format is <c>USERNAME</c>, or <c>USERNAME\nNICKNAME</c> once a nickname is set - see
+    /// <see cref="BuildSearchValue"/>. Every row written before nicknames were editable holds the
+    /// bare username, which is exactly the one-segment case, so no backfill was needed.</summary>
     public string SearchValue { get; set; }
-    
+
+    /// <summary>Composes <see cref="SearchValue"/> so that a member is findable by either their
+    /// account username or their guild nickname. The separator is a newline specifically because
+    /// it cannot appear in either input, so a search term can never match across the boundary.</summary>
+    public static string BuildSearchValue(string username, string? nickname) =>
+        string.IsNullOrWhiteSpace(nickname)
+            ? username.ToUpperInvariant()
+            : $"{username.ToUpperInvariant()}\n{nickname.ToUpperInvariant()}";
+
+    /// <summary>The username segment of <see cref="SearchValue"/>, needed to recompose it when
+    /// only the nickname changes (the username itself is not stored separately on the member).</summary>
+    public string SearchUsernamePart()
+    {
+        var separator = SearchValue.IndexOf('\n');
+        return separator < 0 ? SearchValue : SearchValue[..separator];
+    }
+
+
     public string? FederatedServerId { get; set; }
 
     // Guild-level permission overrides for this member, applied after role aggregation
@@ -61,7 +82,6 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     public static GuildMember CreateForUser(CreateGuildMemberParams parameters)
     {
         var id = GenerateId();
-        var searchValue = parameters.Username;
         var date = DateTime.UtcNow;
 
         return new GuildMember
@@ -75,7 +95,7 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
             Bio = parameters.Bio,
             Nickname = parameters.Nickname,
             Type = parameters.Type,
-            SearchValue = searchValue.ToUpperInvariant(),
+            SearchValue = BuildSearchValue(parameters.Username, parameters.Nickname),
             InviteId = parameters.InviteId,
             // Onboarding only gates the organic invite-redemption join path (InviteEndpoint
             // constructs GuildMember directly and sets this explicitly) - bot installs and

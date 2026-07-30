@@ -1,4 +1,5 @@
 using Messaging.Domain.Entities;
+using Messaging.Domain.Repositories;
 using Messaging.Infrastructure.Persistence.Repositories;
 using Messaging.Tests.Helpers;
 
@@ -375,5 +376,166 @@ public class EfCoreMessageRepositoryTests
         Assert.That(list, Has.Count.EqualTo(2));
         Assert.That(list[0].Id, Is.EqualTo(ids[2]));
         Assert.That(list[1].Id, Is.EqualTo(ids[3]));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // GetMessagePageByCursorAsync
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Seeds n messages in one context with strictly increasing CreatedAt, returned in
+    /// creation (oldest-first) order.</summary>
+    private async Task<List<Message>> SeedSequence(int count, string conversationId)
+    {
+        var seeded = new List<Message>();
+        var baseTime = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < count; i++)
+        {
+            var msg = MakeMessage(conversationId: conversationId);
+            // Stamped explicitly rather than slept for - the ordering under test is the
+            // repository's, and a real clock just makes the test slow and occasionally flaky.
+            msg.CreatedAt = baseTime.AddSeconds(i);
+            await _repo.CreateMessageAsync(msg);
+            seeded.Add(msg);
+        }
+
+        await SaveAsync();
+        _context.ChangeTracker.Clear();
+        return seeded;
+    }
+
+    private MessagePageQuery Query(string contextId, string anchorId, MessageCursorDirection direction, int limit = 50) =>
+        new() { ContextId = contextId, AnchorMessageId = anchorId, Direction = direction, Limit = limit };
+
+    [Test]
+    public async Task Cursor_Before_ReturnsOlderMessagesAscending_ExcludingAnchor()
+    {
+        var seeded = await SeedSequence(5, "conv-cursor");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-cursor", seeded[3].Id, MessageCursorDirection.Before, limit: 2));
+
+        var list = messages.ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(list, Has.Count.EqualTo(2));
+            Assert.That(list[0].Id, Is.EqualTo(seeded[1].Id), "the two immediately older, oldest-first");
+            Assert.That(list[1].Id, Is.EqualTo(seeded[2].Id));
+            Assert.That(list.Any(m => m.Id == seeded[3].Id), Is.False, "the anchor is not part of a before page");
+        });
+    }
+
+    [Test]
+    public async Task Cursor_After_ReturnsNewerMessagesAscending_ExcludingAnchor()
+    {
+        var seeded = await SeedSequence(5, "conv-cursor");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-cursor", seeded[1].Id, MessageCursorDirection.After, limit: 2));
+
+        var list = messages.ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(list, Has.Count.EqualTo(2));
+            Assert.That(list[0].Id, Is.EqualTo(seeded[2].Id));
+            Assert.That(list[1].Id, Is.EqualTo(seeded[3].Id), "adjacent to the anchor, not the newest in the partition");
+        });
+    }
+
+    [Test]
+    public async Task Cursor_Around_IncludesAnchorAndBothSides()
+    {
+        var seeded = await SeedSequence(7, "conv-cursor");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-cursor", seeded[3].Id, MessageCursorDirection.Around, limit: 5));
+
+        var list = messages.ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(list.Any(m => m.Id == seeded[3].Id), Is.True, "the anchor itself is the point of `around`");
+            Assert.That(list.Any(m => m.Id == seeded[2].Id), Is.True);
+            Assert.That(list.Any(m => m.Id == seeded[4].Id), Is.True);
+            Assert.That(list.Select(m => m.CreatedAt), Is.Ordered, "still oldest-first like every other page");
+        });
+    }
+
+    [Test]
+    public async Task Cursor_UnknownAnchor_ReturnsEmptyPage()
+    {
+        await SeedSequence(3, "conv-cursor");
+
+        var (messages, reactions) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-cursor", "mesg-does-not-exist", MessageCursorDirection.Before));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(messages, Is.Empty);
+            Assert.That(reactions, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Cursor_AnchorInAnotherContext_ReturnsEmptyPage()
+    {
+        await SeedSequence(3, "conv-a");
+        var others = await SeedSequence(3, "conv-b");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-a", others[1].Id, MessageCursorDirection.Before));
+
+        Assert.That(messages, Is.Empty, "an anchor from a different conversation must not page conv-a");
+    }
+
+    [Test]
+    public async Task Cursor_SameTimestampSiblings_NeitherDuplicatesNorSkips()
+    {
+        // The case the (created_at, message_id) tuple comparison exists for: four messages sharing
+        // one timestamp. Paging on the timestamp alone would either re-emit all four on the next
+        // page or drop them entirely, depending on the comparison direction.
+        var stamp = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var seeded = new List<Message>();
+        for (var i = 0; i < 4; i++)
+        {
+            var msg = MakeMessage(conversationId: "conv-tie");
+            msg.CreatedAt = stamp;
+            await _repo.CreateMessageAsync(msg);
+            seeded.Add(msg);
+        }
+        await SaveAsync();
+        _context.ChangeTracker.Clear();
+
+        var byId = seeded.OrderBy(m => m.Id).ToList();
+
+        // Page backwards from the newest-by-id sibling, one at a time, walking the whole tie group.
+        var seen = new List<string>();
+        var anchorId = byId[3].Id;
+        for (var i = 0; i < 3; i++)
+        {
+            var (page, _) = await _repo.GetMessagePageByCursorAsync(
+                Query("conv-tie", anchorId, MessageCursorDirection.Before, limit: 1));
+
+            var single = page.Single();
+            seen.Add(single.Id);
+            anchorId = single.Id;
+        }
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(seen, Is.Unique, "no message may be served twice while paging a tie group");
+            Assert.That(seen, Is.EquivalentTo(new[] { byId[2].Id, byId[1].Id, byId[0].Id }),
+                "and none may be skipped either");
+        });
+    }
+
+    [Test]
+    public async Task Cursor_ZeroLimit_ReturnsEmptyRatherThanThrowing()
+    {
+        var seeded = await SeedSequence(3, "conv-cursor");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-cursor", seeded[1].Id, MessageCursorDirection.Before, limit: 0));
+
+        Assert.That(messages, Is.Empty);
     }
 }

@@ -167,6 +167,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("mention_count");
 
+                    b.Property<DateTimeOffset?>("MutedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("muted_until");
+
                     b.Property<byte[]>("PublicKey")
                         .IsRequired()
                         .HasColumnType("bytea")
@@ -237,6 +241,14 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<string>("AuthorAvatarUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("author_avatar_url");
+
+                    b.Property<string>("AuthorDisplayName")
+                        .HasColumnType("text")
+                        .HasColumnName("author_display_name");
+
                     b.Property<string>("AuthorId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -249,6 +261,10 @@ namespace Messaging.Persistence.Migrations
                     b.Property<string>("ChannelId")
                         .HasColumnType("text")
                         .HasColumnName("channel_id");
+
+                    b.Property<string>("ComponentsJson")
+                        .HasColumnType("text")
+                        .HasColumnName("components_json");
 
                     b.Property<byte[]>("Content")
                         .IsRequired()

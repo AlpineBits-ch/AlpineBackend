@@ -48,6 +48,9 @@ public class CreateMessageCommandHandler
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
             EmbedsJson = command.EmbedsJson,
+            ComponentsJson = command.ComponentsJson,
+            AuthorDisplayName = command.AuthorDisplayName,
+            AuthorAvatarUrl = command.AuthorAvatarUrl,
             Attachments = command.Attachments.Select(a => MinimalAttachment.Create(new CreateMinimalAttachmentParams()
             {
                 Id = a.Id,
@@ -100,6 +103,7 @@ public class CreateMessageCommandHandler
             SenderDeviceId = command.SenderDeviceId,
             InReplyTo = command.InReplyTo,
             EmbedsJson = command.EmbedsJson,
+            ComponentsJson = command.ComponentsJson,
         });
     }
 }

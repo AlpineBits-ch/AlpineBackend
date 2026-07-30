@@ -197,4 +197,80 @@ public class RelationshipTests
         Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.None));
         Assert.That(relationship.GetDomainEvents(), Has.Count.EqualTo(1));
     }
+
+    // ── Idempotency ──────────────────────────────────────────────────────────
+    // Each transition raises its domain event only on a real state change. That event is what
+    // fans out the social.* websocket push and the outbound federation message, so a second
+    // no-op call must stay silent rather than duplicating either.
+
+    [Test]
+    public void Accept_CalledTwice_RaisesTheEventOnceAndReportsNoSecondTransition()
+    {
+        var relationship = new Relationship
+        {
+            Id = "rlsp_7", OwnerId = "profile-b", TargetId = "profile-a",
+            Status = RelationshipStatus.PendingIncoming,
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Accept(), Is.True);
+            Assert.That(relationship.Accept(), Is.False);
+        });
+
+        Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.Friends));
+        Assert.That(relationship.GetDomainEvents().OfType<FriendRequestAccepted>().Count(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public void Accept_OnClearedRelationship_DoesNothing()
+    {
+        // Rejected/removed rows stick around at None - accepting one would revive a friendship
+        // the other side already refused, without a new request.
+        var relationship = new Relationship
+        {
+            Id = "rlsp_8", OwnerId = "profile-b", TargetId = "profile-a",
+            Status = RelationshipStatus.None,
+        };
+
+        Assert.That(relationship.Accept(), Is.False);
+        Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.None));
+        Assert.That(relationship.GetDomainEvents(), Is.Empty);
+    }
+
+    [Test]
+    public void Reject_CalledTwice_RaisesTheEventOnce()
+    {
+        var relationship = new Relationship
+        {
+            Id = "rlsp_9", OwnerId = "profile-b", TargetId = "profile-a",
+            Status = RelationshipStatus.PendingIncoming,
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Reject(), Is.True);
+            Assert.That(relationship.Reject(), Is.False);
+        });
+
+        Assert.That(relationship.GetDomainEvents().OfType<FriendRequestRejected>().Count(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public void Remove_CalledTwice_RaisesTheEventOnce()
+    {
+        var relationship = new Relationship
+        {
+            Id = "rlsp_10", OwnerId = "profile-a", TargetId = "profile-b",
+            Status = RelationshipStatus.Friends,
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Remove(), Is.True);
+            Assert.That(relationship.Remove(), Is.False);
+        });
+
+        Assert.That(relationship.GetDomainEvents().OfType<FriendRemoved>().Count(), Is.EqualTo(1));
+    }
 }

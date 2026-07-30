@@ -85,12 +85,22 @@ public static class FriendshipEndpoints
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         var currentProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
         
-        if (friendship.OwnerId != currentProfile?.Id) 
+        if (friendship.OwnerId != currentProfile?.Id)
             return Results.Forbid();
 
-        friendship.Accept();
+        // Accept() is a no-op once the pair is already Friends, so a double accept (double tap,
+        // client retry, two devices) can't raise a second FriendRequestAccepted and therefore
+        // can't fan out a duplicate social.FriendRequestAccepted push. Returning early keeps the
+        // response idempotent too, and stops a rejected/removed (None) request being resurrected
+        // into a friendship without a fresh request.
+        if (!friendship.Accept())
+            return friendship.Status == RelationshipStatus.Friends
+                ? Results.Accepted()
+                : Results.BadRequest("Relationship is not a pending friend request.");
 
-        friendship.Related.Accept();
+        // Null for a federation-materialized relationship - only the local half of those is
+        // persisted, so there is no mirrored row to flip.
+        friendship.Related?.Accept();
 
         var firstUserCache = $"integration_profile:user_id:{friendship.Target.UserId}";
         var secondUserCache = $"integration_profile:user_id:{friendship.Owner.UserId}";
@@ -112,12 +122,14 @@ public static class FriendshipEndpoints
 
         if (friendship == null) return Results.NotFound();
 
-        friendship.Reject();
+        // Already cleared - stay idempotent rather than raising a second FriendRequestRejected
+        // and pushing social.FriendRequestRejected twice.
+        if (!friendship.Reject()) return Results.Accepted();
 
         // Mirrors AcceptAsync/RevokeAsync, which both update the Related side too - without this
         // the initiator's own (PendingOutgoing) row was left stuck forever, so a rejected request
         // kept showing as "pending" to the initiator even though the recipient had rejected it.
-        friendship.Related.Reject();
+        friendship.Related?.Reject();
 
         return Results.Accepted();
     }
@@ -133,8 +145,11 @@ public static class FriendshipEndpoints
 
         if (friendship == null) return Results.NotFound();
 
-        friendship.Remove();
-        friendship.Related.Remove();
+        // Same idempotency guard as Accept/Reject - a repeated revoke must not re-raise
+        // FriendRemoved and push social.FriendRemoved a second time.
+        if (!friendship.Remove()) return Results.Ok();
+
+        friendship.Related?.Remove();
 
         return Results.Ok();
     }

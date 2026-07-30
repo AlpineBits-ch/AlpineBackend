@@ -1,5 +1,8 @@
+using Echo.Realtime;
 using Federation.Contracts.Materialization.Social;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Social.Api.Dtos.Realtime;
 using Social.Domain.Aggregate;
 using Social.Domain.Enums;
 using Social.Infrastructure.Persistence;
@@ -19,7 +22,8 @@ namespace Social.Api.Bus.Federation;
 /// </summary>
 public class SocialMaterializationHandlers
 {
-    public static async Task Handle(FederatedFriendRequestReceived message, MicroserviceContext db, CancellationToken ct)
+    public static async Task Handle(FederatedFriendRequestReceived message, MicroserviceContext db,
+        IHubContext<EchoRealtimeHub> hub, CancellationToken ct)
     {
         var remoteProfile = await GetOrCreateShadowProfileAsync(db, message.SenderId, message.OriginInstanceId, ct);
         var localProfile = await db.Profiles.FirstOrDefaultAsync(p => p.UserId == message.TargetUserId, ct);
@@ -42,34 +46,60 @@ public class SocialMaterializationHandlers
         var incoming = relationships.First(r => r.OwnerId == localProfile.Id);
         db.Relationships.Add(incoming);
         await db.SaveChangesAsync(ct);
+
+        await PushAsync(hub, incoming, localProfile, remoteProfile, "social.FriendRequestCreated");
     }
 
-    public static async Task Handle(FederatedFriendAcceptedReceived message, MicroserviceContext db, CancellationToken ct)
+    public static Task Handle(FederatedFriendAcceptedReceived message, MicroserviceContext db,
+        IHubContext<EchoRealtimeHub> hub, CancellationToken ct)
+        => ApplyRemoteTransitionAsync(db, hub, message.SenderId, RelationshipStatus.Friends,
+            "social.FriendRequestAccepted", ct);
+
+    public static Task Handle(FederatedFriendRejectedReceived message, MicroserviceContext db,
+        IHubContext<EchoRealtimeHub> hub, CancellationToken ct)
+        => ApplyRemoteTransitionAsync(db, hub, message.SenderId, RelationshipStatus.None,
+            "social.FriendRequestRejected", ct);
+
+    public static Task Handle(FederatedFriendRemovedReceived message, MicroserviceContext db,
+        IHubContext<EchoRealtimeHub> hub, CancellationToken ct)
+        => ApplyRemoteTransitionAsync(db, hub, message.SenderId, RelationshipStatus.None,
+            "social.FriendRemoved", ct);
+
+    /// <summary>
+    /// Applies a remote-driven status change to the local user's own relationship row and pushes
+    /// the matching social.* event. The status is assigned directly rather than through
+    /// Relationship.Accept()/Remove() on purpose: those raise domain events, which Federation
+    /// turns back into outbound federation messages - i.e. it would echo the remote instance's own
+    /// change straight back at it. Skips when the row is already in the target state so a
+    /// redelivered federation message doesn't push twice.
+    /// </summary>
+    private static async Task ApplyRemoteTransitionAsync(
+        MicroserviceContext db, IHubContext<EchoRealtimeHub> hub, string senderId,
+        RelationshipStatus status, string eventName, CancellationToken ct)
     {
-        var relationship = await FindLocalSideAsync(db, message.SenderId, ct);
-        if (relationship is null) return;
+        var found = await FindLocalSideAsync(db, senderId, ct);
+        if (found is null) return;
 
-        relationship.Status = RelationshipStatus.Friends;
+        var (relationship, remoteProfile) = found.Value;
+        if (relationship.Status == status) return;
+
+        relationship.Status = status;
         await db.SaveChangesAsync(ct);
+
+        await PushAsync(hub, relationship, relationship.Owner, remoteProfile, eventName);
     }
 
-    public static async Task Handle(FederatedFriendRejectedReceived message, MicroserviceContext db, CancellationToken ct)
-    {
-        var relationship = await FindLocalSideAsync(db, message.SenderId, ct);
-        if (relationship is null) return;
-
-        relationship.Status = RelationshipStatus.None;
-        await db.SaveChangesAsync(ct);
-    }
-
-    public static async Task Handle(FederatedFriendRemovedReceived message, MicroserviceContext db, CancellationToken ct)
-    {
-        var relationship = await FindLocalSideAsync(db, message.SenderId, ct);
-        if (relationship is null) return;
-
-        relationship.Status = RelationshipStatus.None;
-        await db.SaveChangesAsync(ct);
-    }
+    private static Task PushAsync(
+        IHubContext<EchoRealtimeHub> hub, Relationship relationship, Profile localProfile,
+        Profile remoteProfile, string eventName)
+        => hub.Clients.User(localProfile.UserId).SendAsync(eventName, new FriendRelationshipPayload
+        {
+            RelationshipId = relationship.Id,
+            Status = relationship.Status,
+            UserId = remoteProfile.UserId,
+            ProfileId = remoteProfile.Id,
+            UserName = remoteProfile.UserName,
+        });
 
     private static async Task<Profile> GetOrCreateShadowProfileAsync(
         MicroserviceContext db, string federatedUserId, string originInstanceId, CancellationToken ct)
@@ -91,14 +121,21 @@ public class SocialMaterializationHandlers
         return profile;
     }
 
-    private static async Task<Relationship?> FindLocalSideAsync(
+    private static async Task<(Relationship Relationship, Profile RemoteProfile)?> FindLocalSideAsync(
         MicroserviceContext db, string remoteFederatedId, CancellationToken ct)
     {
         var remoteProfile = await db.Profiles.FirstOrDefaultAsync(p => p.UserId == remoteFederatedId, ct);
         if (remoteProfile is null) return null;
 
-        // The local side is whichever of the pair isn't the remote shadow profile.
-        return await db.Relationships.FirstOrDefaultAsync(
-            r => r.OwnerId == remoteProfile.Id || r.TargetId == remoteProfile.Id, ct);
+        // The local side is the row *owned by the local user*, i.e. the one merely targeting the
+        // remote shadow profile. Matching on OwnerId too (as this used to) is wrong for a locally
+        // initiated request, where both mirrored rows exist locally and the remote-owned one could
+        // win the FirstOrDefault - flipping the mirror while leaving the local user's own row
+        // stuck pending, and leaving no local user to push to.
+        var relationship = await db.Relationships
+            .Include(r => r.Owner)
+            .FirstOrDefaultAsync(r => r.TargetId == remoteProfile.Id, ct);
+
+        return relationship is null ? null : (relationship, remoteProfile);
     }
 }

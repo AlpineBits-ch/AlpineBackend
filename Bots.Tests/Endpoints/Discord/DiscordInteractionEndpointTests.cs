@@ -13,6 +13,7 @@ public class DiscordInteractionEndpointTests
 {
     private FakeMessagingBus _bus = null!;
     private PendingInteractionStore _pendingStore = null!;
+    private FakeBotsHubContext _hub = null!;
     private DiscordInteractionEndpoint _endpoint = null!;
 
     [SetUp]
@@ -20,6 +21,7 @@ public class DiscordInteractionEndpointTests
     {
         _bus = new FakeMessagingBus();
         _pendingStore = new PendingInteractionStore(new FakeDistributedCache());
+        _hub = new FakeBotsHubContext();
         _endpoint = new DiscordInteractionEndpoint();
     }
 
@@ -34,7 +36,7 @@ public class DiscordInteractionEndpointTests
     [Test]
     public async Task Callback_UnknownToken_ReturnsNotFound()
     {
-        var result = await _endpoint.CallbackAsync("intr_1", "never-saved-token", new InteractionCallbackPayload { Type = 4 }, _pendingStore, _bus);
+        var result = await _endpoint.CallbackAsync("intr_1", "never-saved-token", new InteractionCallbackPayload { Type = 4 }, _pendingStore, _bus, _hub);
 
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -44,7 +46,7 @@ public class DiscordInteractionEndpointTests
     {
         await SavePendingAsync("token-abc", interactionId: "intr_other");
 
-        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", new InteractionCallbackPayload { Type = 4 }, _pendingStore, _bus);
+        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", new InteractionCallbackPayload { Type = 4 }, _pendingStore, _bus, _hub);
 
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -55,7 +57,7 @@ public class DiscordInteractionEndpointTests
         await SavePendingAsync("token-abc");
 
         var callback = new InteractionCallbackPayload { Type = 4, Data = new InteractionResponseDataPayload { Content = "pong" } };
-        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus);
+        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
 
         Assert.That(result, Is.InstanceOf<Ok>());
         var command = _bus.Invoked.OfType<CreateMessageCommand>().Single();
@@ -67,7 +69,7 @@ public class DiscordInteractionEndpointTests
     {
         await SavePendingAsync("token-abc");
 
-        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", new InteractionCallbackPayload { Type = 5 }, _pendingStore, _bus);
+        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", new InteractionCallbackPayload { Type = 5 }, _pendingStore, _bus, _hub);
 
         Assert.That(result, Is.InstanceOf<Ok>());
         Assert.That(_bus.Invoked.OfType<CreateMessageCommand>(), Is.Empty);
@@ -81,7 +83,7 @@ public class DiscordInteractionEndpointTests
     {
         await SavePendingAsync("token-abc");
 
-        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", new InteractionCallbackPayload { Type = 99 }, _pendingStore, _bus);
+        var result = await _endpoint.CallbackAsync("intr_1", "token-abc", new InteractionCallbackPayload { Type = 99 }, _pendingStore, _bus, _hub);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -164,5 +166,212 @@ public class DiscordInteractionEndpointTests
 
         Assert.That(_bus.Invoked.OfType<CreateMessageCommand>(), Is.Not.Empty);
         Assert.That(GetValue(result), Is.Not.Null);
+    }
+
+    // ── Components on a response ──────────────────────────────────────────────
+
+    [Test]
+    public async Task Callback_WithComponents_PersistsThemAsJson()
+    {
+        await SavePendingAsync("token-abc");
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.ChannelMessageWithSource,
+            Data = new InteractionResponseDataPayload
+            {
+                Content = "Pick one",
+                Components =
+                [
+                    new ComponentPayload
+                    {
+                        Type = ComponentType.ActionRow,
+                        Components =
+                        [
+                            new ComponentPayload { Type = ComponentType.Button, CustomId = "confirm", Label = "Confirm", Style = 1 },
+                        ],
+                    },
+                ],
+            },
+        };
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var command = _bus.Invoked.OfType<CreateMessageCommand>().Single();
+        Assert.That(command.ComponentsJson, Does.Contain("confirm"));
+    }
+
+    // ── Ephemeral (flag 64) ───────────────────────────────────────────────────
+
+    [Test]
+    public async Task Callback_Ephemeral_IsNeverWrittenToTheMessageStore()
+    {
+        await SavePendingAsync("token-abc");
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.ChannelMessageWithSource,
+            Data = new InteractionResponseDataPayload { Content = "only you", Flags = 64 },
+        };
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        Assert.That(_bus.Invoked.OfType<CreateMessageCommand>(), Is.Empty,
+            "persisting an ephemeral reply would put a private message into channel history");
+    }
+
+    [Test]
+    public async Task Callback_Ephemeral_GoesOnlyToTheInvokingUser()
+    {
+        await SavePendingAsync("token-abc");
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.ChannelMessageWithSource,
+            Data = new InteractionResponseDataPayload { Content = "only you", Flags = 64 },
+        };
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var send = _hub.HubClients.Sent.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(send.Method, Is.EqualTo("guild.EphemeralMessageCreated"));
+            Assert.That(send.UserId, Is.EqualTo("usr_invoker"));
+        });
+    }
+
+    [Test]
+    public async Task Callback_EphemeralWithComponents_RegistersThemForLaterValidation()
+    {
+        await SavePendingAsync("token-abc");
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.ChannelMessageWithSource,
+            Data = new InteractionResponseDataPayload
+            {
+                Content = "only you",
+                Flags = 64,
+                Components =
+                [
+                    new ComponentPayload
+                    {
+                        Type = ComponentType.ActionRow,
+                        Components = [new ComponentPayload { Type = ComponentType.Button, CustomId = "ephemeral-btn" }],
+                    },
+                ],
+            },
+        };
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        // The ephemeral message has no row to validate a later click against, so its custom_ids
+        // are parked in Redis instead - without this the button would be unusable.
+        var send = _hub.HubClients.Sent.Single();
+        var ephemeralId = send.Args[0]!.GetType().GetProperty("Id")!.GetValue(send.Args[0])!.ToString()!;
+
+        var record = await _pendingStore.GetEphemeralAsync(ephemeralId);
+        Assert.That(record, Is.Not.Null);
+        Assert.That(record!.CustomIds, Does.Contain("ephemeral-btn"));
+    }
+
+    // ── UPDATE_MESSAGE (type 7) ───────────────────────────────────────────────
+
+    [Test]
+    public async Task Callback_UpdateMessage_WithoutAnOriginatingMessage_ReturnsBadRequest()
+    {
+        // A slash command interaction has no message to update.
+        await SavePendingAsync("token-abc");
+
+        var result = await _endpoint.CallbackAsync("intr_1", "token-abc",
+            new InteractionCallbackPayload { Type = InteractionCallbackType.UpdateMessage }, _pendingStore, _bus, _hub);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task Callback_UpdateMessage_EditsTheOriginalAndMayClearComponents()
+    {
+        await _pendingStore.SaveAsync("token-abc", new PendingInteraction(
+            "intr_1", "usr_bot1", "gld_1", "ch_1", "usr_invoker", "confirm", Acknowledged: false,
+            MessageId: "mesg_1", InteractionType: InteractionType.MessageComponent));
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.UpdateMessage,
+            Data = new InteractionResponseDataPayload { Content = "Confirmed.", Components = [] },
+        };
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var update = _bus.Invoked.OfType<UpdateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(update.MessageId, Is.EqualTo("mesg_1"));
+            Assert.That(update.AllowBotAuthorEdit, Is.True,
+                "the clicking human is not the message author, so the ordinary author check cannot apply");
+            Assert.That(update.ComponentsJson, Is.EqualTo("[]"),
+                "an empty array is how 'disable the buttons now the flow is done' is expressed");
+        });
+    }
+
+    // ── Modal (type 9) ────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task Callback_Modal_IsPushedToTheInvokerAndNeverBecomesAMessage()
+    {
+        await SavePendingAsync("token-abc");
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.Modal,
+            Data = new InteractionResponseDataPayload { CustomId = "feedback-modal", Title = "Feedback" },
+        };
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var send = _hub.HubClients.Sent.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(send.Method, Is.EqualTo("guild.ModalOpen"));
+            Assert.That(send.UserId, Is.EqualTo("usr_invoker"));
+            Assert.That(_bus.Invoked.OfType<CreateMessageCommand>(), Is.Empty);
+        });
+    }
+
+    // ── Autocomplete (type 8) ─────────────────────────────────────────────────
+
+    [Test]
+    public async Task Callback_AutocompleteResult_IsParkedForThePollingRequest()
+    {
+        await SavePendingAsync("token-abc", interactionId: "intr_auto");
+
+        var callback = new InteractionCallbackPayload
+        {
+            Type = InteractionCallbackType.AutocompleteResult,
+            Data = new InteractionResponseDataPayload
+            {
+                Choices = [new AutocompleteChoicePayload { Name = "Berlin" }],
+            },
+        };
+
+        await _endpoint.CallbackAsync("intr_auto", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var stored = await _pendingStore.GetAutocompleteResultAsync("intr_auto");
+        Assert.That(stored, Does.Contain("Berlin"));
+    }
+
+    [Test]
+    public async Task Callback_DeferredUpdateMessage_IsAcknowledgedLikeTheOtherDefer()
+    {
+        await SavePendingAsync("token-abc");
+
+        var result = await _endpoint.CallbackAsync("intr_1", "token-abc",
+            new InteractionCallbackPayload { Type = InteractionCallbackType.DeferredUpdateMessage }, _pendingStore, _bus, _hub);
+
+        Assert.That(result, Is.InstanceOf<Ok>());
+        var pending = await _pendingStore.GetAsync("token-abc");
+        Assert.That(pending!.Acknowledged, Is.True);
     }
 }

@@ -16,9 +16,22 @@ public interface IMessageRepository
     public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(
         string channelId, int take, int skip);
 
+    /// <summary>Cursor-anchored page, oldest-first like the offset overloads above. Returns an
+    /// empty page when the anchor id does not exist in the context - the caller cannot
+    /// distinguish that from "no messages there", which is deliberate: both mean the client's
+    /// cursor is stale and it should re-fetch from the top.</summary>
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagePageByCursorAsync(
+        MessagePageQuery query);
+
     public Task<Message> UpdateMessageAsync(Message message);
 
     public Task DeleteMessageAsync(Message message);
+
+    /// <summary>Deletes a batch of already-loaded messages. Takes entities rather than ids because
+    /// the Scylla backing store needs the full primary key (context_id, created_at, message_id) to
+    /// delete a row, and only created_at makes that resolvable - an id-only overload would have to
+    /// re-read every message anyway.</summary>
+    public Task DeleteMessagesAsync(IReadOnlyCollection<Message> messages);
 
     public Task<Message> PinMessageAsync(Message message, string pinnedById);
 

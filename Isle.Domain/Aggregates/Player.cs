@@ -88,7 +88,7 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     public void LinkUserId(string userId)
     {
         this.UserId = userId;
-        this.AddDomainEvent(PlayerUserIdUnlinked.FromPlayer(this));
+        this.AddDomainEvent(PlayerUserIdLinked.FromPlayer(this));
     }
 
     public void UnlinkUserId()

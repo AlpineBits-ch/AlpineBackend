@@ -35,6 +35,21 @@ public class PurgeUserDataCommandHandler
             var relationships = await ctx.Relationships
                 .Where(r => r.OwnerId == profile.Id || r.TargetId == profile.Id)
                 .ToListAsync();
+
+            // Each friendship is two rows that reference each other via RelatedId (a self-FK -
+            // see FriendshipEndpoints.CreateAsync's cross-linking comment). Deleting both rows of
+            // a pair in the same batch is a circular dependency EF's change tracker can't
+            // topologically sort ("Unable to save changes because a circular dependency was
+            // detected"), regardless of how many pairs are involved. Breaking the cycle requires
+            // an explicit intermediate save nulling RelatedId first - the same early-flush
+            // exception already used for the mirror problem (inserting a circular pair) in
+            // FriendshipEndpoints.CreateAsync.
+            foreach (var relationship in relationships)
+            {
+                relationship.RelatedId = null;
+            }
+            await ctx.SaveChangesAsync();
+
             ctx.Relationships.RemoveRange(relationships);
         }
 

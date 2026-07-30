@@ -10,6 +10,14 @@ namespace Guild.Domain.Entity;
 /// </summary>
 public class TemplateSnapshot
 {
+    /// <summary>Without these two, "create a house from a template" would replay household
+    /// channels into a guild whose household modules are switched off. Templates captured before
+    /// this landed deserialize as Community/None, which Guild.Create reads as "take the preset" -
+    /// see its Features assignment.</summary>
+    public GuildKind Kind { get; set; } = GuildKind.Community;
+
+    public GuildFeatures Features { get; set; } = GuildFeatures.None;
+
     public List<TemplateRole> Roles { get; set; } = [];
     public List<TemplateCategory> Categories { get; set; } = [];
     public List<TemplateChannel> UncategorizedChannels { get; set; } = [];

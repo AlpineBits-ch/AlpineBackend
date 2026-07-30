@@ -15,6 +15,11 @@ public class CreateGuildParams
     public required string OwnerSearchValue { get; init; }
     public string? OwnerNickname { get; init; }
 
+    public GuildKind Kind { get; init; } = GuildKind.Community;
+
+    /// <summary>Overrides the preset <see cref="Kind"/> would otherwise seed.</summary>
+    public GuildFeatures? Features { get; init; }
+
     /// <summary>When true, skips seeding the default "Text Channels"/"Voice Channels"
     /// categories - used by Discord-import, which populates its own category/channel tree
     /// instead. The @everyone role and owner membership are still always created.</summary>
@@ -49,6 +54,13 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
 
     public GuildVerificationLevel VerificationLevel { get; set; } = GuildVerificationLevel.None;
 
+    /// <summary>What this guild is - drives the client shell and seeds <see cref="Features"/>.
+    /// Nothing here gates on it directly; see <see cref="GuildFeatures"/>.</summary>
+    public GuildKind Kind { get; set; } = GuildKind.Community;
+
+    /// <summary>The modules this guild actually has.</summary>
+    public GuildFeatures Features { get; set; } = GuildFeaturePresets.Community;
+
     public static Guild Create(CreateGuildParams parameters)
     {
         var id = Guild.GenerateId();
@@ -62,6 +74,11 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
             Name = parameters.Name,
             Description = parameters.Description,
             OwnerId = parameters.OwnerId,
+            Kind = parameters.Kind,
+            // An explicitly-replayed feature set wins; otherwise the kind's preset.
+            Features = parameters.Features is null or GuildFeatures.None
+                ? GuildFeaturePresets.For(parameters.Kind)
+                : parameters.Features.Value,
             Categories = parameters.SkipDefaultChannels ? new List<Category>() : Category.GetDefault(id),
             Members = [new GuildMember()
             {

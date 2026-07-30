@@ -60,6 +60,9 @@ public class MicroserviceContext : DbContext
             options.MapEnum<WikiVisibility>();
             options.MapEnum<AuditActionType>();
             options.MapEnum<GuildVerificationLevel>();
+            // GuildKind only - GuildFeatures is a [Flags] ulong and maps to numeric(20,0) the
+            // same way Permissions already does, with no enum type in Postgres.
+            options.MapEnum<GuildKind>();
             options.MapEnum<GuildScheduledEventStatus>();
             options.MapEnum<OnboardingPromptType>();
             options.MapEnum<OnboardingMode>();

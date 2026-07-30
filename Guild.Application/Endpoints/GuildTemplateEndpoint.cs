@@ -44,6 +44,8 @@ public class GuildTemplateEndpoint
 
         var snapshot = new TemplateSnapshot
         {
+            Kind = guild.Kind,
+            Features = guild.Features,
             Roles = guild.Roles
                 .Where(r => r.Type != RoleType.Everyone)
                 .Select(r => new TemplateRole { Name = r.Name, Color = r.Color, Position = r.Position, Permissions = r.Permissions })
@@ -137,6 +139,8 @@ public class GuildTemplateEndpoint
             OwnerSearchValue = searchValue,
             OwnerNickname = profileResponse.Profile.UserName,
             SkipDefaultChannels = true,
+            Kind = template.Snapshot.Kind,
+            Features = template.Snapshot.Features,
         });
 
         ctx.Guilds.Add(guild);

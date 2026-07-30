@@ -6,5 +6,22 @@ namespace Guild.Application.Dtos.Response;
 [Facet(typeof(ChannelPermission), NestedFacets = [typeof(ChannelDto), typeof(ChannelPermissionDto), typeof(GuildDto), typeof(RoleDto)])]
 public partial class ChannelPermissionDto
 {
-    
+
+}
+
+/// <summary>
+/// An overwrite reduced to its scoping ids and its allow/deny masks — no Channel, Category, Role or
+/// Guild object hanging off it.
+/// </summary>
+[Facet(typeof(ChannelPermission),
+    Include =
+    [
+        "Id", "CreatedAt", "UpdatedAt",
+        nameof(ChannelPermission.ChannelId), nameof(ChannelPermission.CategoryId),
+        nameof(ChannelPermission.RoleId), nameof(ChannelPermission.MemberId),
+        nameof(ChannelPermission.AllowPermissions), nameof(ChannelPermission.DenyPermissions),
+    ])]
+public partial class FlatChannelPermissionDto
+{
+
 }

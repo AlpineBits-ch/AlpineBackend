@@ -177,9 +177,13 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             return Unauthorized();
         }
 
-        var member = await ctx.GuildMembers.
-            Where(m => m.GuildId == guildId && m.UserId == userId)
-            .AsSplitQuery().SingleFacetAsync<GuildMember, SelfMemberDto>();
+        // First, not Single: SingleAsync throws — and so 500s — both when the caller isn't a member
+        // of this guild and if a duplicate membership row ever exists. Neither is a server fault.
+        var member = await ctx.GuildMembers
+            .Where(m => m.GuildId == guildId && m.UserId == userId)
+            .AsSplitQuery().FirstFacetAsync<GuildMember, SelfMemberDto>();
+
+        if (member is null) return NotFound();
 
         return Ok(member);
 

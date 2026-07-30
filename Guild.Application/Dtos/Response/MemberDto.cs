@@ -15,7 +15,8 @@ public enum OnlineStatus
     DoNotDisturb,
 }
 
-[Facet(typeof(GuildMember), nameof(GuildMember.Guild), nameof(GuildMember.RoleMembers), NestedFacets = [typeof(InviteDto), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]
+/// <summary>A member as seen by other members.</summary>
+[Facet(typeof(GuildMember), nameof(GuildMember.Guild), nameof(GuildMember.RoleMembers), NestedFacets = [typeof(FlatInviteDto), typeof(FlatChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]
 public partial class MemberDto
 {
     public OnlineStatus Status { get; set; }
@@ -23,11 +24,12 @@ public partial class MemberDto
     public List<MemberRoleAssignmentDto> RoleMembers { get; set; } = [];
 }
 
+/// <summary>The caller's own membership.</summary>
 [Facet(typeof(GuildMember), nameof(GuildMember.Guild),
-    NestedFacets = [typeof(InviteDto), typeof(FlatRoleMember), typeof(ChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 2)]
+    NestedFacets = [typeof(FlatInviteDto), typeof(FlatRoleMember), typeof(FlatChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 2)]
 public partial class SelfMemberDto
 {
-    
+
 }
 
 [Facet(typeof(Role), Include = ["Id", "CreatedAt", "UpdatedAt", nameof(Role.Permissions)])]

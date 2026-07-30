@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Alba;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services.Qr;
 using Identity.Application.Services.Steam;
 using Identity.Contracts.Bus.Commands;
 using Identity.Contracts.Bus.Response;
@@ -307,6 +308,149 @@ public class ConnectControllerTests
             ["refresh_token"] = refreshToken!,
             ["client_id"] = "echo",
         }, HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task Exchange_RefreshTokenGrant_RevokedSession_ReturnsUnauthorized()
+    {
+        var username = $"connrevoked{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(username));
+
+        var initial = await RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = "password",
+            ["username"] = username,
+            ["password"] = Password,
+            ["client_id"] = "echo",
+            ["scope"] = "offline_access",
+        }, HttpStatusCode.OK);
+        var refreshToken = (await initial.ReadAsJsonAsync<JsonElement>()).GetProperty("refresh_token").GetString();
+
+        await RunInScopeAsync(async sp =>
+        {
+            var ctx = sp.GetRequiredService<MicroserviceContext>();
+            var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+            var session = await ctx.LoginSessions.FirstAsync(s => s.UserId == user.Id);
+            session.Revoke();
+            await ctx.SaveChangesAsync();
+            return true;
+        });
+
+        // The revoked session's own refresh token must now be rejected, even though the JWT
+        // signature itself is still valid - this is the enforcement point that makes
+        // DELETE api/v1/sessions/{id} actually do something.
+        await RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken!,
+            ["client_id"] = "echo",
+        }, HttpStatusCode.Unauthorized);
+    }
+
+    // ── QR login grant ───────────────────────────────────────────────────────
+
+    private static async Task SeedQrStateAsync(string code, QrPairingState state)
+    {
+        using var scope = Host.Services.CreateScope();
+        var cache = scope.ServiceProvider.GetRequiredService<IDistributedCache>();
+        await cache.SetStringAsync(QrLoginService.PairingCacheKey(code), JsonSerializer.Serialize(state));
+    }
+
+    [Test]
+    public async Task Exchange_QrGrant_ApprovedCode_ReturnsAccessTokenAndCreatesSession()
+    {
+        var username = $"connqrok{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(username));
+        var userId = await RunInScopeAsync(async sp =>
+        {
+            var ctx = sp.GetRequiredService<MicroserviceContext>();
+            var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+            return user.Id;
+        });
+
+        var code = Guid.NewGuid().ToString("N");
+        await SeedQrStateAsync(code, new QrPairingState(QrPairingStatus.Approved, "Test Desktop", DeviceType.Desktop, userId));
+
+        var result = await RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = QrLoginService.QrGrantType,
+            [QrLoginService.CodeParameter] = code,
+            ["client_id"] = "echo",
+        }, HttpStatusCode.OK);
+
+        var body = await result.ReadAsJsonAsync<JsonElement>();
+        Assert.That(body.GetProperty("access_token").GetString(), Is.Not.Null.And.Not.Empty);
+
+        await RunInScopeAsync(async sp =>
+        {
+            var ctx = sp.GetRequiredService<MicroserviceContext>();
+            var session = await ctx.LoginSessions.FirstOrDefaultAsync(s => s.UserId == userId);
+            Assert.That(session, Is.Not.Null);
+            Assert.That(session!.DeviceName, Is.EqualTo("Test Desktop"));
+            Assert.That(session.DeviceType, Is.EqualTo(DeviceType.Desktop));
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task Exchange_QrGrant_CodeConsumedAfterUse_SecondAttemptFails()
+    {
+        var username = $"connqrreuse{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(username));
+        var userId = await RunInScopeAsync(async sp =>
+        {
+            var ctx = sp.GetRequiredService<MicroserviceContext>();
+            var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+            return user.Id;
+        });
+
+        var code = Guid.NewGuid().ToString("N");
+        await SeedQrStateAsync(code, new QrPairingState(QrPairingStatus.Approved, "Test Desktop", DeviceType.Desktop, userId));
+
+        var form = new Dictionary<string, string>
+        {
+            ["grant_type"] = QrLoginService.QrGrantType,
+            [QrLoginService.CodeParameter] = code,
+            ["client_id"] = "echo",
+        };
+
+        await RequestTokenAsync(form, HttpStatusCode.OK);
+        await RequestTokenAsync(form, HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task Exchange_QrGrant_MissingCodeParameter_ReturnsBadRequest()
+    {
+        await RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = QrLoginService.QrGrantType,
+            ["client_id"] = "echo",
+        }, HttpStatusCode.BadRequest);
+    }
+
+    [Test]
+    public async Task Exchange_QrGrant_UnknownCode_ReturnsUnauthorized()
+    {
+        await RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = QrLoginService.QrGrantType,
+            [QrLoginService.CodeParameter] = Guid.NewGuid().ToString("N"),
+            ["client_id"] = "echo",
+        }, HttpStatusCode.Unauthorized);
+    }
+
+    [Test]
+    public async Task Exchange_QrGrant_NotYetApproved_ReturnsUnauthorized()
+    {
+        var code = Guid.NewGuid().ToString("N");
+        await SeedQrStateAsync(code, new QrPairingState(QrPairingStatus.Scanned, "Test Desktop", DeviceType.Desktop, "some-user"));
+
+        await RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = QrLoginService.QrGrantType,
+            [QrLoginService.CodeParameter] = code,
+            ["client_id"] = "echo",
+        }, HttpStatusCode.Unauthorized);
     }
 
     // ── Steam grant ───────────────────────────────────────────────────────────

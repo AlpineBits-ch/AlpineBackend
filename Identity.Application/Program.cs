@@ -2,6 +2,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AppEnvironment;
+using Identity.Application.Services.Qr;
 using Identity.Application.Services.Steam;
 using Identity.Contracts;
 using Identity.Domain.Aggregates;
@@ -67,6 +68,7 @@ builder.Services.AddOpenIddict()
         options.AllowRefreshTokenFlow();
         options.AllowClientCredentialsFlow();
         options.AllowCustomFlow(SteamOpenIdService.SteamGrantType);
+        options.AllowCustomFlow(QrLoginService.QrGrantType);
 
         if (builder.Environment.IsProduction())
         {
@@ -221,7 +223,8 @@ using var scope = app.Services.CreateScope();
 
 var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
 
-if (await manager.FindByClientIdAsync("echo") == null)
+var echoApplication = await manager.FindByClientIdAsync("echo");
+if (echoApplication == null)
 {
     await manager.CreateAsync(new OpenIddictApplicationDescriptor
     {
@@ -233,11 +236,25 @@ if (await manager.FindByClientIdAsync("echo") == null)
             OpenIddictConstants.Permissions.GrantTypes.Password,
             OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
             OpenIddictConstants.Permissions.Prefixes.GrantType + SteamOpenIdService.SteamGrantType,
+            OpenIddictConstants.Permissions.Prefixes.GrantType + QrLoginService.QrGrantType,
             OpenIddictConstants.Permissions.Scopes.Email,
             OpenIddictConstants.Permissions.Scopes.Profile,
             OpenIddictConstants.Permissions.Scopes.Roles,
         }
     });
+}
+else
+{
+    // The block above only runs once, on first-ever startup - on every environment that
+    // already has an "echo" client row, a newly added grant type (like the QR login one)
+    // would otherwise never reach its permission list. Diff-and-update instead so adding a
+    // grant type here always takes effect on the next deploy, not just on a fresh DB.
+    var descriptor = new OpenIddictApplicationDescriptor();
+    await manager.PopulateAsync(descriptor, echoApplication);
+    if (descriptor.Permissions.Add(OpenIddictConstants.Permissions.Prefixes.GrantType + QrLoginService.QrGrantType))
+    {
+        await manager.UpdateAsync(echoApplication, descriptor);
+    }
 }
 
 await app.RunJasperFxCommands(args);

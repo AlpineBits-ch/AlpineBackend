@@ -20,6 +20,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<UserVoipToken> UserVoipTokens { get; set; }
 
     public DbSet<UserDeviceBackup> UserDeviceBackups { get; set; }
+    public DbSet<LoginSession> LoginSessions { get; set; }
     
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -162,7 +163,16 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
             device.Property(d => d.DeviceName).IsRequired();
             device.HasIndex(d => d.ClientDeviceId).IsUnique();
         });
-        
+
+        modelBuilder.Entity<LoginSession>(session =>
+        {
+            session.HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            session.HasIndex(s => s.UserId);
+        });
+
         modelBuilder.UseOpenIddict();
 
     }

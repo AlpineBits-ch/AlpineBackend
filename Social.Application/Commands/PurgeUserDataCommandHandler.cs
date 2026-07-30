@@ -26,6 +26,15 @@ public class PurgeUserDataCommandHandler
             var relationships = await ctx.Relationships
                 .Where(r => r.OwnerId == profile.Id || r.TargetId == profile.Id)
                 .ToListAsync();
+
+            // Each friendship is two rows that reference each other via RelatedId (a self-FK - see
+            // FriendshipEndpoints.CreateAsync's cross-linking comment).
+            foreach (var relationship in relationships)
+            {
+                relationship.RelatedId = null;
+            }
+            await ctx.SaveChangesAsync();
+
             ctx.Relationships.RemoveRange(relationships);
         }
 

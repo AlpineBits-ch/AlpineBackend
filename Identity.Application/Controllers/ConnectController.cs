@@ -1,11 +1,16 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
+using System.Text.Json;
+using Identity.Application.Services.Qr;
 using Identity.Application.Services.Steam;
 using Identity.Domain.Aggregates;
+using Identity.Domain.Entities;
 using Identity.Domain.Enums;
+using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
@@ -15,15 +20,17 @@ namespace Identity.Application.Controllers;
 [ApiController]
 [Route("connect")]
 public class ConnectController(SignInManager<ApplicationUser> signInManager,
-    UserManager<ApplicationUser> manager, IDistributedCache cache, ILogger<ConnectController> logger) : ControllerBase
+    UserManager<ApplicationUser> manager, IDistributedCache cache, MicroserviceContext ctx,
+    ILogger<ConnectController> logger) : ControllerBase
 {
     [HttpPost("token")]
     public async Task<IActionResult> Exchange()
     {
-        var request = HttpContext.GetOpenIddictServerRequest() ?? 
+        var request = HttpContext.GetOpenIddictServerRequest() ??
                       throw new InvalidOperationException("The OpenID Connect request cannot be retrieved.");
 
         ApplicationUser user;
+        LoginSession session;
 
         if (request.IsPasswordGrantType())
         {
@@ -39,9 +46,9 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             {
                 logger.LogInformation("User {username} is not verified", request.Username);
                 return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
-                
+
             }
-            
+
             if (!await manager.CheckPasswordAsync(user, request.Password))
             {
                 logger.LogInformation("The username {username} or password is incorrect", request.Username);
@@ -76,6 +83,8 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                     }
                 }
             }
+
+            session = CreateSession(user, request);
         }
         else if (request.IsRefreshTokenGrantType())
         {
@@ -92,9 +101,19 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             {
                 logger.LogInformation("User {username} is not verified", request.Username);
                 return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
-                
+
             }
 
+            // The access/refresh token pair carries the session_id claim set below the first time
+            // this session was established - resolve it back to enforce revocation.
+            var sessionId = info.Principal?.FindFirstValue("session_id");
+            if (string.IsNullOrWhiteSpace(sessionId)) return Unauthorized();
+
+            var existingSession = await ctx.LoginSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
+            if (existingSession is null || existingSession.IsRevoked) return Unauthorized();
+
+            existingSession.Touch();
+            session = existingSession;
         }
         else if (request.GrantType == SteamOpenIdService.SteamGrantType)
         {
@@ -122,6 +141,39 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 logger.LogInformation("User {userId} is not allowed to sign in", userId);
                 return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
+
+            session = CreateSession(user, request);
+        }
+        else if (request.GrantType == QrLoginService.QrGrantType)
+        {
+            var code = (string?)request.GetParameter(QrLoginService.CodeParameter);
+            if (string.IsNullOrEmpty(code))
+            {
+                return BadRequest("The qr_code parameter is missing.");
+            }
+
+            // Single-use, same as the Steam ticket above: consume before acting so a redelivered
+            // exchange request can't redeem the same approval twice.
+            var cacheKey = QrLoginService.PairingCacheKey(code);
+            var stateJson = await cache.GetStringAsync(cacheKey);
+            if (stateJson is null) return Unauthorized();
+            var state = JsonSerializer.Deserialize<QrPairingState>(stateJson);
+            if (state is null || state.Status != QrPairingStatus.Approved || state.UserId is null)
+            {
+                return Unauthorized();
+            }
+            await cache.RemoveAsync(cacheKey);
+
+            user = await manager.FindByIdAsync(state.UserId);
+            if (user == null) return NotFound();
+
+            if (!user.IsSigninAllowed())
+            {
+                logger.LogInformation("User {userId} is not allowed to sign in", state.UserId);
+                return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
+            }
+
+            session = CreateSession(user, request, deviceName: state.DeviceName, deviceType: state.DeviceType);
         }
         else if (request.IsClientCredentialsGrantType())
         {
@@ -136,13 +188,18 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 logger.LogInformation("Bot {clientId} is not allowed to sign in", request.ClientId);
                 return StatusCode(StatusCodes.Status403Forbidden, "Bot account is disabled.");
             }
+
+            session = CreateSession(user, request, deviceName: "Bot", deviceType: DeviceType.Web);
         }
         else { return BadRequest("The grant type is not supported."); }
+
+        await ctx.SaveChangesAsync();
 
         // Create the ClaimsPrincipal
         var principal = await signInManager.CreateUserPrincipalAsync(user);
         principal.SetClaim(OpenIddictConstants.Claims.Subject, await manager.GetUserIdAsync(user));
         principal.SetClaim(OpenIddictConstants.Claims.Email, user.Email);
+        principal.SetClaim("session_id", session.Id);
         if (user.UserType == UserType.Bot)
         {
             // Lets every downstream service detect "is this caller a bot" straight from the JWT,
@@ -157,5 +214,44 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
         }
 
         return SignIn(principal, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    }
+
+    /// <summary>
+    /// Builds (and stages, via <c>ctx.LoginSessions.Add</c>) a new LoginSession for a fresh login.
+    /// </summary>
+    private LoginSession CreateSession(ApplicationUser user, OpenIddictRequest request,
+        string? deviceName = null, DeviceType? deviceType = null)
+    {
+        var name = deviceName;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = (string?)request.GetParameter("device_name");
+        }
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            var ua = Request.Headers.UserAgent.ToString();
+            name = string.IsNullOrWhiteSpace(ua) ? "Unknown device" : ua;
+        }
+
+        var type = deviceType;
+        if (type is null)
+        {
+            var deviceTypeParam = (string?)request.GetParameter("device_type");
+            type = Enum.TryParse<DeviceType>(deviceTypeParam, ignoreCase: true, out var parsed) ? parsed : DeviceType.Web;
+        }
+
+        var userAgentHeader = Request.Headers.UserAgent.ToString();
+
+        var session = LoginSession.Create(new CreateLoginSessionParams
+        {
+            UserId = user.Id,
+            DeviceName = name,
+            DeviceType = type.Value,
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = string.IsNullOrWhiteSpace(userAgentHeader) ? null : userAgentHeader,
+        });
+
+        ctx.LoginSessions.Add(session);
+        return session;
     }
 }

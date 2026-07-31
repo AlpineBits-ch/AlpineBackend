@@ -22,12 +22,19 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
         ("linux-x86_64-rpm",   ".x86_64.rpm",       ".x86_64.rpm.sig"),
     ];
 
+    // How far back we walk when the newest releases have no (or incomplete) assets yet.
+    private const int MaxReleasesToScan = 20;
+
     private record PlatformEntry(string signature, string url);
 
     [HttpGet("check/{currentVersion}")]
     public async Task<IActionResult> CheckUpdate(string currentVersion)
     {
-        var latest = await client.Repository.Release.GetLatest(Owner, Repo);
+        // A release that is still being built/uploaded on GitHub has no assets yet, so ladder
+        // down to the newest release that actually carries a usable platform asset + signature.
+        var latest = await FindNewestUsableRelease(HasAnyCompletePlatformAsset);
+        if (latest == null)
+            return NotFound("No release with supported platform assets found.");
 
         string latestVersion = latest.TagName.TrimStart('v');
         if (latestVersion == currentVersion.TrimStart('v'))
@@ -47,7 +54,9 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
 
         var signatures = await Task.WhenAll(signatureTasks);
 
-        var baseUrl = $"https://api.venta.gg/api/v1/update/download/latest";
+        // Pin the download to the resolved version so the binary always matches the signature
+        // handed out above, even if a newer (still empty) release shows up in the meantime.
+        var baseUrl = $"https://api.venta.gg/api/v1/update/download/{latest.TagName}";
         var platforms = signatures
             .Where(s => s.Sig != null)
             .ToDictionary(
@@ -74,11 +83,43 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
         if (entry == default)
             return BadRequest($"Unsupported platform: {platform}");
 
-        var latest = await client.Repository.Release.GetLatest(Owner, Repo);
-        var asset = latest.Assets.FirstOrDefault(a => a.Name.EndsWith(entry.Suffix));
+        // Same laddering as the check endpoint: skip releases that do not carry this asset yet.
+        var release = await FindNewestUsableRelease(r => r.Assets.Any(a => a.Name.EndsWith(entry.Suffix)));
+        if (release == null)
+        {
+            logger.LogInformation("Asset not found in any recent release for platform: {platform}", platform);
+            return NotFound();
+        }
+
+        return await StreamAsset(release, entry);
+    }
+
+    [HttpGet("download/{version}/{platform}")]
+    public async Task<IActionResult> DownloadVersion(string version, string platform)
+    {
+        var entry = PlatformAssets.FirstOrDefault(p => p.Platform == platform);
+        if (entry == default)
+            return BadRequest($"Unsupported platform: {platform}");
+
+        var releases = await GetRecentReleases();
+        var release = releases.FirstOrDefault(r =>
+            string.Equals(r.TagName.TrimStart('v'), version.TrimStart('v'), StringComparison.OrdinalIgnoreCase));
+
+        if (release == null)
+        {
+            logger.LogInformation("Release not found: {version}", version);
+            return NotFound();
+        }
+
+        return await StreamAsset(release, entry);
+    }
+
+    private async Task<IActionResult> StreamAsset(Release release, (string Platform, string Suffix, string SigSuffix) entry)
+    {
+        var asset = release.Assets.FirstOrDefault(a => a.Name.EndsWith(entry.Suffix));
         if (asset == null)
         {
-            logger.LogInformation("Asset not found for platform: {platform}", platform);
+            logger.LogInformation("Asset not found for platform {platform} in release {tag}", entry.Platform, release.TagName);
             return NotFound();
         }
 
@@ -86,6 +127,42 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
         var bytes = await assetResponse.Content.ReadAsByteArrayAsync();
         return File(bytes, "application/octet-stream", asset.Name);
     }
+
+    /// <summary>
+    /// Walks the published releases from newest to oldest and returns the first one satisfying
+    /// <paramref name="isUsable"/>. Releases that are still brewing (no assets uploaded yet) are
+    /// skipped instead of failing the request.
+    /// </summary>
+    private async Task<Release?> FindNewestUsableRelease(Func<Release, bool> isUsable)
+    {
+        var releases = await GetRecentReleases();
+
+        foreach (var release in releases)
+        {
+            if (isUsable(release))
+                return release;
+
+            logger.LogInformation("Skipping release {tag}: no usable assets yet.", release.TagName);
+        }
+
+        return null;
+    }
+
+    private async Task<IReadOnlyList<Release>> GetRecentReleases()
+    {
+        var options = new ApiOptions { PageSize = MaxReleasesToScan, PageCount = 1 };
+        var releases = await client.Repository.Release.GetAll(Owner, Repo, options);
+
+        return releases
+            .Where(r => r is { Draft: false, Prerelease: false })
+            .OrderByDescending(r => r.PublishedAt ?? r.CreatedAt)
+            .ToList();
+    }
+
+    private static bool HasAnyCompletePlatformAsset(Release release) =>
+        PlatformAssets.Any(p =>
+            release.Assets.Any(a => a.Name.EndsWith(p.Suffix)) &&
+            release.Assets.Any(a => a.Name.EndsWith(p.SigSuffix)));
 
     private async Task<HttpResponseMessage> FetchGitHubAsset(string assetUrl, string acceptHeader)
     {

@@ -37,7 +37,11 @@ public record MlsOperationResult(MlsOperationStatus Status, object? Value = null
 /// permissions - so authorization stays in the endpoints and everything below it lives here once.
 /// Nothing in this class knows or cares which kind of context it is holding.</para>
 /// </summary>
-public class MlsGroupService(MicroserviceContext ctx, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+public class MlsGroupService(
+    MicroserviceContext ctx,
+    IHubContext<EchoRealtimeHub> hub,
+    IMessageBus bus,
+    MlsJoinRequestService joinRequests)
 {
     /// <summary>Minimum spacing between toggles of the same context.
     ///
@@ -324,6 +328,10 @@ public class MlsGroupService(MicroserviceContext ctx, IHubContext<EchoRealtimeHu
         }
 
         StoreWelcomes(dto.Welcomes, contextId, conversationId, channelId, active.Generation, dto.Epoch);
+
+        // In the same transaction as the commit: a request marked fulfilled by a commit that then
+        // failed to store would look admitted while holding no leaf at all.
+        await joinRequests.FulfilAsync(contextId, dto.FulfilledJoinRequestIds, now);
 
         var cutoff = now - CommitRetention;
         var expired = await ctx.MlsCommits

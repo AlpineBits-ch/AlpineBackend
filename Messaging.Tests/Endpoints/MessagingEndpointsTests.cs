@@ -66,7 +66,7 @@ public class MessagingEndpointsTests
     /// acceptable. With no generation rows seeded, every context in this fixture reads as
     /// unencrypted, so these tests keep exercising the plaintext path exactly as before.</summary>
     private MlsGroupService MakeMlsService(FakeMessageBus bus) =>
-        new(_context, new FakeMessagingHubContext(), bus);
+        new(_context, new FakeMessagingHubContext(), bus, new MlsJoinRequestService(_context));
 
     private static Message FakeHandlerReturnFor(CreateMessageCommand cmd) => Message.Create(new CreateMessageParams
     {

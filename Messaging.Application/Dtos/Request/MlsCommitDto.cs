@@ -32,6 +32,11 @@ public class PublishMlsCommitDto
     public byte[]? GroupInfo { get; set; }
 
     public List<DeviceWelcomeDto> Welcomes { get; set; } = new();
+
+    /// <summary>Join requests this commit admits. Closed only here, never on approval: a request is
+    /// fulfilled when the device is genuinely in the group, and an approval that never produced a
+    /// commit must leave the request open for someone else to act on.</summary>
+    public List<string> FulfilledJoinRequestIds { get; set; } = new();
 }
 
 /// <summary>Ids of Welcomes whose group the device has actually joined. See

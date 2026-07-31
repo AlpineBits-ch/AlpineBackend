@@ -4,6 +4,7 @@ using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
+using Messaging.Contracts.Bus.Events;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Infrastructure.Persistence;
@@ -230,6 +231,118 @@ public class MlsEndpoints
             return Results.Forbid();
 
         return Results.Ok(await mls.GetCommitsAsync(channelId, generation, sinceEpoch));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Join requests
+    //
+    // The server holds no group keys, so it cannot admit anyone - only a current member can produce
+    // an Add commit. Admission is therefore a request that members review, and the approval that
+    // meets the threshold prompts that member's client to mint the Welcome.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Asks to be let into an encrypted channel. Needs ViewChannel: you must be able to see
+    /// the channel to ask for its contents.</summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests")]
+    public static async Task<IResult> RequestChannelAccess(
+        string channelId,
+        SubmitJoinRequestDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        var result = await joinRequests.SubmitAsync(
+            channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow);
+
+        if (result.Status == MlsOperationStatus.Ok)
+        {
+            // Members need to see the badge without polling. Guild owns channel membership, so the
+            // announcement goes the same way channel messages already do.
+            await bus.PublishAsync(new ChannelMlsJoinRequested
+            {
+                ChannelId = channelId,
+                RequesterUserId = userId,
+            });
+        }
+
+        return ToHttp(result);
+    }
+
+    /// <summary>The review queue for a channel. ViewChannel, because any member may vouch.</summary>
+    [WolverineGet("/api/v1/channels/{channelId}/mls/join-requests")]
+    public static async Task<IResult> ListChannelJoinRequests(
+        string channelId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return Results.Ok(await joinRequests.ListPendingAsync(channelId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>
+    /// Vouches for a request. Any current member may - only someone who can already read the
+    /// channel is in a position to let someone else in, and gating this on moderators would leave a
+    /// channel unable to admit anyone whenever its moderators are away.
+    /// </summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests/{requestId}/approve")]
+    public static async Task<IResult> ApproveChannelJoinRequest(
+        string channelId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return ToHttp(await joinRequests.ApproveAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests/{requestId}/deny")]
+    public static async Task<IResult> DenyChannelJoinRequest(
+        string channelId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return ToHttp(await joinRequests.DenyAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Withdraws your own request. No permission check beyond ownership - the service
+    /// reports someone else's request as not-found rather than confirming it exists.</summary>
+    [WolverineDelete("/api/v1/channels/{channelId}/mls/join-requests/{requestId}")]
+    public static async Task<IResult> CancelChannelJoinRequest(
+        string channelId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        return ToHttp(await joinRequests.CancelAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

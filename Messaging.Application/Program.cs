@@ -86,6 +86,7 @@ builder.Services.AddHttpClient("CloudflareRtc", client =>
 });
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 builder.Services.AddScoped<ConversationPermissionService>();
+builder.Services.AddScoped<MlsJoinRequestService>();
 builder.Services.AddScoped<MlsGroupService>();
 builder.Services.AddScoped<IceServerService>();
 if (args.Contains("codegen") || args.Contains("describe"))

@@ -14,8 +14,11 @@
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="coverlet.MTP" Version="10.0.1" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
         <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.9.0" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
         <PackageReference Include="NUnit" Version="4.6.1" />
         <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
           <PrivateAssets>all</PrivateAssets>
@@ -31,5 +34,18 @@
     <ItemGroup>
       <ProjectReference Include="..\Domain\Domain.csproj" />
     </ItemGroup>
-   
+
+    <!--
+      The facet tests in Facets/ discover facets, DbContexts and entities purely by reflection over
+      whatever assemblies end up in this project's output folder. Referencing the service projects by
+      wildcard is what makes that "every project in the repo" instead of "the ones somebody
+      remembered to add": a new microservice is covered the moment its folder exists.
+      Facets live in *.Application (plus the Echo host), DbContexts live in *.Infrastructure.
+    -->
+    <ItemGroup>
+      <ProjectReference Include="..\*.Application\*.Application.csproj" />
+      <ProjectReference Include="..\*.Infrastructure\*.Infrastructure.csproj" />
+      <ProjectReference Include="..\Echo\Echo.csproj" />
+    </ItemGroup>
+
 </Project>

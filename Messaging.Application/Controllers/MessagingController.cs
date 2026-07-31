@@ -94,7 +94,7 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
 
             foreach (var message in messages)
             {
-                message.Reactions = reactionsByMessage.GetValueOrDefault(message.Id, []);
+                message.Reactions = reactionsByMessage.GetValueOrDefault(message.Id, []).SelectFacets<Reaction, ReactionDto>().ToList();
             }
             return Ok(messages);
         }
@@ -147,7 +147,7 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
 
             foreach (var message in messages)
             {
-                message.Reactions = reactionsByMessage.GetValueOrDefault(message.Id, []);
+                message.Reactions = reactionsByMessage.GetValueOrDefault(message.Id, []).SelectFacets<Reaction, ReactionDto>().ToList();
             }
             return Ok(messages);
         }

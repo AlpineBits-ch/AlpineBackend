@@ -3,7 +3,14 @@ using Guild.Domain.Entity;
 
 namespace Guild.Application.Dtos.Response;
 
-[Facet(typeof(ChannelPermission), NestedFacets = [typeof(ChannelDto), typeof(ChannelPermissionDto), typeof(GuildDto), typeof(RoleDto)])]
+/// <summary>Category and Member are excluded rather than nested: an overwrite is polymorphic, so
+/// at most one of them is ever set, and CategoryId/MemberId already say which. Nesting them would
+/// also pull GuildMember's own graph into every guild response - see
+/// <see cref="FlatChannelPermissionDto"/> for what expanding these navigations already cost us
+/// once.</summary>
+[Facet(typeof(ChannelPermission),
+    nameof(ChannelPermission.Category), nameof(ChannelPermission.Member),
+    NestedFacets = [typeof(ChannelDto), typeof(ChannelPermissionDto), typeof(GuildDto), typeof(RoleDto)])]
 public partial class ChannelPermissionDto
 {
 

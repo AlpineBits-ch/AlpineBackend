@@ -89,7 +89,7 @@ public class CheckPlayerConnectedToVoiceHandlerTests
         Assert.That(delivery.Message.PlayerId, Is.EqualTo(player.Id));
         Assert.That(delivery.Message.SteamId, Is.EqualTo(player.SteamId));
         Assert.That(delivery.Message.KickAt, Is.EqualTo(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(10)).Within(TimeSpan.FromSeconds(5)));
-        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromSeconds(60)));
+        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromMinutes(5)));
     }
 
     // --- Handle(EnsurePlayerConnectedToVoiceEvent) ------------------------------------------------
@@ -155,8 +155,9 @@ public class CheckPlayerConnectedToVoiceHandlerTests
     }
 
     [Test]
-    public async Task HandleEnsureConnected_GracePeriodExpired_KicksThePlayerAndReturnsNull()
+    public async Task HandleEnsureConnected_GracePeriodExpired_NeverKicksAndKeepsReminding()
     {
+        // Kicking is currently disabled — an expired deadline just means another reminder.
         var player = await AddPlayerAsync("steam_regular");
         var @event = new EnsurePlayerConnectedToVoiceEvent
         {
@@ -165,9 +166,10 @@ public class CheckPlayerConnectedToVoiceHandlerTests
 
         var result = await _handler.Handle(@event, _client, _registry, _rcon, _context);
 
-        Assert.That(result, Is.Null);
-        await _rcon.Received(1).ExecuteAsync(Arg.Any<Func<EvrimaRconClient, Task>>(), Arg.Any<CancellationToken>());
-        await _client.DidNotReceive().DmAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IsleBridge.Sdk.Models.ChatMode>(), Arg.Any<CancellationToken>());
+        await _rcon.DidNotReceive().ExecuteAsync(Arg.Any<Func<EvrimaRconClient, Task>>(), Arg.Any<CancellationToken>());
+        await _client.Received(1).DmAsync(Arg.Any<string>(), player.SteamId, "VENTA.GG", Arg.Any<IsleBridge.Sdk.Models.ChatMode>(), Arg.Any<CancellationToken>());
+        var delivery = (DeliveryMessage<EnsurePlayerConnectedToVoiceEvent>)result!;
+        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromMinutes(5)));
     }
 
     [Test]
@@ -184,12 +186,11 @@ public class CheckPlayerConnectedToVoiceHandlerTests
         await _client.Received(1).DmAsync(Arg.Any<string>(), player.SteamId, "VENTA.GG", Arg.Any<IsleBridge.Sdk.Models.ChatMode>(), Arg.Any<CancellationToken>());
         Assert.That(result, Is.InstanceOf<DeliveryMessage<EnsurePlayerConnectedToVoiceEvent>>());
         var delivery = (DeliveryMessage<EnsurePlayerConnectedToVoiceEvent>)result!;
-        // Remaining time (~5 min) exceeds the 120s reminder cadence, so the cadence wins.
-        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromSeconds(120)));
+        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromMinutes(5)));
     }
 
     [Test]
-    public async Task HandleEnsureConnected_RemainingTimeShorterThanCadence_ReschedulesForRemainingTimeOnly()
+    public async Task HandleEnsureConnected_RemainingTimeShorterThanCadence_StillUsesTheFullCadence()
     {
         var player = await AddPlayerAsync("steam_regular");
         var @event = new EnsurePlayerConnectedToVoiceEvent
@@ -200,7 +201,7 @@ public class CheckPlayerConnectedToVoiceHandlerTests
         var result = await _handler.Handle(@event, _client, _registry, _rcon, _context);
 
         var delivery = (DeliveryMessage<EnsurePlayerConnectedToVoiceEvent>)result!;
-        // Remaining time (~30s) is shorter than the 120s cadence, so the final tick lands at KickAt.
-        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromSeconds(30)).Within(TimeSpan.FromSeconds(2)));
+        // With kicking disabled there is no deadline to land on, so KickAt no longer clamps the delay.
+        Assert.That(delivery.Options.ScheduleDelay, Is.EqualTo(TimeSpan.FromMinutes(5)));
     }
 }

@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Echo.E2E.Tests.Hosts;
+using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -42,8 +43,7 @@ public class FederationTwoInstanceTests
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(register, identity, "Register failed");
 
         var token = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -52,8 +52,7 @@ public class FederationTwoInstanceTests
             ["password"] = password,
             ["client_id"] = "echo",
         }));
-        Assert.That(token.IsSuccessStatusCode, Is.True,
-            $"Token request failed: {await token.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(token, identity, "Token request failed");
 
         var body = await token.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("access_token").GetString()!;
@@ -68,8 +67,7 @@ public class FederationTwoInstanceTests
         var initiateResponse = await _pair.A.Federation.Client.PostAsJsonAsync(
             "/api/v1/admin/federation/initiate",
             new { TargetHost = $"http://127.0.0.1:{_pair.B.Federation.Port}" });
-        Assert.That(initiateResponse.IsSuccessStatusCode, Is.True,
-            $"Handshake initiation failed: {await initiateResponse.Content.ReadAsStringAsync()}\n{_pair.A.Federation.CapturedOutput}");
+        await E2EAssert.SucceededAsync(initiateResponse, _pair.A.Federation, "Handshake initiation failed");
 
         // A's side records B as Active synchronously in the initiate call. B's side (the inbound
         // receiver) applies its acceptance policy (AutoAccept by default) in the same request,
@@ -95,7 +93,6 @@ public class FederationTwoInstanceTests
                 await Task.Delay(500, CancellationToken.None);
         }
 
-        Assert.That(isActive, Is.True,
-            $"Instance A never recorded instance B as Active.\n{_pair.A.Federation.CapturedOutput}");
+        E2EAssert.Held(isActive, _pair.A.Federation, $"Instance A never recorded instance B as Active.");
     }
 }

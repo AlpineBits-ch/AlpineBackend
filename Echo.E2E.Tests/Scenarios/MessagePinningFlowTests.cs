@@ -66,8 +66,7 @@ public class MessagePinningFlowTests
             Content = "pin me",
             ChannelId = textChannelId,
         });
-        Assert.That(sendResponse.IsSuccessStatusCode, Is.True,
-            $"Send message failed: {await sendResponse.Content.ReadAsStringAsync()}\n{_stack.Messaging.CapturedOutput}");
+        await E2EAssert.SucceededAsync(sendResponse, _stack.Messaging, "Send message failed");
         var message = await sendResponse.Content.ReadFromJsonAsync<JsonElement>();
         var messageId = message.GetProperty("id").GetString()!;
         Assert.That(message.GetProperty("isPinned").GetBoolean(), Is.False,
@@ -76,8 +75,7 @@ public class MessagePinningFlowTests
         // --- Act: pin it. ---
 
         var pinResponse = await messaging.PostAsync($"/api/v1/messaging/{messageId}/pin", null);
-        Assert.That(pinResponse.IsSuccessStatusCode, Is.True,
-            $"Pin failed: {await pinResponse.Content.ReadAsStringAsync()}\n{_stack.Messaging.CapturedOutput}");
+        await E2EAssert.SucceededAsync(pinResponse, _stack.Messaging, "Pin failed");
         var pinBody = await pinResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Multiple(() =>
         {
@@ -109,8 +107,7 @@ public class MessagePinningFlowTests
         // --- Act: unpin it. ---
 
         var unpinResponse = await messaging.DeleteAsync($"/api/v1/messaging/{messageId}/pin");
-        Assert.That(unpinResponse.IsSuccessStatusCode, Is.True,
-            $"Unpin failed: {await unpinResponse.Content.ReadAsStringAsync()}\n{_stack.Messaging.CapturedOutput}");
+        await E2EAssert.SucceededAsync(unpinResponse, _stack.Messaging, "Unpin failed");
 
         // --- Assert: gone from the pinned list. ---
 
@@ -171,8 +168,7 @@ public class MessagePinningFlowTests
         var messageId = message.GetProperty("id").GetString()!;
 
         var pinResponse = await messagingA.PostAsync($"/api/v1/messaging/{messageId}/pin", null);
-        Assert.That(pinResponse.IsSuccessStatusCode, Is.True,
-            $"Pin DM failed: {await pinResponse.Content.ReadAsStringAsync()}\n{_stack.Messaging.CapturedOutput}");
+        await E2EAssert.SucceededAsync(pinResponse, _stack.Messaging, "Pin DM failed");
         var pinBody = await pinResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.That(pinBody.GetProperty("conversationId").GetString(), Is.EqualTo(conversationId));
 

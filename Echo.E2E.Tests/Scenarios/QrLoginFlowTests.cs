@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
+using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -42,8 +43,7 @@ public class QrLoginFlowTests
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(register, identity, "Register failed");
         return (await register.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("userId").GetString()!;
     }
 
@@ -60,8 +60,7 @@ public class QrLoginFlowTests
         if (offlineAccess) form["scope"] = "offline_access";
 
         var response = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(form));
-        Assert.That(response.IsSuccessStatusCode, Is.True,
-            $"Login failed: {await response.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(response, identity, "Login failed");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var refresh = body.TryGetProperty("refresh_token", out var r) ? r.GetString() : null;
         return (body.GetProperty("access_token").GetString()!, refresh);
@@ -87,8 +86,7 @@ public class QrLoginFlowTests
         // --- Desktop (unauthenticated) starts a pairing code. ---
         var startResponse = await _stack.Identity.Client.PostAsJsonAsync("/api/v1/qr-login/start",
             new { DeviceName = "Echo Desktop - E2E", DeviceType = "Desktop" });
-        Assert.That(startResponse.IsSuccessStatusCode, Is.True,
-            $"Start failed: {await startResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(startResponse, _stack.Identity, "Start failed");
         var startBody = await startResponse.Content.ReadFromJsonAsync<JsonElement>();
         var code = startBody.GetProperty("code").GetString()!;
 
@@ -104,16 +102,14 @@ public class QrLoginFlowTests
 
         // --- Mobile (authenticated) scans it. ---
         var scanResponse = await mobile.PostAsJsonAsync("/api/v1/qr-login/scan", new { Code = code });
-        Assert.That(scanResponse.IsSuccessStatusCode, Is.True,
-            $"Scan failed: {await scanResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(scanResponse, _stack.Identity, "Scan failed");
         var scanBody = await scanResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.That(scanBody.GetProperty("deviceName").GetString(), Is.EqualTo("Echo Desktop - E2E"));
         Assert.That(await PollStatusAsync(), Is.EqualTo("Scanned"));
 
         // --- Mobile approves it. ---
         var approveResponse = await mobile.PostAsJsonAsync("/api/v1/qr-login/approve", new { Code = code, Approve = true });
-        Assert.That(approveResponse.IsSuccessStatusCode, Is.True,
-            $"Approve failed: {await approveResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(approveResponse, _stack.Identity, "Approve failed");
         Assert.That(await PollStatusAsync(), Is.EqualTo("Approved"));
 
         // --- Desktop redeems the approval for its own independent tokens. ---
@@ -124,8 +120,7 @@ public class QrLoginFlowTests
                 ["qr_code"] = code,
                 ["client_id"] = "echo",
             }));
-        Assert.That(exchangeResponse.IsSuccessStatusCode, Is.True,
-            $"Exchange failed: {await exchangeResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(exchangeResponse, _stack.Identity, "Exchange failed");
         var exchangeBody = await exchangeResponse.Content.ReadFromJsonAsync<JsonElement>();
         var desktopToken = exchangeBody.GetProperty("access_token").GetString()!;
         Assert.That(desktopToken, Is.Not.Null.And.Not.Empty);
@@ -174,8 +169,7 @@ public class QrLoginFlowTests
 
         await mobile.PostAsJsonAsync("/api/v1/qr-login/scan", new { Code = code });
         var denyResponse = await mobile.PostAsJsonAsync("/api/v1/qr-login/approve", new { Code = code, Approve = false });
-        Assert.That(denyResponse.IsSuccessStatusCode, Is.True,
-            $"Deny failed: {await denyResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(denyResponse, _stack.Identity, "Deny failed");
 
         var exchangeResponse = await _stack.Identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
             new Dictionary<string, string>
@@ -222,8 +216,8 @@ public class QrLoginFlowTests
             .GetProperty("id").GetString();
 
         var revokeResponse = await mobile.DeleteAsync($"/api/v1/sessions/{desktopSessionId}");
-        Assert.That(revokeResponse.StatusCode, Is.EqualTo(HttpStatusCode.NoContent),
-            $"Revoke failed: {await revokeResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.HasStatusAsync(revokeResponse, HttpStatusCode.NoContent, _stack.Identity,
+            "Revoke failed");
 
         var refreshResponse = await _stack.Identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
             new Dictionary<string, string>

@@ -37,8 +37,7 @@ public static class E2EUsers
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(register, identity, "Register failed");
         var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
         var userId = registerBody.GetProperty("userId").GetString()!;
 
@@ -50,8 +49,7 @@ public static class E2EUsers
                 ["password"] = password,
                 ["client_id"] = "echo",
             }));
-        Assert.That(tokenResponse.IsSuccessStatusCode, Is.True,
-            $"Token request failed: {await tokenResponse.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(tokenResponse, identity, "Token request failed");
         var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
         var token = tokenBody.GetProperty("access_token").GetString()!;
 

@@ -88,8 +88,7 @@ public class GuildVerificationLevelFlowTests
             Name = guildName,
             VerificationLevel = "Medium",
         });
-        Assert.That(updateResponse.IsSuccessStatusCode, Is.True,
-            $"Update guild verification level failed: {await updateResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(updateResponse, _stack.Guild, "Update guild verification level failed");
         var updatedGuild = await updateResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.That(updatedGuild.GetProperty("verificationLevel").GetString(), Is.EqualTo("Medium"));
 
@@ -107,8 +106,8 @@ public class GuildVerificationLevelFlowTests
         using var newUserGuild = AuthedClient(_stack.Guild, newUserToken);
 
         var rejectedResponse = await newUserGuild.PostAsync($"/api/v1/invites/{inviteId}/redeem", null);
-        Assert.That(rejectedResponse.StatusCode, Is.EqualTo(HttpStatusCode.Forbidden),
-            $"A fresh account should not meet the Medium verification bar: {await rejectedResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.HasStatusAsync(rejectedResponse, HttpStatusCode.Forbidden, _stack.Guild,
+            "A fresh account should not meet the Medium verification bar");
         var rejectedBody = await rejectedResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Multiple(() =>
         {
@@ -121,8 +120,7 @@ public class GuildVerificationLevelFlowTests
         await BackdateAccountCreationAsync(newUserId, TimeSpan.FromMinutes(10));
 
         var acceptedResponse = await newUserGuild.PostAsync($"/api/v1/invites/{inviteId}/redeem", null);
-        Assert.That(acceptedResponse.IsSuccessStatusCode, Is.True,
-            $"An account old enough to meet the Medium bar should be allowed to join: {await acceptedResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(acceptedResponse, _stack.Guild, "An account old enough to meet the Medium bar should be allowed to join");
     }
 
     [Test]

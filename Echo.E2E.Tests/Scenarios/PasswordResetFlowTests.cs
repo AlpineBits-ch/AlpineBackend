@@ -4,6 +4,7 @@ using System.Text.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
 using StackExchange.Redis;
+using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -52,8 +53,7 @@ public class PasswordResetFlowTests
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(register, identity, "Register failed");
         var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
         return registerBody.GetProperty("userId").GetString()!;
     }
@@ -108,8 +108,8 @@ public class PasswordResetFlowTests
 
         var requestResponse = await _stack.Identity.Client.GetAsync(
             $"/api/v1/user/request-password-reset?email={Uri.EscapeDataString(email)}");
-        Assert.That(requestResponse.StatusCode, Is.EqualTo(HttpStatusCode.Accepted),
-            $"Request password reset failed: {await requestResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.HasStatusAsync(requestResponse, HttpStatusCode.Accepted, _stack.Identity,
+            "Request password reset failed");
 
         var code = await ReadPasswordResetCodeAsync(email);
         Assert.That(code, Is.Not.Null.And.Not.Empty,
@@ -142,8 +142,7 @@ public class PasswordResetFlowTests
             Code = code,
             NewPassword = newPassword,
         });
-        Assert.That(resetResponse.IsSuccessStatusCode, Is.True,
-            $"Reset password failed: {await resetResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(resetResponse, _stack.Identity, "Reset password failed");
 
         // --- Assert: old password no longer works, new one does. ---
 

@@ -67,8 +67,7 @@ public class AnnouncementCrossPostingFlowTests
             Type = "Announcement",
             Position = 1,
         });
-        Assert.That(createAnnouncementChannelResponse.IsSuccessStatusCode, Is.True,
-            $"Create announcement channel failed: {await createAnnouncementChannelResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(createAnnouncementChannelResponse, _stack.Guild, "Create announcement channel failed");
         var announcementChannel = await createAnnouncementChannelResponse.Content.ReadFromJsonAsync<JsonElement>();
         var sourceChannelId = announcementChannel.GetProperty("id").GetString()!;
         Assert.That(announcementChannel.GetProperty("type").GetString(), Is.EqualTo("Announcement"));
@@ -85,8 +84,7 @@ public class AnnouncementCrossPostingFlowTests
         {
             TargetChannelId = targetChannelId,
         });
-        Assert.That(followResponse.IsSuccessStatusCode, Is.True,
-            $"Follow channel failed: {await followResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(followResponse, _stack.Guild, "Follow channel failed");
         var follow = await followResponse.Content.ReadFromJsonAsync<JsonElement>();
         var followId = follow.GetProperty("id").GetString()!;
 
@@ -116,8 +114,7 @@ public class AnnouncementCrossPostingFlowTests
         var messageId = message.GetProperty("id").GetString()!;
 
         var publishResponse = await messaging.PostAsync($"/api/v1/messaging/{messageId}/publish", null);
-        Assert.That(publishResponse.IsSuccessStatusCode, Is.True,
-            $"Publish failed: {await publishResponse.Content.ReadAsStringAsync()}\n{_stack.Messaging.CapturedOutput}");
+        await E2EAssert.SucceededAsync(publishResponse, _stack.Messaging, "Publish failed");
         var publishBody = await publishResponse.Content.ReadFromJsonAsync<JsonElement>();
         Assert.That(publishBody.GetProperty("published").GetInt32(), Is.EqualTo(1));
 

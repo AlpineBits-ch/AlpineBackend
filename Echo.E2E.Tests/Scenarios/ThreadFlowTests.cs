@@ -52,8 +52,7 @@ public class ThreadFlowTests
         // --- Arrange: a guild with its default "general" text channel. ---
 
         var createGuildResponse = await guild.PostAsJsonAsync("/api/v1/guilds", new { Name = "Thread Test Guild" });
-        Assert.That(createGuildResponse.IsSuccessStatusCode, Is.True,
-            $"Create guild failed: {await createGuildResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(createGuildResponse, _stack.Guild, "Create guild failed");
         var createdGuild = await createGuildResponse.Content.ReadFromJsonAsync<JsonElement>();
         var guildId = createdGuild.GetProperty("id").GetString()!;
 
@@ -72,8 +71,7 @@ public class ThreadFlowTests
             Name = "my first thread",
             Content = "hello from inside the thread",
         });
-        Assert.That(createThreadResponse.IsSuccessStatusCode, Is.True,
-            $"Create thread failed: {await createThreadResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(createThreadResponse, _stack.Guild, "Create thread failed");
         var thread = await createThreadResponse.Content.ReadFromJsonAsync<JsonElement>();
         var threadId = thread.GetProperty("id").GetString()!;
 
@@ -87,8 +85,7 @@ public class ThreadFlowTests
         // --- Assert: reading the thread back - both "is it listed" and "is its message there". ---
 
         var listThreadsResponse = await guild.GetAsync($"/api/v1/channels/{textChannelId}/threads");
-        Assert.That(listThreadsResponse.IsSuccessStatusCode, Is.True,
-            $"List threads failed: {await listThreadsResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(listThreadsResponse, _stack.Guild, "List threads failed");
         var threads = await listThreadsResponse.Content.ReadFromJsonAsync<JsonElement>();
         var listedThreadIds = threads.EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
         Assert.That(listedThreadIds, Does.Contain(threadId),
@@ -168,15 +165,16 @@ public class ThreadFlowTests
         {
             Name = "empty thread",
         });
-        Assert.That(createThreadResponse.IsSuccessStatusCode, Is.True,
-            $"Create thread without content failed: {await createThreadResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(createThreadResponse, _stack.Guild, "Create thread without content failed");
         var thread = await createThreadResponse.Content.ReadFromJsonAsync<JsonElement>();
         var threadId = thread.GetProperty("id").GetString()!;
 
         var listThreadsResponse = await guild.GetAsync($"/api/v1/channels/{textChannelId}/threads");
+        await E2EAssert.SucceededAsync(listThreadsResponse, _stack.Guild, "List threads (no-content case) failed");
+        // Read after the assertion, not before: this one is genuinely used, but reading it up front
+        // only to interpolate it into a message that usually never renders is the pattern being
+        // removed here.
         var listThreadsRaw = await listThreadsResponse.Content.ReadAsStringAsync();
-        Assert.That(listThreadsResponse.IsSuccessStatusCode, Is.True,
-            $"List threads (no-content case) failed: status={listThreadsResponse.StatusCode} body={listThreadsRaw}\n{_stack.Guild.CapturedOutput}");
         var threads = JsonDocument.Parse(listThreadsRaw).RootElement;
         var listedThreadIds = threads.EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
         Assert.That(listedThreadIds, Does.Contain(threadId));

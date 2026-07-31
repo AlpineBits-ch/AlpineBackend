@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
 using Npgsql;
+using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -50,8 +51,7 @@ public class CrossServiceFlowTests
             Username = "xserviceuser",
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        Assert.That(registerResponse.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await registerResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(registerResponse, _stack.Identity, "Register failed");
 
         var body = await registerResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
         var userId = body.GetProperty("userId").GetString();
@@ -85,8 +85,8 @@ public class CrossServiceFlowTests
                 await Task.Delay(500, CancellationToken.None);
         }
 
-        Assert.That(found, Is.True,
-            $"Profile was never materialized in Social's database within 30s - UserCreated likely " +
-            $"never arrived over the bus.\n{_stack.Social.CapturedOutput}");
+        E2EAssert.Held(found, _stack.Social,
+            "Profile was never materialized in Social's database within 30s - UserCreated likely "
+            + "never arrived over the bus.");
     }
 }

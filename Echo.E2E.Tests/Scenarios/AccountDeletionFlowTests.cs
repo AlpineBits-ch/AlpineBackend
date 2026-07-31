@@ -184,8 +184,7 @@ public class AccountDeletionFlowTests
             cmd => cmd.Parameters.AddWithValue("id", userIdA),
             reader => reader.Read() && reader.GetString(0).StartsWith("Deleted User") && reader.IsDBNull(1) && reader.GetString(2) == "deleted",
             timeout);
-        Assert.That(identityTombstoned, Is.True,
-            $"Identity tombstone (asp_net_users) never landed within {timeout}.\n{_stack.Identity.CapturedOutput}");
+        E2EAssert.Held(identityTombstoned, _stack.Identity, $"Identity tombstone (asp_net_users) never landed within {timeout}.");
 
         var socialAnonymized = await PollUntilAsync(
             ConnectionString("social_acctdel").ConnectionString,
@@ -193,8 +192,7 @@ public class AccountDeletionFlowTests
             cmd => cmd.Parameters.AddWithValue("id", userIdA),
             reader => reader.Read() && reader.GetString(0).StartsWith("Deleted User"),
             timeout);
-        Assert.That(socialAnonymized, Is.True,
-            $"Social profile anonymization never landed within {timeout}.\n{_stack.Social.CapturedOutput}");
+        E2EAssert.Held(socialAnonymized, _stack.Social, $"Social profile anonymization never landed within {timeout}.");
 
         var relationshipsGone = await PollUntilAsync(
             ConnectionString("social_acctdel").ConnectionString,
@@ -202,8 +200,7 @@ public class AccountDeletionFlowTests
             cmd => cmd.Parameters.AddWithValue("id", userIdA),
             reader => reader.Read() && reader.GetInt64(0) == 0,
             timeout);
-        Assert.That(relationshipsGone, Is.True,
-            $"Relationship rows for the deleted user were never removed within {timeout}.\n{_stack.Social.CapturedOutput}");
+        E2EAssert.Held(relationshipsGone, _stack.Social, $"Relationship rows for the deleted user were never removed within {timeout}.");
 
         var membershipGone = await PollUntilAsync(
             ConnectionString("guild_acctdel").ConnectionString,
@@ -215,8 +212,7 @@ public class AccountDeletionFlowTests
             },
             reader => reader.Read() && reader.GetInt64(0) == 0,
             timeout);
-        Assert.That(membershipGone, Is.True,
-            $"Guild membership for the deleted user was never removed within {timeout}.\n{_stack.Guild.CapturedOutput}");
+        E2EAssert.Held(membershipGone, _stack.Guild, $"Guild membership for the deleted user was never removed within {timeout}.");
 
         var ownershipTransferred = await PollUntilAsync(
             ConnectionString("guild_acctdel").ConnectionString,
@@ -224,8 +220,7 @@ public class AccountDeletionFlowTests
             cmd => cmd.Parameters.AddWithValue("gid", guildId),
             reader => reader.Read() && reader.GetString(0) == userIdB,
             timeout);
-        Assert.That(ownershipTransferred, Is.True,
-            $"Guild ownership was never transferred to the remaining member within {timeout}.\n{_stack.Guild.CapturedOutput}");
+        E2EAssert.Held(ownershipTransferred, _stack.Guild, $"Guild ownership was never transferred to the remaining member within {timeout}.");
 
         var conversationMembershipGone = await PollUntilAsync(
             ConnectionString("messaging_acctdel").ConnectionString,
@@ -237,8 +232,7 @@ public class AccountDeletionFlowTests
             },
             reader => reader.Read() && reader.GetInt64(0) == 0,
             timeout);
-        Assert.That(conversationMembershipGone, Is.True,
-            $"Conversation membership for the deleted user was never removed within {timeout}.\n{_stack.Messaging.CapturedOutput}");
+        E2EAssert.Held(conversationMembershipGone, _stack.Messaging, $"Conversation membership for the deleted user was never removed within {timeout}.");
 
         // Message content/authorship must survive untouched - this is the whole point of the
         // Discord-style tombstone design (see PurgeUserDataCommandHandler's doc comment in

@@ -28,3 +28,8 @@ public class DeviceWelcomeDto
     public byte[] Welcome { get; set; }
     public string UserId { get; set; }
 }
+/// <summary>Adds one person to an existing group conversation.</summary>
+public class AddConversationMemberDto
+{
+    public string UserId { get; set; } = null!;
+}

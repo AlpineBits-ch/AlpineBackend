@@ -111,8 +111,7 @@ public class CustomEmojiReactionFlowTests
             ChannelId = textChannelId,
             EmojiId = emojiId,
         });
-        Assert.That(reactResponse.IsSuccessStatusCode, Is.True,
-            $"React with custom emoji failed: {await reactResponse.Content.ReadAsStringAsync()}\n{_stack.Messaging.CapturedOutput}");
+        await E2EAssert.SucceededAsync(reactResponse, _stack.Messaging, "React with custom emoji failed");
 
         // --- Assert: reading the message back shows the resolved name + the emoji id. ---
 

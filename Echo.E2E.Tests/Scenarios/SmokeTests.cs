@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
+using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -55,8 +56,6 @@ public class SmokeTests
 
         var response = await _stack.Identity.Client.PostAsJsonAsync("/api/v1/authentication/register", request);
 
-        var body = await response.Content.ReadAsStringAsync();
-        Assert.That(response.IsSuccessStatusCode, Is.True,
-            $"Register failed with {response.StatusCode}: {body}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(response, _stack.Identity, "Register failed");
     }
 }

@@ -46,8 +46,7 @@ public class MfaFlowTests
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        Assert.That(register.IsSuccessStatusCode, Is.True,
-            $"Register failed: {await register.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(register, identity, "Register failed");
         var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
         return registerBody.GetProperty("userId").GetString()!;
     }
@@ -70,8 +69,7 @@ public class MfaFlowTests
     private static async Task<string> GetAccessTokenAsync(SpawnedServiceProcess identity, string username, string password)
     {
         var response = await TryTokenAsync(identity, username, password, mfaCode: null);
-        Assert.That(response.IsSuccessStatusCode, Is.True,
-            $"Token request failed: {await response.Content.ReadAsStringAsync()}\n{identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(response, identity, "Token request failed");
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         return body.GetProperty("access_token").GetString()!;
     }
@@ -96,8 +94,7 @@ public class MfaFlowTests
         // --- Step 1: enroll - mints a pending secret, MFA not yet enabled. ---
 
         var enrollResponse = await identity.PostAsync("/api/v1/user/mfa/enroll", null);
-        Assert.That(enrollResponse.IsSuccessStatusCode, Is.True,
-            $"Enroll failed: {await enrollResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(enrollResponse, _stack.Identity, "Enroll failed");
         var enrollBody = await enrollResponse.Content.ReadFromJsonAsync<JsonElement>();
         var secret = enrollBody.GetProperty("secret").GetString()!;
         Assert.That(enrollBody.GetProperty("otpAuthUri").GetString(), Does.Contain("otpauth://totp/"));
@@ -120,8 +117,7 @@ public class MfaFlowTests
 
         var validCode = Totp.GenerateCode(secret);
         var enableResponse = await identity.PostAsJsonAsync("/api/v1/user/mfa/enable", new { Code = validCode });
-        Assert.That(enableResponse.IsSuccessStatusCode, Is.True,
-            $"Enable MFA failed: {await enableResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(enableResponse, _stack.Identity, "Enable MFA failed");
         var enableBody = await enableResponse.Content.ReadFromJsonAsync<JsonElement>();
         var recoveryCodes = enableBody.GetProperty("recoveryCodes").EnumerateArray().Select(c => c.GetString()!).ToList();
         Assert.That(recoveryCodes, Has.Count.EqualTo(8));
@@ -144,15 +140,13 @@ public class MfaFlowTests
 
         var correctCode = Totp.GenerateCode(secret);
         var correctCodeResponse = await TryTokenAsync(_stack.Identity, username, password, mfaCode: correctCode);
-        Assert.That(correctCodeResponse.IsSuccessStatusCode, Is.True,
-            $"Login with a correct MFA code should succeed: {await correctCodeResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(correctCodeResponse, _stack.Identity, "Login with a correct MFA code should succeed");
 
         // --- Step 4: recovery code fallback - works once, then is rejected on reuse. ---
 
         var recoveryCode = recoveryCodes[0];
         var recoveryLoginResponse = await TryTokenAsync(_stack.Identity, username, password, mfaCode: recoveryCode);
-        Assert.That(recoveryLoginResponse.IsSuccessStatusCode, Is.True,
-            $"Login with a valid recovery code should succeed: {await recoveryLoginResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(recoveryLoginResponse, _stack.Identity, "Login with a valid recovery code should succeed");
 
         var recoveryReuseResponse = await TryTokenAsync(_stack.Identity, username, password, mfaCode: recoveryCode);
         Assert.That(recoveryReuseResponse.StatusCode, Is.EqualTo(HttpStatusCode.Unauthorized),
@@ -183,8 +177,7 @@ public class MfaFlowTests
             "Disabling MFA with the wrong password must be rejected.");
 
         var disableResponse = await identity.PostAsJsonAsync("/api/v1/user/mfa/disable", new { Password = password });
-        Assert.That(disableResponse.IsSuccessStatusCode, Is.True,
-            $"Disable MFA failed: {await disableResponse.Content.ReadAsStringAsync()}\n{_stack.Identity.CapturedOutput}");
+        await E2EAssert.SucceededAsync(disableResponse, _stack.Identity, "Disable MFA failed");
 
         var loginResponse = await TryTokenAsync(_stack.Identity, username, password, mfaCode: null);
         Assert.That(loginResponse.IsSuccessStatusCode, Is.True,

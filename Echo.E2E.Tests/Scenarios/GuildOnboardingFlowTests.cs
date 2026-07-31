@@ -107,8 +107,7 @@ public class GuildOnboardingFlowTests
 
         // Redeem returns 200 with no body, so this one is a status assertion rather than ReadJsonAsync.
         var redeemResponse = await joiner.PostAsync($"/api/v1/invites/{inviteId}/redeem", null);
-        Assert.That(redeemResponse.IsSuccessStatusCode, Is.True,
-            $"Redeem invite failed: {await redeemResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(redeemResponse, _stack.Guild, "Redeem invite failed");
 
         var statusBefore = await ReadJsonAsync(
             await joiner.GetAsync($"/api/v1/guilds/{guildId}/onboarding/me"), "Read onboarding status");
@@ -132,8 +131,7 @@ public class GuildOnboardingFlowTests
         {
             Responses = new[] { new { PromptId = promptId, OptionIds = new[] { optionId } } },
         });
-        Assert.That(acceptResponse.IsSuccessStatusCode, Is.True,
-            $"Accept failed: {await acceptResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(acceptResponse, _stack.Guild, "Accept failed");
 
         var statusAfter = await ReadJsonAsync(
             await joiner.GetAsync($"/api/v1/guilds/{guildId}/onboarding/me"), "Re-read onboarding status");
@@ -153,8 +151,7 @@ public class GuildOnboardingFlowTests
         {
             Responses = new[] { new { PromptId = promptId, OptionIds = Array.Empty<string>() } },
         });
-        Assert.That(deselectResponse.IsSuccessStatusCode, Is.True,
-            $"Updating responses failed: {await deselectResponse.Content.ReadAsStringAsync()}\n{_stack.Guild.CapturedOutput}");
+        await E2EAssert.SucceededAsync(deselectResponse, _stack.Guild, "Updating responses failed");
 
         var promptsAfterDeselect = await ReadJsonAsync(
             await joiner.GetAsync($"/api/v1/guilds/{guildId}/onboarding/prompts"), "Re-read Channels & Roles");

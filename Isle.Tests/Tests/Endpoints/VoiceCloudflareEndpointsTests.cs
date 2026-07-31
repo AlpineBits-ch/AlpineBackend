@@ -157,6 +157,81 @@ public class VoiceCloudflareEndpointsTests
         Assert.That(_tracks.TryGet(UserId, out _), Is.False);
     }
 
+    // ── Subscribe retries (per-track Cloudflare failures) ─────────────────
+
+    private static CfTrackNew RemoteAudioTrack => new("remote", SessionId: "cf-peer-session", TrackName: "audio");
+
+    /// A 200 whose sessionDescription is fine but whose track carries Cloudflare's per-track error
+    /// fields instead of a mid - how "that track hasn't propagated to my edge yet" actually arrives.
+    private const string PerTrackErrorBody = """
+        {
+          "requiresImmediateRenegotiation": false,
+          "sessionDescription": { "type": "answer", "sdp": "v=0" },
+          "tracks": [
+            { "trackName": "audio", "sessionId": "cf-peer-session",
+              "errorCode": "TrackNotFound", "errorDescription": "Track not found" }
+          ]
+        }
+        """;
+
+    private const string HealthySubscribeBody = """
+        {
+          "requiresImmediateRenegotiation": false,
+          "sessionDescription": { "type": "answer", "sdp": "v=0 subscribed" },
+          "tracks": [ { "trackName": "audio", "mid": "1", "sessionId": "cf-peer-session" } ]
+        }
+        """;
+
+    [Test]
+    public async Task TracksNew_SubscribeWhoseTrackPropagatesLate_SucceedsOnARetry()
+    {
+        // The point of the retry: VoiceSubscriptionReconcileService marks a pair as pushed once it
+        // has sent SubscribeMutual, regardless of what the client made of it, so a subscribe that
+        // fails here is not re-driven while both peers stay in earshot.
+        _handler.EnqueueJson(System.Net.HttpStatusCode.OK, PerTrackErrorBody);
+        _handler.EnqueueJson(System.Net.HttpStatusCode.OK, HealthySubscribeBody);
+        var body = new IsleTracksNewBody("cf-session", Sdp, [RemoteAudioTrack]);
+
+        var result = await _endpoint.TracksNew(
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+
+        var value = (CfTracksNewResponse)((IValueHttpResult)result).Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(value.Tracks[0].Mid, Is.EqualTo("1"));
+            Assert.That(_handler.Requests, Has.Count.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public void TracksNew_SubscribeThatKeepsFailing_GivesUpAndThrowsRatherThanReportingSuccess()
+    {
+        _handler.EnqueueJson(System.Net.HttpStatusCode.OK, PerTrackErrorBody);
+        var body = new IsleTracksNewBody("cf-session", Sdp, [RemoteAudioTrack]);
+
+        Assert.That(async () => await _endpoint.TracksNew(
+                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None),
+            Throws.TypeOf<CloudflareCallsException>());
+        Assert.That(_handler.Requests, Has.Count.EqualTo(4), "should retry three times before giving up");
+    }
+
+    [Test]
+    public void TracksNew_PublishThatFails_IsNotRetried()
+    {
+        // Retrying a rejected publish only replays the same SDP, and it must still publish nothing.
+        _handler.EnqueueJson(System.Net.HttpStatusCode.OK, PerTrackErrorBody);
+        var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
+
+        Assert.That(async () => await _endpoint.TracksNew(
+                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None),
+            Throws.TypeOf<CloudflareCallsException>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(_handler.Requests, Has.Count.EqualTo(1));
+            Assert.That(_tracks.TryGet(UserId, out _), Is.False);
+        });
+    }
+
     // ── Renegotiate ───────────────────────────────────────────────────────
 
     [Test]

@@ -35,20 +35,9 @@ public class ConversationController(MicroserviceContext ctx) : ControllerBase
     }
 
 
-    [HttpGet("welcomes")]
-    public async Task<IActionResult> GetWelcomeMessages()
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if(userId is null) return BadRequest();
+    // GET welcomes moved to MlsEndpoints.GetWelcomes.
 
-        var welcomes = await ctx.PendingWelcomes.Where(w => w.UserId == userId).ToListAsync();
 
-        ctx.PendingWelcomes.RemoveRange(welcomes);
-        await ctx.SaveChangesAsync();
-        
-        return Ok(welcomes.SelectFacets<PendingWelcome, PendingWelcomeDto>());
-    }
-    
     [HttpGet("{id}")]
     public async Task<IActionResult> GetConversation(string id)
     {

@@ -1,49 +1,80 @@
-﻿using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
-using Identity.Domain.Entities;
 using Identity.Domain.Enums;
 using Identity.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Identity.Application.Consumers;
 
+/// <summary>
+/// Hands out exactly one MLS KeyPackage per active device of each requested user, so the caller can
+/// add every one of those devices to a group.
+/// </summary>
 public class ConsumeMlsTokensForUserHandler
 {
-    public static async Task<ConsumeMlsDeviceTokensForUserResponse> Handle(ConsumeMlsDeviceTokensForUserRequest request, MicroserviceContext ctx)
+    public static async Task<ConsumeMlsDeviceTokensForUserResponse> Handle(
+        ConsumeMlsDeviceTokensForUserRequest request,
+        MicroserviceContext ctx)
     {
-        var tokens = new List<UserKeyPackage>();
+        var now = DateTime.UtcNow;
 
-        var allDevices = new List<UserDevice>();
+        var userIds = request.UserIds?.Distinct().ToList() ?? [];
+        if (userIds.Count == 0) return new ConsumeMlsDeviceTokensForUserResponse();
 
-        foreach (var userId in request.UserIds)
+        // One query for every requested user, and the device is carried alongside its own package
+        // rather than looked up afterwards in a flat list.
+        var devices = await ctx.UserDevices
+            .Where(d => userIds.Contains(d.UserId) && d.Status == DeviceStatus.Active)
+            .Include(d => d.KeyPackages)
+            .ToListAsync();
+
+        var tokens = new List<DeviceTokenResponse>();
+        var unreachable = new List<UnreachableDeviceResponse>();
+
+        foreach (var device in devices)
         {
-            var devices = ctx.UserDevices.Where(x => x.UserId == userId && x.Status == DeviceStatus.Active)
-                .Include(userDevice => userDevice.KeyPackages).ToList();
+            // Single-use first; the last-resort package is a floor, not a substitute.
+            var package = device.KeyPackages
+                .Where(p => p is { IsLastResort: false, ConsumedAt: null } && p.ExpiresAt > now)
+                .MinBy(p => p.CreatedAt);
 
-            foreach (var device in devices)
+            if (package is not null)
             {
-                var token = device.KeyPackages.FirstOrDefault(x => x.ConsumedAt == null);
-                if (token == null)
-                {
-                    continue;
-                }
-                token.ConsumedAt = DateTime.UtcNow;
-                tokens.Add(token);
-                allDevices.AddRange(devices);
+                package.ConsumedAt = now;
             }
+            else
+            {
+                // Reusable by design - see UserKeyPackage.IsLastResort. Deliberately not stamped.
+                package = device.KeyPackages
+                    .Where(p => p.IsLastResort && p.ExpiresAt > now)
+                    .MaxBy(p => p.CreatedAt);
+            }
+
+            if (package is null)
+            {
+                unreachable.Add(new UnreachableDeviceResponse
+                {
+                    UserId = device.UserId,
+                    DeviceId = device.ClientDeviceId,
+                    DeviceName = device.DeviceName,
+                });
+                continue;
+            }
+
+            tokens.Add(new DeviceTokenResponse
+            {
+                // The client device id, not the row id: this is what the caller addresses Welcomes
+                // and per-device realtime pushes to.
+                DeviceId = device.ClientDeviceId,
+                UserId = device.UserId,
+                Token = package.KeyPackage,
+            });
         }
 
-       
-        
-        
-        return new ConsumeMlsDeviceTokensForUserResponse()
+        return new ConsumeMlsDeviceTokensForUserResponse
         {
-            DeviceTokens = tokens.Select(t => new DeviceTokenResponse()
-            {
-                DeviceId = allDevices.Single(d => d.Id == t.DeviceId).ClientDeviceId,
-                UserId = t.UserId,
-                Token = t.KeyPackage,
-            }).ToList()
+            DeviceTokens = tokens,
+            UnreachableDevices = unreachable,
         };
     }
 }

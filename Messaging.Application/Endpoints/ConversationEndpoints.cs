@@ -93,18 +93,30 @@ public class ConversationEndpoints
         };
 
 
-        var tokens = new List<DeviceTokenResponse>();
+        // No token consumption here.
         if (createDto.Encryption == ChannelEncryptionState.Encrypted)
         {
-            var consumedTokens = await messageBus.InvokeAsync<ConsumeMlsDeviceTokensForUserResponse>(new ConsumeMlsDeviceTokensForUserRequest()
+            // A member with no Welcome is a member who can never read the conversation: their
+            // device had no key package left when the client consumed, so it was never added to the
+            // group.
+            var welcomedUserIds = createDto.DeviceWelcomes
+                .Select(w => w.UserId)
+                .ToHashSet();
+
+            var unreachable = createDto.Members
+                .Select(m => m.UserId)
+                .Where(id => !welcomedUserIds.Contains(id))
+                .ToList();
+
+            if (unreachable.Count > 0)
             {
-                UserIds = createDto.Members.Select(m => m.UserId).ToList(),
-            });
-            
-            tokens.AddRange(consumedTokens.DeviceTokens);
+                return Results.BadRequest(
+                    "No MLS key packages were available for these members, so they cannot be added " +
+                    $"to an encrypted conversation: {string.Join(", ", unreachable)}");
+            }
         }
-        
-        
+
+
         var conversation = Conversation.Create(new CreateConversationParams()
         {
             Encryption = createDto.Encryption,
@@ -124,21 +136,15 @@ public class ConversationEndpoints
 
         foreach (var deviceWelcome in createDto.DeviceWelcomes)
         {
-            var id = PendingWelcome.GenerateId();
-            var date = DateTime.UtcNow;
-            
-            var welcome = new PendingWelcome
+            ctx.PendingWelcomes.Add(PendingWelcome.Create(new CreatePendingWelcomeParams
             {
+                ContextId = conversation.Id,
                 ConversationId = conversation.Id,
-                DeviceId = deviceWelcome.DeviceId,
                 UserId = deviceWelcome.UserId,
+                DeviceId = deviceWelcome.DeviceId,
                 Welcome = deviceWelcome.Welcome,
-                CreatedAt = date,
-                UpdatedAt = date,
-                Id = id,
-            };
-            
-            ctx.PendingWelcomes.Add(welcome);
+                Epoch = createDto.MlsEpoch ?? 0,
+            }));
         }
         
         

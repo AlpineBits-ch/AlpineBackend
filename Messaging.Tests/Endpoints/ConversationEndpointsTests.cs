@@ -204,14 +204,15 @@ public class ConversationEndpointsTests
     }
 
     [Test]
-    public async Task CreateConversation_EncryptedConversation_ConsumesMlsDeviceTokens_AndCreates()
+    public async Task CreateConversation_Encrypted_DoesNotConsumeTokensAgain()
     {
+        // The client consumed one key package per invitee device before it built the group - those
+        // packages are what the Welcomes were sealed to.
         var endpoint = new ConversationEndpoints();
         var bus = new FakeMessageBus(msg => msg switch
         {
             GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1", "user-2") },
             GetProfileByUserIdRequest r when r.UserId == "user-2" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-2", "user-1") },
-            ConsumeMlsDeviceTokensForUserRequest => new ConsumeMlsDeviceTokensForUserResponse { DeviceTokens = [] },
             _ => throw new InvalidOperationException("unexpected"),
         });
         var dto = new CreateConversationDto
@@ -221,13 +222,80 @@ public class ConversationEndpointsTests
             MlsEpoch = 1,
             MlsGroupInfo = [4, 5, 6],
             Members = [new CreateConversationMemberDto { UserId = "user-2" }],
+            DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9, 9, 9] }],
         };
 
         var result = await endpoint.CreateConversation(dto, bus, TestPrincipal.ForUser("user-1"), _context);
         await _context.SaveChangesAsync();
 
-        Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
-        Assert.That(bus.Invoked.Any(m => m is ConsumeMlsDeviceTokensForUserRequest), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
+            Assert.That(bus.Invoked.Any(m => m is ConsumeMlsDeviceTokensForUserRequest), Is.False,
+                "The client already consumed the tokens it built the group from");
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_MemberWithNoWelcome_ReturnsBadRequest()
+    {
+        // A member with no Welcome was never added to the MLS group, so they would sit in a
+        // conversation they can never read. Refusing beats creating something silently broken.
+        var endpoint = new ConversationEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1", "user-2") },
+            GetProfileByUserIdRequest r when r.UserId == "user-2" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-2", "user-1") },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+        var dto = new CreateConversationDto
+        {
+            Encryption = ChannelEncryptionState.Encrypted,
+            MlsGroupId = [1, 2, 3],
+            MlsEpoch = 1,
+            MlsGroupInfo = [4, 5, 6],
+            Members = [new CreateConversationMemberDto { UserId = "user-2" }],
+            DeviceWelcomes = [],
+        };
+
+        var result = await endpoint.CreateConversation(dto, bus, TestPrincipal.ForUser("user-1"), _context);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.That(await _context.Conversations.AnyAsync(), Is.False);
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_StoresContextIdAndEpochOnWelcome()
+    {
+        var endpoint = new ConversationEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1", "user-2") },
+            GetProfileByUserIdRequest r when r.UserId == "user-2" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-2", "user-1") },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+        var dto = new CreateConversationDto
+        {
+            Encryption = ChannelEncryptionState.Encrypted,
+            MlsGroupId = [1, 2, 3],
+            MlsEpoch = 4,
+            MlsGroupInfo = [4, 5, 6],
+            Members = [new CreateConversationMemberDto { UserId = "user-2" }],
+            DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }],
+        };
+
+        await endpoint.CreateConversation(dto, bus, TestPrincipal.ForUser("user-1"), _context);
+        await _context.SaveChangesAsync();
+
+        var conversation = await _context.Conversations.SingleAsync();
+        var welcome = await _context.PendingWelcomes.SingleAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(welcome.ContextId, Is.EqualTo(conversation.Id));
+            Assert.That(welcome.ConversationId, Is.EqualTo(conversation.Id));
+            Assert.That(welcome.Epoch, Is.EqualTo(4), "The joining device needs to know which epoch to catch up from");
+            Assert.That(welcome.ConsumedAt, Is.Null);
+        });
     }
 
     [Test]

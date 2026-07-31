@@ -28,12 +28,14 @@ public record CfTracksNewRequest(
     List<CfTrackNew> Tracks
 );
 
+/// <summary>One entry of Cloudflare's <c>tracks/new</c> response.</summary>
 public record CfTrackResult(
-    string Mid,
+    string? Mid,
     string TrackName,
     string? SessionId,
     string? Location,
-    string? Error
+    string? ErrorCode,
+    string? ErrorDescription
 );
 
 public record CfTracksNewResponse(
@@ -90,6 +92,7 @@ public class CloudflareService
         var body = await res.Content.ReadAsStringAsync(ct);
         var result = JsonSerializer.Deserialize<CfTracksNewResponse>(body, Json);
         EnsureValidSessionDescription(result?.SessionDescription, "tracks/new", body);
+        EnsureNoTrackFailures(result!, "tracks/new", body);
         return result!;
     }
 
@@ -117,6 +120,26 @@ public class CloudflareService
         _logger.LogError(
             "Cloudflare Calls {Operation} returned a 2xx response with a missing or empty " +
             "sessionDescription. Raw body: {Body}", operation, rawBody);
+        throw new CloudflareCallsException(operation, System.Net.HttpStatusCode.OK, rawBody);
+    }
+
+    /// <summary>Turns a per-track failure into a real failure.</summary>
+    private void EnsureNoTrackFailures(CfTracksNewResponse result, string operation, string rawBody)
+    {
+        var failed = result.Tracks
+            .Where(t => !string.IsNullOrEmpty(t.ErrorCode)
+                        || !string.IsNullOrEmpty(t.ErrorDescription)
+                        || string.IsNullOrEmpty(t.Mid))
+            .ToList();
+        if (failed.Count == 0) return;
+
+        _logger.LogError(
+            "Cloudflare Calls {Operation} returned 200 but {Count} track(s) failed: {Failures}. Raw body: {Body}",
+            operation, failed.Count,
+            string.Join(", ", failed.Select(t =>
+                $"{t.TrackName}({t.ErrorCode ?? "no-error-code"}: {t.ErrorDescription ?? "no mid returned"})")),
+            rawBody);
+
         throw new CloudflareCallsException(operation, System.Net.HttpStatusCode.OK, rawBody);
     }
 

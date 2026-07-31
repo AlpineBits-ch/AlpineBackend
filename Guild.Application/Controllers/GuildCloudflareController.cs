@@ -96,9 +96,24 @@ public class GuildCloudflareController(
         }
 
         var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
-        var result = body.Tracks.All(t => t.Location == "remote")
-            ? await TracksNewWithRetryAsync(body.CfSessionId, request, ct)
-            : await cfService.TracksNewAsync(body.CfSessionId, request, ct);
+        CfTracksNewResponse result;
+        try
+        {
+            result = body.Tracks.All(t => t.Location == "remote")
+                ? await TracksNewWithRetryAsync(body.CfSessionId, request, ct)
+                : await cfService.TracksNewAsync(body.CfSessionId, request, ct);
+        }
+        catch (CloudflareCallsException ex)
+        {
+            // Must not be answered with a 200. A well-formed response the client can't distinguish
+            // from a working subscribe is what let this failure mode stay invisible: the client
+            // records the participant as subscribed and every retry path it has is gated behind
+            // that same guard, so nothing ever tries again.
+            logger.LogError(ex,
+                "tracks/new failed for user {UserId} in channel {ChannelId} on session {CfSessionId}",
+                UserId, channelId, body.CfSessionId);
+            return StatusCode(502, new { operation = ex.Operation, error = ex.ResponseBody });
+        }
 
         if (audioTrack is not null)
             await ExchangeParticipantJoined(channelId, body.CfSessionId, ct);
@@ -232,13 +247,14 @@ public class GuildCloudflareController(
             .Select(p => hub.Clients.User(p.UserId).SendAsync("guild.voice.ParticipantJoined", joinedPayload, ct))
             .ToList();
 
+        // AudioTrackName, not CfSessionId, is what says "this participant has published audio".
         tasks.AddRange(others
-            .Where(p => p.CfSessionId is not null)
+            .Where(p => p.CfSessionId is not null && p.AudioTrackName is not null)
             .Select(p => hub.Clients.User(UserId).SendAsync("guild.voice.ParticipantJoined", new
             {
                 userId = p.UserId,
                 cfSessionId = p.CfSessionId,
-                audioTrackName = p.AudioTrackName ?? "audio",
+                audioTrackName = p.AudioTrackName,
                 channelId
             }, ct)));
 

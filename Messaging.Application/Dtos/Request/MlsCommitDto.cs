@@ -25,6 +25,9 @@ public class PublishMlsCommitDto
     public byte[]? GroupInfo { get; set; }
 
     public List<DeviceWelcomeDto> Welcomes { get; set; } = new();
+
+    /// <summary>Join requests this commit admits.</summary>
+    public List<string> FulfilledJoinRequestIds { get; set; } = new();
 }
 
 /// <summary>Ids of Welcomes whose group the device has actually joined.</summary>

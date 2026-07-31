@@ -4,6 +4,7 @@ using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
+using Messaging.Contracts.Bus.Events;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Infrastructure.Persistence;
@@ -201,6 +202,105 @@ public class MlsEndpoints
             return Results.Forbid();
 
         return Results.Ok(await mls.GetCommitsAsync(channelId, generation, sinceEpoch));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ Join requests
+
+    /// <summary>Asks to be let into an encrypted channel.</summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests")]
+    public static async Task<IResult> RequestChannelAccess(
+        string channelId,
+        SubmitJoinRequestDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        var result = await joinRequests.SubmitAsync(
+            channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow);
+
+        if (result.Status == MlsOperationStatus.Ok)
+        {
+            // Members need to see the badge without polling.
+            await bus.PublishAsync(new ChannelMlsJoinRequested
+            {
+                ChannelId = channelId,
+                RequesterUserId = userId,
+            });
+        }
+
+        return ToHttp(result);
+    }
+
+    /// <summary>The review queue for a channel. ViewChannel, because any member may vouch.</summary>
+    [WolverineGet("/api/v1/channels/{channelId}/mls/join-requests")]
+    public static async Task<IResult> ListChannelJoinRequests(
+        string channelId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return Results.Ok(await joinRequests.ListPendingAsync(channelId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Vouches for a request.</summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests/{requestId}/approve")]
+    public static async Task<IResult> ApproveChannelJoinRequest(
+        string channelId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return ToHttp(await joinRequests.ApproveAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests/{requestId}/deny")]
+    public static async Task<IResult> DenyChannelJoinRequest(
+        string channelId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return ToHttp(await joinRequests.DenyAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Withdraws your own request.</summary>
+    [WolverineDelete("/api/v1/channels/{channelId}/mls/join-requests/{requestId}")]
+    public static async Task<IResult> CancelChannelJoinRequest(
+        string channelId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        return ToHttp(await joinRequests.CancelAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

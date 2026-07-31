@@ -38,7 +38,7 @@ public class MlsGroupServiceTests
         _context = new TestMessagingContext(Guid.NewGuid().ToString());
         _hub = new FakeMessagingHubContext();
         _bus = new FakeMessageBus();
-        _service = new MlsGroupService(_context, _hub, _bus);
+        _service = new MlsGroupService(_context, _hub, _bus, new MlsJoinRequestService(_context));
     }
 
     [TearDown]

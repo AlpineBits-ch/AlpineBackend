@@ -15,6 +15,8 @@ public class MicroserviceContext : DbContext
     public DbSet<PendingWelcome> PendingWelcomes { get; set; }
     public DbSet<MlsCommit> MlsCommits { get; set; }
     public DbSet<MlsGroupGeneration> MlsGroupGenerations { get; set; }
+    public DbSet<MlsJoinRequest> MlsJoinRequests { get; set; }
+    public DbSet<MlsJoinRequestApproval> MlsJoinRequestApprovals { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     
     public DbSet<Message> Messages { get; set; }
@@ -35,6 +37,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<MessagePartType>();
             options.MapEnum<MessageEncryptionState>();
             options.MapEnum<MlsGenerationState>();
+            options.MapEnum<MlsJoinRequestState>();
         }).UseSnakeCaseNamingConvention();
     }
     
@@ -149,6 +152,40 @@ public class MicroserviceContext : DbContext
                     .IsUnique()
                     .HasFilter("state = 'active'");
             }
+        });
+
+        modelBuilder.Entity<MlsJoinRequest>(joinRequestBuilder =>
+        {
+            joinRequestBuilder
+                .HasOne<Conversation>()
+                .WithMany()
+                .HasForeignKey(x => x.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The review queue read: "what is waiting on this group right now".
+            joinRequestBuilder.HasIndex(r => new { r.ContextId, r.Generation, r.State });
+            joinRequestBuilder.HasIndex(r => r.RequesterUserId);
+
+            // One live request per device per era.
+            if (Database.IsNpgsql())
+            {
+                joinRequestBuilder
+                    .HasIndex(r => new { r.ContextId, r.Generation, r.RequesterDeviceId })
+                    .IsUnique()
+                    .HasFilter("state = 'pending'");
+            }
+        });
+
+        modelBuilder.Entity<MlsJoinRequestApproval>(approvalBuilder =>
+        {
+            approvalBuilder
+                .HasOne(a => a.JoinRequest)
+                .WithMany(r => r.Approvals)
+                .HasForeignKey(a => a.JoinRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One vote per person.
+            approvalBuilder.HasIndex(a => new { a.JoinRequestId, a.ApproverUserId }).IsUnique();
         });
         
         modelBuilder.Entity<ConversationMember>(memberBuilder =>

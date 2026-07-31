@@ -293,9 +293,70 @@ public class ConversationEndpointsTests
         {
             Assert.That(welcome.ContextId, Is.EqualTo(conversation.Id));
             Assert.That(welcome.ConversationId, Is.EqualTo(conversation.Id));
+            Assert.That(welcome.Generation, Is.EqualTo(1));
             Assert.That(welcome.Epoch, Is.EqualTo(4), "The joining device needs to know which epoch to catch up from");
             Assert.That(welcome.ConsumedAt, Is.Null);
         });
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_MintsGenerationOne()
+    {
+        // Without this the context reads as plaintext everywhere it matters: the send path would
+        // refuse the very ciphertext the creating client is about to produce, and no commit could
+        // be published against the group it just built.
+        var endpoint = new ConversationEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1", "user-2") },
+            GetProfileByUserIdRequest r when r.UserId == "user-2" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-2", "user-1") },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+        var dto = new CreateConversationDto
+        {
+            Encryption = ChannelEncryptionState.Encrypted,
+            MlsGroupId = [1, 2, 3],
+            MlsEpoch = 1,
+            MlsGroupInfo = [4, 5, 6],
+            Members = [new CreateConversationMemberDto { UserId = "user-2" }],
+            DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }],
+        };
+
+        await endpoint.CreateConversation(dto, bus, TestPrincipal.ForUser("user-1"), _context);
+        await _context.SaveChangesAsync();
+
+        var conversation = await _context.Conversations.SingleAsync();
+        var generation = await _context.MlsGroupGenerations.SingleAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(generation.Generation, Is.EqualTo(1));
+            Assert.That(generation.State, Is.EqualTo(MlsGenerationState.Active));
+            Assert.That(generation.ContextId, Is.EqualTo(conversation.Id));
+            Assert.That(generation.MlsGroupId, Is.EqualTo(new byte[] { 1, 2, 3 }));
+            Assert.That(generation.Epoch, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_Plain_MintsNoGeneration()
+    {
+        var endpoint = new ConversationEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1", "user-2") },
+            GetProfileByUserIdRequest r when r.UserId == "user-2" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-2", "user-1") },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+        var dto = new CreateConversationDto
+        {
+            Encryption = ChannelEncryptionState.Plain,
+            Members = [new CreateConversationMemberDto { UserId = "user-2" }],
+        };
+
+        await endpoint.CreateConversation(dto, bus, TestPrincipal.ForUser("user-1"), _context);
+        await _context.SaveChangesAsync();
+
+        Assert.That(await _context.MlsGroupGenerations.AnyAsync(), Is.False);
     }
 
     [Test]

@@ -134,6 +134,22 @@ public class ConversationEndpoints
         });
         ctx.Conversations.Add(conversation);
 
+        // A conversation created encrypted starts on generation 1.
+        if (createDto.Encryption == ChannelEncryptionState.Encrypted)
+        {
+            ctx.MlsGroupGenerations.Add(MlsGroupGeneration.Create(new CreateMlsGroupGenerationParams
+            {
+                ContextId = conversation.Id,
+                ConversationId = conversation.Id,
+                Generation = 1,
+                MlsGroupId = createDto.MlsGroupId!,
+                MlsGroupInfo = createDto.MlsGroupInfo,
+                Epoch = createDto.MlsEpoch ?? 0,
+                ActivatedByUserId = userId,
+                ActivatedAt = DateTimeOffset.UtcNow,
+            }));
+        }
+
         foreach (var deviceWelcome in createDto.DeviceWelcomes)
         {
             ctx.PendingWelcomes.Add(PendingWelcome.Create(new CreatePendingWelcomeParams
@@ -143,6 +159,7 @@ public class ConversationEndpoints
                 UserId = deviceWelcome.UserId,
                 DeviceId = deviceWelcome.DeviceId,
                 Welcome = deviceWelcome.Welcome,
+                Generation = 1,
                 Epoch = createDto.MlsEpoch ?? 0,
             }));
         }

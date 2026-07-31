@@ -20,6 +20,12 @@ public class PublishMlsCommitDto
     /// <summary>Publisher's client device id. Fanout skips it - that device already merged locally.</summary>
     public string SenderDeviceId { get; set; } = null!;
 
+    /// <summary>Which generation this commit was built against. Optional: a client that predates
+    /// generations does not send it and is taken to mean the live one, which is the only group it
+    /// could have built against. When it <i>is</i> sent and does not match, the commit is refused -
+    /// applying a commit built for a replaced group would advance the wrong group and fork everyone.</summary>
+    public int? Generation { get; set; }
+
     /// <summary>Refreshed GroupInfo for external-commit recovery. Optional, but a group whose
     /// stored GroupInfo is older than its retained commits cannot be rejoined by a device that
     /// fell too far behind, so clients should send it on every commit.</summary>
@@ -44,7 +50,13 @@ public partial class MlsCommitResponseDto
 /// established without re-reading the conversation.</summary>
 public class MlsCommitPublishedDto
 {
-    public string ConversationId { get; set; } = null!;
+    public string ContextId { get; set; } = null!;
+
+    /// <summary>Kept alongside ContextId so clients written against the conversation-only shape
+    /// keep reading the field they already read.</summary>
+    public string? ConversationId { get; set; }
+
+    public int Generation { get; set; }
     public long Epoch { get; set; }
 }
 

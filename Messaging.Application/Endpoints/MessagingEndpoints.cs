@@ -28,7 +28,7 @@ namespace Messaging.Application.Endpoints;
 public class MessagingEndpoints
 {
     [WolverinePost("/api/v1/messaging")]
-    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache)
+    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return (Results.Unauthorized(), null);
@@ -144,7 +144,57 @@ public class MessagingEndpoints
         {
             encryptionState = MessageEncryptionState.Encrypted;
         }
-        
+
+        // The context, not the client, decides whether a message may be plaintext. A client that has
+        // not yet heard encryption was turned on would otherwise post readable content into a room
+        // everyone believes is end-to-end encrypted - silently, and irreversibly once stored.
+        // Rejecting turns that into a retry.
+        var mlsContextId = dto.ConversationId ?? dto.ChannelId;
+        var activeGeneration = mlsContextId is null ? null : await mls.GetActiveGenerationAsync(mlsContextId);
+        var mlsGeneration = dto.MlsGeneration;
+
+        if (activeGeneration is not null)
+        {
+            if (encryptionState != MessageEncryptionState.Encrypted)
+            {
+                return (Results.Conflict(new MlsSendConflictDto
+                {
+                    ContextId = mlsContextId!,
+                    Encrypted = true,
+                    ActiveGeneration = activeGeneration.Generation,
+                    Reason = "This context is end-to-end encrypted; plaintext messages are not accepted.",
+                }), null);
+            }
+
+            // A client that predates generations sends none, and the only group it could have
+            // encrypted against is the live one - so stamp it rather than refusing. An explicitly
+            // wrong generation is a different matter: that ciphertext was sealed to a group which has
+            // since been replaced, and nobody in the context can read it.
+            if (mlsGeneration is { } claimed && claimed != activeGeneration.Generation)
+            {
+                return (Results.Conflict(new MlsSendConflictDto
+                {
+                    ContextId = mlsContextId!,
+                    Encrypted = true,
+                    ActiveGeneration = activeGeneration.Generation,
+                    Reason = $"Message was encrypted under generation {claimed}; the context is on generation {activeGeneration.Generation}.",
+                }), null);
+            }
+
+            mlsGeneration = activeGeneration.Generation;
+        }
+        else if (encryptionState == MessageEncryptionState.Encrypted)
+        {
+            return (Results.Conflict(new MlsSendConflictDto
+            {
+                ContextId = mlsContextId ?? string.Empty,
+                Encrypted = false,
+                ActiveGeneration = null,
+                Reason = "Encryption is not enabled for this context; nobody joining later could read this message.",
+            }), null);
+        }
+
+
         var message = await bus.InvokeAsync<Message>(new CreateMessageCommand()
         {
             AuthorId = userId,
@@ -161,6 +211,7 @@ public class MessagingEndpoints
             EncryptionState = encryptionState,
             MlsEpoch = dto.MlsEpoch,
             MlsSequenceNumber = dto.MlsSequenceNumber,
+            MlsGeneration = mlsGeneration,
             SenderDeviceId = dto.SenderDeviceId
         });
         

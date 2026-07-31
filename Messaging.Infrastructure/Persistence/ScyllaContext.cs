@@ -102,6 +102,7 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.SenderDeviceId, cm => cm.WithName("sender_device_id"))
                 .Column(m => m.MlsEpoch, cm => cm.WithName("mls_epoch"))
                 .Column(m => m.MlsSequenceNumber, cm => cm.WithName("mls_sequence_number"))
+                .Column(m => m.MlsGeneration, cm => cm.WithName("mls_generation"))
                 .Column(m => m.ConversationId, cm => cm.WithName("conversation_id"))
                 .Column(m => m.ChannelId, cm => cm.WithName("channel_id"))
                 .Column(m => m.Mentions, cm => cm.WithName("mentions"))
@@ -230,6 +231,18 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD mls_sequence_number bigint;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            // Which MlsGroupGeneration the ciphertext belongs to. Without it, a context whose
+            // encryption has been toggled off and on has two groups whose epochs both start at
+            // zero, and a client cannot tell which group's keys a given message needs.
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD mls_generation int;"));
         }
         catch (InvalidQueryException)
         {

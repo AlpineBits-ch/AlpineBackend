@@ -76,7 +76,13 @@ public class MlsDeviceEndpoint
         if(device is null) return Results.NotFound();
 
         var incoming = dto.KeyPackages ?? [];
-        if (incoming.Count == 0) return Results.BadRequest("No key packages supplied");
+
+        // An empty upload is a success, not a client error. The replenish flow asks how many
+        // packages to generate and posts the result unconditionally, so a device that is already
+        // fully stocked posts an empty list on every launch - rejecting that would fail a perfectly
+        // correct client doing exactly what it was told.
+        if (incoming.Count == 0) return Results.Ok(new AddKeyPackagesResultDto { Added = 0 });
+
         if (incoming.Count > MaxKeyPackagesPerUpload)
             return Results.BadRequest($"At most {MaxKeyPackagesPerUpload} key packages per upload");
 
@@ -112,7 +118,7 @@ public class MlsDeviceEndpoint
 
         ctx.UserKeyPackages.AddRange(packages);
 
-        return Results.Ok(new { added = packages.Count });
+        return Results.Ok(new AddKeyPackagesResultDto { Added = packages.Count });
     }
 
     // GET api/v1/devices/{deviceId}/key-packages is gone. It handed back the device's unconsumed

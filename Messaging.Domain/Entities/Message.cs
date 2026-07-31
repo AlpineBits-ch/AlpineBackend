@@ -22,6 +22,11 @@ public class CreateMessageParams
     public bool MentionsHere { get; set; }
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
+
+    /// <summary>Which MlsGroupGeneration of the context this message was encrypted under. Null on
+    /// plaintext messages. Required to decrypt: encryption can be toggled off and on, and each
+    /// stretch is a distinct group whose epochs restart at zero, so the epoch alone is ambiguous.</summary>
+    public int? MlsGeneration { get; set; }
     public string? SenderDeviceId { get; set; }
     public string? InReplyTo { get; set; }
     
@@ -52,6 +57,11 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public MessageEncryptionState EncryptionState { get; set; }
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
+
+    /// <summary>Which MlsGroupGeneration of the context this message was encrypted under. Null on
+    /// plaintext messages. Required to decrypt: encryption can be toggled off and on, and each
+    /// stretch is a distinct group whose epochs restart at zero, so the epoch alone is ambiguous.</summary>
+    public int? MlsGeneration { get; set; }
     public string? SenderDeviceId { get; set; }
     public string? ChannelId { get; set; }
     public string? ConversationId { get; set; }
@@ -119,7 +129,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
         "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id, " +
-        "author_display_name, author_avatar_url, components_json";
+        "author_display_name, author_avatar_url, components_json, mls_generation";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       
@@ -148,6 +158,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             InReplyTo = createMessageParams.InReplyTo,
             MlsEpoch = createMessageParams.MlsEpoch,
             MlsSequenceNumber = createMessageParams.MlsSequenceNumber,
+            MlsGeneration = createMessageParams.MlsGeneration,
             SenderDeviceId = createMessageParams.SenderDeviceId,
             AuthorIdType = createMessageParams.AuthorIdType,
             EmbedsJson = createMessageParams.EmbedsJson,

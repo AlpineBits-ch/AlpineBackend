@@ -14,6 +14,7 @@ public class MicroserviceContext : DbContext
     public DbSet<ConversationMemberDevice> MemberDevices { get; set; }
     public DbSet<PendingWelcome> PendingWelcomes { get; set; }
     public DbSet<MlsCommit> MlsCommits { get; set; }
+    public DbSet<MlsGroupGeneration> MlsGroupGenerations { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     
     public DbSet<Message> Messages { get; set; }
@@ -33,6 +34,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<AuthorIdType>();
             options.MapEnum<MessagePartType>();
             options.MapEnum<MessageEncryptionState>();
+            options.MapEnum<MlsGenerationState>();
         }).UseSnakeCaseNamingConvention();
     }
     
@@ -130,7 +132,34 @@ public class MicroserviceContext : DbContext
             // endpoint's read-then-write, because that read-then-write is inherently racy.
             // Doubles as the catch-up index - "everything in this group after epoch N, in order"
             // is a range scan over exactly these columns in exactly this order.
-            commitBuilder.HasIndex(c => new { c.ContextId, c.Epoch }).IsUnique();
+            //
+            // Generation has to be in the key: toggling encryption off and on again mints a new
+            // group whose epochs restart at zero, so keyed on (context, epoch) alone the new
+            // group's first commit would collide with the old group's.
+            commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch }).IsUnique();
+        });
+
+        modelBuilder.Entity<MlsGroupGeneration>(generationBuilder =>
+        {
+            generationBuilder
+                .HasOne<Conversation>()
+                .WithMany()
+                .HasForeignKey(x => x.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            generationBuilder.HasIndex(g => new { g.ContextId, g.Generation }).IsUnique();
+
+            // At most one Active generation per context. A filtered unique index rather than an
+            // application-level check, because "enable encryption" racing with itself would
+            // otherwise produce two live groups for one context and split the room in half.
+            // The InMemory provider used by the unit suite ignores filters, so the service also
+            // checks explicitly - this is the guard that actually holds under concurrency.
+            if (Database.IsNpgsql())
+            {
+                generationBuilder.HasIndex(g => g.ContextId)
+                    .IsUnique()
+                    .HasFilter("state = 'active'");
+            }
         });
         
         modelBuilder.Entity<ConversationMember>(memberBuilder =>

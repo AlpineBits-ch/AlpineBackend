@@ -8,6 +8,7 @@ public class CreateMlsCommitParams
     public string ContextId { get; init; } = null!;
     public string? ConversationId { get; init; }
     public string? ChannelId { get; init; }
+    public int Generation { get; init; }
     public long Epoch { get; init; }
     public byte[] Commit { get; init; } = null!;
     public string SenderUserId { get; init; } = null!;
@@ -20,10 +21,15 @@ public class CreateMlsCommitParams
 /// the group.
 ///
 /// <para><b>Epoch is the ordering and the dedup key.</b> <see cref="Epoch"/> is the epoch the group
-/// is in <i>after</i> this commit is applied, and (<see cref="ContextId"/>, <see cref="Epoch"/>) is
-/// unique. Two members who commit concurrently therefore race for the same row: exactly one wins,
-/// the loser gets a conflict and has to re-fetch, re-apply and re-issue its change. That is the
-/// whole fork-resolution story - the server never merges commits, it only refuses the second one.</para>
+/// is in <i>after</i> this commit is applied, and (<see cref="ContextId"/>, <see cref="Generation"/>,
+/// <see cref="Epoch"/>) is unique. Two members who commit concurrently therefore race for the same
+/// row: exactly one wins, the loser gets a conflict and has to re-fetch, re-apply and re-issue its
+/// change. That is the whole fork-resolution story - the server never merges commits, it only
+/// refuses the second one.</para>
+///
+/// <para><see cref="Generation"/> is part of that key rather than an afterthought: encryption can be
+/// switched off and back on, and the replacement group starts counting epochs from zero again. Keyed
+/// on epoch alone, the new group's first commit would collide with the old group's.</para>
 ///
 /// <para>Context columns mirror <see cref="Message"/>: <see cref="ContextId"/> is the group key and
 /// carries either a conversation id or a channel id, with the matching typed column set for
@@ -43,7 +49,10 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
     /// <summary>Set when the group is a guild channel. No FK - channels live in the Guild service.</summary>
     public string? ChannelId { get; set; }
 
-    /// <summary>Group epoch <i>after</i> this commit is applied. Unique per context.</summary>
+    /// <summary>Which <see cref="MlsGroupGeneration"/> of this context the commit belongs to.</summary>
+    public int Generation { get; set; }
+
+    /// <summary>Group epoch <i>after</i> this commit is applied. Unique per (context, generation).</summary>
     public long Epoch { get; set; }
 
     /// <summary>Base64/TLS-serialized MlsMessage carrying the commit.</summary>
@@ -66,6 +75,7 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
             ContextId = parameters.ContextId,
             ConversationId = parameters.ConversationId,
             ChannelId = parameters.ChannelId,
+            Generation = parameters.Generation,
             Epoch = parameters.Epoch,
             Commit = parameters.Commit,
             SenderUserId = parameters.SenderUserId,

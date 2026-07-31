@@ -10,6 +10,11 @@ public class CreateMessageDto
     public string? InReplyTo { get; set; }
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
+
+    /// <summary>Which MlsGroupGeneration of the context this message was encrypted under. Null on
+    /// plaintext messages. Required to decrypt: encryption can be toggled off and on, and each
+    /// stretch is a distinct group whose epochs restart at zero, so the epoch alone is ambiguous.</summary>
+    public int? MlsGeneration { get; set; }
     public string? SenderDeviceId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     

@@ -39,28 +39,49 @@ public class GuildCloudflareController(
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+    /// <summary>
+    /// Creates a Cloudflare session for this participant.
+    /// </summary>
+    /// <param name="primary">
+    /// Whether this session carries the participant's microphone.
+    /// <para>
+    /// A participant's <see cref="ChannelVoiceState"/> entry holds exactly one CfSessionId, and it
+    /// exists so that a <em>newly joining</em> participant knows which session to subscribe to for
+    /// this user's audio. A desktop client that publishes its screen from a separate process opens
+    /// a second Cloudflare session for that track alone; recording it against the participant would
+    /// point new joiners at a session that carries no audio, and they would silently hear nothing.
+    /// </para>
+    /// <para>
+    /// Secondary sessions need no bookkeeping here: TrackPublished already carries the session the
+    /// track was published on, so subscribers resolve them without consulting participant state.
+    /// </para>
+    /// </param>
     [HttpPost("session")]
-    public async Task<IActionResult> CreateSession(string guildId, string channelId, CancellationToken ct)
+    public async Task<IActionResult> CreateSession(
+        string guildId, string channelId, CancellationToken ct, [FromQuery] bool primary = true)
     {
         var canConnect = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect);
         if (!canConnect) return Forbid();
 
         var cfSessionId = await cfService.CreateSessionAsync(ct);
 
-        // Locked: races Join/ExchangeParticipantJoined/CloseTracks for the same channelId -see
-        // the comment on GuildVoiceController.Join for the class of bug this prevents.
-        await voiceStore.UpdateAsync<ChannelVoiceState>(
-            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
-            voiceState =>
-            {
-                var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-                if (participant is not null) participant.CfSessionId = cfSessionId;
-            }, CacheOptions, ct);
+        if (primary)
+        {
+            // Locked: races Join/ExchangeParticipantJoined/CloseTracks for the same channelId -see
+            // the comment on GuildVoiceController.Join for the class of bug this prevents.
+            await voiceStore.UpdateAsync<ChannelVoiceState>(
+                ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+                voiceState =>
+                {
+                    var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
+                    if (participant is not null) participant.CfSessionId = cfSessionId;
+                }, CacheOptions, ct);
 
-        await cache.SetStringAsync(
-            ChannelVoiceState.GetUserCacheKey(UserId),
-            JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId }),
-            CacheOptions, ct);
+            await cache.SetStringAsync(
+                ChannelVoiceState.GetUserCacheKey(UserId),
+                JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId }),
+                CacheOptions, ct);
+        }
 
         return Ok(new { cfSessionId });
     }

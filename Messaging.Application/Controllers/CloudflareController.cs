@@ -44,10 +44,29 @@ public class CloudflareController(
         ? value.ToString()
         : "default";
 
+    /// <summary>
+    /// Creates a Cloudflare session for this call participant.
+    /// </summary>
+    /// <param name="primary">
+    /// Whether this session carries the participant's microphone.
+    /// <para>
+    /// A desktop client that publishes its screen from a separate process opens a second Cloudflare
+    /// session for that track alone. Such a session must skip the device-connect path below: it
+    /// would re-run takeover detection against the user's own primary session and disconnect the
+    /// very call it is trying to share into.
+    /// </para>
+    /// <para>
+    /// Secondary sessions need no bookkeeping here - TrackPublished already carries the session a
+    /// track was published on, so subscribers resolve them without consulting participant state.
+    /// </para>
+    /// </param>
     [HttpPost("session")]
-    public async Task<IActionResult> CreateSession(string callId, CancellationToken ct)
+    public async Task<IActionResult> CreateSession(
+        string callId, CancellationToken ct, [FromQuery] bool primary = true)
     {
         var cfSessionId = await cfService.CreateSessionAsync(ct);
+
+        if (!primary) return Ok(new { cfSessionId });
 
         // Locked: this read-modify-write on the Call blob was racing
         // ExchangeParticipantJoined below (fired by the OTHER participant publishing

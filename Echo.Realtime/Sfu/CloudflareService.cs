@@ -121,6 +121,81 @@ public class CloudflareService
         return result!;
     }
 
+    /// <summary>
+    /// Backoff between attempts to pull a remote track. Total 6s across 7 attempts.
+    ///
+    /// <para>Sized against the window it exists to cover, which is longer than it looks. A publisher
+    /// is announced to the rest of the channel as soon as their own <c>tracks/new</c> returns — and
+    /// that return is only Cloudflare's SDP answer. The publisher has not applied it, finished ICE
+    /// and DTLS, or sent a packet, and until they do, pulling their track fails with
+    /// <c>not_found_track_error</c>: "make sure the publisher peer is connected and sending packets
+    /// for this track". The wait is therefore a whole WebRTC handshake on someone else's network,
+    /// not just Cloudflare's internal propagation.</para>
+    ///
+    /// <para>The earlier 1.5s budget was tuned for propagation alone and lost this race routinely
+    /// against a cold connect on a slow link, leaving that participant silent for the rest of the
+    /// session. The front of the schedule is unchanged, so the common case still resolves in
+    /// milliseconds; only the tail is longer.</para>
+    /// </summary>
+    public static readonly IReadOnlyList<TimeSpan> SubscribeRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(250),
+        TimeSpan.FromMilliseconds(500),
+        TimeSpan.FromMilliseconds(750),
+        TimeSpan.FromMilliseconds(1000),
+        TimeSpan.FromMilliseconds(1500),
+        TimeSpan.FromMilliseconds(2000),
+    ];
+
+    /// <summary>
+    /// <see cref="TracksNewAsync"/> for a pull, retried across the window in which the publisher
+    /// exists but is not yet sending.
+    ///
+    /// <para>Guild channels, direct calls and Isle each had their own character-for-character copy
+    /// of this loop, so a fix to the window had to be made in three places and was worth making in
+    /// none. It lives here, next to the exception it catches.</para>
+    ///
+    /// <para>Use it only for subscribes. A failed <em>publish</em> means this client's own offer was
+    /// rejected, which retrying the same SDP will not fix, and the caller must not go on to record a
+    /// track that does not exist.</para>
+    /// </summary>
+    public async Task<CfTracksNewResponse> SubscribeTracksAsync(
+        string cfSessionId,
+        CfTracksNewRequest request,
+        CancellationToken ct = default)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await TracksNewAsync(cfSessionId, request, ct);
+            }
+            catch (CloudflareCallsException ex)
+                when (attempt < SubscribeRetryDelays.Count && IsTransient(ex))
+            {
+                _logger.LogWarning(
+                    "Subscribe tracks/new attempt {Attempt} of {Total} failed for session "
+                    + "{CfSessionId}, retrying in {DelayMs}ms: {Message}",
+                    attempt + 1, SubscribeRetryDelays.Count + 1, cfSessionId,
+                    SubscribeRetryDelays[attempt].TotalMilliseconds, ex.Message);
+                await Task.Delay(SubscribeRetryDelays[attempt], ct);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Whether a failed pull is worth trying again.
+    ///
+    /// <para>A 200 carrying a per-track error is the publisher-not-ready race — the whole reason
+    /// this retry exists. A 5xx is Cloudflare having a bad moment. Both clear on their own.</para>
+    ///
+    /// <para>A 4xx does not: a malformed offer, an unknown session or a rejected token fails the
+    /// same way every time. Retrying those spent the entire budget before handing the client an
+    /// error it could have had immediately — which mattered little at 1.5s and matters at 6s.</para>
+    /// </summary>
+    private static bool IsTransient(CloudflareCallsException ex) =>
+        ex.StatusCode == System.Net.HttpStatusCode.OK || (int)ex.StatusCode >= 500;
+
     public async Task<CfRenegotiateResponse> RenegotiateAsync(
         string cfSessionId,
         CfRenegotiateRequest request,

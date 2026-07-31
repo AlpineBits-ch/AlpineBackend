@@ -44,10 +44,15 @@ public class CloudflareController(
         ? value.ToString()
         : "default";
 
+    /// <summary>Creates a Cloudflare session for this call participant.</summary>
+    /// <param name="primary">Whether this session carries the participant's microphone.</param>
     [HttpPost("session")]
-    public async Task<IActionResult> CreateSession(string callId, CancellationToken ct)
+    public async Task<IActionResult> CreateSession(
+        string callId, CancellationToken ct, [FromQuery] bool primary = true)
     {
         var cfSessionId = await cfService.CreateSessionAsync(ct);
+
+        if (!primary) return Ok(new { cfSessionId });
 
         // Locked: this read-modify-write on the Call blob was racing ExchangeParticipantJoined
         // below (fired by the OTHER participant publishing their audio track) whenever both

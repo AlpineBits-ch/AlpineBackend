@@ -39,28 +39,34 @@ public class GuildCloudflareController(
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+    /// <summary>Creates a Cloudflare session for this participant.</summary>
+    /// <param name="primary">Whether this session carries the participant's microphone.</param>
     [HttpPost("session")]
-    public async Task<IActionResult> CreateSession(string guildId, string channelId, CancellationToken ct)
+    public async Task<IActionResult> CreateSession(
+        string guildId, string channelId, CancellationToken ct, [FromQuery] bool primary = true)
     {
         var canConnect = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect);
         if (!canConnect) return Forbid();
 
         var cfSessionId = await cfService.CreateSessionAsync(ct);
 
-        // Locked: races Join/ExchangeParticipantJoined/CloseTracks for the same channelId -see
-        // the comment on GuildVoiceController.Join for the class of bug this prevents.
-        await voiceStore.UpdateAsync<ChannelVoiceState>(
-            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
-            voiceState =>
-            {
-                var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-                if (participant is not null) participant.CfSessionId = cfSessionId;
-            }, CacheOptions, ct);
+        if (primary)
+        {
+            // Locked: races Join/ExchangeParticipantJoined/CloseTracks for the same channelId -see
+            // the comment on GuildVoiceController.Join for the class of bug this prevents.
+            await voiceStore.UpdateAsync<ChannelVoiceState>(
+                ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
+                voiceState =>
+                {
+                    var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
+                    if (participant is not null) participant.CfSessionId = cfSessionId;
+                }, CacheOptions, ct);
 
-        await cache.SetStringAsync(
-            ChannelVoiceState.GetUserCacheKey(UserId),
-            JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId }),
-            CacheOptions, ct);
+            await cache.SetStringAsync(
+                ChannelVoiceState.GetUserCacheKey(UserId),
+                JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId }),
+                CacheOptions, ct);
+        }
 
         return Ok(new { cfSessionId });
     }

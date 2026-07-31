@@ -60,8 +60,10 @@ public class VoiceCloudflareEndpoints
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
 
-        var result = await cf.TracksNewAsync(body.CfSessionId,
-            new CfTracksNewRequest(body.SessionDescription, body.Tracks), ct);
+        var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
+        var result = body.Tracks.All(t => t.Location == "remote")
+            ? await TracksNewWithRetryAsync(cf, body.CfSessionId, request, ct)
+            : await cf.TracksNewAsync(body.CfSessionId, request, ct);
 
         // When the player publishes their microphone, record the track so peers can pull it,
         // then (re)subscribe everyone currently sharing their voice cell. Doing this only
@@ -91,6 +93,45 @@ public class VoiceCloudflareEndpoints
         }
 
         return Results.Ok(result);
+    }
+
+    /// <summary>
+    /// Retries a subscribe (a remote-only <c>tracks/new</c>) a few times before giving up, matching
+    /// Guild's and Messaging's relays.
+    ///
+    /// <para>Isle designs most of this race out already — <c>SubscribeMutual</c> only names a peer
+    /// that is in <see cref="VoiceTrackRegistry"/>, and entries land there only after that peer's
+    /// own publish succeeded. What remains is Cloudflare's own eventual consistency: a track can be
+    /// registered here and still be a moment away from being pullable from a different session.
+    /// That surfaces as a per-track <c>errorCode</c> inside a 200, which
+    /// <see cref="CloudflareService"/> now raises as a <see cref="CloudflareCallsException"/>.</para>
+    ///
+    /// <para>Without a retry that lands on the client as a failed subscribe, and Isle recovers from
+    /// one badly: <c>VoiceSubscriptionReconcileService</c> marks a pair as pushed once it has sent
+    /// <c>SubscribeMutual</c>, regardless of what the client then made of it, so it will not
+    /// re-drive the pair while both stay audible. The subscription stays broken until one of them
+    /// walks out of earshot and back.</para>
+    ///
+    /// <para>Publishes are deliberately not retried: a failed publish means this client's own offer
+    /// was rejected, which retrying the same SDP will not fix, and the caller must not record a
+    /// track that does not exist.</para>
+    /// </summary>
+    private static async Task<CfTracksNewResponse> TracksNewWithRetryAsync(
+        CloudflareService cf, string cfSessionId, CfTracksNewRequest request, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await cf.TracksNewAsync(cfSessionId, request, ct);
+            }
+            catch (CloudflareCallsException) when (attempt < 4)
+            {
+                // Every attempt is already logged with Cloudflare's raw body by
+                // CloudflareService.EnsureNoTrackFailures, so there is nothing to add here.
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
+            }
+        }
     }
 
     [WolverinePut("/api/v1/voice/cf/renegotiate")]

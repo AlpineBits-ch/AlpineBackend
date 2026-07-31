@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net.Sockets;
-using System.Text;
 
 namespace Echo.E2E.Tests.Hosts;
 
@@ -11,8 +10,9 @@ namespace Echo.E2E.Tests.Hosts;
 public sealed class SpawnedServiceProcess : IAsyncDisposable
 {
     private readonly Process _process;
-    private readonly StringBuilder _stdout = new();
-    private readonly StringBuilder _stderr = new();
+    // Thread-safe on purpose - see ProcessOutputBuffer.
+    private readonly ProcessOutputBuffer _stdout = new();
+    private readonly ProcessOutputBuffer _stderr = new();
 
     public string ServiceName { get; }
     public int Port { get; }

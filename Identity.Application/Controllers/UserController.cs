@@ -5,6 +5,7 @@ using Facet.Extensions;
 using Identity.Application.Dtos.Request;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
+using Identity.Domain.Enums;
 using Identity.Domain.ValueObjects;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -17,7 +18,7 @@ namespace Identity.Application.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/v1/users")]
-public class UserController(MicroserviceContext ctx) : ControllerBase
+public class UserController(MicroserviceContext ctx, ILogger<UserController> logger) : ControllerBase
 {
     [HttpGet("self")]
     public async Task<IActionResult> GetSelfAsync()
@@ -100,58 +101,104 @@ public class UserController(MicroserviceContext ctx) : ControllerBase
         return Ok(user.JsonSettings);
     }
 
+    /// <summary>
+    /// Registers (or re-points) one push endpoint for the caller. Supersedes the two
+    /// transport-specific endpoints below, which now delegate here.
+    /// </summary>
+    [HttpPost("self/push-token")]
+    public async Task<IActionResult> CreatePushTokenAsync(CreatePushTokenDto dto)
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+        if (string.IsNullOrWhiteSpace(dto.Token)) return BadRequest("token is required.");
+
+        return await UpsertPushTokenAsync(userId, dto.Token, dto.Kind, dto.DeviceId);
+    }
+
+    /// <summary>Deprecated - POST self/push-token with <c>kind: "Fcm"</c>.</summary>
     [HttpPost("self/device-token")]
     public async Task<IActionResult> CreateDeviceTokenAsync(CreateDeviceTokenDto dto)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if(userId is null) return BadRequest();
+        if (string.IsNullOrWhiteSpace(dto.Token)) return BadRequest("token is required.");
 
-        var user = await ctx.Users.Include(u => u.DeviceTokens).FirstOrDefaultAsync(u => u.Id == userId);
-        if(user is null) return NotFound();
-
-        if (user.DeviceTokens.Any(t => t.Token == dto.Token))
-        {
-            return Accepted();
-        }
-        
-        user.DeviceTokens.Add(new UserDeviceToken
-        {
-            Id = UserDeviceToken.GenerateId(),
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            Token = dto.Token,
-            UserId = userId
-        });
-        await ctx.SaveChangesAsync();
-        return Created();
-
+        return await UpsertPushTokenAsync(userId, dto.Token, PushTokenKind.Fcm, dto.DeviceId);
     }
 
+    /// <summary>Deprecated - POST self/push-token with <c>kind: "ApnsVoip"</c>.</summary>
     [HttpPost("self/voip-token")]
     public async Task<IActionResult> CreateVoipTokenAsync(CreateDeviceTokenDto dto)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if(userId is null) return BadRequest();
+        if (string.IsNullOrWhiteSpace(dto.Token)) return BadRequest("token is required.");
 
-        var user = await ctx.Users.Include(u => u.VoipTokens).FirstOrDefaultAsync(u => u.Id == userId);
-        if(user is null) return NotFound();
+        return await UpsertPushTokenAsync(userId, dto.Token, PushTokenKind.ApnsVoip, dto.DeviceId);
+    }
 
-        if (user.VoipTokens.Any(t => t.Token == dto.Token))
+    /// <summary>
+    /// Upsert rather than insert-if-absent: the (kind, token) pair is unique across the table, and
+    /// both push providers hand the same token to a different account after a reinstall or an
+    /// account switch on the same handset. Inserting blindly would violate the index; skipping
+    /// would leave the handset's notifications going to whoever registered it first.
+    /// </summary>
+    private async Task<IActionResult> UpsertPushTokenAsync(string userId, string token, PushTokenKind kind, string? clientDeviceId)
+    {
+        string? deviceRowId = null;
+        if (!string.IsNullOrWhiteSpace(clientDeviceId))
         {
+            deviceRowId = await ctx.UserDevices
+                .Where(d => d.UserId == userId && d.ClientDeviceId == clientDeviceId)
+                .Select(d => d.Id)
+                .FirstOrDefaultAsync();
+
+            // An unknown device id is a client bug worth surfacing, but not worth losing the token
+            // over - register it unattached rather than dropping the registration.
+            if (deviceRowId is null)
+            {
+                logger.LogWarning("Push token registered by user {UserId} for unknown device {ClientDeviceId}",
+                    userId, clientDeviceId);
+            }
+        }
+
+        var existing = await ctx.UserPushTokens.FirstOrDefaultAsync(t => t.Kind == kind && t.Token == token);
+        if (existing is not null)
+        {
+            existing.ReassignTo(userId, deviceRowId);
+            await ctx.SaveChangesAsync();
             return Accepted();
         }
 
-        user.VoipTokens.Add(new UserVoipToken
+        ctx.UserPushTokens.Add(UserPushToken.Create(new CreateUserPushTokenParams
         {
-            Id = UserVoipToken.GenerateId(),
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            Token = dto.Token,
-            UserId = userId
-        });
+            UserId = userId,
+            Token = token,
+            Kind = kind,
+            DeviceId = deviceRowId,
+        }));
         await ctx.SaveChangesAsync();
         return Created();
+    }
 
+    /// <summary>Lets a client drop its own endpoint on sign-out instead of leaving a token that
+    /// keeps ringing a handset nobody is signed in on.</summary>
+    [HttpDelete("self/push-token")]
+    public async Task<IActionResult> DeletePushTokenAsync([FromQuery] string token, [FromQuery] PushTokenKind? kind)
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+        if (string.IsNullOrWhiteSpace(token)) return BadRequest("token is required.");
+
+        var rows = await ctx.UserPushTokens
+            .Where(t => t.UserId == userId && t.Token == token && (kind == null || t.Kind == kind))
+            .ToListAsync();
+
+        if (rows.Count == 0) return NotFound();
+
+        ctx.UserPushTokens.RemoveRange(rows);
+        await ctx.SaveChangesAsync();
+        return NoContent();
     }
 
     /// <summary>Starts the grace-period countdown rather than deleting anything immediately -

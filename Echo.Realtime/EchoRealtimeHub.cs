@@ -1,3 +1,4 @@
+using Echo.Realtime.Devices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.SignalR;
@@ -21,8 +22,9 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
     private const long PresenceHeartbeatIntervalSeconds = 30;
 
     /// <summary>Device id used when a client connects without one (older builds) - keeps every
-    /// one of that user's un-tagged sessions bucketed together instead of failing outright.</summary>
-    private const string DefaultDeviceId = "default";
+    /// one of that user's un-tagged sessions bucketed together instead of failing outright. Shared
+    /// with the REST side so the hub and the controllers bucket un-tagged clients identically.</summary>
+    private const string DefaultDeviceId = DeviceIdentity.DefaultDeviceId;
 
     private string Uid() =>
         Context.UserIdentifier ?? throw new HubException("User not authenticated");
@@ -37,7 +39,7 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
 
     private string ResolveDeviceId()
     {
-        var deviceId = Context.GetHttpContext()?.Request.Query["deviceId"].ToString();
+        var deviceId = Context.GetHttpContext()?.Request.Query[DeviceIdentity.QueryName].ToString();
         return string.IsNullOrWhiteSpace(deviceId) ? DefaultDeviceId : deviceId;
     }
 

@@ -84,7 +84,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 }
             }
 
-            session = CreateSession(user, request);
+            session = await CreateSession(user, request);
         }
         else if (request.IsRefreshTokenGrantType())
         {
@@ -144,7 +144,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
 
-            session = CreateSession(user, request);
+            session = await CreateSession(user, request);
         }
         else if (request.GrantType == QrLoginService.QrGrantType)
         {
@@ -175,7 +175,8 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
 
-            session = CreateSession(user, request, deviceName: state.DeviceName, deviceType: state.DeviceType);
+            session = await CreateSession(user, request, deviceName: state.DeviceName, deviceType: state.DeviceType,
+                clientDeviceId: state.ClientDeviceId);
         }
         else if (request.IsClientCredentialsGrantType())
         {
@@ -192,7 +193,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return StatusCode(StatusCodes.Status403Forbidden, "Bot account is disabled.");
             }
 
-            session = CreateSession(user, request, deviceName: "Bot", deviceType: DeviceType.Web);
+            session = await CreateSession(user, request, deviceName: "Bot", deviceType: DeviceType.Web);
         }
         else { return BadRequest("The grant type is not supported."); }
 
@@ -226,9 +227,15 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
     /// instead reuses and touches the session created by the original login. Device metadata is
     /// either caller-supplied (QR: from the pairing state; others: an optional device_name/
     /// device_type token-endpoint parameter) or falls back to the request's User-Agent header.
+    ///
+    /// <para>A <c>device_id</c> parameter (the same ClientDeviceId the client registers for MLS and
+    /// sends as X-Device-Id) links the session to the device row, which is what lets revoking the
+    /// session clear that device's push tokens. It is only linked if it really is one of this
+    /// user's devices - an unknown id is ignored rather than rejected, because a first login
+    /// necessarily happens before the device can be registered.</para>
     /// </summary>
-    private LoginSession CreateSession(ApplicationUser user, OpenIddictRequest request,
-        string? deviceName = null, DeviceType? deviceType = null)
+    private async Task<LoginSession> CreateSession(ApplicationUser user, OpenIddictRequest request,
+        string? deviceName = null, DeviceType? deviceType = null, string? clientDeviceId = null)
     {
         var name = deviceName;
         if (string.IsNullOrWhiteSpace(name))
@@ -250,6 +257,25 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
 
         var userAgentHeader = Request.Headers.UserAgent.ToString();
 
+        var deviceId = clientDeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            deviceId = (string?)request.GetParameter("device_id");
+        }
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            deviceId = Request.Headers["X-Device-Id"].ToString();
+        }
+
+        string? deviceRowId = null;
+        if (!string.IsNullOrWhiteSpace(deviceId))
+        {
+            deviceRowId = await ctx.UserDevices
+                .Where(d => d.UserId == user.Id && d.ClientDeviceId == deviceId)
+                .Select(d => d.Id)
+                .FirstOrDefaultAsync();
+        }
+
         var session = LoginSession.Create(new CreateLoginSessionParams
         {
             UserId = user.Id,
@@ -257,6 +283,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             DeviceType = type.Value,
             IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
             UserAgent = string.IsNullOrWhiteSpace(userAgentHeader) ? null : userAgentHeader,
+            DeviceId = deviceRowId,
         });
 
         ctx.LoginSessions.Add(session);

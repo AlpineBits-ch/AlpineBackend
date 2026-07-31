@@ -1,6 +1,7 @@
 using Echo.Realtime;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Identity.Contracts.Enums;
 using Messaging.Application.Services;
 using Messaging.Domain.Events.Call;
 using Microsoft.AspNetCore.SignalR;
@@ -27,9 +28,9 @@ public class CallDeclinedHandler
         if (cancelRecipientIds.Count > 0)
         {
             var callerProfile = await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest { UserId = call.CreatorId });
-            var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = cancelRecipientIds });
-            var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = cancelRecipientIds });
-            await CallPushService.SendCancelCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
+            var pushTokens = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
+                new GetPushTokensForUsersRequest { UserIds = cancelRecipientIds });
+            await CallPushService.SendCancelCallAsync(pushTokens.Of(PushTokenKind.Fcm), pushTokens.Of(PushTokenKind.ApnsVoip), new CallPushPayload
             {
                 CallId = call.Id,
                 ConversationId = call.ConversationId,

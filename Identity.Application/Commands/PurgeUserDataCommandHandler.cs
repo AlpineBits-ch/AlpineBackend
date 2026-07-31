@@ -15,6 +15,17 @@ public class PurgeUserDataCommandHandler
         var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == command.UserId);
         user?.Tombstone();
 
+        // The tombstone anonymizes the row in place rather than deleting it, so the FK cascades
+        // never fire - which left a purged account's devices and push tokens alive, still receiving
+        // calls and messages on a handset whose account no longer exists. Removing the devices
+        // takes their key packages, backups and push tokens with them; the last delete covers
+        // tokens that were registered without a device.
+        var devices = await ctx.UserDevices.Where(d => d.UserId == command.UserId).ToListAsync();
+        ctx.UserDevices.RemoveRange(devices);
+
+        var tokens = await ctx.UserPushTokens.Where(t => t.UserId == command.UserId).ToListAsync();
+        ctx.UserPushTokens.RemoveRange(tokens);
+
         return new PurgeUserDataCommandResponse
         {
             UserId = command.UserId,

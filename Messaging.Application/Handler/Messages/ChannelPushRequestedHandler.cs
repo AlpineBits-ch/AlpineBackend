@@ -2,6 +2,7 @@ using System.Text;
 using Guild.Contracts.Bus.Events;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Identity.Contracts.Enums;
 using Messaging.Application.Services;
 using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
@@ -27,10 +28,11 @@ public class ChannelPushRequestedHandler
     {
         if (request.UserIds.Count == 0) return;
 
-        var tokenResponse = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(
-            new GetDeviceTokenForUserIdRequest { UserIds = request.UserIds });
+        var tokenResponse = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
+            new GetPushTokensForUsersRequest { UserIds = request.UserIds, Kinds = [PushTokenKind.Fcm] });
 
-        if (tokenResponse.Tokens.Count == 0) return;
+        var tokens = tokenResponse.Of(PushTokenKind.Fcm).ToList();
+        if (tokens.Count == 0) return;
 
         var profile = await bus.InvokeAsync<GetProfileByUserIdResponse>(
             new GetProfileByUserIdRequest { UserId = request.AuthorId });
@@ -41,7 +43,7 @@ public class ChannelPushRequestedHandler
             ? "You have a new encrypted message"
             : Encoding.UTF8.GetString(request.Content);
 
-        foreach (var token in tokenResponse.Tokens)
+        foreach (var token in tokens)
         {
             await PushNotifiaction.SendPushNotification(new PushNotificationParams
             {
@@ -58,6 +60,6 @@ public class ChannelPushRequestedHandler
         }
 
         logger.LogDebug("Sent {TokenCount} channel push notifications for message {MessageId}",
-            tokenResponse.Tokens.Count, request.MessageId);
+            tokens.Count, request.MessageId);
     }
 }

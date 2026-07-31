@@ -11,6 +11,7 @@ public class CreateLoginSessionParams
     public DeviceType DeviceType { get; init; }
     public string? IpAddress { get; init; }
     public string? UserAgent { get; init; }
+    public string? DeviceId { get; init; }
 }
 
 /// <summary>
@@ -33,6 +34,16 @@ public class LoginSession : BaseEntity<LoginSession>, IPrefixedEntity
     public DateTimeOffset LastUsedAt { get; set; }
     public DateTimeOffset? RevokedAt { get; set; }
 
+    /// <summary>
+    /// The registered <see cref="UserDevice"/> this login came from, when the client sent its
+    /// device id at /connect/token. A device has many sequential sessions (every re-login makes a
+    /// new one), which is why this is a link rather than the two being one row. Null for clients
+    /// that don't send a device id yet, and for logins that happened before this column existed -
+    /// those sessions simply can't take their push tokens down with them on revoke.
+    /// </summary>
+    public string? DeviceId { get; set; }
+    public UserDevice? Device { get; set; }
+
     public ApplicationUser User { get; set; } = null!;
 
     public static LoginSession Create(CreateLoginSessionParams createParams)
@@ -48,6 +59,7 @@ public class LoginSession : BaseEntity<LoginSession>, IPrefixedEntity
             DeviceType = createParams.DeviceType,
             IpAddress = createParams.IpAddress,
             UserAgent = createParams.UserAgent,
+            DeviceId = createParams.DeviceId,
             LastUsedAt = date,
         };
     }

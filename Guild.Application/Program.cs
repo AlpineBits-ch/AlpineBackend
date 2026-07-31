@@ -1,4 +1,5 @@
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
 using System.Net.Http.Headers;
 using AppEnvironment;
@@ -47,6 +48,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
 builder.Services.AddSingleton<IDistributedLockService, RedisDistributedLockService>();
 builder.Services.AddSingleton<LockedJsonCacheStore>();
+// Scoped: it takes IMessageBus, which Wolverine registers per scope.
+builder.Services.AddScoped<DeviceIdResolver>();
 
 builder.Services.AddScoped<ProfileService>();
 builder.Services.AddStackExchangeRedisCache(config =>

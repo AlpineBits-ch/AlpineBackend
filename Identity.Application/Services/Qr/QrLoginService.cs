@@ -16,7 +16,11 @@ public enum QrPairingStatus
 /// isn't enough to know who to log in, since the desktop side must not be able to force an
 /// approval before the mobile owner has actually made a decision.
 /// </summary>
-public record QrPairingState(QrPairingStatus Status, string DeviceName, DeviceType DeviceType, string? UserId);
+/// <param name="ClientDeviceId">The starting device's own id, if it has registered one. Carried
+/// through so the session minted at /connect/token can be linked to that device - a QR login never
+/// passes through a form where the client could send it itself.</param>
+public record QrPairingState(QrPairingStatus Status, string DeviceName, DeviceType DeviceType, string? UserId,
+    string? ClientDeviceId = null);
 
 /// <summary>
 /// Constants and cache-key helpers for the QR cross-device login flow. Mirrors

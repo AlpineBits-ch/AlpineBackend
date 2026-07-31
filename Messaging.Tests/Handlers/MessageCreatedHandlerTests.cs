@@ -64,7 +64,7 @@ public class MessageCreatedHandlerTests
     private static FakeMessageBus BusWithNoDeviceTokens() => new(msg => msg switch
     {
         GetProfileByUserIdRequest => new GetProfileByUserIdResponse { Profile = new ProfileDto { UserName = "author-1", Relationships = [] } },
-        GetDeviceTokenForUserIdRequest => new GetDeviceTokenForUserIdResponse { Tokens = [] },
+        GetPushTokensForUsersRequest => new GetPushTokensForUsersResponse { Tokens = [] },
         _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
     });
 
@@ -102,7 +102,7 @@ public class MessageCreatedHandlerTests
 
         await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
 
-        var tokenRequest = (GetDeviceTokenForUserIdRequest)bus.Invoked.Single(m => m is GetDeviceTokenForUserIdRequest);
+        var tokenRequest = (GetPushTokensForUsersRequest)bus.Invoked.Single(m => m is GetPushTokensForUsersRequest);
         Assert.That(tokenRequest.UserIds, Is.EquivalentTo(new[] { "user-2", "user-3" }));
     }
 

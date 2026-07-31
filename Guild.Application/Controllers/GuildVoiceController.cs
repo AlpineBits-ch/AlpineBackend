@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
 
 using Guild.Application.Models;
@@ -29,6 +30,7 @@ public class GuildVoiceController(
     IDistributedLockService locks,
     CloudflareService cfService,
     MicroserviceContext db,
+    DeviceIdResolver devices,
     IMessageBus bus) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -38,11 +40,11 @@ public class GuildVoiceController(
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-    /// <summary>See Messaging.Application.Controllers.VoiceController.DeviceId - same fallback
-    /// for pre-update clients.</summary>
-    private string DeviceId => Request.Headers.TryGetValue("X-Device-Id", out var value) && !string.IsNullOrWhiteSpace(value)
-        ? value.ToString()
-        : "default";
+    /// <summary>See Messaging.Application.Controllers.VoiceController.ResolveDeviceAsync - one
+    /// shared resolver, same fallback for pre-update clients, same rejection of an id this user
+    /// has no registered device for.</summary>
+    private Task<DeviceIdResult> ResolveDeviceAsync(CancellationToken ct = default) =>
+        devices.ResolveAsync(Request, UserId, ct);
 
     [HttpPost("join")]
     public async Task<IActionResult> Join(string guildId, string channelId, CancellationToken ct)
@@ -58,7 +60,10 @@ public class GuildVoiceController(
         if (channel is null) return NotFound();
         if (channel.Type != Guild.Domain.Enums.ChannelType.Voice) return BadRequest("Channel is not a voice channel");
 
-        var deviceId = DeviceId;
+        var device = await ResolveDeviceAsync(ct);
+        if (device.IsUnknown)
+            return BadRequest($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
+        var deviceId = device.DeviceId;
 
         // A user can only be in one voice channel, on one device, at a time, app-wide. If
         // they're already active somewhere else, resolve that first:

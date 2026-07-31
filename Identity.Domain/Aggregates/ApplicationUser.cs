@@ -47,8 +47,7 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     
     public EncryptedMasterKey? EncryptedMasterKey{ get; set; }
     
-    public ICollection<UserDeviceToken> DeviceTokens { get; set; } = new List<UserDeviceToken>();
-    public ICollection<UserVoipToken> VoipTokens { get; set; } = new List<UserVoipToken>();
+    public ICollection<UserPushToken> PushTokens { get; set; } = new List<UserPushToken>();
     public ICollection<UserDevice> Devices { get; set; } = new List<UserDevice>();
     public ICollection<UserKeyPackage> KeyPackages { get; set; } = new List<UserKeyPackage>();
     public ICollection<UserDeviceBackup> Backups { get; set; } = new List<UserDeviceBackup>();

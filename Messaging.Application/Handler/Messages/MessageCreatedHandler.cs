@@ -5,6 +5,7 @@ using FirebaseAdmin.Messaging;
 using Guild.Contracts.Bus.Events;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Identity.Contracts.Enums;
 
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
@@ -41,13 +42,14 @@ public class MessageCreatedHandler
 
             if (pushUserIds.Count > 0)
             {
-                var response = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = pushUserIds });
+                var response = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
+                    new GetPushTokensForUsersRequest { UserIds = pushUserIds, Kinds = [PushTokenKind.Fcm] });
                 string body = Encoding.UTF8.GetString(messageCreated.Content);
                 if (messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted)
                 {
                     body = "You have a new encrypted message";
                 }
-                foreach (var token in response.Tokens)
+                foreach (var token in response.Of(PushTokenKind.Fcm))
                 {
                     await PushNotifiaction.SendPushNotification(new PushNotificationParams()
                     {

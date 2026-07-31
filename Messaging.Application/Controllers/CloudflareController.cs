@@ -2,6 +2,7 @@ using Echo.Realtime.Sfu;
 using System.Security.Claims;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
 
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
@@ -30,6 +31,7 @@ public class CloudflareController(
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
     IMessageBus bus,
+    DeviceIdResolver devices,
     ILogger<CloudflareController> logger) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -39,10 +41,10 @@ public class CloudflareController(
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-    /// <summary>See VoiceController.DeviceId - same fallback for pre-update clients.</summary>
-    private string DeviceId => Request.Headers.TryGetValue("X-Device-Id", out var value) && !string.IsNullOrWhiteSpace(value)
-        ? value.ToString()
-        : "default";
+    /// <summary>See VoiceController.ResolveDeviceAsync - same resolver, same fallback for
+    /// pre-update clients, same rejection of an id this user has no device for.</summary>
+    private Task<DeviceIdResult> ResolveDeviceAsync(CancellationToken ct = default) =>
+        devices.ResolveAsync(Request, UserId, ct);
 
     /// <summary>
     /// Creates a Cloudflare session for this call participant.
@@ -64,6 +66,10 @@ public class CloudflareController(
     public async Task<IActionResult> CreateSession(
         string callId, CancellationToken ct, [FromQuery] bool primary = true)
     {
+        var device = await ResolveDeviceAsync(ct);
+        if (device.IsUnknown)
+            return BadRequest($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
+
         var cfSessionId = await cfService.CreateSessionAsync(ct);
 
         if (!primary) return Ok(new { cfSessionId });
@@ -82,7 +88,7 @@ public class CloudflareController(
             call =>
             {
                 var me = call.Participants.FirstOrDefault(p => p.UserId == UserId);
-                if (me is not null) call.ConnectDevice(me, DeviceId);
+                if (me is not null) call.ConnectDevice(me, device.DeviceId);
             }, CacheOptions, ct);
 
         if (call is not null)

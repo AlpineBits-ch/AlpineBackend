@@ -6,6 +6,10 @@ public class StartQrLoginDto
 {
     public string DeviceName { get; set; } = null!;
     public DeviceType DeviceType { get; set; }
+
+    /// <summary>Optional. The starting device's ClientDeviceId, so the resulting login session can
+    /// be attributed to it.</summary>
+    public string? ClientDeviceId { get; set; }
 }
 
 public class QrLoginCodeDto

@@ -1,7 +1,9 @@
 # Multi-Device Calls & Voice Channels — Client Spec
 
 Audience: frontend (desktop/web) and mobile client engineers.
-Status: **planned, not yet implemented server-side.** This document describes the target contract; endpoints/events marked "NEW" do not exist yet. Backend work will ship behind the same URLs described here.
+Status: **implemented server-side.** This document describes the contract as built.
+
+> **Follow-up:** the device id is now validated against the caller's registered devices, and push tokens, login sessions and device registration were consolidated around it. See [device-identity-consolidation-client-guide.md](device-identity-consolidation-client-guide.md) for what changed since this document.
 
 All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a microservice directly.
 

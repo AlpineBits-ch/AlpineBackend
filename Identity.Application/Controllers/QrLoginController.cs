@@ -27,7 +27,7 @@ public class QrLoginController(IDistributedCache cache) : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.DeviceName)) return BadRequest("deviceName is required.");
 
         var code = Guid.NewGuid().ToString("N");
-        var state = new QrPairingState(QrPairingStatus.Pending, dto.DeviceName, dto.DeviceType, null);
+        var state = new QrPairingState(QrPairingStatus.Pending, dto.DeviceName, dto.DeviceType, null, dto.ClientDeviceId);
 
         await cache.SetStringAsync(QrLoginService.PairingCacheKey(code), JsonSerializer.Serialize(state),
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = QrLoginService.PairingLifetime });

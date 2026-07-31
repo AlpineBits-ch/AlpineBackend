@@ -29,16 +29,10 @@ public class MlsDeviceEndpoint
 
         var existingDevice = await ctx.UserDevices.FirstOrDefaultAsync(x => x.ClientDeviceId == dto.ClientDeviceId && x.UserId == userId);
 
-
-
-        // check if device is registered by another user
-        var existingDeviceByAnotherUser = await ctx.UserDevices.FirstOrDefaultAsync(x => x.ClientDeviceId == dto.ClientDeviceId && x.UserId != userId);
-        if (existingDeviceByAnotherUser is not null)
-        {
-            // for now we just delete the existing device
-            ctx.UserDevices.Remove(existingDeviceByAnotherUser);
-        }
-
+        // A collision with another user's device used to delete that user's row (and cascade away
+        // their key packages and backup) purely because ClientDeviceId is client-supplied and was
+        // globally unique - any account could destroy another's device registration by claiming its
+        // id. The id is scoped per user now, so a collision across users simply isn't one.
 
         if(existingDevice is not null) return (Results.Ok(existingDevice.ToFacet<UserDevice, UserDeviceDto>()), null);
 
@@ -119,6 +113,46 @@ public class MlsDeviceEndpoint
         ctx.UserKeyPackages.AddRange(packages);
 
         return Results.Ok(new AddKeyPackagesResultDto { Added = packages.Count });
+    }
+
+    /// <summary>
+    /// Unregisters one of the caller's own devices: the row goes, and with it (by cascade) its key
+    /// packages, its encrypted backup and its push tokens - so a handset that has been wiped,
+    /// sold or signed out stops being handed key packages for new groups and stops being rung.
+    /// Login sessions from that device are revoked rather than deleted; they are the audit trail
+    /// the user reads on the sessions screen.
+    ///
+    /// <para>Until this existed there was no removal path at all: <c>DeviceRemoved</c> was declared
+    /// and never published, and a device's push tokens outlived it indefinitely.</para>
+    /// </summary>
+    [Authorize]
+    [WolverineDelete("api/v1/devices/client/{deviceId}")]
+    public static async Task<(IResult, DeviceRemoved?)> RemoveDevice(string deviceId,
+        [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
+
+        var device = await ctx.UserDevices
+            .FirstOrDefaultAsync(d => d.ClientDeviceId == deviceId && d.UserId == userId);
+        if (device is null) return (Results.NotFound(), null);
+
+        var sessions = await ctx.LoginSessions
+            .Where(s => s.DeviceId == device.Id && s.RevokedAt == null)
+            .ToListAsync();
+        foreach (var session in sessions)
+        {
+            session.Revoke();
+        }
+
+        ctx.UserDevices.Remove(device);
+
+        return (Results.NoContent(), new DeviceRemoved
+        {
+            UserId = userId,
+            DeviceId = device.Id,
+            ClientDeviceId = device.ClientDeviceId,
+        });
     }
 
     // GET api/v1/devices/{deviceId}/key-packages is gone. It handed back the device's unconsumed

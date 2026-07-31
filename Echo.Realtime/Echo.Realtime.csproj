@@ -15,4 +15,10 @@
         <PackageReference Include="StackExchange.Redis" Version="3.0.17" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- For the device-validation bus contract used by DeviceIdResolver. Identity.Contracts
+             carries no reference back here, so this stays acyclic. -->
+        <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
+    </ItemGroup>
+
 </Project>

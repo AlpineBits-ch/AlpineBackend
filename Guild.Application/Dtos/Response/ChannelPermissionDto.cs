@@ -3,7 +3,13 @@ using Guild.Domain.Entity;
 
 namespace Guild.Application.Dtos.Response;
 
-[Facet(typeof(ChannelPermission), NestedFacets = [typeof(ChannelDto), typeof(ChannelPermissionDto), typeof(GuildDto), typeof(RoleDto)])]
+/// <summary>
+/// Category and Member are excluded rather than nested: an overwrite is polymorphic, so at most one
+/// of them is ever set, and CategoryId/MemberId already say which.
+/// </summary>
+[Facet(typeof(ChannelPermission),
+    nameof(ChannelPermission.Category), nameof(ChannelPermission.Member),
+    NestedFacets = [typeof(ChannelDto), typeof(ChannelPermissionDto), typeof(GuildDto), typeof(RoleDto)])]
 public partial class ChannelPermissionDto
 {
 

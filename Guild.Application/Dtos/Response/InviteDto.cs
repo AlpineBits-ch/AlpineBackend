@@ -3,8 +3,11 @@ using Guild.Domain.Entity;
 
 namespace Guild.Application.Dtos.Response;
 
-[Facet(typeof(GuildInvite), NestedFacets = [typeof(GuildDto), typeof(ChannelDto), typeof(ChannelDto)])]
-
+/// <summary><c>Members</c> - every member who joined on this invite, as raw GuildMember entities -
+/// is excluded. It is the same expansion that made <see cref="FlatInviteDto"/> necessary when
+/// InviteDto was nested inside MemberDto; nobody reads it, and UseCount already carries the only
+/// part of it a client wants.</summary>
+[Facet(typeof(GuildInvite), nameof(GuildInvite.Members), NestedFacets = [typeof(GuildDto), typeof(ChannelDto)])]
 public partial class InviteDto
 {
     /// <summary>The guild's welcome splash, so a client can render it on the invite-accept screen

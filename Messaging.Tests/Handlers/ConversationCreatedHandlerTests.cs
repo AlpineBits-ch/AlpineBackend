@@ -131,13 +131,24 @@ public class ConversationCreatedHandlerTests
             "Cache must contain the new conversation after handler runs");
     }
 
+    private static PendingWelcome MakeWelcome(string userId, string deviceId) =>
+        PendingWelcome.Create(new CreatePendingWelcomeParams
+        {
+            ContextId = ConversationId,
+            ConversationId = ConversationId,
+            UserId = userId,
+            DeviceId = deviceId,
+            Welcome = [1, 2, 3],
+            Epoch = 1,
+        });
+
     [Test]
-    public async Task Handle_PendingWelcomesExist_SendsWelcomeToEachOwningUser()
+    public async Task Handle_PendingWelcomesExist_SendsWelcomeToEachOwningDevice()
     {
         _context.Members.Add(MakeMember("m-a", InitiatorUserId, ConversationId));
         _context.PendingWelcomes.AddRange(
-            new PendingWelcome { Id = "pewe-1", ConversationId = ConversationId, UserId = AcceptantUserId, DeviceId = "device-1", Welcome = [1, 2, 3] },
-            new PendingWelcome { Id = "pewe-2", ConversationId = ConversationId, UserId = "user-c", DeviceId = "device-2", Welcome = [4, 5, 6] });
+            MakeWelcome(AcceptantUserId, "device-1"),
+            MakeWelcome("user-c", "device-2"));
         await _context.SaveChangesAsync();
 
         var @event = new ConversationCreated { ConversationId = ConversationId };
@@ -145,8 +156,30 @@ public class ConversationCreatedHandlerTests
         await ConversationCreatedHandler.Handle(@event, _context, _permissionService, _hubContext);
 
         var hubClients = (FakeHubClients)_hubContext.Clients;
-        var welcomeMessages = hubClients.SentMessages.Where(m => m.Method == "conversation.Welcome").ToList();
-        Assert.That(welcomeMessages, Has.Count.EqualTo(2),
-            "Each user with a pending welcome for this conversation must receive one welcome push");
+        var welcomes = hubClients.Sends.Where(m => m.Method == "conversation.Welcome").ToList();
+
+        // Addressed per device, not per user: a Welcome is sealed to one leaf, and the fetch behind
+        // this push is device-scoped, so a user's other sessions can never act on it.
+        Assert.That(welcomes.Select(w => w.Target), Is.EquivalentTo(new[]
+        {
+            "group:" + EchoRealtimeHub.DeviceGroup(AcceptantUserId, "device-1"),
+            "group:" + EchoRealtimeHub.DeviceGroup("user-c", "device-2"),
+        }));
+    }
+
+    [Test]
+    public async Task Handle_AlreadyConsumedWelcome_IsNotPushedAgain()
+    {
+        _context.Members.Add(MakeMember("m-a", InitiatorUserId, ConversationId));
+        var consumed = MakeWelcome(AcceptantUserId, "device-1");
+        consumed.ConsumedAt = DateTimeOffset.UtcNow;
+        _context.PendingWelcomes.Add(consumed);
+        await _context.SaveChangesAsync();
+
+        await ConversationCreatedHandler.Handle(
+            new ConversationCreated { ConversationId = ConversationId }, _context, _permissionService, _hubContext);
+
+        var hubClients = (FakeHubClients)_hubContext.Clients;
+        Assert.That(hubClients.Sends.Any(m => m.Method == "conversation.Welcome"), Is.False);
     }
 }

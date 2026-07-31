@@ -47,9 +47,22 @@ public class Conversation : Aggregate<Conversation>, IPrefixedEntity
     {
         if (parameters.Encryption == ChannelEncryptionState.Encrypted)
         {
-            if(parameters.MlsGroupId == null) throw new ArgumentNullException(nameof(parameters.MlsGroupId));
-            if(parameters.MlsEpoch == 0) throw new ArgumentNullException(nameof(parameters.MlsEpoch));
-            if(parameters.MlsGroupInfo == null) throw new ArgumentNullException(nameof(parameters.MlsGroupInfo));
+            if (parameters.MlsGroupId is null or { Length: 0 })
+                throw new ArgumentException("An encrypted conversation needs an MLS group id", nameof(parameters));
+
+            // Epoch 0 is a real, valid state: a group whose creator has not added anyone yet sits at
+            // epoch 0 until the first commit. Rejecting it (the old check was `== 0`) turned every
+            // encrypted conversation with no reachable invitee device into a 500 instead of a group
+            // the creator could add members to later.
+            if (parameters.MlsEpoch is null or < 0)
+                throw new ArgumentException("An encrypted conversation needs a non-negative MLS epoch", nameof(parameters));
+
+            // GroupInfo is deliberately optional. It exists so a device that fell further behind
+            // than the retained commits can rejoin by external commit - a recovery aid, not
+            // something the group's correctness depends on, and a group at epoch 0 has nothing
+            // worth publishing yet.
+            if (parameters.MlsGroupInfo is { Length: 0 })
+                throw new ArgumentException("MLS group info must be non-empty when supplied", nameof(parameters));
         }
         var id = GenerateId();
         var conversation = new Conversation

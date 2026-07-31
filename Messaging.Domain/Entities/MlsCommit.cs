@@ -1,0 +1,75 @@
+﻿using Messaging.Domain.Aggregates;
+using Persistence;
+
+namespace Messaging.Domain.Entities;
+
+public class CreateMlsCommitParams
+{
+    public string ContextId { get; init; } = null!;
+    public string? ConversationId { get; init; }
+    public string? ChannelId { get; init; }
+    public long Epoch { get; init; }
+    public byte[] Commit { get; init; } = null!;
+    public string SenderUserId { get; init; } = null!;
+    public string SenderDeviceId { get; init; } = null!;
+}
+
+/// <summary>
+/// One TLS-serialized MLS commit (or proposal-bearing commit) for a group, kept so that a device
+/// which was offline when it was published can catch up rather than being permanently forked off
+/// the group.
+///
+/// <para><b>Epoch is the ordering and the dedup key.</b> <see cref="Epoch"/> is the epoch the group
+/// is in <i>after</i> this commit is applied, and (<see cref="ContextId"/>, <see cref="Epoch"/>) is
+/// unique. Two members who commit concurrently therefore race for the same row: exactly one wins,
+/// the loser gets a conflict and has to re-fetch, re-apply and re-issue its change. That is the
+/// whole fork-resolution story - the server never merges commits, it only refuses the second one.</para>
+///
+/// <para>Context columns mirror <see cref="Message"/>: <see cref="ContextId"/> is the group key and
+/// carries either a conversation id or a channel id, with the matching typed column set for
+/// cascade-delete and querying. Guild-channel MLS therefore needs no schema change - only an
+/// authorization resolver that can answer "is this user in that channel's group".</para>
+/// </summary>
+public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
+{
+    public static string Prefix { get; } = "mlsc";
+
+    /// <summary>Conversation id or channel id - the MLS group this commit belongs to.</summary>
+    public string ContextId { get; set; } = null!;
+
+    /// <summary>Set when the group is a conversation; drives cascade delete.</summary>
+    public string? ConversationId { get; set; }
+
+    /// <summary>Set when the group is a guild channel. No FK - channels live in the Guild service.</summary>
+    public string? ChannelId { get; set; }
+
+    /// <summary>Group epoch <i>after</i> this commit is applied. Unique per context.</summary>
+    public long Epoch { get; set; }
+
+    /// <summary>Base64/TLS-serialized MlsMessage carrying the commit.</summary>
+    public byte[] Commit { get; set; } = null!;
+
+    public string SenderUserId { get; set; } = null!;
+
+    /// <summary>Client device id of the publisher, so fanout can skip the device that already
+    /// merged this commit locally.</summary>
+    public string SenderDeviceId { get; set; } = null!;
+
+    public static MlsCommit Create(CreateMlsCommitParams parameters)
+    {
+        var date = DateTimeOffset.UtcNow;
+        return new MlsCommit
+        {
+            Id = GenerateId(),
+            CreatedAt = date,
+            UpdatedAt = date,
+            ContextId = parameters.ContextId,
+            ConversationId = parameters.ConversationId,
+            ChannelId = parameters.ChannelId,
+            Epoch = parameters.Epoch,
+            Commit = parameters.Commit,
+            SenderUserId = parameters.SenderUserId,
+            SenderDeviceId = parameters.SenderDeviceId,
+        };
+    }
+}

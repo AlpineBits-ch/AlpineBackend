@@ -35,20 +35,12 @@ public class ConversationController(MicroserviceContext ctx) : ControllerBase
     }
 
 
-    [HttpGet("welcomes")]
-    public async Task<IActionResult> GetWelcomeMessages()
-    {
-        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if(userId is null) return BadRequest();
+    // GET welcomes moved to MlsEndpoints.GetWelcomes. The version that lived here deleted every
+    // Welcome for the user on read, which meant (a) a device drained its siblings' Welcomes, which
+    // are keyed to leaves it does not hold, and (b) any failure between the fetch and the join lost
+    // the only copy of a single-use init key, permanently locking that device out of the group.
 
-        var welcomes = await ctx.PendingWelcomes.Where(w => w.UserId == userId).ToListAsync();
 
-        ctx.PendingWelcomes.RemoveRange(welcomes);
-        await ctx.SaveChangesAsync();
-        
-        return Ok(welcomes.SelectFacets<PendingWelcome, PendingWelcomeDto>());
-    }
-    
     [HttpGet("{id}")]
     public async Task<IActionResult> GetConversation(string id)
     {

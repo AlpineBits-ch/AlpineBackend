@@ -1,6 +1,5 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using Facet.Extensions;
-using Identity.Application.Dtos.Request;
 using Identity.Application.Dtos.Response;
 using Identity.Domain.Entities;
 using Identity.Infrastructure.Persistence;
@@ -15,44 +14,74 @@ namespace Identity.Application.Controllers;
 [Route("api/v1/devices")]
 public class MlsDeviceController(MicroserviceContext ctx) : ControllerBase
 {
+    /// <summary>How many usable single-use key packages a device should keep on the server. Each
+    /// group this device is added to consumes exactly one.</summary>
+    public const int TargetKeyPackageCount = 100;
+
+    /// <summary>How long a consumed package is kept before being swept - long enough to debug a
+    /// failed join against, short enough that the table does not grow without bound.</summary>
+    public static readonly TimeSpan ConsumedRetention = TimeSpan.FromDays(30);
+
+    /// <summary>
+    /// How many key packages this device should generate and upload to get back to
+    /// <see cref="TargetKeyPackageCount"/>. Doubles as the housekeeping hook - expired and
+    /// long-consumed rows are swept here, because this is the one call every client makes on launch.
+    /// </summary>
     [HttpGet("client/{deviceId}/generate")]
     public async Task<IActionResult> GetGenerateTokenCommandAsync(string deviceId)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
-        
-        // verify user has access to device
 
+        // verify user has access to device
         var device = await ctx.UserDevices.AsNoTracking().FirstOrDefaultAsync(x => x.ClientDeviceId == deviceId && x.UserId == userId);
-        
+
         if (device is null)
         {
             return Forbid();
         }
-        
-        
-        var unconsumedKeyCount = await ctx.UserKeyPackages.CountAsync(p => p.DeviceId == device.Id && p.ConsumedAt == null);
-        
-        
-        // We always want 100 Keys to be persisted, so well calculate 100-unconsumedKeys = keyToBeGenerated
-        
-        
-        
-        return Ok(new GenerateKeyPackagesDto()
+
+        var now = DateTime.UtcNow;
+
+        var sweepBefore = now - ConsumedRetention;
+        var dead = await ctx.UserKeyPackages
+            .Where(p => p.DeviceId == device.Id
+                        && ((p.ConsumedAt != null && p.ConsumedAt < sweepBefore) || p.ExpiresAt <= now))
+            .ToListAsync();
+        if (dead.Count > 0)
         {
-            Count = Math.Clamp(100 - unconsumedKeyCount, min: 0, max: 100)
+            ctx.UserKeyPackages.RemoveRange(dead);
+            await ctx.SaveChangesAsync();
+        }
+
+        // Only unexpired single-use packages count toward the target. The old count included
+        // expired rows, so a device idle for longer than a package lifetime believed it was fully
+        // stocked while every package it held would be rejected the moment someone tried to use it.
+        // The last-resort package is excluded as well: it is a floor, not supply.
+        var usable = await ctx.UserKeyPackages
+            .CountAsync(p => p.DeviceId == device.Id
+                             && p.ConsumedAt == null
+                             && !p.IsLastResort
+                             && p.ExpiresAt > now);
+
+        var hasLastResort = await ctx.UserKeyPackages
+            .AnyAsync(p => p.DeviceId == device.Id && p.IsLastResort && p.ExpiresAt > now);
+
+        return Ok(new GenerateKeyPackagesDto
+        {
+            Count = Math.Clamp(TargetKeyPackageCount - usable, min: 0, max: TargetKeyPackageCount),
+            NeedsLastResort = !hasLastResort,
         });
     }
-    
-    [HttpGet]
 
+    [HttpGet]
     public async Task<IActionResult> GetDevicesAsync()
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
-        
+
         var devices = await ctx.UserDevices.AsNoTracking().Where(x => x.UserId == userId).ToListAsync();
-        
+
         return Ok(devices.SelectFacets<UserDevice, UserDeviceDto>());
     }
 }

@@ -13,6 +13,7 @@ public class MicroserviceContext : DbContext
     public DbSet<ConversationMember> Members { get; set; }
     public DbSet<ConversationMemberDevice> MemberDevices { get; set; }
     public DbSet<PendingWelcome> PendingWelcomes { get; set; }
+    public DbSet<MlsCommit> MlsCommits { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     
     public DbSet<Message> Messages { get; set; }
@@ -109,6 +110,27 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             pendingWelcomeBuilder.HasIndex(w => w.UserId);
+
+            // The fetch is always "what is waiting for *this* device" - a user's other devices must
+            // never be able to drain a Welcome addressed to a leaf they do not hold.
+            pendingWelcomeBuilder.HasIndex(w => new { w.UserId, w.DeviceId, w.ConsumedAt });
+            pendingWelcomeBuilder.HasIndex(w => w.ContextId);
+        });
+
+        modelBuilder.Entity<MlsCommit>(commitBuilder =>
+        {
+            commitBuilder
+                .HasOne<Conversation>()
+                .WithMany()
+                .HasForeignKey(x => x.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The dedup/fork guard: two members committing concurrently both target the same next
+            // epoch, and exactly one insert survives. Enforced in the database, not just in the
+            // endpoint's read-then-write, because that read-then-write is inherently racy.
+            // Doubles as the catch-up index - "everything in this group after epoch N, in order"
+            // is a range scan over exactly these columns in exactly this order.
+            commitBuilder.HasIndex(c => new { c.ContextId, c.Epoch }).IsUnique();
         });
         
         modelBuilder.Entity<ConversationMember>(memberBuilder =>

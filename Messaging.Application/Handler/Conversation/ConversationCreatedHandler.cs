@@ -15,24 +15,25 @@ public class ConversationCreatedHandler
             .Where(m => m.ConversationId == @event.ConversationId)
             .ToListAsync();
 
-        var welcomes = await context.PendingWelcomes.Where(w => w.ConversationId == @event.ConversationId).ToListAsync();
+        var welcomes = await context.PendingWelcomes
+            .Where(w => w.ConversationId == @event.ConversationId && w.ConsumedAt == null)
+            .ToListAsync();
 
+        // Addressed to the one device holding the matching leaf, not to every session the user has
+        // open - the fetch behind this push is device-scoped, so waking a user's other devices only
+        // costs them a round-trip that can never return anything.
         foreach (var welcome in welcomes)
         {
-            await hubContext.Clients.User(welcome.UserId).SendAsync("conversation.Welcome", @event.ConversationId);
+            await hubContext.Clients
+                .Group(EchoRealtimeHub.DeviceGroup(welcome.UserId, welcome.DeviceId))
+                .SendAsync("conversation.Welcome", @event.ConversationId);
         }
-        
+
         foreach (var member in members)
         {
             await permissionService.GetPermissionsForUser(member.UserId, rebuild: true);
         }
-        
+
         await hubContext.Clients.Users(members.Select(m => m.UserId)).SendAsync("conversation.ConversationCreated", @event.ConversationId);
-        
-        
-        // Here we send the welcome packages directly, if the user is online.
-        
-        
-        
     }
 }

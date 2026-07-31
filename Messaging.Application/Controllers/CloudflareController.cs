@@ -103,9 +103,22 @@ public class CloudflareController(
     public async Task<IActionResult> TracksNew(string callId, [FromBody] TracksNewBody body, CancellationToken ct)
     {
         var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
-        var result = body.Tracks.All(t => t.Location == "remote")
-            ? await TracksNewWithRetryAsync(body.CfSessionId, request, ct)
-            : await cfService.TracksNewAsync(body.CfSessionId, request, ct);
+        CfTracksNewResponse result;
+        try
+        {
+            result = body.Tracks.All(t => t.Location == "remote")
+                ? await TracksNewWithRetryAsync(body.CfSessionId, request, ct)
+                : await cfService.TracksNewAsync(body.CfSessionId, request, ct);
+        }
+        catch (CloudflareCallsException ex)
+        {
+            // See the identical guard in Guild.Application's GuildCloudflareController: answering a
+            // failed subscribe with a 200 is what made this failure mode permanent and invisible.
+            logger.LogError(ex,
+                "tracks/new failed for user {UserId} in call {CallId} on session {CfSessionId}",
+                UserId, callId, body.CfSessionId);
+            return StatusCode(502, new { operation = ex.Operation, error = ex.ResponseBody });
+        }
 
         var audioTrack = body.Tracks.FirstOrDefault(t => t is { Location: "local", TrackName: "audio" });
         if (audioTrack is not null)

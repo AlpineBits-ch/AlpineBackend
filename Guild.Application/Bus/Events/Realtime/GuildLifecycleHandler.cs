@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 using Guild.Application.Controllers;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Models;
@@ -21,6 +22,11 @@ namespace Guild.Application.Bus.Events.Realtime;
 /// </summary>
 public class GuildLifecycleHandler
 {
+    private static readonly DistributedCacheEntryOptions ChannelCacheOptions = new()
+    {
+        SlidingExpiration = TimeSpan.FromHours(4)
+    };
+
     // A brand-new connection defaults to Online (matches Discord's default) — there is no
     // prior presence entry to preserve a status from. Guild members watching this user's guilds
     // are notified in realtime, matching the notification already sent for explicit status changes.
@@ -120,7 +126,8 @@ public class GuildLifecycleHandler
     // presence hash/ZSET entry to expire (previously the only mechanism — see the ghost-presence
     // stress test), then falls through to the pre-existing voice-cleanup logic below.
     public async Task Handle(UserDisconnected message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+        GuildHydrateService service, IDistributedCache cache, LockedJsonCacheStore voiceStore,
+        IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
     {
         var userId = message.UserId;
 
@@ -145,33 +152,76 @@ public class GuildLifecycleHandler
         var location = JsonSerializer.Deserialize<UserVoiceLocation>(locationJson);
         if (location is null) return;
 
-        var raw = await cache.GetStringAsync(ChannelVoiceState.GetCacheKey(location.ChannelId));
-        if (raw is not null)
-        {
-            var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
-            var participant = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-            if (participant is not null)
+        var channelKey = ChannelVoiceState.GetCacheKey(location.ChannelId);
+
+        // Locked: this shares the channel blob with Join, CreateSession, ExchangeParticipantJoined,
+        // CloseTracks, the mute/deafen/screenshare handlers and the heartbeat sweeper — every one of
+        // which was moved onto LockedJsonCacheStore for this reason and this one call site was
+        // missed. Unlocked it last-writer-wins over whatever committed while it held a stale copy,
+        // so a disconnect overlapping a join wrote the joiner straight back out of the roster: they
+        // got a 200 from /join with themselves in it, the server kept no record, and neither side
+        // ever saw the other.
+        var removedFromVoice = false;
+        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(channelKey, channelKey,
+            vs =>
             {
-                voiceState.Participants.Remove(participant);
-                await cache.SetStringAsync(
-                    ChannelVoiceState.GetCacheKey(location.ChannelId),
-                    JsonSerializer.Serialize(voiceState),
-                    new DistributedCacheEntryOptions { SlidingExpiration = TimeSpan.FromHours(4) });
+                var participant = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                if (participant is null) return;
+                if (!DisconnectEndsVoiceConnection(participant.DeviceId, message.DeviceId)) return;
 
-                var onlineUserIds = await microserviceContext.GuildMembers
-                    .AsNoTracking()
-                    .Where(m => m.GuildId == location.GuildId)
-                    .Select(m => m.UserId)
-                    .ToListAsync();
+                vs.Participants.Remove(participant);
+                removedFromVoice = true;
+            }, ChannelCacheOptions);
 
-                await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
-                    new { userId, channelId = location.ChannelId, guildId = location.GuildId });
-
-                await bus.PublishAsync(new VoiceStateForBots { GuildId = location.GuildId, UserId = userId, ChannelId = null });
+        if (voiceState is null)
+        {
+            // The channel blob is gone (expired, or already cleaned up). Drop this user's dangling
+            // pointer to it, but still only on behalf of the device that owned the connection.
+            if (DisconnectEndsVoiceConnection(location.DeviceId, message.DeviceId))
+            {
+                await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId));
+                await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId));
             }
+            return;
         }
+
+        // Nothing of this user's voice presence belonged to the device that just dropped, so
+        // nothing about it changed. Leaving the heartbeat key alone matters as much as leaving the
+        // roster alone — without it VoiceHeartbeatCleanupService evicts them within 60 seconds and
+        // the outcome is the same, just delayed.
+        if (!removedFromVoice) return;
+
+        var onlineUserIds = await microserviceContext.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.GuildId == location.GuildId)
+            .Select(m => m.UserId)
+            .ToListAsync();
+
+        await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
+            new { userId, channelId = location.ChannelId, guildId = location.GuildId });
+
+        await bus.PublishAsync(new VoiceStateForBots { GuildId = location.GuildId, UserId = userId, ChannelId = null });
 
         await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId));
         await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId));
     }
+
+    /// <summary>
+    /// Whether a socket drop on <paramref name="disconnectingDeviceId"/> should be treated as
+    /// ending the voice connection held by <paramref name="voiceDeviceId"/>.
+    ///
+    /// <para>A user can have sockets open on several devices at once, and only one of them is in
+    /// the voice channel (<c>GuildVoiceController.TakeoverDeviceAsync</c> enforces that and is what
+    /// keeps <see cref="VoiceState.DeviceId"/> current). A drop on any of the others says nothing
+    /// about the one that is talking. Messaging's <c>UserDisconnectedHandler</c> already guards this
+    /// the same way, via <c>Call.Leave(userId, deviceId)</c>.</para>
+    ///
+    /// <para>A null on either side means the pairing can't be established — a pre-device-tracking
+    /// client, or a roster entry written before DeviceId existed. Fall back to the old device-blind
+    /// behaviour there rather than leaving those users stuck in a channel indefinitely.</para>
+    /// </summary>
+    private static bool DisconnectEndsVoiceConnection(string? voiceDeviceId, string? disconnectingDeviceId) =>
+        string.IsNullOrEmpty(voiceDeviceId)
+        || string.IsNullOrEmpty(disconnectingDeviceId)
+        || voiceDeviceId == disconnectingDeviceId;
 }

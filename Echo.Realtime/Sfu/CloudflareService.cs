@@ -36,12 +36,23 @@ public record CfTracksNewRequest(
     List<CfTrackNew> Tracks
 );
 
+/// <summary>
+/// One entry of Cloudflare's <c>tracks/new</c> response.
+///
+/// <para><c>ErrorCode</c>/<c>ErrorDescription</c> are how Cloudflare reports a <em>per-track</em>
+/// failure — pulling a track that hasn't propagated to the publisher's session yet is the common
+/// one. It arrives inside an HTTP <b>200</b> alongside a perfectly valid <c>sessionDescription</c>,
+/// with <c>Mid</c> absent. This record previously declared a single <c>Error</c> property, which
+/// corresponds to no field Cloudflare actually sends, so every such failure deserialised to
+/// "success with a null mid" and was relayed to the client as a 200.</para>
+/// </summary>
 public record CfTrackResult(
-    string Mid,
+    string? Mid,
     string TrackName,
     string? SessionId,
     string? Location,
-    string? Error
+    string? ErrorCode,
+    string? ErrorDescription
 );
 
 public record CfTracksNewResponse(
@@ -106,6 +117,7 @@ public class CloudflareService
         var body = await res.Content.ReadAsStringAsync(ct);
         var result = JsonSerializer.Deserialize<CfTracksNewResponse>(body, Json);
         EnsureValidSessionDescription(result?.SessionDescription, "tracks/new", body);
+        EnsureNoTrackFailures(result!, "tracks/new", body);
         return result!;
     }
 
@@ -138,6 +150,41 @@ public class CloudflareService
         _logger.LogError(
             "Cloudflare Calls {Operation} returned a 2xx response with a missing or empty " +
             "sessionDescription. Raw body: {Body}", operation, rawBody);
+        throw new CloudflareCallsException(operation, System.Net.HttpStatusCode.OK, rawBody);
+    }
+
+    /// <summary>
+    /// Turns a per-track failure into a real failure.
+    ///
+    /// <para><see cref="EnsureSuccessAsync"/> catches Cloudflare rejecting the whole request and
+    /// <see cref="EnsureValidSessionDescription"/> catches a 2xx with no usable SDP. Neither
+    /// catches the case that actually happens most: a 200, a valid session description, and one
+    /// entry in <c>tracks[]</c> carrying <c>errorCode</c>/<c>errorDescription</c> in place of a
+    /// <c>mid</c>. That is exactly the SFU propagation race the callers' retry loops were written
+    /// for, and because it never threw, those loops never ran — the failure was relayed to the
+    /// client as a successful subscribe with a mid-less track, which clients then papered over
+    /// with a locally invented mid and marked the participant permanently subscribed.</para>
+    ///
+    /// <para>A track that came back with neither an error nor a mid is treated the same way: it is
+    /// unusable to the caller either way, and silently returning it is what made this class of
+    /// failure undiagnosable.</para>
+    /// </summary>
+    private void EnsureNoTrackFailures(CfTracksNewResponse result, string operation, string rawBody)
+    {
+        var failed = result.Tracks
+            .Where(t => !string.IsNullOrEmpty(t.ErrorCode)
+                        || !string.IsNullOrEmpty(t.ErrorDescription)
+                        || string.IsNullOrEmpty(t.Mid))
+            .ToList();
+        if (failed.Count == 0) return;
+
+        _logger.LogError(
+            "Cloudflare Calls {Operation} returned 200 but {Count} track(s) failed: {Failures}. Raw body: {Body}",
+            operation, failed.Count,
+            string.Join(", ", failed.Select(t =>
+                $"{t.TrackName}({t.ErrorCode ?? "no-error-code"}: {t.ErrorDescription ?? "no mid returned"})")),
+            rawBody);
+
         throw new CloudflareCallsException(operation, System.Net.HttpStatusCode.OK, rawBody);
     }
 

@@ -177,6 +177,72 @@ public class ConversationEndpoints
 
   
 
+    /// <summary>
+    /// Adds someone to a group conversation.
+    ///
+    /// <para>Same friendship rule as creation: you may only pull in people you are actually friends
+    /// with, so a group cannot be used to put a stranger in front of someone.</para>
+    ///
+    /// <para>Refused on a two-person DM. Growing a 1:1 into a group silently changes what the other
+    /// person thought they were in - that has to be an explicit new conversation, not a side effect
+    /// of someone else's action.</para>
+    ///
+    /// <para>For an encrypted conversation this only adds them to the roster; their devices still
+    /// have to be admitted to the MLS group, which only a member's client can do. Until that commit
+    /// lands they are a member who cannot read - visible to them, since they see the conversation
+    /// but no history.</para>
+    /// </summary>
+    [WolverinePost("/api/v1/conversations/{id}/members")]
+    public async Task<(IResult, ConversationMemberAdded?)> AddConversationMember(
+        string id,
+        AddConversationMemberDto dto,
+        [NotBody] IMessageBus messageBus,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] MicroserviceContext ctx)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return (Results.Unauthorized(), null);
+        if (string.IsNullOrWhiteSpace(dto.UserId)) return (Results.BadRequest("UserId is required"), null);
+
+        var conversation = await ctx.Conversations
+            .Include(c => c.Members)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (conversation is null) return (Results.NotFound(), null);
+        if (conversation.Members.All(m => m.UserId != userId)) return (Results.Forbid(), null);
+
+        if (conversation.Members.Count < 3 && string.IsNullOrWhiteSpace(conversation.Name))
+            return (Results.BadRequest("Start a new group conversation instead of adding to a direct message."), null);
+
+        if (conversation.Members.Any(m => m.UserId == dto.UserId))
+            return (Results.Ok(conversation.ToFacet<Conversation, ConversationDto>()), null);
+
+        if (!await IsBefriendedWithUsers(userId, [dto.UserId], messageBus))
+            return (Results.BadRequest("User cannot be added to conversation if not friends"), null);
+
+        var profileResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest
+        {
+            UserId = dto.UserId,
+        });
+        if (profileResponse.Profile is null) return (Results.BadRequest("Profile not found"), null);
+
+        conversation.Members.Add(ConversationMember.Create(new CreateConversationMemberParams
+        {
+            UserId = dto.UserId,
+            ConversationId = conversation.Id,
+            PublicKey = Array.Empty<byte>(),
+            CachedUserName = profileResponse.Profile.UserName,
+            CachedUserHash = profileResponse.Profile.Hash,
+        }));
+
+        return (Results.Ok(conversation.ToFacet<Conversation, ConversationDto>()), new ConversationMemberAdded
+        {
+            ConversationId = conversation.Id,
+            UserId = dto.UserId,
+            CorrelationId = conversation.Id,
+        });
+    }
+
     /// <summary>Mute or unmute a DM/group conversation for the caller. Only a mute, no level -
     /// see ConversationMember.MutedUntil for why "only mentions" has no meaning in a DM.</summary>
     [WolverinePut("/api/v1/conversations/{id}/notification-settings")]

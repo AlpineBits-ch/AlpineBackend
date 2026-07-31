@@ -384,6 +384,128 @@ public class ConversationEndpointsTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // AddConversationMember
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private static FakeMessageBus FriendlyBus() => new(msg => msg switch
+    {
+        GetProfileByUserIdRequest r => new GetProfileByUserIdResponse
+        {
+            Profile = ProfileFor(r.UserId, "user-1", "user-2", "user-3"),
+        },
+        _ => throw new InvalidOperationException("unexpected"),
+    });
+
+    private async Task<Conversation> SeedGroupConversation(params string[] memberUserIds)
+    {
+        var conversation = new Conversation
+        {
+            Id = "conv-group",
+            Name = "Study group",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Members = memberUserIds.Select((u, i) => MakeMember($"m-{i}", u, "conv-group")).ToList(),
+        };
+        _context.Conversations.Add(conversation);
+        await _context.SaveChangesAsync();
+        return conversation;
+    }
+
+    [Test]
+    public async Task AddMember_ByANonMember_ReturnsForbidden()
+    {
+        await SeedGroupConversation("user-1", "user-2", "user-4");
+        var endpoint = new ConversationEndpoints();
+
+        var (result, _) = await endpoint.AddConversationMember(
+            "conv-group", new AddConversationMemberDto { UserId = "user-3" },
+            FriendlyBus(), TestPrincipal.ForUser("outsider"), _context);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task AddMember_ToAGroup_AddsThemAndAnnouncesIt()
+    {
+        await SeedGroupConversation("user-1", "user-2", "user-4");
+        var endpoint = new ConversationEndpoints();
+
+        var (result, evt) = await endpoint.AddConversationMember(
+            "conv-group", new AddConversationMemberDto { UserId = "user-3" },
+            FriendlyBus(), TestPrincipal.ForUser("user-1"), _context);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
+            Assert.That(evt!.UserId, Is.EqualTo("user-3"));
+            Assert.That(await _context.Members.CountAsync(m => m.ConversationId == "conv-group"), Is.EqualTo(4));
+        });
+    }
+
+    [Test]
+    public async Task AddMember_ToATwoPersonDm_IsRefused()
+    {
+        // Growing a 1:1 into a group silently changes what the other person thought they were in.
+        _context.Conversations.Add(new Conversation
+        {
+            Id = "conv-group",
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Members = [MakeMember("m-0", "user-1", "conv-group"), MakeMember("m-1", "user-2", "conv-group")],
+        });
+        await _context.SaveChangesAsync();
+        var endpoint = new ConversationEndpoints();
+
+        var (result, _) = await endpoint.AddConversationMember(
+            "conv-group", new AddConversationMemberDto { UserId = "user-3" },
+            FriendlyBus(), TestPrincipal.ForUser("user-1"), _context);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task AddMember_WhoIsNotAFriend_IsRefused()
+    {
+        await SeedGroupConversation("user-1", "user-2", "user-4");
+        var endpoint = new ConversationEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            // user-1 is friends with nobody relevant.
+            GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1") },
+            GetProfileByUserIdRequest r => new GetProfileByUserIdResponse { Profile = ProfileFor(r.UserId) },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        var (result, _) = await endpoint.AddConversationMember(
+            "conv-group", new AddConversationMemberDto { UserId = "stranger" },
+            bus, TestPrincipal.ForUser("user-1"), _context);
+
+        // A group must not become a way to put a stranger in front of someone.
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task AddMember_WhoIsAlreadyIn_IsANoOp()
+    {
+        await SeedGroupConversation("user-1", "user-2", "user-4");
+        var endpoint = new ConversationEndpoints();
+
+        var (result, evt) = await endpoint.AddConversationMember(
+            "conv-group", new AddConversationMemberDto { UserId = "user-2" },
+            FriendlyBus(), TestPrincipal.ForUser("user-1"), _context);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
+            // No event: a duplicate add must not fire a second join notice at everyone.
+            Assert.That(evt, Is.Null);
+            Assert.That(await _context.Members.CountAsync(m => m.ConversationId == "conv-group"), Is.EqualTo(3));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // DeleteConversation
     // ══════════════════════════════════════════════════════════════════════════
 

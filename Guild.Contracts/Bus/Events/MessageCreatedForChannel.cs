@@ -25,6 +25,12 @@ public class MessageCreatedForChannel
     public string AuthorId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; }
 
+    /// <summary>Which MLS group generation the ciphertext was sealed under; null on plaintext.
+    /// Travels with the message so a client decrypting from a push notification can pick the right
+    /// group - encryption can be toggled off and on, and each stretch is a distinct group whose
+    /// epochs restart at zero, so the epoch alone is ambiguous.</summary>
+    public int? MlsGeneration { get; set; }
+
     public ICollection<string> Mentions { get; set; } = new List<string>();
     public ICollection<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }

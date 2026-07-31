@@ -191,6 +191,7 @@ public class MessageCreatedHandler
             AuthorId = message.AuthorId,
             Content = message.Content,
             IsEncrypted = message.EncryptionState != MessageEncryptionState.Plain,
+            MlsGeneration = message.MlsGeneration,
         });
     }
 

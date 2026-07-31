@@ -236,6 +236,11 @@ public class MessagingEndpoints
                 MlsSequenceNumber = message.MlsSequenceNumber,
                 SenderDeviceId = message.SenderDeviceId,
                 MlsEpoch = message.MlsEpoch,
+                // Stamped by the block above from the context's active generation, so it is set
+                // even for clients that send none. Without it downstream (realtime, push) has to
+                // guess which group a ciphertext belongs to, and guesses wrong for any message
+                // that lands either side of an encryption toggle.
+                MlsGeneration = message.MlsGeneration,
             });
     }
 

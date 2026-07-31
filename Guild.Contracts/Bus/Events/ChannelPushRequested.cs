@@ -26,9 +26,17 @@ public class ChannelPushRequested
     /// already makes that profile call for the DM push path.</summary>
     public string AuthorId { get; set; } = null!;
 
-    /// <summary>Plain-text body. Empty for an encrypted message, where Messaging substitutes its
-    /// own placeholder exactly as it does for encrypted DMs.</summary>
+    /// <summary>The stored body: readable text for a plaintext message, the base64 MLS message for
+    /// an encrypted one. Messaging shows the former directly and ships the latter to the device,
+    /// which decrypts it in a notification-service extension (iOS) or an FCM background isolate
+    /// (Android) - the server itself still cannot read it and still substitutes a placeholder for
+    /// anyone whose device cannot.</summary>
     public byte[] Content { get; set; } = [];
 
     public bool IsEncrypted { get; set; }
+
+    /// <summary>Which MLS group generation the ciphertext was sealed under; null on plaintext.
+    /// Without it the device cannot tell which group to decrypt against once a channel's
+    /// encryption has been toggled off and on.</summary>
+    public int? MlsGeneration { get; set; }
 }

@@ -44,21 +44,26 @@ public class MessageCreatedHandler
             {
                 var response = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
                     new GetPushTokensForUsersRequest { UserIds = pushUserIds, Kinds = [PushTokenKind.Fcm] });
-                string body = Encoding.UTF8.GetString(messageCreated.Content);
-                if (messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted)
+
+                // Paired with the user id rather than flattened to a token list: the recipient's own
+                // id travels in the payload so the device can find that account's MLS state and
+                // decrypt the body itself.
+                var recipients = response.Tokens
+                    .Where(t => t.Kind == PushTokenKind.Fcm)
+                    .Select(t => (t.Token, t.UserId));
+
+                await MessagePushService.SendAsync(recipients, new MessagePushPayload
                 {
-                    body = "You have a new encrypted message";
-                }
-                foreach (var token in response.Of(PushTokenKind.Fcm))
-                {
-                    await PushNotifiaction.SendPushNotification(new PushNotificationParams()
-                    {
-                        Token = token,
-                        Title = profile.Profile?.UserName ?? "New message",
-                        Body = body,
-                        Data = new Dictionary<string, string> { ["conversationId"] = messageCreated.ConversationId },
-                    });
-                }
+                    MessageId = messageCreated.MessageId,
+                    ContextId = messageCreated.ConversationId,
+                    ConversationId = messageCreated.ConversationId,
+                    AuthorId = messageCreated.AuthorId,
+                    SenderName = profile.Profile?.UserName ?? "New message",
+                    SenderAvatarUrl = profile.Profile?.AvatarUrl,
+                    IsEncrypted = messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted,
+                    Content = messageCreated.Content,
+                    MlsGeneration = messageCreated.MlsGeneration,
+                }, logger);
             }
         }
 
@@ -74,7 +79,13 @@ public class MessageCreatedHandler
                 RoleMentions = messageCreated.RoleMentions,
                 MentionsEveryone = messageCreated.MentionsEveryone,
                 MentionsHere = messageCreated.MentionsHere,
-                EncryptionState = MessageEncryptionState.Plain,
+                // Was hardcoded to Plain, which told Guild - and through it every realtime client
+                // and the channel push path - that an MLS-encrypted channel message was readable
+                // text. Clients then rendered ciphertext instead of decrypting it.
+                EncryptionState = messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted
+                    ? MessageEncryptionState.Encrypted
+                    : MessageEncryptionState.Plain,
+                MlsGeneration = messageCreated.MlsGeneration,
                 EmbedsJson = messageCreated.EmbedsJson,
                 ComponentsJson = messageCreated.ComponentsJson,
                 Type = messageCreated.Type switch

@@ -31,35 +31,32 @@ public class ChannelPushRequestedHandler
         var tokenResponse = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
             new GetPushTokensForUsersRequest { UserIds = request.UserIds, Kinds = [PushTokenKind.Fcm] });
 
-        var tokens = tokenResponse.Of(PushTokenKind.Fcm).ToList();
-        if (tokens.Count == 0) return;
+        // Paired with the owning user id rather than flattened to a token list - the recipient's own
+        // id has to travel in the payload so the device can locate that account's MLS state.
+        var recipients = tokenResponse.Tokens
+            .Where(t => t.Kind == PushTokenKind.Fcm)
+            .Select(t => (t.Token, t.UserId))
+            .ToList();
+        if (recipients.Count == 0) return;
 
         var profile = await bus.InvokeAsync<GetProfileByUserIdResponse>(
             new GetProfileByUserIdRequest { UserId = request.AuthorId });
 
-        // Same substitution the DM path makes: the server cannot read an encrypted body, so the
-        // notification says that a message arrived rather than leaking ciphertext into the tray.
-        var body = request.IsEncrypted
-            ? "You have a new encrypted message"
-            : Encoding.UTF8.GetString(request.Content);
-
-        foreach (var token in tokens)
+        await MessagePushService.SendAsync(recipients, new MessagePushPayload
         {
-            await PushNotifiaction.SendPushNotification(new PushNotificationParams
-            {
-                Token = token,
-                Title = profile.Profile?.UserName ?? "New message",
-                Body = body,
-                Data = new Dictionary<string, string>
-                {
-                    ["guildId"] = request.GuildId,
-                    ["channelId"] = request.ChannelId,
-                    ["messageId"] = request.MessageId,
-                },
-            });
-        }
+            MessageId = request.MessageId,
+            ContextId = request.ChannelId,
+            ChannelId = request.ChannelId,
+            GuildId = request.GuildId,
+            AuthorId = request.AuthorId,
+            SenderName = profile.Profile?.UserName ?? "New message",
+            SenderAvatarUrl = profile.Profile?.AvatarUrl,
+            IsEncrypted = request.IsEncrypted,
+            Content = request.Content,
+            MlsGeneration = request.MlsGeneration,
+        }, logger);
 
         logger.LogDebug("Sent {TokenCount} channel push notifications for message {MessageId}",
-            tokens.Count, request.MessageId);
+            recipients.Count, request.MessageId);
     }
 }

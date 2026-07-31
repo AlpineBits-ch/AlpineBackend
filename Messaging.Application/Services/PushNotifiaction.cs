@@ -11,6 +11,7 @@ public class PushNotificationParams
     public string Token { get; set; }
 }
 
+/// <summary>Generic "show this title and body" push.</summary>
 public class PushNotifiaction
 {
     public static async Task SendPushNotification(PushNotificationParams notificationParams)

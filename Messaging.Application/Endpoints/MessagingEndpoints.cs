@@ -222,6 +222,9 @@ public class MessagingEndpoints
                 MlsSequenceNumber = message.MlsSequenceNumber,
                 SenderDeviceId = message.SenderDeviceId,
                 MlsEpoch = message.MlsEpoch,
+                // Stamped by the block above from the context's active generation, so it is set
+                // even for clients that send none.
+                MlsGeneration = message.MlsGeneration,
             });
     }
 

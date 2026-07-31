@@ -25,6 +25,11 @@ public class MessageCreatedForChannel
     public string AuthorId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; }
 
+    /// <summary>
+    /// Which MLS group generation the ciphertext was sealed under; null on plaintext.
+    /// </summary>
+    public int? MlsGeneration { get; set; }
+
     public ICollection<string> Mentions { get; set; } = new List<string>();
     public ICollection<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }

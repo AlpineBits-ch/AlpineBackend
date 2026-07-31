@@ -100,6 +100,9 @@ public class CreateMessageCommandHandler
             SystemMessageVariant = message.SystemMessageVariant,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
+            // Needed by every consumer that has to decrypt: which of the context's successive MLS
+            // groups this ciphertext was sealed to.
+            MlsGeneration = command.MlsGeneration,
             SenderDeviceId = command.SenderDeviceId,
             InReplyTo = command.InReplyTo,
             EmbedsJson = command.EmbedsJson,

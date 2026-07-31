@@ -14,6 +14,7 @@ public class MicroserviceContext : DbContext
     public DbSet<ConversationMemberDevice> MemberDevices { get; set; }
     public DbSet<PendingWelcome> PendingWelcomes { get; set; }
     public DbSet<MlsCommit> MlsCommits { get; set; }
+    public DbSet<MlsGroupGeneration> MlsGroupGenerations { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     
     public DbSet<Message> Messages { get; set; }
@@ -33,6 +34,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<AuthorIdType>();
             options.MapEnum<MessagePartType>();
             options.MapEnum<MessageEncryptionState>();
+            options.MapEnum<MlsGenerationState>();
         }).UseSnakeCaseNamingConvention();
     }
     
@@ -127,7 +129,26 @@ public class MicroserviceContext : DbContext
 
             // The dedup/fork guard: two members committing concurrently both target the same next
             // epoch, and exactly one insert survives.
-            commitBuilder.HasIndex(c => new { c.ContextId, c.Epoch }).IsUnique();
+            commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch }).IsUnique();
+        });
+
+        modelBuilder.Entity<MlsGroupGeneration>(generationBuilder =>
+        {
+            generationBuilder
+                .HasOne<Conversation>()
+                .WithMany()
+                .HasForeignKey(x => x.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            generationBuilder.HasIndex(g => new { g.ContextId, g.Generation }).IsUnique();
+
+            // At most one Active generation per context.
+            if (Database.IsNpgsql())
+            {
+                generationBuilder.HasIndex(g => g.ContextId)
+                    .IsUnique()
+                    .HasFilter("state = 'active'");
+            }
         });
         
         modelBuilder.Entity<ConversationMember>(memberBuilder =>

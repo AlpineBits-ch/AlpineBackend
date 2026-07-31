@@ -11,6 +11,7 @@ public class CreatePendingWelcomeParams
     public string UserId { get; init; } = null!;
     public string DeviceId { get; init; } = null!;
     public byte[] Welcome { get; init; } = null!;
+    public int Generation { get; init; }
     public long Epoch { get; init; }
 }
 
@@ -38,6 +39,11 @@ public class PendingWelcome : BaseEntity<PendingWelcome>, IPrefixedEntity
 
     public byte[] Welcome { get; set; } = null!;
 
+    /// <summary>Which <see cref="MlsGroupGeneration"/> of this context the Welcome admits the device
+    /// to. A Welcome minted before encryption was toggled off is worthless afterwards, and the
+    /// generation is what lets a client tell that without trying the join.</summary>
+    public int Generation { get; set; }
+
     /// <summary>Group epoch the joining device lands on, so it knows which commits to catch up from.</summary>
     public long Epoch { get; set; }
 
@@ -58,6 +64,7 @@ public class PendingWelcome : BaseEntity<PendingWelcome>, IPrefixedEntity
             UserId = parameters.UserId,
             DeviceId = parameters.DeviceId,
             Welcome = parameters.Welcome,
+            Generation = parameters.Generation,
             Epoch = parameters.Epoch,
         };
     }

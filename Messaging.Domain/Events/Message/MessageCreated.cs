@@ -19,6 +19,9 @@ public class MessageCreated : DomainEvent
     
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
+
+    /// <summary>Which MlsGroupGeneration of the context this message was encrypted under.</summary>
+    public int? MlsGeneration { get; set; }
     public string? SenderDeviceId { get; set; }
     public ICollection<string> Mentions { get; set; } = new List<string>();
     public ICollection<string> RoleMentions { get; set; } = new List<string>();

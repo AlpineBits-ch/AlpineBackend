@@ -8,6 +8,7 @@ public class CreateMlsCommitParams
     public string ContextId { get; init; } = null!;
     public string? ConversationId { get; init; }
     public string? ChannelId { get; init; }
+    public int Generation { get; init; }
     public long Epoch { get; init; }
     public byte[] Commit { get; init; } = null!;
     public string SenderUserId { get; init; } = null!;
@@ -32,7 +33,10 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
     /// <summary>Set when the group is a guild channel. No FK - channels live in the Guild service.</summary>
     public string? ChannelId { get; set; }
 
-    /// <summary>Group epoch after this commit is applied. Unique per context.</summary>
+    /// <summary>Which <see cref="MlsGroupGeneration"/> of this context the commit belongs to.</summary>
+    public int Generation { get; set; }
+
+    /// <summary>Group epoch after this commit is applied. Unique per (context, generation).</summary>
     public long Epoch { get; set; }
 
     /// <summary>Base64/TLS-serialized MlsMessage carrying the commit.</summary>
@@ -55,6 +59,7 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
             ContextId = parameters.ContextId,
             ConversationId = parameters.ConversationId,
             ChannelId = parameters.ChannelId,
+            Generation = parameters.Generation,
             Epoch = parameters.Epoch,
             Commit = parameters.Commit,
             SenderUserId = parameters.SenderUserId,

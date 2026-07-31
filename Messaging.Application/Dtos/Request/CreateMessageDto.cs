@@ -10,6 +10,9 @@ public class CreateMessageDto
     public string? InReplyTo { get; set; }
     public long? MlsEpoch { get; set; }
     public long? MlsSequenceNumber { get; set; }
+
+    /// <summary>Which MlsGroupGeneration of the context this message was encrypted under.</summary>
+    public int? MlsGeneration { get; set; }
     public string? SenderDeviceId { get; set; }
     public MessageEncryptionState EncryptionState { get; set; } = MessageEncryptionState.Plain;
     

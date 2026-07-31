@@ -18,6 +18,9 @@ public class PublishMlsCommitDto
     /// <summary>Publisher's client device id. Fanout skips it - that device already merged locally.</summary>
     public string SenderDeviceId { get; set; } = null!;
 
+    /// <summary>Which generation this commit was built against.</summary>
+    public int? Generation { get; set; }
+
     /// <summary>Refreshed GroupInfo for external-commit recovery.</summary>
     public byte[]? GroupInfo { get; set; }
 
@@ -39,7 +42,13 @@ public partial class MlsCommitResponseDto
 /// established without re-reading the conversation.</summary>
 public class MlsCommitPublishedDto
 {
-    public string ConversationId { get; set; } = null!;
+    public string ContextId { get; set; } = null!;
+
+    /// <summary>Kept alongside ContextId so clients written against the conversation-only shape
+    /// keep reading the field they already read.</summary>
+    public string? ConversationId { get; set; }
+
+    public int Generation { get; set; }
     public long Epoch { get; set; }
 }
 

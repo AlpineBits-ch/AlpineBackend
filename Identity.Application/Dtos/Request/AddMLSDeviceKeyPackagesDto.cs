@@ -5,6 +5,11 @@ public class AddMLSDeviceKeyPackagesDto
     public ICollection<PackageDto> KeyPackages { get; set; } = new List<PackageDto>();
 }
 
+public class AddKeyPackagesResultDto
+{
+    public int Added { get; set; }
+}
+
 public class PackageDto
 {
     public byte[] KeyPackage { get; set; } = null!;

@@ -1,40 +1,44 @@
-﻿using System.Security.Claims;
-using Echo.Realtime;
+using System.Security.Claims;
 using Facet.Extensions;
+using Guild.Contracts;
+using Guild.Contracts.Bus.Request;
+using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
-using Messaging.Domain.Enums;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Messaging.Application.Endpoints;
 
-/// <summary>Returned on 409 so a client that lost the race to commit knows exactly where the group
-/// actually is and can catch up from there instead of guessing.</summary>
-public class MlsEpochConflictDto
-{
-    public long CurrentEpoch { get; set; }
-    public long RejectedEpoch { get; set; }
-    public string Reason { get; set; } = null!;
-}
-
 /// <summary>
-/// Transport for the two MLS artifacts that are not application messages: commits (which advance
-/// the group's epoch for everyone) and Welcomes (which admit one new device).
+/// Transport for the two MLS artifacts that are not application messages - commits (which advance
+/// the group's epoch for everyone) and Welcomes (which admit one new device) - plus the switch that
+/// turns encryption on and off for a context.
 /// </summary>
 [Authorize]
 public class MlsEndpoints
 {
-    /// <summary>How long a commit stays fetchable.</summary>
-    public static readonly TimeSpan CommitRetention = TimeSpan.FromDays(30);
+    /// <inheritdoc cref="MlsGroupService.CommitRetention"/>
+    public static TimeSpan CommitRetention => MlsGroupService.CommitRetention;
 
-    /// <summary>Cap on one catch-up page.</summary>
-    public const int MaxCommitPageSize = 200;
+    /// <inheritdoc cref="MlsGroupService.MaxCommitPageSize"/>
+    public const int MaxCommitPageSize = MlsGroupService.MaxCommitPageSize;
+
+    private static IResult ToHttp(MlsOperationResult result) => result.Status switch
+    {
+        MlsOperationStatus.Ok => Results.Ok(result.Value),
+        MlsOperationStatus.NotFound => Results.NotFound(result.Error),
+        MlsOperationStatus.Conflict => Results.Conflict(result.Value),
+        _ => Results.BadRequest(result.Error),
+    };
+
+    // ══════════════════════════════════════════════════════════════════════════ Conversations
+    // ══════════════════════════════════════════════════════════════════════════
 
     [WolverinePost("/api/v1/conversations/{conversationId}/mls/commits")]
     public static async Task<IResult> PublishCommit(
@@ -43,108 +47,25 @@ public class MlsEndpoints
         [NotBody] ClaimsPrincipal user,
         [NotBody] MicroserviceContext ctx,
         [NotBody] ConversationPermissionService permissions,
-        [NotBody] IHubContext<EchoRealtimeHub> hub)
+        [NotBody] MlsGroupService mls)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
-
-        if (dto.Commit is null || dto.Commit.Length == 0)
-            return Results.BadRequest("Commit is required");
-        if (string.IsNullOrWhiteSpace(dto.SenderDeviceId))
-            return Results.BadRequest("SenderDeviceId is required");
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
         var conversation = await ctx.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
         if (conversation is null) return Results.NotFound();
-        if (conversation.EncryptionState != ChannelEncryptionState.Encrypted)
-            return Results.BadRequest("Conversation is not end-to-end encrypted");
-
-        var currentEpoch = conversation.MlsEpoch ?? 0;
-        if (dto.Epoch != currentEpoch + 1)
-        {
-            return Results.Conflict(new MlsEpochConflictDto
-            {
-                CurrentEpoch = currentEpoch,
-                RejectedEpoch = dto.Epoch,
-                Reason = $"Expected epoch {currentEpoch + 1}; catch up and re-issue the change.",
-            });
-        }
-
-        // Belt to the unique index's braces.
-        var epochTaken = await ctx.MlsCommits
-            .AnyAsync(c => c.ContextId == conversationId && c.Epoch == dto.Epoch);
-        if (epochTaken)
-        {
-            return Results.Conflict(new MlsEpochConflictDto
-            {
-                CurrentEpoch = currentEpoch,
-                RejectedEpoch = dto.Epoch,
-                Reason = "Another member already committed this epoch.",
-            });
-        }
-
-        ctx.MlsCommits.Add(MlsCommit.Create(new CreateMlsCommitParams
-        {
-            ContextId = conversationId,
-            ConversationId = conversationId,
-            Epoch = dto.Epoch,
-            Commit = dto.Commit,
-            SenderUserId = userId,
-            SenderDeviceId = dto.SenderDeviceId,
-        }));
-
-        conversation.MlsEpoch = dto.Epoch;
-        if (dto.GroupInfo is { Length: > 0 }) conversation.MlsGroupInfo = dto.GroupInfo;
-
-        foreach (var welcome in dto.Welcomes)
-        {
-            if (welcome.Welcome is null || welcome.Welcome.Length == 0) continue;
-            if (string.IsNullOrWhiteSpace(welcome.DeviceId) || string.IsNullOrWhiteSpace(welcome.UserId)) continue;
-
-            ctx.PendingWelcomes.Add(PendingWelcome.Create(new CreatePendingWelcomeParams
-            {
-                ContextId = conversationId,
-                ConversationId = conversationId,
-                UserId = welcome.UserId,
-                DeviceId = welcome.DeviceId,
-                Welcome = welcome.Welcome,
-                Epoch = dto.Epoch,
-            }));
-        }
-
-        var cutoff = DateTimeOffset.UtcNow - CommitRetention;
-        var expired = await ctx.MlsCommits
-            .Where(c => c.ContextId == conversationId && c.CreatedAt < cutoff)
-            .ToListAsync();
-        if (expired.Count > 0) ctx.MlsCommits.RemoveRange(expired);
-
-        // Save before the fanout, not after.
-        await ctx.SaveChangesAsync();
 
         var memberIds = await ctx.Members
             .Where(m => m.ConversationId == conversationId)
             .Select(m => m.UserId)
             .ToListAsync();
 
-        await hub.Clients.Users(memberIds).SendAsync("conversation.MlsCommit", new
-        {
-            conversationId,
-            epoch = dto.Epoch,
-            senderDeviceId = dto.SenderDeviceId,
-        });
+        var result = await mls.PublishCommitAsync(
+            conversationId, conversationId, null, userId, dto, memberIds, DateTimeOffset.UtcNow);
 
-        // Welcomes are addressed to one leaf, so they are pushed to one device - not to every
-        // session the user has open.
-        foreach (var welcome in dto.Welcomes)
-        {
-            if (string.IsNullOrWhiteSpace(welcome.UserId) || string.IsNullOrWhiteSpace(welcome.DeviceId)) continue;
-            await hub.Clients
-                .Group(EchoRealtimeHub.DeviceGroup(welcome.UserId, welcome.DeviceId))
-                .SendAsync("conversation.Welcome", conversationId);
-        }
-
-        return Results.Ok(new MlsCommitPublishedDto { ConversationId = conversationId, Epoch = dto.Epoch });
+        return ToHttp(result);
     }
 
     /// <summary>
@@ -155,26 +76,138 @@ public class MlsEndpoints
     public static async Task<IResult> GetCommits(
         string conversationId,
         [FromQuery] long sinceEpoch,
+        [FromQuery] int? generation,
         [NotBody] ClaimsPrincipal user,
-        [NotBody] MicroserviceContext ctx,
-        [NotBody] ConversationPermissionService permissions)
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        var commits = await ctx.MlsCommits
-            .AsNoTracking()
-            .Where(c => c.ContextId == conversationId && c.Epoch > sinceEpoch)
-            .OrderBy(c => c.Epoch)
-            .Take(MaxCommitPageSize)
-            .ToListAsync();
-
-        return Results.Ok(commits.SelectFacets<MlsCommit, MlsCommitResponseDto>());
+        return Results.Ok(await mls.GetCommitsAsync(conversationId, generation, sinceEpoch));
     }
 
-    /// <summary>Welcomes waiting for one device.</summary>
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/state")]
+    public static async Task<IResult> GetConversationMlsState(
+        string conversationId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return Results.Ok(await mls.GetStateAsync(conversationId));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ Guild channels
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Turns encryption on for a channel.</summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/enable")]
+    public static async Task<IResult> EnableChannelMls(
+        string channelId,
+        EnableMlsDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await CanManageChannel(bus, userId, channelId)) return Results.Forbid();
+
+        var result = await mls.EnableAsync(channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow);
+        return ToHttp(result);
+    }
+
+    /// <summary>Turns encryption off for a channel.</summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/disable")]
+    public static async Task<IResult> DisableChannelMls(
+        string channelId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await CanManageChannel(bus, userId, channelId)) return Results.Forbid();
+
+        var result = await mls.DisableAsync(channelId, null, channelId, userId, DateTimeOffset.UtcNow);
+        return ToHttp(result);
+    }
+
+    /// <summary>Encryption state of a channel.</summary>
+    [WolverineGet("/api/v1/channels/{channelId}/mls/state")]
+    public static async Task<IResult> GetChannelMlsState(
+        string channelId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return Results.Ok(await mls.GetStateAsync(channelId));
+    }
+
+    /// <summary>Publishing a commit needs only ViewChannel: adding and removing group members tracks
+    /// who can see the channel, and every member has to be able to do it or the group cannot follow
+    /// the roster. Who may <i>toggle</i> encryption is the privileged question, and that is gated
+    /// separately on ManageChannel.</summary>
+    [WolverinePost("/api/v1/channels/{channelId}/mls/commits")]
+    public static async Task<IResult> PublishChannelCommit(
+        string channelId,
+        PublishMlsCommitDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        // Channel membership lives in Guild, so the nudge goes out via ChannelMlsStateChanged's
+        // sibling path inside the service rather than to a user list resolved here.
+        var result = await mls.PublishCommitAsync(
+            channelId, null, channelId, userId, dto, [], DateTimeOffset.UtcNow);
+
+        return ToHttp(result);
+    }
+
+    [WolverineGet("/api/v1/channels/{channelId}/mls/commits")]
+    public static async Task<IResult> GetChannelCommits(
+        string channelId,
+        [FromQuery] long sinceEpoch,
+        [FromQuery] int? generation,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return Results.Ok(await mls.GetCommitsAsync(channelId, generation, sinceEpoch));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Welcomes (context-agnostic - a device fetches everything waiting for it)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Welcomes waiting for one device, across every context.</summary>
     [WolverineGet("/api/v1/conversations/welcomes")]
     public static async Task<IResult> GetWelcomes(
         [FromQuery] string? deviceId,
@@ -183,13 +216,20 @@ public class MlsEndpoints
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
-        if (string.IsNullOrWhiteSpace(deviceId)) return Results.BadRequest("deviceId is required");
 
-        var welcomes = await ctx.PendingWelcomes
-            .AsNoTracking()
-            .Where(w => w.UserId == userId && w.DeviceId == deviceId && w.ConsumedAt == null)
-            .OrderBy(w => w.CreatedAt)
-            .ToListAsync();
+        var legacyCaller = string.IsNullOrWhiteSpace(deviceId);
+
+        var query = ctx.PendingWelcomes.Where(w => w.UserId == userId && w.ConsumedAt == null);
+        if (!legacyCaller) query = query.Where(w => w.DeviceId == deviceId);
+
+        var welcomes = await query.OrderBy(w => w.CreatedAt).ToListAsync();
+
+        if (legacyCaller && welcomes.Count > 0)
+        {
+            var now = DateTimeOffset.UtcNow;
+            foreach (var welcome in welcomes) welcome.ConsumedAt = now;
+            await ctx.SaveChangesAsync();
+        }
 
         return Results.Ok(welcomes.SelectFacets<PendingWelcome, PendingWelcomeDto>());
     }
@@ -205,8 +245,8 @@ public class MlsEndpoints
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
         if (dto.WelcomeIds.Count == 0) return Results.Ok(new AckWelcomesResultDto { Acknowledged = 0 });
 
-        // Scoped to the caller so an id guessed from another user's stream is a no-op, not a
-        // denial of service that strands someone else's device outside the group.
+        // Scoped to the caller so an id guessed from another user's stream is a no-op, not a denial
+        // of service that strands someone else's device outside the group.
         var welcomes = await ctx.PendingWelcomes
             .Where(w => dto.WelcomeIds.Contains(w.Id) && w.UserId == userId && w.ConsumedAt == null)
             .ToListAsync();
@@ -217,5 +257,24 @@ public class MlsEndpoints
         await ctx.SaveChangesAsync();
 
         return Results.Ok(new AckWelcomesResultDto { Acknowledged = welcomes.Count });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private static Task<bool> CanManageChannel(IMessageBus bus, string userId, string channelId) =>
+        HasChannelPermission(bus, userId, channelId, ExternalPermission.ManageChannel);
+
+    private static async Task<bool> HasChannelPermission(
+        IMessageBus bus, string userId, string channelId, ExternalPermission permission)
+    {
+        var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+            new HasUserPermissionToChannelRequest
+            {
+                ChannelId = channelId,
+                UserId = userId,
+                Permission = permission,
+            });
+
+        return response.IsAllowed;
     }
 }

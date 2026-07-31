@@ -51,8 +51,9 @@ public class VoiceCloudflareEndpoints
         if (userId is null) return Results.Unauthorized();
 
         var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
+        // Subscribes retry, publishes do not - see SubscribeTracksAsync.
         var result = body.Tracks.All(t => t.Location == "remote")
-            ? await TracksNewWithRetryAsync(cf, body.CfSessionId, request, ct)
+            ? await cf.SubscribeTracksAsync(body.CfSessionId, request, ct)
             : await cf.TracksNewAsync(body.CfSessionId, request, ct);
 
         // When the player publishes their microphone, record the track so peers can pull it, then
@@ -80,28 +81,6 @@ public class VoiceCloudflareEndpoints
         }
 
         return Results.Ok(result);
-    }
-
-    /// <summary>
-    /// Retries a subscribe (a remote-only <c>tracks/new</c>) a few times before giving up, matching
-    /// Guild's and Messaging's relays.
-    /// </summary>
-    private static async Task<CfTracksNewResponse> TracksNewWithRetryAsync(
-        CloudflareService cf, string cfSessionId, CfTracksNewRequest request, CancellationToken ct)
-    {
-        for (var attempt = 1; ; attempt++)
-        {
-            try
-            {
-                return await cf.TracksNewAsync(cfSessionId, request, ct);
-            }
-            catch (CloudflareCallsException) when (attempt < 4)
-            {
-                // Every attempt is already logged with Cloudflare's raw body by
-                // CloudflareService.EnsureNoTrackFailures, so there is nothing to add here.
-                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
-            }
-        }
     }
 
     [WolverinePut("/api/v1/voice/cf/renegotiate")]

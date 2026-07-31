@@ -96,6 +96,49 @@ public class CloudflareService
         return result!;
     }
 
+    /// <summary>Backoff between attempts to pull a remote track.</summary>
+    public static readonly IReadOnlyList<TimeSpan> SubscribeRetryDelays =
+    [
+        TimeSpan.FromMilliseconds(250),
+        TimeSpan.FromMilliseconds(500),
+        TimeSpan.FromMilliseconds(750),
+        TimeSpan.FromMilliseconds(1000),
+        TimeSpan.FromMilliseconds(1500),
+        TimeSpan.FromMilliseconds(2000),
+    ];
+
+    /// <summary>
+    /// <see cref="TracksNewAsync"/> for a pull, retried across the window in which the publisher
+    /// exists but is not yet sending.
+    /// </summary>
+    public async Task<CfTracksNewResponse> SubscribeTracksAsync(
+        string cfSessionId,
+        CfTracksNewRequest request,
+        CancellationToken ct = default)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await TracksNewAsync(cfSessionId, request, ct);
+            }
+            catch (CloudflareCallsException ex)
+                when (attempt < SubscribeRetryDelays.Count && IsTransient(ex))
+            {
+                _logger.LogWarning(
+                    "Subscribe tracks/new attempt {Attempt} of {Total} failed for session "
+                    + "{CfSessionId}, retrying in {DelayMs}ms: {Message}",
+                    attempt + 1, SubscribeRetryDelays.Count + 1, cfSessionId,
+                    SubscribeRetryDelays[attempt].TotalMilliseconds, ex.Message);
+                await Task.Delay(SubscribeRetryDelays[attempt], ct);
+            }
+        }
+    }
+
+    /// <summary>Whether a failed pull is worth trying again.</summary>
+    private static bool IsTransient(CloudflareCallsException ex) =>
+        ex.StatusCode == System.Net.HttpStatusCode.OK || (int)ex.StatusCode >= 500;
+
     public async Task<CfRenegotiateResponse> RenegotiateAsync(
         string cfSessionId,
         CfRenegotiateRequest request,

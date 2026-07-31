@@ -212,7 +212,12 @@ public class VoiceCloudflareEndpointsTests
         Assert.That(async () => await _endpoint.TracksNew(
                 body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None),
             Throws.TypeOf<CloudflareCallsException>());
-        Assert.That(_handler.Requests, Has.Count.EqualTo(4), "should retry three times before giving up");
+        // Against the shared schedule rather than a literal: the budget is owned by
+        // CloudflareService.SubscribeRetryDelays, and it is sized to cover the publisher's whole
+        // WebRTC handshake, not just Cloudflare's internal propagation.
+        Assert.That(_handler.Requests,
+            Has.Count.EqualTo(CloudflareService.SubscribeRetryDelays.Count + 1),
+            "should exhaust the shared subscribe retry schedule before giving up");
     }
 
     [Test]

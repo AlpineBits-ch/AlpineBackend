@@ -32,6 +32,7 @@ public class UserDevice  : BaseEntity<UserDevice>, IPrefixedEntity
     public ApplicationUser User { get; set; } = null!;
     public ICollection<UserKeyPackage> KeyPackages { get; set; } = [];
     public virtual UserDeviceBackup? Backup { get; set; }
+    public ICollection<UserPushToken> PushTokens { get; set; } = [];
     
     public static UserDevice Create(CreateUserDeviceParams createUserDeviceParams)
     {

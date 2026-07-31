@@ -14,7 +14,9 @@ public enum QrPairingStatus
 /// Everything known about a QR pairing attempt, cached as JSON under <see
 /// cref="QrLoginService.PairingCacheKey"/>.
 /// </summary>
-public record QrPairingState(QrPairingStatus Status, string DeviceName, DeviceType DeviceType, string? UserId);
+/// <param name="ClientDeviceId">The starting device's own id, if it has registered one.</param>
+public record QrPairingState(QrPairingStatus Status, string DeviceName, DeviceType DeviceType, string? UserId,
+    string? ClientDeviceId = null);
 
 /// <summary>Constants and cache-key helpers for the QR cross-device login flow.</summary>
 public static class QrLoginService

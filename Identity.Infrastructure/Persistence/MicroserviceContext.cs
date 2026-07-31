@@ -16,8 +16,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<UserKey> UserKeys { get; set; }
     public DbSet<UserKeyPackage> UserKeyPackages { get; set; }
     public DbSet<UserDevice> UserDevices { get; set; }
-    public DbSet<UserDeviceToken> UserDeviceTokens { get; set; }
-    public DbSet<UserVoipToken> UserVoipTokens { get; set; }
+    public DbSet<UserPushToken> UserPushTokens { get; set; }
 
     public DbSet<UserDeviceBackup> UserDeviceBackups { get; set; }
     public DbSet<LoginSession> LoginSessions { get; set; }
@@ -36,6 +35,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
             options.MapEnum<PrivacySettings>();
             options.MapEnum<DeviceStatus>();
             options.MapEnum<DeviceType>();
+            options.MapEnum<PushTokenKind>();
             options.MapEnum<UserStatus>();
             options.MapEnum<UserType>();
         }).UseSnakeCaseNamingConvention();
@@ -111,20 +111,22 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
                 .OnDelete(DeleteBehavior.Cascade);
         });
         
-        modelBuilder.Entity<UserDeviceToken>(token =>
+        modelBuilder.Entity<UserPushToken>(token =>
         {
             token.HasOne<ApplicationUser>(t => t.User)
-                .WithMany(u => u.DeviceTokens)
+                .WithMany(u => u.PushTokens)
                 .HasForeignKey(t => t.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-        });
 
-        modelBuilder.Entity<UserVoipToken>(token =>
-        {
-            token.HasOne<ApplicationUser>(t => t.User)
-                .WithMany(u => u.VoipTokens)
-                .HasForeignKey(t => t.UserId)
+            // Removing a device takes its push endpoints with it - that is the point of the link.
+            token.HasOne(t => t.Device)
+                .WithMany(d => d.PushTokens)
+                .HasForeignKey(t => t.DeviceId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // One row per (transport, token).
+            token.HasIndex(t => new { t.Kind, t.Token }).IsUnique();
+            token.HasIndex(t => t.UserId);
         });
 
 
@@ -161,7 +163,8 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
                 .HasForeignKey(d => d.UserId)  // ← missing
                 .OnDelete(DeleteBehavior.Cascade);  // ← missing, delete user = delete devices
             device.Property(d => d.DeviceName).IsRequired();
-            device.HasIndex(d => d.ClientDeviceId).IsUnique();
+            // Scoped to the user, not global.
+            device.HasIndex(d => new { d.UserId, d.ClientDeviceId }).IsUnique();
         });
 
         modelBuilder.Entity<LoginSession>(session =>
@@ -170,6 +173,12 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
                 .WithMany()
                 .HasForeignKey(s => s.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+            // A removed device leaves its past logins in place (they are an audit trail) with the
+            // link nulled out; the removal path revokes them explicitly.
+            session.HasOne(s => s.Device)
+                .WithMany()
+                .HasForeignKey(s => s.DeviceId)
+                .OnDelete(DeleteBehavior.SetNull);
             session.HasIndex(s => s.UserId);
         });
 

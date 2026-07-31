@@ -28,6 +28,13 @@ public class SessionController(MicroserviceContext ctx) : ControllerBase
             .OrderByDescending(s => s.LastUsedAt)
             .ToListAsync();
 
+        // The client device id, not the row id - it is the value the client itself knows this
+        // machine by (X-Device-Id / the MLS ClientDeviceId), so a client can tell which entry in
+        // this list is the machine it is running on without matching on a display name.
+        var deviceIds = await ctx.UserDevices.AsNoTracking()
+            .Where(d => d.UserId == userId)
+            .ToDictionaryAsync(d => d.Id, d => d.ClientDeviceId);
+
         return Ok(sessions.Select(s => new SessionDto
         {
             Id = s.Id,
@@ -37,6 +44,9 @@ public class SessionController(MicroserviceContext ctx) : ControllerBase
             CreatedAt = s.CreatedAt,
             LastUsedAt = s.LastUsedAt,
             IsCurrent = s.Id == currentSessionId,
+            ClientDeviceId = s.DeviceId is not null && deviceIds.TryGetValue(s.DeviceId, out var clientDeviceId)
+                ? clientDeviceId
+                : null,
         }));
     }
 
@@ -53,6 +63,18 @@ public class SessionController(MicroserviceContext ctx) : ControllerBase
         if (!session.IsRevoked)
         {
             session.Revoke();
+
+            // Revoking the login has to take the push endpoints down with it, or the signed-out
+            // handset keeps ringing for calls and buzzing for messages indefinitely - nothing else
+            // ever expires a token.
+            if (session.DeviceId is not null)
+            {
+                var tokens = await ctx.UserPushTokens
+                    .Where(t => t.DeviceId == session.DeviceId)
+                    .ToListAsync();
+                ctx.UserPushTokens.RemoveRange(tokens);
+            }
+
             await ctx.SaveChangesAsync();
         }
 

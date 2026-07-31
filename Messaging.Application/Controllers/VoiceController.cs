@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
 using Messaging.Application.Dtos.Request;
 
 using Messaging.Application.Services;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Identity.Contracts.Enums;
 using Microsoft.Extensions.Caching.Distributed;
 using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
@@ -28,6 +30,7 @@ public class VoiceController(
     IMessageBus bus,
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
+    DeviceIdResolver devices,
     IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
     // Call.GetCacheId(callId) doubles as the lock key -LockedJsonCacheStore namespaces it
@@ -37,12 +40,14 @@ public class VoiceController(
         SlidingExpiration = TimeSpan.FromMinutes(40)
     };
 
-    /// <summary>Falls back to a shared "default" bucket for clients that haven't been updated to
-    /// send a device id yet - keeps the multi-device fixes backward compatible rather than
-    /// erroring for older builds (see EchoRealtimeHub.DeviceGroup's same fallback).</summary>
-    private string DeviceId => Request.Headers.TryGetValue("X-Device-Id", out var value) && !string.IsNullOrWhiteSpace(value)
-        ? value.ToString()
-        : "default";
+    /// <summary>
+    /// Resolves X-Device-Id and checks it really is one of this user's registered devices.
+    /// </summary>
+    private async Task<DeviceIdResult> ResolveDeviceAsync(string userId, CancellationToken ct = default) =>
+        await devices.ResolveAsync(Request, userId, ct);
+
+    private static IActionResult UnknownDevice(DeviceIdResult device) =>
+        new BadRequestObjectResult($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
 
     [HttpGet("ice-servers")]
     public async Task<IActionResult> GetIceServers()
@@ -105,9 +110,9 @@ public class VoiceController(
 
         await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
 
-        var deviceTokens = await bus.InvokeAsync<GetDeviceTokenForUserIdResponse>(new GetDeviceTokenForUserIdRequest { UserIds = request.Participants });
-        var voipTokens = await bus.InvokeAsync<GetVoipTokenForUserIdResponse>(new GetVoipTokenForUserIdRequest { UserIds = request.Participants });
-        await CallPushService.SendIncomingCallAsync(deviceTokens.Tokens, voipTokens.Tokens, new CallPushPayload
+        var pushTokens = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
+            new GetPushTokensForUsersRequest { UserIds = request.Participants });
+        await CallPushService.SendIncomingCallAsync(pushTokens.Of(PushTokenKind.Fcm), pushTokens.Of(PushTokenKind.ApnsVoip), new CallPushPayload
         {
             CallId = call.Id,
             ConversationId = call.ConversationId,
@@ -146,9 +151,12 @@ public class VoiceController(
         // can wipe out the other side's CfSessionId/AudioTrackName (the original bug: the
         // Tauri client's syncParticipants() backfill then finds those fields null and never
         // subscribes to the caller's audio).
+        var device = await ResolveDeviceAsync(userId);
+        if (device.IsUnknown) return UnknownDevice(device);
+
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Accept(userId, DeviceId), CacheOptions);
+            c => c.Accept(userId, device.DeviceId), CacheOptions);
         if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())
@@ -165,9 +173,12 @@ public class VoiceController(
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
 
+        var device = await ResolveDeviceAsync(userId);
+        if (device.IsUnknown) return UnknownDevice(device);
+
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Decline(userId, DeviceId), CacheOptions);
+            c => c.Decline(userId, device.DeviceId), CacheOptions);
         if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())
@@ -195,9 +206,12 @@ public class VoiceController(
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
 
+        var device = await ResolveDeviceAsync(userId);
+        if (device.IsUnknown) return UnknownDevice(device);
+
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Leave(userId, DeviceId), CacheOptions);
+            c => c.Leave(userId, device.DeviceId), CacheOptions);
         if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())

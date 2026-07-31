@@ -1,7 +1,10 @@
 using System.Net;
 using System.Text;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Messaging.Application.Controllers;
 using Messaging.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
@@ -47,10 +50,17 @@ public class CloudflarePerTrackErrorTests
             new SingleHandlerFactory(_handler), NullLogger<CloudflareService>.Instance);
         var cache = new FakeDistributedCache();
 
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            ValidateUserDeviceRequest => new ValidateUserDeviceResponse { IsRegistered = true },
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
+
         _controller = new CloudflareController(
             cfService, new FakeMessagingHubContext(), cache,
             new LockedJsonCacheStore(new FakeDistributedLockService(), cache),
-            new FakeMessageBus(), NullLogger<CloudflareController>.Instance)
+            bus, new DeviceIdResolver(bus, cache, NullLogger<DeviceIdResolver>.Instance),
+            NullLogger<CloudflareController>.Instance)
         {
             ControllerContext = new ControllerContext
             {

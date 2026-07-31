@@ -1,6 +1,9 @@
 using System.Text;
 using System.Text.Json;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Messaging.Application.Controllers;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
@@ -32,12 +35,19 @@ public class CloudflareControllerTests
     public async Task SetUp()
     {
         _cache = new FakeDistributedCache();
-        _bus = new FakeMessageBus();
+        // Every device this fixture uses is a registered one - the unknown-device rejection has its
+        // own fixture (DeviceIdResolverTests).
+        _bus = new FakeMessageBus(msg => msg switch
+        {
+            ValidateUserDeviceRequest => new ValidateUserDeviceResponse { IsRegistered = true },
+            _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+        });
         _callStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
         _controller = new CloudflareController(
             StubCloudflareHttp.CreateService(), new FakeMessagingHubContext(), _cache, _callStore,
-            _bus, NullLogger<CloudflareController>.Instance)
+            _bus, new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
+            NullLogger<CloudflareController>.Instance)
         {
             ControllerContext = new ControllerContext
             {

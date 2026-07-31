@@ -11,4 +11,7 @@ public class SessionDto
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset LastUsedAt { get; set; }
     public bool IsCurrent { get; set; }
+
+    /// <summary>The registered device this login came from, by its client-supplied id.</summary>
+    public string? ClientDeviceId { get; set; }
 }

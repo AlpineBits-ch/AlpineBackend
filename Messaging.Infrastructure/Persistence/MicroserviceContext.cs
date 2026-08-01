@@ -17,6 +17,7 @@ public class MicroserviceContext : DbContext
     public DbSet<MlsGroupGeneration> MlsGroupGenerations { get; set; }
     public DbSet<MlsJoinRequest> MlsJoinRequests { get; set; }
     public DbSet<MlsJoinRequestApproval> MlsJoinRequestApprovals { get; set; }
+    public DbSet<MlsAdmissionChallenge> MlsAdmissionChallenges { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     
     public DbSet<Message> Messages { get; set; }
@@ -139,7 +140,35 @@ public class MicroserviceContext : DbContext
             // Generation has to be in the key: toggling encryption off and on again mints a new
             // group whose epochs restart at zero, so keyed on (context, epoch) alone the new
             // group's first commit would collide with the old group's.
-            commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch }).IsUnique();
+            //
+            // Filtered to exclude proposals. A proposal does not advance the group's epoch, so it
+            // does not own an epoch slot either - an unfiltered index would let a Remove proposal
+            // announced at epoch N+1 block the real commit that establishes N+1, which is the
+            // deadlock the whole proposal fix exists to remove. The InMemory provider ignores the
+            // filter, so the service checks explicitly as well.
+            if (Database.IsNpgsql())
+            {
+                commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch })
+                    .IsUnique()
+                    .HasFilter("is_proposal = false");
+            }
+            else
+            {
+                commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch });
+            }
+        });
+
+        modelBuilder.Entity<MlsAdmissionChallenge>(challengeBuilder =>
+        {
+            challengeBuilder
+                .HasOne(c => c.JoinRequest)
+                .WithMany()
+                .HasForeignKey(c => c.JoinRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Both reads are "the live challenge for this request": one to answer it, one to verify
+            // the answer.
+            challengeBuilder.HasIndex(c => new { c.JoinRequestId, c.ExpiresAt });
         });
 
         modelBuilder.Entity<MlsGroupGeneration>(generationBuilder =>
@@ -214,7 +243,12 @@ public class MicroserviceContext : DbContext
                 .WithMany(x => x.Devices).HasForeignKey(x => x.ConversationMemberId)
                 .OnDelete(DeleteBehavior.Cascade);
             
-            memberDeviceBuilder.HasIndex(x => x.DeviceId).IsUnique();
+            // Unique per membership, not globally. A global unique index on DeviceId meant a device
+            // could belong to at most one conversation in the entire system - which nothing hit only
+            // because nothing writes these rows yet, and which would have been a very confusing
+            // constraint violation for whoever wired it up.
+            memberDeviceBuilder.HasIndex(x => new { x.ConversationMemberId, x.DeviceId }).IsUnique();
+            memberDeviceBuilder.HasIndex(x => x.DeviceId);
         });
 
     }

@@ -87,4 +87,123 @@ public class PurgeUserDataCommandHandlerTests
             Assert.That(response.Service, Is.EqualTo("messaging"));
         });
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // MLS artifacts
+    //
+    // All of these survived a purge. A join request in particular carries a key package and a
+    // signature-key fingerprint - the two most identifying things in the schema - so "the account
+    // is gone" was not true of the two artifacts that identify it best.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private void SeedJoinRequest(string userId, string contextId)
+    {
+        _context.MlsJoinRequests.Add(MlsJoinRequest.Create(new CreateMlsJoinRequestParams
+        {
+            ContextId = contextId,
+            ConversationId = contextId,
+            Generation = 1,
+            RequesterUserId = userId,
+            RequesterDeviceId = "device-" + userId,
+            KeyPackage = [1, 2, 3],
+            KeyPackageHash = "hash",
+            SignatureKeyFingerprint = "AAAA-BBBB",
+            CreatedAt = DateTimeOffset.UtcNow,
+            ExpiresAt = DateTimeOffset.UtcNow.AddDays(1),
+        }));
+    }
+
+    private void SeedWelcome(string userId, string contextId)
+    {
+        _context.PendingWelcomes.Add(PendingWelcome.Create(new CreatePendingWelcomeParams
+        {
+            ContextId = contextId,
+            ConversationId = contextId,
+            UserId = userId,
+            DeviceId = "device-" + userId,
+            Welcome = [9],
+            Generation = 1,
+            Epoch = 1,
+        }));
+    }
+
+    [Test]
+    public async Task Handle_RemovesTheUsersWelcomesAndJoinRequests()
+    {
+        _context.Members.Add(MakeMember("m-1", "user-a", "conv-1"));
+        _context.Members.Add(MakeMember("m-2", "user-b", "conv-1"));
+        SeedWelcome("user-a", "conv-1");
+        SeedWelcome("user-b", "conv-1");
+        SeedJoinRequest("user-a", "conv-1");
+        SeedJoinRequest("user-b", "conv-1");
+        await _context.SaveChangesAsync();
+
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_context.PendingWelcomes.Select(w => w.UserId), Is.EqualTo(new[] { "user-b" }));
+            Assert.That(_context.MlsJoinRequests.Select(r => r.RequesterUserId), Is.EqualTo(new[] { "user-b" }));
+        });
+    }
+
+    [Test]
+    public async Task Handle_KeepsCommitsAndGenerationsOfAConversationOthersAreStillIn()
+    {
+        _context.Members.Add(MakeMember("m-1", "user-a", "conv-1"));
+        _context.Members.Add(MakeMember("m-2", "user-b", "conv-1"));
+        _context.MlsGroupGenerations.Add(MlsGroupGeneration.Create(new CreateMlsGroupGenerationParams
+        {
+            ContextId = "conv-1", ConversationId = "conv-1", Generation = 1, MlsGroupId = [1],
+            Epoch = 1, ActivatedByUserId = "user-a", ActivatedAt = DateTimeOffset.UtcNow,
+        }));
+        _context.MlsCommits.Add(MlsCommit.Create(new CreateMlsCommitParams
+        {
+            ContextId = "conv-1", ConversationId = "conv-1", Generation = 1, Epoch = 1,
+            Commit = [1], SenderUserId = "user-a", SenderDeviceId = "device-user-a",
+        }));
+        await _context.SaveChangesAsync();
+
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await _context.SaveChangesAsync();
+
+        // A commit is not the sender's property; it is a link in the group's history. Deleting one
+        // because its author left forks every remaining member permanently off a group they are
+        // still using. The generation is likewise the only record of which group can read the
+        // ciphertext still sitting in the conversation.
+        Assert.Multiple(() =>
+        {
+            Assert.That(_context.MlsCommits.Count(), Is.EqualTo(1));
+            Assert.That(_context.MlsGroupGenerations.Count(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Handle_RemovesTheGroupOfAConversationNobodyIsLeftIn()
+    {
+        _context.Members.Add(MakeMember("m-1", "user-a", "conv-solo"));
+        _context.MlsGroupGenerations.Add(MlsGroupGeneration.Create(new CreateMlsGroupGenerationParams
+        {
+            ContextId = "conv-solo", ConversationId = "conv-solo", Generation = 1, MlsGroupId = [1],
+            Epoch = 1, ActivatedByUserId = "user-a", ActivatedAt = DateTimeOffset.UtcNow,
+        }));
+        _context.MlsCommits.Add(MlsCommit.Create(new CreateMlsCommitParams
+        {
+            ContextId = "conv-solo", ConversationId = "conv-solo", Generation = 1, Epoch = 1,
+            Commit = [1], SenderUserId = "user-a", SenderDeviceId = "device-user-a",
+        }));
+        await _context.SaveChangesAsync();
+
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await _context.SaveChangesAsync();
+
+        // Nobody is left to be forked off, and nothing left to read. Keeping the group would be
+        // keeping key material for a conversation that no longer has participants.
+        Assert.Multiple(() =>
+        {
+            Assert.That(_context.MlsCommits.Any(), Is.False);
+            Assert.That(_context.MlsGroupGenerations.Any(), Is.False);
+        });
+    }
 }

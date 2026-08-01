@@ -17,6 +17,7 @@ public class CreateMlsJoinRequestParams
     public string SignatureKeyFingerprint { get; init; } = null!;
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset ExpiresAt { get; init; }
+    public bool RequiresManualApproval { get; init; }
 }
 
 /// <summary>
@@ -76,6 +77,23 @@ public class MlsJoinRequest : BaseEntity<MlsJoinRequest>, IPrefixedEntity
 
     public MlsJoinRequestState State { get; set; } = MlsJoinRequestState.Pending;
 
+    /// <summary>
+    /// True when a human on an existing device must approve, on top of any cryptographic proof.
+    ///
+    /// <para>Decided once, when the request is submitted, rather than re-evaluated on every read -
+    /// so a reviewer cannot be shown "this will auto-admit" and have the answer change underneath
+    /// them. Set for a <c>VerifiedDevices</c> account always, and for a <c>TrustedSignIn</c> account
+    /// that has already spent its auto-admission budget for the day. A burst of admissions is the
+    /// signature of a compromise, so the second one in 24 hours costs a tap instead of failing the
+    /// join outright.</para>
+    ///
+    /// <para><b>This is policy the server publishes, not a rule it can impose.</b> The server holds
+    /// no group keys; only a member's client can produce an Add commit, and only that client can
+    /// refuse to. What the server does is decide the budget honestly and record how it was spent -
+    /// which is what makes the limit auditable even though it is not enforceable.</para>
+    /// </summary>
+    public bool RequiresManualApproval { get; set; }
+
     public DateTimeOffset ExpiresAt { get; set; }
 
     /// <summary>Set when a commit actually admitted this device.</summary>
@@ -107,6 +125,7 @@ public class MlsJoinRequest : BaseEntity<MlsJoinRequest>, IPrefixedEntity
             SignatureKeyFingerprint = parameters.SignatureKeyFingerprint,
             State = MlsJoinRequestState.Pending,
             ExpiresAt = parameters.ExpiresAt,
+            RequiresManualApproval = parameters.RequiresManualApproval,
         };
     }
 }

@@ -1,15 +1,22 @@
 using System.Security.Claims;
+using Domain;
+using Echo.Realtime;
+using Echo.Realtime.Devices;
 using Facet.Extensions;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
 using Messaging.Contracts.Bus.Events;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
+using Messaging.Domain.Enums;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.Http;
@@ -117,6 +124,48 @@ public class MlsEndpoints
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
         return Results.Ok(await mls.GetStateAsync(conversationId));
+    }
+
+    /// <summary>
+    /// Turns encryption on for a conversation, or re-keys it by minting the next generation.
+    ///
+    /// <para>There was no route for this at all, which meant a conversation's generation was frozen
+    /// at creation forever: no re-key, no rotation, and no way back from a compromised group. Any
+    /// member may, because in a DM there is no moderator - the two people in it are the only ones who
+    /// could ever decide.</para>
+    /// </summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/enable")]
+    public static async Task<IResult> EnableConversationMls(
+        string conversationId,
+        EnableMlsDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await mls.EnableAsync(
+            conversationId, conversationId, null, userId, dto, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Turns encryption off for a conversation. Messages sent while it was on stay
+    /// ciphertext - see <see cref="MlsGroupService.DisableAsync"/>.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/disable")]
+    public static async Task<IResult> DisableConversationMls(
+        string conversationId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await mls.DisableAsync(conversationId, conversationId, null, userId, DateTimeOffset.UtcNow));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -346,21 +395,269 @@ public class MlsEndpoints
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // Conversation join requests
+    //
+    // The same machinery as channels - MlsJoinRequestService was already context-agnostic - with
+    // conversation membership standing in for ViewChannel. This is the missing half of multi-device
+    // support: without it, a device registered after a conversation already exists has no way in at
+    // all. Nothing told the conversation it appeared, no endpoint listed another user's devices, and
+    // the only enumeration that existed consumed a key package per call.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Asks to be let into an encrypted conversation. Any member may ask, and being a member
+    /// is the whole check - you cannot request access to a conversation you are not in.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests")]
+    public static async Task<IResult> RequestConversationAccess(
+        string conversationId,
+        SubmitJoinRequestDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        var protectionLevel = await ResolveProtectionLevelAsync(bus, userId);
+
+        var result = await joinRequests.SubmitAsync(
+            conversationId, conversationId, null, userId, dto, DateTimeOffset.UtcNow,
+            MlsContextKind.Conversation, protectionLevel);
+
+        if (result.Status == MlsOperationStatus.Ok && result.Value is MlsJoinRequestDto request)
+        {
+            // Conversation membership is known here, so the announcement goes direct. Everyone
+            // except the requester, because the requester is the device asking.
+            var audience = await ctx.Members
+                .Where(m => m.ConversationId == conversationId && m.UserId != userId)
+                .Select(m => m.UserId)
+                .ToListAsync();
+
+            if (audience.Count > 0)
+            {
+                await hub.Clients.Users(audience).SendAsync("conversation.MlsJoinRequest", new
+                {
+                    contextId = conversationId,
+                    conversationId,
+                    requestId = request.Id,
+                    requesterUserId = userId,
+                    requesterDeviceId = dto.DeviceId,
+                    requesterDeviceName = dto.DeviceName,
+                    generation = request.Generation,
+                    // The fingerprint is the value a human actually compares out of band; the
+                    // key-package hash changes every request and cannot be read over a phone call.
+                    signatureKeyFingerprint = dto.SignatureKeyFingerprint,
+                    requiresManualApproval = request.RequiresManualApproval,
+                });
+            }
+        }
+
+        return ToHttp(result);
+    }
+
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests")]
+    public static async Task<IResult> ListConversationJoinRequests(
+        string conversationId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return Results.Ok(await joinRequests.ListPendingAsync(
+            conversationId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+    }
+
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/approve")]
+    public static async Task<IResult> ApproveConversationJoinRequest(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.ApproveAsync(
+            conversationId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+    }
+
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/deny")]
+    public static async Task<IResult> DenyConversationJoinRequest(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.DenyAsync(conversationId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Withdraws your own request. No permission check beyond ownership - the service
+    /// reports someone else's request as not-found rather than confirming it exists.</summary>
+    [WolverineDelete("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}")]
+    public static async Task<IResult> CancelConversationJoinRequest(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        return ToHttp(await joinRequests.CancelAsync(conversationId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Admission proof relay
+    //
+    // A pure courier. The proof is made with a key derived from the account master key, which the
+    // server holds only in wrapped form - so it cannot forge one for a device it injected, and it
+    // does not check the ones it carries. A server that validated proofs would be asserting
+    // something it cannot know, and a client trusting that assertion would have handed back exactly
+    // the power this design removes. The only rules enforced here are the two the server can
+    // legitimately enforce: one answer per nonce, inside a fifteen-minute window.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>An existing device posts a 32-byte nonce for the joining device to sign.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/challenge")]
+    public static async Task<IResult> IssueAdmissionChallenge(
+        string conversationId,
+        string requestId,
+        IssueAdmissionChallengeDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        var issuerDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+
+        return ToHttp(await joinRequests.IssueChallengeAsync(
+            conversationId, requestId, userId,
+            string.IsNullOrWhiteSpace(issuerDeviceId) ? null : issuerDeviceId,
+            dto, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The joining device collects the outstanding nonce. Only the requester may - handing
+    /// it to anyone else invites them to try to answer it.</summary>
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/challenge")]
+    public static async Task<IResult> GetAdmissionChallenge(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.GetChallengeAsync(conversationId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The joining device submits its signature. Stored verbatim; never checked here.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/proof")]
+    public static async Task<IResult> SubmitAdmissionProof(
+        string conversationId,
+        string requestId,
+        SubmitAdmissionProofDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.SubmitProofAsync(
+            conversationId, requestId, userId, dto, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The proof, for the device that issued the challenge to verify locally. Everything it
+    /// needs travels together, so it never has to trust the server's account of what was signed.</summary>
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/proof")]
+    public static async Task<IResult> GetAdmissionProof(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.GetProofAsync(conversationId, requestId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>
+    /// The requester's protection level, or the strict one when Identity cannot answer.
+    ///
+    /// <para>Failing closed matters here specifically: this decides whether a device may be admitted
+    /// without a human, and "we could not reach Identity" must never read as "the permissive default
+    /// applies". The cost of being wrong in this direction is one extra tap.</para>
+    /// </summary>
+    private static async Task<ProtectionLevel> ResolveProtectionLevelAsync(IMessageBus bus, string userId)
+    {
+        try
+        {
+            var response = await bus.InvokeAsync<GetUserProtectionLevelResponse>(
+                new GetUserProtectionLevelRequest { UserIds = [userId] });
+
+            return response.Levels.FirstOrDefault(l => l.UserId == userId)?.Level
+                   ?? ProtectionLevel.VerifiedDevices;
+        }
+        catch (Exception)
+        {
+            return ProtectionLevel.VerifiedDevices;
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // Welcomes (context-agnostic - a device fetches everything waiting for it)
     // ══════════════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// Welcomes waiting for one device, across every context.
     ///
-    /// <para>Passing <paramref name="deviceId"/> selects the correct behaviour: only that device's
-    /// Welcomes, and reading does not consume them - see <see cref="PendingWelcome"/> for why
-    /// consuming on read loses a single-use init key whenever the join fails.</para>
+    /// <para>Passing <paramref name="deviceId"/> selects only that device's Welcomes. Reading never
+    /// consumes - see <see cref="PendingWelcome"/> for why consuming on read throws away a
+    /// single-use init key whenever the join fails.</para>
     ///
-    /// <para>Omitting it is the pre-existing contract and keeps the pre-existing semantics: all of
-    /// the user's Welcomes, consumed as they are read. That is the lossy behaviour this endpoint
-    /// exists to replace, but a client that has not been updated has no ack call to make, and
-    /// switching it to non-destructive would leave it re-fetching and re-failing the same joins on
-    /// every launch, forever. Old contract, old semantics; new contract, correct semantics.</para>
+    /// <para><b>Omitting it no longer consumes anything either.</b> The legacy branch used to stamp
+    /// every Welcome for every one of the user's devices as consumed, so a laptop's poll silently
+    /// destroyed the phone's only way into the group - unrecoverable, and invisible from both ends.
+    /// That was the bug; requiring <c>deviceId</c> is a separate, breaking change and is gated on
+    /// <c>MlsPolicy.RequireDeviceIdOnWelcomeFetch</c>. Fixing the loss now and breaking old clients
+    /// later is the whole point of splitting them: a client in the field keeps working, and it stops
+    /// destroying its siblings' Welcomes today rather than at its next release.</para>
+    ///
+    /// <para>The cost of the non-consuming legacy branch is that an old client re-fetches Welcomes it
+    /// has already joined, because it has no ack call to make. That is a wasted round trip. The old
+    /// behaviour's cost was a device permanently unable to read a conversation.</para>
     /// </summary>
     [WolverineGet("/api/v1/conversations/welcomes")]
     public static async Task<IResult> GetWelcomes(
@@ -371,38 +668,60 @@ public class MlsEndpoints
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var legacyCaller = string.IsNullOrWhiteSpace(deviceId);
+        var query = ctx.PendingWelcomes.AsNoTracking()
+            .Where(w => w.UserId == userId && w.ConsumedAt == null);
 
-        var query = ctx.PendingWelcomes.Where(w => w.UserId == userId && w.ConsumedAt == null);
-        if (!legacyCaller) query = query.Where(w => w.DeviceId == deviceId);
+        if (!string.IsNullOrWhiteSpace(deviceId)) query = query.Where(w => w.DeviceId == deviceId);
 
         var welcomes = await query.OrderBy(w => w.CreatedAt).ToListAsync();
-
-        if (legacyCaller && welcomes.Count > 0)
-        {
-            var now = DateTimeOffset.UtcNow;
-            foreach (var welcome in welcomes) welcome.ConsumedAt = now;
-            await ctx.SaveChangesAsync();
-        }
 
         return Results.Ok(welcomes.SelectFacets<PendingWelcome, PendingWelcomeDto>());
     }
 
-    /// <summary>Marks Welcomes consumed once the device has actually joined their groups.</summary>
+    /// <summary>
+    /// Marks Welcomes consumed once the device has actually joined their groups.
+    ///
+    /// <para>Scoped to <c>(UserId, DeviceId)</c>. Scoping by user alone let one device consume a
+    /// Welcome sealed to another's leaf - which it cannot use, and which the owning device then never
+    /// sees again.</para>
+    ///
+    /// <para>A client that sends no <c>deviceId</c> falls back to its validated <c>X-Device-Id</c>
+    /// rather than acking nothing: a silent no-op would leave old clients re-fetching the same
+    /// Welcomes forever. With neither, the call is refused with a reason - the one thing that must
+    /// not happen is acking broadly again.</para>
+    /// </summary>
     [WolverinePost("/api/v1/conversations/welcomes/ack")]
     public static async Task<IResult> AckWelcomes(
         AckWelcomesDto dto,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
         [NotBody] MicroserviceContext ctx)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
         if (dto.WelcomeIds.Count == 0) return Results.Ok(new AckWelcomesResultDto { Acknowledged = 0 });
 
-        // Scoped to the caller so an id guessed from another user's stream is a no-op, not a denial
-        // of service that strands someone else's device outside the group.
+        var deviceId = dto.DeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            deviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            return Results.BadRequest(
+                "deviceId is required, either in the body or as the X-Device-Id header. A Welcome is " +
+                "sealed to one device's leaf, and acknowledging across all of a user's devices " +
+                "destroys the others' only way into the group.");
+        }
+
+        // Scoped to the caller *and* the device, so an id guessed from another stream is a no-op
+        // rather than a denial of service that strands somebody else's device outside the group.
         var welcomes = await ctx.PendingWelcomes
-            .Where(w => dto.WelcomeIds.Contains(w.Id) && w.UserId == userId && w.ConsumedAt == null)
+            .Where(w => dto.WelcomeIds.Contains(w.Id)
+                        && w.UserId == userId
+                        && w.DeviceId == deviceId
+                        && w.ConsumedAt == null)
             .ToListAsync();
 
         var now = DateTimeOffset.UtcNow;

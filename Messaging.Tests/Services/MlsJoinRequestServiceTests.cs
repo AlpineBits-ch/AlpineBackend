@@ -175,7 +175,7 @@ public class MlsJoinRequestServiceTests
     {
         await SeedEncryptedChannel(OWNER, PEER);
 
-        Assert.That(await _service.RequiredApprovalsFor(CHANNEL, 1), Is.EqualTo(2));
+        Assert.That(await _service.RequiredApprovalsFor(CHANNEL, 1, MlsContextKind.Channel), Is.EqualTo(2));
     }
 
     [Test]
@@ -185,7 +185,7 @@ public class MlsJoinRequestServiceTests
 
         // Demanding two here would leave the group permanently unable to admit anyone: the single
         // member cannot approve twice, and nobody else exists to be the second.
-        Assert.That(await _service.RequiredApprovalsFor(CHANNEL, 1), Is.EqualTo(1));
+        Assert.That(await _service.RequiredApprovalsFor(CHANNEL, 1, MlsContextKind.Channel), Is.EqualTo(1));
     }
 
     [Test]
@@ -194,7 +194,7 @@ public class MlsJoinRequestServiceTests
         await SeedEncryptedChannel(OWNER, OWNER, OWNER);
 
         // One person committing repeatedly is still one person.
-        Assert.That(await _service.RequiredApprovalsFor(CHANNEL, 1), Is.EqualTo(1));
+        Assert.That(await _service.RequiredApprovalsFor(CHANNEL, 1, MlsContextKind.Channel), Is.EqualTo(1));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

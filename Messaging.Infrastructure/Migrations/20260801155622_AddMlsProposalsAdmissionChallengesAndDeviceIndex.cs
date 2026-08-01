@@ -1,0 +1,146 @@
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+
+#nullable disable
+
+namespace Messaging.Infrastructure.Migrations
+{
+    /// <inheritdoc />
+    public partial class AddMlsProposalsAdmissionChallengesAndDeviceIndex : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            // Three index swaps, no column drops - a rollback to the previous application version
+            // still starts and serves traffic against this schema.
+            //
+            // The commit index is recreated below with `WHERE is_proposal = false`. A proposal does
+            // not advance the group's epoch, so it must not own an epoch slot either: unfiltered,
+            // a Remove proposal announced at epoch N+1 blocks the commit that actually establishes
+            // N+1 and the group can never move again.
+            migrationBuilder.DropIndex(
+                name: "ix_mls_commits_context_id_generation_epoch",
+                table: "mls_commits");
+
+            // member_devices.device_id was *globally* unique, which meant a device could belong to
+            // at most one conversation in the entire system. Nothing hit it only because nothing
+            // writes these rows yet. Replaced with unique per (member, device) plus a plain lookup
+            // index on device_id.
+            migrationBuilder.DropIndex(
+                name: "ix_member_devices_conversation_member_id",
+                table: "member_devices");
+
+            migrationBuilder.DropIndex(
+                name: "ix_member_devices_device_id",
+                table: "member_devices");
+
+            migrationBuilder.AddColumn<bool>(
+                name: "requires_manual_approval",
+                table: "mls_join_requests",
+                type: "boolean",
+                nullable: false,
+                defaultValue: false);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "is_proposal",
+                table: "mls_commits",
+                type: "boolean",
+                nullable: false,
+                defaultValue: false);
+
+            migrationBuilder.CreateTable(
+                name: "mls_admission_challenges",
+                columns: table => new
+                {
+                    id = table.Column<string>(type: "text", nullable: false),
+                    join_request_id = table.Column<string>(type: "text", nullable: false),
+                    context_id = table.Column<string>(type: "text", nullable: false),
+                    issued_by_user_id = table.Column<string>(type: "text", nullable: false),
+                    issued_by_device_id = table.Column<string>(type: "text", nullable: true),
+                    challenge = table.Column<byte[]>(type: "bytea", nullable: false),
+                    proof = table.Column<byte[]>(type: "bytea", nullable: true),
+                    proof_submitted_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    expires_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    created_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    updated_at = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("pk_mls_admission_challenges", x => x.id);
+                    table.ForeignKey(
+                        name: "fk_mls_admission_challenges_mls_join_requests_join_request_id",
+                        column: x => x.join_request_id,
+                        principalTable: "mls_join_requests",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "ix_mls_commits_context_id_generation_epoch",
+                table: "mls_commits",
+                columns: new[] { "context_id", "generation", "epoch" },
+                unique: true,
+                filter: "is_proposal = false");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_member_devices_conversation_member_id_device_id",
+                table: "member_devices",
+                columns: new[] { "conversation_member_id", "device_id" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_member_devices_device_id",
+                table: "member_devices",
+                column: "device_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_mls_admission_challenges_join_request_id_expires_at",
+                table: "mls_admission_challenges",
+                columns: new[] { "join_request_id", "expires_at" });
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "mls_admission_challenges");
+
+            migrationBuilder.DropIndex(
+                name: "ix_mls_commits_context_id_generation_epoch",
+                table: "mls_commits");
+
+            migrationBuilder.DropIndex(
+                name: "ix_member_devices_conversation_member_id_device_id",
+                table: "member_devices");
+
+            migrationBuilder.DropIndex(
+                name: "ix_member_devices_device_id",
+                table: "member_devices");
+
+            migrationBuilder.DropColumn(
+                name: "requires_manual_approval",
+                table: "mls_join_requests");
+
+            migrationBuilder.DropColumn(
+                name: "is_proposal",
+                table: "mls_commits");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_mls_commits_context_id_generation_epoch",
+                table: "mls_commits",
+                columns: new[] { "context_id", "generation", "epoch" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "ix_member_devices_conversation_member_id",
+                table: "member_devices",
+                column: "conversation_member_id");
+
+            migrationBuilder.CreateIndex(
+                name: "ix_member_devices_device_id",
+                table: "member_devices",
+                column: "device_id",
+                unique: true);
+        }
+    }
+}

@@ -13,6 +13,7 @@ public class CreateMlsCommitParams
     public byte[] Commit { get; init; } = null!;
     public string SenderUserId { get; init; } = null!;
     public string SenderDeviceId { get; init; } = null!;
+    public bool IsProposal { get; init; }
 }
 
 /// <summary>
@@ -64,6 +65,21 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
     /// merged this commit locally.</summary>
     public string SenderDeviceId { get; set; } = null!;
 
+    /// <summary>
+    /// True when this row carries a bare <i>proposal</i> rather than a commit.
+    ///
+    /// <para><b>A proposal does not advance an epoch.</b> Processing one changes no client's MLS
+    /// epoch, so it neither claims an epoch slot nor moves the generation's counter - the unique
+    /// index above is filtered to exclude these rows precisely so a proposal announced at epoch N+1
+    /// does not block the real commit that establishes N+1.</para>
+    ///
+    /// <para>It travels this table anyway because it still has to reach every device, in order,
+    /// exactly once. Clients must not count it toward "commits applied" when deciding whether to
+    /// keep paging: the server used to advance the epoch for these, and the resulting catch-up loop
+    /// re-fetched the same proposal forever.</para>
+    /// </summary>
+    public bool IsProposal { get; set; }
+
     public static MlsCommit Create(CreateMlsCommitParams parameters)
     {
         var date = DateTimeOffset.UtcNow;
@@ -80,6 +96,7 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
             Commit = parameters.Commit,
             SenderUserId = parameters.SenderUserId,
             SenderDeviceId = parameters.SenderDeviceId,
+            IsProposal = parameters.IsProposal,
         };
     }
 }

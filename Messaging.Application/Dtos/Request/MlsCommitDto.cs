@@ -37,6 +37,17 @@ public class PublishMlsCommitDto
     /// fulfilled when the device is genuinely in the group, and an approval that never produced a
     /// commit must leave the request open for someone else to act on.</summary>
     public List<string> FulfilledJoinRequestIds { get; set; } = new();
+
+    /// <summary>
+    /// Set when the payload is a bare proposal (a Remove a leaving device published for the others
+    /// to commit) rather than a commit.
+    ///
+    /// <para>The server will not advance the group's epoch for it, and will not let it claim an
+    /// epoch slot. Marking a real commit as a proposal strands the group one epoch behind where its
+    /// members actually are; marking a proposal as a commit is what produced the non-terminating
+    /// catch-up loop this flag exists to end. See <see cref="MlsCommit.IsProposal"/>.</para>
+    /// </summary>
+    public bool IsProposal { get; set; }
 }
 
 /// <summary>Ids of Welcomes whose group the device has actually joined. See
@@ -44,6 +55,13 @@ public class PublishMlsCommitDto
 public class AckWelcomesDto
 {
     public List<string> WelcomeIds { get; set; } = new();
+
+    /// <summary>Required. The acknowledging device.
+    ///
+    /// <para>Scoping by user alone let one of a user's devices consume a Welcome addressed to
+    /// another's leaf - which it cannot use and which the owning device then never sees, leaving
+    /// that device permanently outside the group with nothing to indicate why.</para></summary>
+    public string DeviceId { get; set; } = null!;
 }
 
 [Facet(typeof(MlsCommit))]
@@ -63,6 +81,15 @@ public class MlsCommitPublishedDto
 
     public int Generation { get; set; }
     public long Epoch { get; set; }
+
+    /// <summary>Echoes back whether the stored row was a proposal, so a client cannot mistake a
+    /// successful proposal publish for the group having moved.</summary>
+    public bool IsProposal { get; set; }
+
+    /// <summary>True when the server already held this exact commit from this device and returned
+    /// the stored row instead of writing a second one. The publish succeeded - the client should
+    /// keep its merged state rather than treating this as a lost race and discarding it.</summary>
+    public bool Duplicate { get; set; }
 }
 
 public class AckWelcomesResultDto

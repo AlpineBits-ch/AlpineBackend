@@ -45,7 +45,101 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
 
     public string JsonSettings { get; set; } = "{}";
     
+    /// <summary>
+    /// The account master key wrapped under a key derived from the <b>password</b>.
+    ///
+    /// <para>Historically the only wrapping, which made a password reset silently destroy every
+    /// backup blob and the account identity key: the envelope stays sealed under Argon2(old
+    /// password), and a reset is by definition the case where the user no longer has that password.
+    /// It is now one of two - see <see cref="RecoveryCodeWrappedMasterKey"/> - and a reset
+    /// invalidates only this one.</para>
+    /// </summary>
     public EncryptedMasterKey? EncryptedMasterKey{ get; set; }
+
+    /// <summary>
+    /// The same master key wrapped under a key derived from the <b>recovery code</b>.
+    ///
+    /// <para>The only credential that survives a password reset, which is why it is required to
+    /// enter <see cref="Domain.ProtectionLevel.VerifiedDevices"/> and to put engine state in the
+    /// cloud, and why every account should be pushed to save one. Losing both the password and the
+    /// recovery code is genuinely unrecoverable - that has to be said in the UI at setup time, not
+    /// discovered at restore time.</para>
+    /// </summary>
+    public EncryptedMasterKey? RecoveryCodeWrappedMasterKey { get; set; }
+
+    /// <summary>
+    /// When a password reset made <see cref="EncryptedMasterKey"/> undecryptable.
+    ///
+    /// <para>Set by the reset path, cleared when the client re-wraps under the new password. While
+    /// it is set, the password no longer opens the master key and only the recovery code does - so
+    /// this is what turns "your backups silently stopped working" into something the server can tell
+    /// the client to fix on next unlock.</para>
+    /// </summary>
+    public DateTimeOffset? MasterKeyPasswordWrappingInvalidatedAt { get; set; }
+
+    /// <summary>
+    /// Whether any credential the user could still have will open the master key.
+    ///
+    /// <para>False means the encrypted history is gone: the password wrapping was invalidated by a
+    /// reset and there is no recovery-code wrapping to fall back on. Reported to the user as exactly
+    /// that, rather than left to appear to work until the first restore attempt fails.</para>
+    /// </summary>
+    [NotMapped]
+    public bool EncryptedHistoryRecoverable =>
+        EncryptedMasterKey is null
+        || RecoveryCodeWrappedMasterKey is not null
+        || MasterKeyPasswordWrappingInvalidatedAt is null;
+
+    /// <summary>
+    /// How this account admits new devices to its encrypted conversations. See
+    /// <see cref="Domain.ProtectionLevel"/>.
+    ///
+    /// <para><b>This column is a cache, not the authority.</b> If it were the authority, a hostile
+    /// server could flip a strict account to permissive and then auto-admit a device it controls -
+    /// which is exactly the power the strict tier exists to remove. The authority is
+    /// <see cref="ProtectionLevelAssertion"/>, signed by the user's identity key; clients enforce the
+    /// last validly-signed level they have seen and fail closed to the stricter reading when they
+    /// cannot verify one. The column exists so the server can answer "may this join request be
+    /// auto-admitted" without asking a client, and being wrong about it costs nothing a client will
+    /// act on.</para>
+    /// </summary>
+    public ProtectionLevel ProtectionLevel { get; set; } = ProtectionLevel.TrustedSignIn;
+
+    /// <summary>The signed assertion clients actually verify. Opaque here - the server never
+    /// produces one and cannot, which is the whole point.</summary>
+    public byte[]? ProtectionLevelAssertion { get; set; }
+
+    /// <summary>Monotonic. Guards against a replayed old assertion being accepted as current, and
+    /// against two devices racing to change the level.</summary>
+    public int ProtectionLevelVersion { get; set; }
+
+    public DateTimeOffset? ProtectionLevelUpdatedAt { get; set; }
+
+    /// <summary>
+    /// Public half of the account's long-lived Ed25519 identity key, generated client-side at signup.
+    ///
+    /// <para>This is what makes full-loss recovery possible without a server-side backdoor. Every
+    /// device carries a certificate signed by the private half, so a peer can verify offline that a
+    /// device really belongs to this account - with none of the account's devices online, and
+    /// without taking the server's word for it. The server never holds the private half (it is
+    /// wrapped under the recovery key inside the backup envelope), so the server cannot mint a
+    /// certificate for a device it injected.</para>
+    ///
+    /// <para>Peers TOFU-pin this exactly like a Signal safety number. Changing it therefore
+    /// invalidates every peer's pinning, which is why rotation is a security event with its own
+    /// ceremony rather than a routine write.</para>
+    /// </summary>
+    public byte[]? AccountIdentityPublicKey { get; set; }
+
+    /// <summary>Monotonic. Lets a peer detect a rollback to a superseded identity key.</summary>
+    public int AccountIdentityKeyVersion { get; set; }
+
+    /// <summary>The new key signed by the <i>outgoing</i> one, when the outgoing one still existed.
+    /// Peers verify continuity from this automatically; a rotation without it is a
+    /// safety-number-changed warning that has to be resolved out of band, never auto-accepted.</summary>
+    public byte[]? AccountIdentityKeyRotationSignature { get; set; }
+
+    public DateTimeOffset? AccountIdentityKeyUpdatedAt { get; set; }
     
     public ICollection<UserPushToken> PushTokens { get; set; } = new List<UserPushToken>();
     public ICollection<UserDevice> Devices { get; set; } = new List<UserDevice>();

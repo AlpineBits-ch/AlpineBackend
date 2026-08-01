@@ -9,6 +9,7 @@ using Identity.Domain.Enums;
 using Identity.Domain.ValueObjects;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ApplicationUserDto = Identity.Application.Dtos.Response.ApplicationUserDto;
@@ -32,21 +33,51 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
 
 
 
+    /// <summary>
+    /// Uploads the wrapped master key.
+    ///
+    /// <para><b>The guard here used to be backwards.</b> It compared
+    /// <c>user.EncryptedMasterKey?.Version == dto.Version</c> and refused only on a match - so a
+    /// harmless idempotent re-post of the same envelope was rejected, while replacing the wrapped
+    /// master key with a <i>different</i> one sailed through with no re-auth, no rate limit and no
+    /// trace. Every backup sealed under the old key becomes unopenable when that happens, so a
+    /// replacement now costs the account password and leaves an audit row.</para>
+    ///
+    /// <para><b>This writes the password wrapping only.</b> A master key wrapped solely under the
+    /// password is destroyed by a password reset - see
+    /// <see cref="ApplicationUser.RecoveryCodeWrappedMasterKey"/>. Clients should move to
+    /// <c>PUT api/v1/backup/recovery-key</c>, which takes both wrappings, names the KDF and reports
+    /// orphaned blobs. This route is kept because the shipped desktop client calls it, and it now
+    /// says so in its response.</para>
+    /// </summary>
     [HttpPost("master")]
-    public async Task<IActionResult> UploadMasterKey(CreateMasterKeyDto dto)
-    
+    public async Task<IActionResult> UploadMasterKey(CreateMasterKeyDto dto,
+        [FromServices] UserManager<ApplicationUser> users)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
         var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
         if(user is null) return NotFound();
 
+        var current = user.EncryptedMasterKey;
 
-        if (user.EncryptedMasterKey?.Version == dto.Version)
+        if (current is not null)
         {
-            return BadRequest("Master key already uploaded");
+            // Same version, same bytes: the client retried a request whose response it never saw.
+            // Answering Ok converges instead of leaving it convinced the upload failed.
+            if (current.Version == dto.Version && current.CipherText.AsSpan().SequenceEqual(dto.CipherText))
+                return Ok();
+
+            if (dto.Version < current.Version)
+                return BadRequest($"Master key version must not go backwards; current version is {current.Version}.");
+
+            if (string.IsNullOrEmpty(dto.Password) || !await users.CheckPasswordAsync(user, dto.Password))
+                return BadRequest("Replacing an existing master key requires the account password.");
+
+            logger.LogWarning("Master key replaced for {UserId}: version {Old} -> {New}",
+                userId, current.Version, dto.Version);
         }
-   
+
         user.EncryptedMasterKey = new EncryptedMasterKey()
         {
             Argon2Iterations = dto.Argon2Iterations,
@@ -55,10 +86,33 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
             CipherText = dto.CipherText,
             Argon2Memory = dto.Argon2Memory,
             Argon2Parallelism = dto.Argon2Parallelism,
-            Version = dto.Version
+            Version = dto.Version,
+            Kdf = dto.Kdf,
+            PublicVerifier = dto.PublicVerifier,
         };
+
+        // A freshly written password wrapping supersedes any stale stamp from an earlier reset.
+        user.MasterKeyPasswordWrappingInvalidatedAt = null;
+
+        ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
+        {
+            UserId = userId,
+            Action = IdentityAuditActions.RecoveryKeyWritten,
+            ClientDeviceId = Request.Headers["X-Device-Id"].ToString() is { Length: > 0 } d ? d : null,
+            Detail = $"master key version {current?.Version.ToString() ?? "none"} -> {dto.Version}",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+        }));
+
         await ctx.SaveChangesAsync();
-        return Ok();
+
+        // Told, not assumed. A client that only ever calls this route has an account whose master
+        // key one password reset can destroy, and it has no other way to find that out.
+        return Ok(new
+        {
+            version = dto.Version,
+            hasRecoveryCodeWrapping = user.RecoveryCodeWrappedMasterKey is not null,
+            encryptedHistoryRecoverable = user.EncryptedHistoryRecoverable,
+        });
     }
     
     

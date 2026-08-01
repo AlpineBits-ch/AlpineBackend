@@ -1,7 +1,11 @@
 ﻿using System.Security.Claims;
+using System.Text.Json;
+using Domain;
 using Facet.Extensions;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Caching.Distributed;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Aggregates;
@@ -24,8 +28,24 @@ public class ConversationEndpoints
 {
     
     
+    /// <summary>How long a consume-tokens answer is replayed rather than re-consumed.
+    ///
+    /// <para>Every call burns one single-use key package per target device, and the call is not
+    /// otherwise limited - so one friend could drain roughly a hundred packages a minute from every
+    /// device you own, forcing everybody onto the reusable last-resort package (losing forward
+    /// secrecy on every subsequent join) and then onto Unreachable. Replaying the same answer inside
+    /// this window makes a retried or duplicated request free, which is also what a client that lost
+    /// the response actually needs.</para></summary>
+    public static readonly TimeSpan ConsumeTokenReplayWindow = TimeSpan.FromMinutes(2);
+
+    /// <summary>Distinct consume calls one caller may make inside the replay window. Well above what
+    /// creating a conversation needs - one call per creation - and far below a drain.</summary>
+    public const int MaxConsumeCallsPerWindow = 20;
+
     [WolverinePost("/api/v1/conversations/consume-tokens")]
-    public async Task<IResult> FetchTokensForUsers(ConsumeMlsDeviceTokensForUserRequest request, [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
+    public async Task<IResult> FetchTokensForUsers(ConsumeMlsDeviceTokensForUserRequest request,
+        [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
+        [NotBody] IDistributedCache cache)
     {
         var ownUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(ownUserId is null) return Results.Unauthorized();
@@ -35,14 +55,43 @@ public class ConversationEndpoints
         {
             return Results.BadRequest("User is not friends with the users you are trying to consume tokens for");
         }
-        
+
+        var targets = request.UserIds.Distinct().OrderBy(u => u, StringComparer.Ordinal).ToList();
+        var replayKey = $"mls-consume:{ownUserId}:{string.Join(",", targets)}";
+
+        // Idempotent inside the window. A client that retried because it never saw the response gets
+        // the same packages back instead of burning a second set - which used to leave the first set
+        // consumed and held by nobody, i.e. devices the server believed were in a group they had no
+        // init key for.
+        var cached = await cache.GetStringAsync(replayKey);
+        if (cached is not null)
+        {
+            var replayed = JsonSerializer.Deserialize<ConsumeMlsDeviceTokensForUserResponse>(cached);
+            if (replayed is not null) return Results.Ok(replayed);
+        }
+
+        var budgetKey = $"mls-consume-budget:{ownUserId}";
+        var spent = int.TryParse(await cache.GetStringAsync(budgetKey), out var parsed) ? parsed : 0;
+        if (spent >= MaxConsumeCallsPerWindow)
+        {
+            return Results.Json(
+                new { retryAfterSeconds = (int)ConsumeTokenReplayWindow.TotalSeconds },
+                statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
         var tokens = await messageBus.InvokeAsync<ConsumeMlsDeviceTokensForUserResponse>(request);
-        
+
+        var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ConsumeTokenReplayWindow };
+        await cache.SetStringAsync(replayKey, JsonSerializer.Serialize(tokens), options);
+        await cache.SetStringAsync(budgetKey, (spent + 1).ToString(), options);
+
         return Results.Ok(tokens);
     }
     
     [WolverinePost( "/api/v1/conversations")]
-    public async Task<IResult> CreateConversation(CreateConversationDto createDto, [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
+    public async Task<IResult> CreateConversation(CreateConversationDto createDto,
+        [FromQuery] bool allowPartialDeviceCoverage,
+        [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
     {
         
         
@@ -97,26 +146,33 @@ public class ConversationEndpoints
         // via /consume-tokens - that is what it built the group and the Welcomes from. Consuming a
         // second set on its behalf burned a package per device per conversation and handed back
         // packages nobody held the init key for; the result was discarded anyway.
+        var unreachableDevices = new List<UnreachableDeviceDto>();
+
         if (createDto.Encryption == ChannelEncryptionState.Encrypted)
         {
-            // A member with no Welcome is a member who can never read the conversation: their
-            // device had no key package left when the client consumed, so it was never added to the
-            // group. Silently creating a conversation that is permanently unreadable for someone in
-            // it is worse than refusing to create it.
-            var welcomedUserIds = createDto.DeviceWelcomes
-                .Select(w => w.UserId)
-                .ToHashSet();
+            // Per *device*, not per user. A member is reachable only if every one of their devices
+            // got a Welcome: an MLS group member is a device, and a user whose laptop was welcomed
+            // and whose phone was not is a user who reads the conversation on one machine and sees
+            // undecryptable noise on the other - with nothing anywhere saying why. The old check
+            // asked only whether the user appeared at all, so the phone was silently dropped.
+            unreachableDevices = await ResolveUnreachableDevicesAsync(createDto, messageBus);
 
-            var unreachable = createDto.Members
-                .Select(m => m.UserId)
-                .Where(id => !welcomedUserIds.Contains(id))
-                .ToList();
-
-            if (unreachable.Count > 0)
+            // Permissive by default during the rollout. Clients in the field cannot pass the
+            // override flag, so refusing here would take away their ability to create an encrypted
+            // conversation at all - a worse outcome than a partially covered one they are now told
+            // about. The list is returned either way, so the flip to refusing is a policy change
+            // rather than a code change.
+            if (unreachableDevices.Count > 0
+                && MlsPolicy.RejectUnreachableDevicesOnCreate
+                && !allowPartialDeviceCoverage)
             {
-                return Results.BadRequest(
-                    "No MLS key packages were available for these members, so they cannot be added " +
-                    $"to an encrypted conversation: {string.Join(", ", unreachable)}");
+                return Results.BadRequest(new CreateConversationRejectedDto
+                {
+                    Reason = "Some member devices had no MLS key package available, so they can never "
+                             + "read this conversation. Retry once they are online, or pass "
+                             + "?allowPartialDeviceCoverage=true to create it anyway.",
+                    UnreachableDevices = unreachableDevices,
+                });
             }
         }
 
@@ -170,9 +226,55 @@ public class ConversationEndpoints
                 Epoch = createDto.MlsEpoch ?? 0,
             }));
         }
-        
-        
-        return Results.Ok(conversation.ToFacet<Conversation, ConversationDto>());
+
+
+        var dto = conversation.ToFacet<Conversation, ConversationDto>();
+        // Reported on the success path too, and not only on a refusal: the caller has to be able to
+        // tell the user "your friend's phone will not be able to read this" at the moment it
+        // happens. Discovering it later is discovering it as a bug.
+        dto.UnreachableDevices = unreachableDevices;
+
+        return Results.Ok(dto);
+    }
+
+    /// <summary>
+    /// Which member devices got no Welcome.
+    ///
+    /// <para>Asks Identity for each member's active devices and subtracts the ones the caller
+    /// actually sealed a Welcome to. If Identity cannot answer, the list comes back empty rather
+    /// than blocking creation - a degraded reachability report is a far better failure than being
+    /// unable to start a conversation because a sibling service is down.</para>
+    /// </summary>
+    private static async Task<List<UnreachableDeviceDto>> ResolveUnreachableDevicesAsync(
+        CreateConversationDto createDto, IMessageBus messageBus)
+    {
+        var memberIds = createDto.Members.Select(m => m.UserId).Distinct().ToList();
+        if (memberIds.Count == 0) return [];
+
+        GetUserDevicesResponse devices;
+        try
+        {
+            devices = await messageBus.InvokeAsync<GetUserDevicesResponse>(
+                new GetUserDevicesRequest { UserIds = memberIds });
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+
+        var welcomed = createDto.DeviceWelcomes
+            .Select(w => (w.UserId, w.DeviceId))
+            .ToHashSet();
+
+        return devices.Devices
+            .Where(d => !welcomed.Contains((d.UserId, d.ClientDeviceId)))
+            .Select(d => new UnreachableDeviceDto
+            {
+                UserId = d.UserId,
+                DeviceId = d.ClientDeviceId,
+                DeviceName = d.DeviceName,
+            })
+            .ToList();
     }
 
   

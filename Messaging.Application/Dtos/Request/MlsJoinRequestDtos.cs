@@ -22,6 +22,10 @@ public class SubmitJoinRequestDto
     /// Derived from the key package by the client; the committing client re-derives and checks it
     /// rather than trusting this value.</summary>
     public string SignatureKeyFingerprint { get; set; } = null!;
+
+    /// <summary>Human-readable device name, carried so the approval prompt can say "Alice's new
+    /// phone" rather than an opaque id. Display only - nothing is authorized on it.</summary>
+    public string? DeviceName { get; set; }
 }
 
 [Facet(typeof(MlsJoinRequest),
@@ -61,4 +65,58 @@ public class MlsJoinRequestConflictDto
     public string RequestId { get; set; } = null!;
     public string State { get; set; } = null!;
     public string Reason { get; set; } = null!;
+}
+
+/// <summary>
+/// An existing device's nonce for the joining device to sign.
+///
+/// <para>Chosen by the issuing client, never by the server: a server-chosen nonce could be one it
+/// had precomputed a signature against, and the whole exchange would prove nothing.</para>
+/// </summary>
+public class IssueAdmissionChallengeDto
+{
+    /// <summary>Exactly 32 random bytes.</summary>
+    public byte[] Challenge { get; set; } = null!;
+}
+
+public class SubmitAdmissionProofDto
+{
+    public string ChallengeId { get; set; } = null!;
+
+    /// <summary>Signature over <c>challenge || requesterDeviceId || signatureKeyFingerprint</c> with
+    /// a key derived from the account master key (HKDF, info <c>venta.device-admission.v1</c>).
+    /// Opaque to the server, which cannot produce one and does not check it.</summary>
+    public byte[] Proof { get; set; } = null!;
+}
+
+public class MlsAdmissionChallengeDto
+{
+    public string ChallengeId { get; set; } = null!;
+    public string RequestId { get; set; } = null!;
+
+    /// <summary>Null on the proof-submission response - echoing the nonce back to the device that
+    /// just answered it serves nothing.</summary>
+    public byte[]? Challenge { get; set; }
+
+    public string? IssuedByDeviceId { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public bool Answered { get; set; }
+}
+
+/// <summary>
+/// Everything the verifying device needs, in one payload.
+///
+/// <para>The nonce and the signed-over values travel with the signature deliberately: a verifier
+/// that had to take the server's word for <i>what</i> was signed would be trusting the server to
+/// describe the thing it is not trusted to produce.</para>
+/// </summary>
+public class MlsAdmissionProofDto
+{
+    public string RequestId { get; set; } = null!;
+    public string ChallengeId { get; set; } = null!;
+    public byte[] Challenge { get; set; } = null!;
+    public byte[]? Proof { get; set; }
+    public string RequesterDeviceId { get; set; } = null!;
+    public string SignatureKeyFingerprint { get; set; } = null!;
+    public DateTimeOffset ExpiresAt { get; set; }
 }

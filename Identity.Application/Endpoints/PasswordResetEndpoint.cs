@@ -1,7 +1,9 @@
 using Identity.Application.Dtos.Request;
+using Identity.Application.Dtos.Response;
 using Identity.Application.Services;
 using Identity.Application.Templates;
 using Identity.Domain.Aggregates;
+using Identity.Domain.Entities;
 using Identity.Infrastructure.Persistence;
 using Messaging;
 using Microsoft.AspNetCore.Identity;
@@ -81,6 +83,37 @@ public class PasswordResetEndpoint
 
         await PasswordResetCodeService.RemoveAsync(cache, user.Email);
 
-        return Results.Ok();
+        // The reset just made the password wrapping of the master key undecryptable: it is sealed
+        // under Argon2(old password), and a reset is by definition the case where the user no
+        // longer has that password.
+        var mustRewrap = false;
+        var historyLost = false;
+
+        if (user.EncryptedMasterKey is not null && user.MasterKeyPasswordWrappingInvalidatedAt is null)
+        {
+            user.MasterKeyPasswordWrappingInvalidatedAt = DateTimeOffset.UtcNow;
+
+            // A recovery-code wrapping still opens the key, so the client can re-wrap under the new
+            // password and lose nothing. Without one, this is already unrecoverable.
+            mustRewrap = user.RecoveryCodeWrappedMasterKey is not null;
+            historyLost = user.RecoveryCodeWrappedMasterKey is null;
+
+            ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
+            {
+                UserId = user.Id,
+                Action = IdentityAuditActions.MasterKeyPasswordWrappingInvalidated,
+                Detail = historyLost
+                    ? "password reset with no recovery-code wrapping - encrypted history is unrecoverable"
+                    : "password reset; client must re-wrap the master key from the recovery code",
+            }));
+
+            await ctx.SaveChangesAsync();
+        }
+
+        return Results.Ok(new ResetPasswordResultDto
+        {
+            MasterKeyRewrapRequired = mustRewrap,
+            EncryptedHistoryRecoverable = !historyLost,
+        });
     }
 }

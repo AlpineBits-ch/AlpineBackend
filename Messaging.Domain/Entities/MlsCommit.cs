@@ -13,6 +13,7 @@ public class CreateMlsCommitParams
     public byte[] Commit { get; init; } = null!;
     public string SenderUserId { get; init; } = null!;
     public string SenderDeviceId { get; init; } = null!;
+    public bool IsProposal { get; init; }
 }
 
 /// <summary>
@@ -48,6 +49,9 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
     /// merged this commit locally.</summary>
     public string SenderDeviceId { get; set; } = null!;
 
+    /// <summary>True when this row carries a bare proposal rather than a commit.</summary>
+    public bool IsProposal { get; set; }
+
     public static MlsCommit Create(CreateMlsCommitParams parameters)
     {
         var date = DateTimeOffset.UtcNow;
@@ -64,6 +68,7 @@ public class MlsCommit : BaseEntity<MlsCommit>, IPrefixedEntity
             Commit = parameters.Commit,
             SenderUserId = parameters.SenderUserId,
             SenderDeviceId = parameters.SenderDeviceId,
+            IsProposal = parameters.IsProposal,
         };
     }
 }

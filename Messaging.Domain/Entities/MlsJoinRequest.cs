@@ -17,6 +17,7 @@ public class CreateMlsJoinRequestParams
     public string SignatureKeyFingerprint { get; init; } = null!;
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset ExpiresAt { get; init; }
+    public bool RequiresManualApproval { get; init; }
 }
 
 /// <summary>A device asking to be let into a context's MLS group.</summary>
@@ -54,6 +55,11 @@ public class MlsJoinRequest : BaseEntity<MlsJoinRequest>, IPrefixedEntity
 
     public MlsJoinRequestState State { get; set; } = MlsJoinRequestState.Pending;
 
+    /// <summary>
+    /// True when a human on an existing device must approve, on top of any cryptographic proof.
+    /// </summary>
+    public bool RequiresManualApproval { get; set; }
+
     public DateTimeOffset ExpiresAt { get; set; }
 
     /// <summary>Set when a commit actually admitted this device.</summary>
@@ -85,6 +91,7 @@ public class MlsJoinRequest : BaseEntity<MlsJoinRequest>, IPrefixedEntity
             SignatureKeyFingerprint = parameters.SignatureKeyFingerprint,
             State = MlsJoinRequestState.Pending,
             ExpiresAt = parameters.ExpiresAt,
+            RequiresManualApproval = parameters.RequiresManualApproval,
         };
     }
 }

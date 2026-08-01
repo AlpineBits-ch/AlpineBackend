@@ -1,3 +1,4 @@
+using Echo.Realtime.Devices;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
@@ -384,7 +385,7 @@ public class MlsEndpointsTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Welcomes - legacy contract must keep working unchanged
+    // Welcomes - the legacy no-deviceId call keeps working, but stops destroying things
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -399,15 +400,31 @@ public class MlsEndpointsTests
     }
 
     [Test]
-    public async Task GetWelcomes_WithoutDeviceId_KeepsTheOldConsumeOnReadBehaviour()
+    public async Task GetWelcomes_WithoutDeviceId_NoLongerConsumesOnRead()
     {
         await SeedWelcome(PeerId, "device-b");
 
         await GetWelcomes(null);
 
-        // A client on the old contract has no ack call to make.
-        Assert.That((await _context.PendingWelcomes.SingleAsync()).ConsumedAt, Is.Not.Null);
-        Assert.That(await GetWelcomes(null), Is.Empty);
+        // This is the actual bug, and it was unrecoverable: the legacy branch stamped every Welcome
+        // for every one of the user's devices consumed, so a laptop's poll destroyed the phone's
+        // only way into the group.
+        Assert.That((await _context.PendingWelcomes.SingleAsync()).ConsumedAt, Is.Null);
+        Assert.That(await GetWelcomes(null), Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetWelcomes_LegacyFetch_LeavesAnotherDevicesWelcomeClaimable()
+    {
+        // The exact cross-device loss the old branch caused: device-b polls without a deviceId, and
+        // device-c - which holds the leaf that Welcome was sealed to - must still be able to fetch
+        // and use it afterwards.
+        await SeedWelcome(PeerId, "device-c");
+
+        await GetWelcomes(null);
+
+        Assert.That(await GetWelcomes("device-c"), Has.Count.EqualTo(1),
+            "A sibling device's poll must not consume this device's only way into the group");
     }
 
     [Test]
@@ -423,8 +440,15 @@ public class MlsEndpointsTests
             Has.Property("ConsumedAt").Null);
     }
 
-    // ══════════════════════════════════════════════════════════════════════════ Ack
-    // ══════════════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════════ Ack - scoped by
+    // (user, device) ══════════════════════════════════════════════════════════════════════════
+
+    private static DefaultHttpContext HttpWithDevice(string? deviceId)
+    {
+        var http = new DefaultHttpContext();
+        if (deviceId is not null) http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
+        return http;
+    }
 
     [Test]
     public async Task AckWelcomes_MarksThemConsumed()
@@ -432,10 +456,25 @@ public class MlsEndpointsTests
         var welcome = await SeedWelcome(PeerId, "device-b");
 
         var result = await MlsEndpoints.AckWelcomes(
-            new AckWelcomesDto { WelcomeIds = [welcome.Id] }, TestPrincipal.ForUser(PeerId), _context);
+            new AckWelcomesDto { WelcomeIds = [welcome.Id], DeviceId = "device-b" },
+            TestPrincipal.ForUser(PeerId), HttpWithDevice(null), _context);
 
         Assert.That(((Ok<AckWelcomesResultDto>)result).Value!.Acknowledged, Is.EqualTo(1));
         Assert.That(await GetWelcomes("device-b"), Is.Empty);
+    }
+
+    [Test]
+    public async Task AckWelcomes_CannotAcknowledgeAnotherDevicesWelcome()
+    {
+        // The same user, a different leaf. device-c cannot use this Welcome, and consuming it would
+        // leave device-b permanently outside the group with nothing to say why.
+        var welcome = await SeedWelcome(PeerId, "device-b");
+
+        await MlsEndpoints.AckWelcomes(
+            new AckWelcomesDto { WelcomeIds = [welcome.Id], DeviceId = "device-c" },
+            TestPrincipal.ForUser(PeerId), HttpWithDevice(null), _context);
+
+        Assert.That((await _context.PendingWelcomes.SingleAsync()).ConsumedAt, Is.Null);
     }
 
     [Test]
@@ -444,7 +483,8 @@ public class MlsEndpointsTests
         var welcome = await SeedWelcome(PeerId, "device-b");
 
         await MlsEndpoints.AckWelcomes(
-            new AckWelcomesDto { WelcomeIds = [welcome.Id] }, TestPrincipal.ForUser("attacker"), _context);
+            new AckWelcomesDto { WelcomeIds = [welcome.Id], DeviceId = "device-b" },
+            TestPrincipal.ForUser("attacker"), HttpWithDevice(null), _context);
 
         // Otherwise anyone who learned an id could consume a Welcome on someone else's behalf and
         // strand that device outside the group.
@@ -452,15 +492,42 @@ public class MlsEndpointsTests
     }
 
     [Test]
+    public async Task AckWelcomes_FallsBackToTheValidatedDeviceHeader()
+    {
+        // An old client sends no deviceId in the body.
+        var welcome = await SeedWelcome(PeerId, "device-b");
+
+        var result = await MlsEndpoints.AckWelcomes(
+            new AckWelcomesDto { WelcomeIds = [welcome.Id] },
+            TestPrincipal.ForUser(PeerId), HttpWithDevice("device-b"), _context);
+
+        Assert.That(((Ok<AckWelcomesResultDto>)result).Value!.Acknowledged, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task AckWelcomes_WithNoDeviceAnywhere_IsRefusedRatherThanAckingBroadly()
+    {
+        var welcome = await SeedWelcome(PeerId, "device-b");
+
+        var result = await MlsEndpoints.AckWelcomes(
+            new AckWelcomesDto { WelcomeIds = [welcome.Id] },
+            TestPrincipal.ForUser(PeerId), HttpWithDevice(null), _context);
+
+        // The one thing that must not happen is acking across every device again.
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.That((await _context.PendingWelcomes.SingleAsync()).ConsumedAt, Is.Null);
+    }
+
+    [Test]
     public async Task AckWelcomes_IsIdempotent()
     {
         var welcome = await SeedWelcome(PeerId, "device-b");
-        var dto = new AckWelcomesDto { WelcomeIds = [welcome.Id] };
+        var dto = new AckWelcomesDto { WelcomeIds = [welcome.Id], DeviceId = "device-b" };
 
-        await MlsEndpoints.AckWelcomes(dto, TestPrincipal.ForUser(PeerId), _context);
+        await MlsEndpoints.AckWelcomes(dto, TestPrincipal.ForUser(PeerId), HttpWithDevice(null), _context);
         var consumedAt = (await _context.PendingWelcomes.SingleAsync()).ConsumedAt;
 
-        await MlsEndpoints.AckWelcomes(dto, TestPrincipal.ForUser(PeerId), _context);
+        await MlsEndpoints.AckWelcomes(dto, TestPrincipal.ForUser(PeerId), HttpWithDevice(null), _context);
 
         Assert.That((await _context.PendingWelcomes.SingleAsync()).ConsumedAt, Is.EqualTo(consumedAt),
             "A retried ack must not move the timestamp");
@@ -472,7 +539,7 @@ public class MlsEndpointsTests
         await SeedWelcome(PeerId, "device-b");
 
         var result = await MlsEndpoints.AckWelcomes(
-            new AckWelcomesDto(), TestPrincipal.ForUser(PeerId), _context);
+            new AckWelcomesDto(), TestPrincipal.ForUser(PeerId), HttpWithDevice(null), _context);
 
         Assert.That(((Ok<AckWelcomesResultDto>)result).Value!.Acknowledged, Is.EqualTo(0));
         Assert.That((await _context.PendingWelcomes.SingleAsync()).ConsumedAt, Is.Null);

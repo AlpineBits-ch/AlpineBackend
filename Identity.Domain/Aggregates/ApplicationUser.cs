@@ -45,7 +45,52 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
 
     public string JsonSettings { get; set; } = "{}";
     
+    /// <summary>The account master key wrapped under a key derived from the password.</summary>
     public EncryptedMasterKey? EncryptedMasterKey{ get; set; }
+
+    /// <summary>The same master key wrapped under a key derived from the recovery code.</summary>
+    public EncryptedMasterKey? RecoveryCodeWrappedMasterKey { get; set; }
+
+    /// <summary>
+    /// When a password reset made <see cref="EncryptedMasterKey"/> undecryptable.
+    /// </summary>
+    public DateTimeOffset? MasterKeyPasswordWrappingInvalidatedAt { get; set; }
+
+    /// <summary>
+    /// Whether any credential the user could still have will open the master key.
+    /// </summary>
+    [NotMapped]
+    public bool EncryptedHistoryRecoverable =>
+        EncryptedMasterKey is null
+        || RecoveryCodeWrappedMasterKey is not null
+        || MasterKeyPasswordWrappingInvalidatedAt is null;
+
+    /// <summary>How this account admits new devices to its encrypted conversations.</summary>
+    public ProtectionLevel ProtectionLevel { get; set; } = ProtectionLevel.TrustedSignIn;
+
+    /// <summary>The signed assertion clients actually verify.</summary>
+    public byte[]? ProtectionLevelAssertion { get; set; }
+
+    /// <summary>Monotonic.</summary>
+    public int ProtectionLevelVersion { get; set; }
+
+    public DateTimeOffset? ProtectionLevelUpdatedAt { get; set; }
+
+    /// <summary>
+    /// Public half of the account's long-lived Ed25519 identity key, generated client-side at
+    /// signup.
+    /// </summary>
+    public byte[]? AccountIdentityPublicKey { get; set; }
+
+    /// <summary>Monotonic. Lets a peer detect a rollback to a superseded identity key.</summary>
+    public int AccountIdentityKeyVersion { get; set; }
+
+    /// <summary>The new key signed by the <i>outgoing</i> one, when the outgoing one still existed.
+    /// Peers verify continuity from this automatically; a rotation without it is a
+    /// safety-number-changed warning that has to be resolved out of band, never auto-accepted.</summary>
+    public byte[]? AccountIdentityKeyRotationSignature { get; set; }
+
+    public DateTimeOffset? AccountIdentityKeyUpdatedAt { get; set; }
     
     public ICollection<UserPushToken> PushTokens { get; set; } = new List<UserPushToken>();
     public ICollection<UserDevice> Devices { get; set; } = new List<UserDevice>();

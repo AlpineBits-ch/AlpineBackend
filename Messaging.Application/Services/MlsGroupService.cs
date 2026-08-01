@@ -48,6 +48,9 @@ public class MlsGroupService(
     /// <summary>Cap on one catch-up page.</summary>
     public const int MaxCommitPageSize = 200;
 
+    /// <summary>Ceiling on how many Welcomes one call may park.</summary>
+    public const int MaxWelcomesPerCall = 1000;
+
     public Task<MlsGroupGeneration?> GetActiveGenerationAsync(string contextId) =>
         ctx.MlsGroupGenerations
             .FirstOrDefaultAsync(g => g.ContextId == contextId && g.State == MlsGenerationState.Active);
@@ -88,6 +91,8 @@ public class MlsGroupService(
             return MlsOperationResult.BadRequest("MlsGroupId is required");
         if (dto.Epoch < 0)
             return MlsOperationResult.BadRequest("Epoch must be non-negative");
+        if (dto.Welcomes.Count > MaxWelcomesPerCall)
+            return MlsOperationResult.BadRequest($"At most {MaxWelcomesPerCall} Welcomes per call");
 
         var generations = await ctx.MlsGroupGenerations
             .Where(g => g.ContextId == contextId)
@@ -106,6 +111,14 @@ public class MlsGroupService(
         var cooldownError = CheckCooldown(generations, now);
         if (cooldownError is not null) return cooldownError;
 
+        // Conversations carry their MLS state on the aggregate as well.
+        Conversation? conversation = null;
+        if (conversationId is not null)
+        {
+            conversation = await ctx.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
+            if (conversation is null) return MlsOperationResult.NotFound("Conversation not found");
+        }
+
         var generation = MlsGroupGeneration.Create(new CreateMlsGroupGenerationParams
         {
             ContextId = contextId,
@@ -120,14 +133,12 @@ public class MlsGroupService(
         });
         ctx.MlsGroupGenerations.Add(generation);
 
-        StoreWelcomes(dto.Welcomes, contextId, conversationId, channelId, generation.Generation, dto.Epoch);
+        var recipients = await ResolveWelcomeRecipientsAsync(conversationId);
+        var stored = StoreWelcomes(
+            dto.Welcomes, contextId, conversationId, channelId, generation.Generation, dto.Epoch, recipients);
 
-        // Conversations carry their MLS state on the aggregate as well.
-        if (conversationId is not null)
+        if (conversation is not null)
         {
-            var conversation = await ctx.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
-            if (conversation is null) return MlsOperationResult.NotFound("Conversation not found");
-
             conversation.EncryptionState = ChannelEncryptionState.Encrypted;
             conversation.MlsGroupId = dto.MlsGroupId;
             conversation.MlsEpoch = dto.Epoch;
@@ -137,7 +148,7 @@ public class MlsGroupService(
         await ctx.SaveChangesAsync();
 
         await NotifyStateChanged(contextId, channelId, conversationId, encrypted: true, generation.Generation, userId);
-        await PushWelcomes(dto.Welcomes, contextId);
+        await PushWelcomes(stored, contextId);
 
         return MlsOperationResult.Ok(new MlsToggleResultDto
         {
@@ -177,13 +188,20 @@ public class MlsGroupService(
         var cooldownError = CheckCooldown(generations, now);
         if (cooldownError is not null) return cooldownError;
 
-        active.Terminate(userId, now);
-
+        // Same reason as EnableAsync: resolved before the first mutation, because a NotFound taken
+        // after Terminate() would still be committed by the transactional middleware and leave the
+        // context with no active generation and no way back to one.
+        Conversation? conversation = null;
         if (conversationId is not null)
         {
-            var conversation = await ctx.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
+            conversation = await ctx.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
             if (conversation is null) return MlsOperationResult.NotFound("Conversation not found");
+        }
 
+        active.Terminate(userId, now);
+
+        if (conversation is not null)
+        {
             conversation.EncryptionState = ChannelEncryptionState.Plain;
             // MlsGroupId/Epoch/GroupInfo are deliberately left in place: they describe the group the
             // already-sent ciphertext belongs to, and clearing them would strand those messages with
@@ -222,6 +240,8 @@ public class MlsGroupService(
             return MlsOperationResult.BadRequest("Commit is required");
         if (string.IsNullOrWhiteSpace(dto.SenderDeviceId))
             return MlsOperationResult.BadRequest("SenderDeviceId is required");
+        if (dto.Welcomes.Count > MaxWelcomesPerCall)
+            return MlsOperationResult.BadRequest($"At most {MaxWelcomesPerCall} Welcomes per call");
 
         var active = await GetActiveGenerationAsync(contextId);
         if (active is null)
@@ -248,7 +268,43 @@ public class MlsGroupService(
             });
         }
 
-        if (dto.Epoch != active.Epoch + 1)
+        // Re-publishing something already stored is a success, not a conflict.
+        var replay = await ctx.MlsCommits.AsNoTracking().FirstOrDefaultAsync(c =>
+            c.ContextId == contextId
+            && c.Generation == active.Generation
+            && c.Epoch == dto.Epoch
+            && c.SenderDeviceId == dto.SenderDeviceId
+            && c.IsProposal == dto.IsProposal);
+
+        if (replay is not null && replay.Commit.AsSpan().SequenceEqual(dto.Commit))
+        {
+            return MlsOperationResult.Ok(new MlsCommitPublishedDto
+            {
+                ContextId = contextId,
+                ConversationId = conversationId,
+                Generation = replay.Generation,
+                Epoch = replay.Epoch,
+                IsProposal = replay.IsProposal,
+                Duplicate = true,
+            });
+        }
+
+        // A proposal is not a commit.
+        if (dto.IsProposal)
+        {
+            if (dto.Epoch < active.Epoch)
+            {
+                return MlsOperationResult.Conflict(new MlsEpochConflictDto
+                {
+                    CurrentEpoch = active.Epoch,
+                    RejectedEpoch = dto.Epoch,
+                    CurrentGeneration = active.Generation,
+                    RejectedGeneration = active.Generation,
+                    Reason = $"Proposals must target epoch {active.Epoch} or later; catch up and re-issue.",
+                });
+            }
+        }
+        else if (dto.Epoch != active.Epoch + 1)
         {
             return MlsOperationResult.Conflict(new MlsEpochConflictDto
             {
@@ -261,18 +317,15 @@ public class MlsGroupService(
         }
 
         // Belt to the unique index's braces.
-        var epochTaken = await ctx.MlsCommits.AnyAsync(c =>
-            c.ContextId == contextId && c.Generation == active.Generation && c.Epoch == dto.Epoch);
-        if (epochTaken)
+        if (!dto.IsProposal)
         {
-            return MlsOperationResult.Conflict(new MlsEpochConflictDto
+            var epochTaken = await ctx.MlsCommits.AnyAsync(c =>
+                c.ContextId == contextId && c.Generation == active.Generation && c.Epoch == dto.Epoch
+                && !c.IsProposal);
+            if (epochTaken)
             {
-                CurrentEpoch = active.Epoch,
-                RejectedEpoch = dto.Epoch,
-                CurrentGeneration = active.Generation,
-                RejectedGeneration = active.Generation,
-                Reason = "Another member already committed this epoch.",
-            });
+                return MlsOperationResult.Conflict(EpochRaceLost(active, dto.Epoch));
+            }
         }
 
         ctx.MlsCommits.Add(MlsCommit.Create(new CreateMlsCommitParams
@@ -285,13 +338,17 @@ public class MlsGroupService(
             Commit = dto.Commit,
             SenderUserId = userId,
             SenderDeviceId = dto.SenderDeviceId,
+            IsProposal = dto.IsProposal,
         }));
 
-        active.Epoch = dto.Epoch;
-        active.UpdatedAt = now;
-        if (dto.GroupInfo is { Length: > 0 }) active.MlsGroupInfo = dto.GroupInfo;
+        if (!dto.IsProposal)
+        {
+            active.Epoch = dto.Epoch;
+            active.UpdatedAt = now;
+            if (dto.GroupInfo is { Length: > 0 }) active.MlsGroupInfo = dto.GroupInfo;
+        }
 
-        if (conversationId is not null)
+        if (conversationId is not null && !dto.IsProposal)
         {
             var conversation = await ctx.Conversations.FirstOrDefaultAsync(c => c.Id == conversationId);
             if (conversation is not null)
@@ -301,32 +358,36 @@ public class MlsGroupService(
             }
         }
 
-        StoreWelcomes(dto.Welcomes, contextId, conversationId, channelId, active.Generation, dto.Epoch);
+        var recipients = await ResolveWelcomeRecipientsAsync(conversationId);
+        var storedWelcomes = StoreWelcomes(
+            dto.Welcomes, contextId, conversationId, channelId, active.Generation, dto.Epoch, recipients);
 
         // In the same transaction as the commit: a request marked fulfilled by a commit that then
         // failed to store would look admitted while holding no leaf at all.
-        await joinRequests.FulfilAsync(contextId, dto.FulfilledJoinRequestIds, now);
+        var admitted = await joinRequests.FulfilAsync(contextId, dto.FulfilledJoinRequestIds, now);
 
-        var cutoff = now - CommitRetention;
-        var expired = await ctx.MlsCommits
-            .Where(c => c.ContextId == contextId && c.CreatedAt < cutoff)
-            .ToListAsync();
-        if (expired.Count > 0) ctx.MlsCommits.RemoveRange(expired);
+        await PruneExpiredCommitsAsync(contextId, now);
 
         // Save before the fanout, not after.
-        await ctx.SaveChangesAsync();
-
-        await hub.Clients.Users(notifyUserIds).SendAsync("conversation.MlsCommit", new
+        try
         {
-            contextId,
-            conversationId,
-            channelId,
-            generation = active.Generation,
-            epoch = dto.Epoch,
-            senderDeviceId = dto.SenderDeviceId,
-        });
+            await ctx.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (IsEpochUniqueViolation(ex))
+        {
+            // The read-then-write above is inherently racy; the database is what actually decides.
+            ctx.ChangeTracker.Clear();
+            var current = await ctx.MlsGroupGenerations.AsNoTracking()
+                .FirstOrDefaultAsync(g => g.ContextId == contextId && g.State == MlsGenerationState.Active);
 
-        await PushWelcomes(dto.Welcomes, contextId);
+            return MlsOperationResult.Conflict(EpochRaceLost(current ?? active, dto.Epoch));
+        }
+
+        await NotifyCommit(contextId, conversationId, channelId, active.Generation, dto, notifyUserIds);
+
+        await AnnounceAdmissionsAsync(admitted, contextId, conversationId, channelId, active.Generation, notifyUserIds);
+
+        await PushWelcomes(storedWelcomes, contextId);
 
         return MlsOperationResult.Ok(new MlsCommitPublishedDto
         {
@@ -334,6 +395,7 @@ public class MlsGroupService(
             ConversationId = conversationId,
             Generation = active.Generation,
             Epoch = dto.Epoch,
+            IsProposal = dto.IsProposal,
         });
     }
 
@@ -350,18 +412,80 @@ public class MlsGroupService(
             var active = await ctx.MlsGroupGenerations
                 .AsNoTracking()
                 .FirstOrDefaultAsync(g => g.ContextId == contextId && g.State == MlsGenerationState.Active);
-            resolved = active?.Generation;
+
+            // Nothing is live: fall back to the most recent generation rather than to "all of
+            // them".
+            resolved = active?.Generation ?? await ctx.MlsGroupGenerations
+                .AsNoTracking()
+                .Where(g => g.ContextId == contextId)
+                .OrderByDescending(g => g.Generation)
+                .Select(g => (int?)g.Generation)
+                .FirstOrDefaultAsync();
+
+            if (resolved is null) return [];
         }
 
-        var query = ctx.MlsCommits.AsNoTracking().Where(c => c.ContextId == contextId && c.Epoch > sinceEpoch);
-        if (resolved is not null) query = query.Where(c => c.Generation == resolved);
-
-        var commits = await query
+        var commits = await ctx.MlsCommits.AsNoTracking()
+            .Where(c => c.ContextId == contextId && c.Generation == resolved && c.Epoch > sinceEpoch)
             .OrderBy(c => c.Epoch)
+            // A proposal and the commit that follows it can share an epoch, since a proposal does not
+            // claim one. Publication order is the order they must be applied in.
+            .ThenBy(c => c.CreatedAt)
             .Take(MaxCommitPageSize)
             .ToListAsync();
 
         return commits.SelectFacets<MlsCommit, MlsCommitResponseDto>().ToList();
+    }
+
+    private static MlsEpochConflictDto EpochRaceLost(MlsGroupGeneration generation, long rejectedEpoch) => new()
+    {
+        CurrentEpoch = generation.Epoch,
+        RejectedEpoch = rejectedEpoch,
+        CurrentGeneration = generation.Generation,
+        RejectedGeneration = generation.Generation,
+        Reason = "Another member already committed this epoch.",
+    };
+
+    /// <summary>
+    /// Postgres reports a unique-index violation as SQLSTATE 23505. Matched on the code rather than
+    /// on the index name so a rename does not silently turn this back into a 500, and narrowly
+    /// enough that a genuinely different constraint failure still surfaces as one.
+    /// </summary>
+    private static bool IsEpochUniqueViolation(DbUpdateException ex)
+    {
+        for (Exception? inner = ex; inner is not null; inner = inner.InnerException)
+        {
+            var sqlState = inner.GetType().GetProperty("SqlState")?.GetValue(inner) as string;
+            if (sqlState == "23505") return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Drops commits past the retention window, except any a device still needs.</summary>
+    private async Task PruneExpiredCommitsAsync(string contextId, DateTimeOffset now)
+    {
+        var cutoff = now - CommitRetention;
+
+        var candidates = await ctx.MlsCommits
+            .Where(c => c.ContextId == contextId && c.CreatedAt < cutoff)
+            .ToListAsync();
+
+        if (candidates.Count == 0) return;
+
+        var floors = (await ctx.PendingWelcomes
+                .AsNoTracking()
+                .Where(w => w.ContextId == contextId && w.ConsumedAt == null)
+                .Select(w => new { w.Generation, w.Epoch })
+                .ToListAsync())
+            .GroupBy(w => w.Generation)
+            .ToDictionary(g => g.Key, g => g.Min(w => w.Epoch));
+
+        var expired = candidates
+            .Where(c => !floors.TryGetValue(c.Generation, out var floor) || c.Epoch <= floor)
+            .ToList();
+
+        if (expired.Count > 0) ctx.MlsCommits.RemoveRange(expired);
     }
 
     private static MlsOperationResult? CheckCooldown(List<MlsGroupGeneration> generations, DateTimeOffset now)
@@ -385,18 +509,37 @@ public class MlsGroupService(
         });
     }
 
-    private void StoreWelcomes(
+    /// <summary>
+    /// Who a Welcome may be addressed to, or null when the context's roster is not ours to know.
+    /// </summary>
+    private async Task<HashSet<string>?> ResolveWelcomeRecipientsAsync(string? conversationId)
+    {
+        if (conversationId is null) return null;
+
+        return (await ctx.Members
+                .AsNoTracking()
+                .Where(m => m.ConversationId == conversationId)
+                .Select(m => m.UserId)
+                .ToListAsync())
+            .ToHashSet();
+    }
+
+    private List<DeviceWelcomeDto> StoreWelcomes(
         List<DeviceWelcomeDto> welcomes,
         string contextId,
         string? conversationId,
         string? channelId,
         int generation,
-        long epoch)
+        long epoch,
+        IReadOnlySet<string>? allowedUserIds)
     {
+        var stored = new List<DeviceWelcomeDto>();
+
         foreach (var welcome in welcomes)
         {
             if (welcome.Welcome is null || welcome.Welcome.Length == 0) continue;
             if (string.IsNullOrWhiteSpace(welcome.DeviceId) || string.IsNullOrWhiteSpace(welcome.UserId)) continue;
+            if (allowedUserIds is not null && !allowedUserIds.Contains(welcome.UserId)) continue;
 
             ctx.PendingWelcomes.Add(PendingWelcome.Create(new CreatePendingWelcomeParams
             {
@@ -409,7 +552,11 @@ public class MlsGroupService(
                 Generation = generation,
                 Epoch = epoch,
             }));
+
+            stored.Add(welcome);
         }
+
+        return stored;
     }
 
     private async Task PushWelcomes(List<DeviceWelcomeDto> welcomes, string contextId)
@@ -419,10 +566,87 @@ public class MlsGroupService(
         // costs them a round-trip that can never return anything.
         foreach (var welcome in welcomes)
         {
-            if (string.IsNullOrWhiteSpace(welcome.UserId) || string.IsNullOrWhiteSpace(welcome.DeviceId)) continue;
             await hub.Clients
                 .Group(EchoRealtimeHub.DeviceGroup(welcome.UserId, welcome.DeviceId))
                 .SendAsync("conversation.Welcome", contextId);
+        }
+    }
+
+    /// <summary>
+    /// Tells the context that a commit landed, so every device fetches and applies it.
+    /// </summary>
+    private async Task NotifyCommit(
+        string contextId,
+        string? conversationId,
+        string? channelId,
+        int generation,
+        PublishMlsCommitDto dto,
+        IReadOnlyCollection<string> notifyUserIds)
+    {
+        if (channelId is not null)
+        {
+            await bus.PublishAsync(new ChannelMlsCommitPublished
+            {
+                ChannelId = channelId,
+                Generation = generation,
+                Epoch = dto.Epoch,
+                SenderDeviceId = dto.SenderDeviceId,
+                IsProposal = dto.IsProposal,
+            });
+            return;
+        }
+
+        if (notifyUserIds.Count == 0) return;
+
+        await hub.Clients.Users(notifyUserIds).SendAsync("conversation.MlsCommit", new
+        {
+            contextId,
+            conversationId,
+            channelId,
+            generation,
+            epoch = dto.Epoch,
+            senderDeviceId = dto.SenderDeviceId,
+            isProposal = dto.IsProposal,
+        });
+    }
+
+    /// <summary>Announces every device this commit let into the group.</summary>
+    private async Task AnnounceAdmissionsAsync(
+        List<MlsJoinRequest> admitted,
+        string contextId,
+        string? conversationId,
+        string? channelId,
+        int generation,
+        IReadOnlyCollection<string> notifyUserIds)
+    {
+        foreach (var request in admitted)
+        {
+            var autoAdmitted = !request.RequiresManualApproval && request.Approvals.Count == 0;
+
+            var payload = new
+            {
+                contextId,
+                conversationId,
+                channelId,
+                generation,
+                userId = request.RequesterUserId,
+                deviceId = request.RequesterDeviceId,
+                signatureKeyFingerprint = request.SignatureKeyFingerprint,
+                autoAdmitted,
+            };
+
+            if (autoAdmitted)
+            {
+                await hub.Clients.User(request.RequesterUserId).SendAsync("identity.DeviceAdmitted", payload);
+            }
+
+            // The conversation's own timeline entry: everyone in the room can see that the roster
+            // gained a device, which is what makes an unexpected one noticeable to the other party
+            // as well as to the owner.
+            if (notifyUserIds.Count > 0)
+            {
+                await hub.Clients.Users(notifyUserIds).SendAsync("conversation.MlsDeviceAdmitted", payload);
+            }
         }
     }
 

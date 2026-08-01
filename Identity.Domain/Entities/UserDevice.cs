@@ -28,10 +28,38 @@ public class UserDevice  : BaseEntity<UserDevice>, IPrefixedEntity
     public DeviceStatus Status { get; set; } = DeviceStatus.Active;
     public DateTimeOffset? LastSeen { get; set; }
 
+    /// <summary>
+    /// This device's certificate, signed by the account identity key:
+    /// <c>sign(accountIdentityPrivateKey, "venta.device-cert.v1" || deviceId || deviceSignatureKey
+    /// || issuedAt || expiresAt)</c>.
+    /// </summary>
+    public byte[]? Certificate { get; set; }
+
+    public DateTimeOffset? CertificateIssuedAt { get; set; }
+
+    /// <summary>Certificates expire so a device that was compromised and quietly kept stops being
+    /// verifiable once no live device is willing to reissue for it.</summary>
+    public DateTimeOffset? CertificateExpiresAt { get; set; }
+
+    /// <summary>Which <see cref="Aggregates.ApplicationUser.AccountIdentityKeyVersion"/> signed it.
+    /// A certificate under a superseded identity key is not merely old - the peer's pinning has
+    /// moved, and it must be re-verified rather than accepted.</summary>
+    public int CertificateIdentityKeyVersion { get; set; }
+
+    public bool HasValidCertificateAt(DateTimeOffset now) =>
+        Certificate is { Length: > 0 } && CertificateExpiresAt > now;
+
+    /// <summary>What this device's build understands.</summary>
+    public List<string> Capabilities { get; set; } = [];
+
     // Navigation
     public ApplicationUser User { get; set; } = null!;
     public ICollection<UserKeyPackage> KeyPackages { get; set; } = [];
-    public virtual UserDeviceBackup? Backup { get; set; }
+
+    /// <summary>Retained backup versions, newest first is not guaranteed - order explicitly. Was a
+    /// single blob; a backup that overwrote itself meant one truncated upload destroyed the only
+    /// copy of this device's signing key. See <see cref="UserDeviceBackup.RetainedVersions"/>.</summary>
+    public virtual ICollection<UserDeviceBackup> Backups { get; set; } = [];
     public ICollection<UserPushToken> PushTokens { get; set; } = [];
     
     public static UserDevice Create(CreateUserDeviceParams createUserDeviceParams)

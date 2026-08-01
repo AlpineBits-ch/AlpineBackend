@@ -224,8 +224,10 @@ public class UserControllerTests
     }
 
     [Test]
-    public async Task UploadMasterKey_SameVersionAlreadyUploaded_ReturnsBadRequest()
+    public async Task UploadMasterKey_SameVersionSameBytes_IsIdempotent()
     {
+        // The old guard refused this - it compared versions and rejected on a *match*, which meant a
+        // client retrying a request whose response it never saw was told its upload had failed.
         var username = $"usermasterkeydup{Guid.NewGuid():N}"[..15];
         var token = await RegisterAndLoginAsync(username);
 
@@ -233,6 +235,59 @@ public class UserControllerTests
         {
             x.WithBearerToken(token);
             x.Post.Json(MasterKeyDto(version: 2)).ToUrl("/api/v1/users/master");
+            x.StatusCodeShouldBe(HttpStatusCode.OK);
+        });
+
+        await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Post.Json(MasterKeyDto(version: 2)).ToUrl("/api/v1/users/master");
+            x.StatusCodeShouldBe(HttpStatusCode.OK);
+        });
+    }
+
+    [Test]
+    public async Task UploadMasterKey_SameVersionDifferentBytes_WithoutPassword_ReturnsBadRequest()
+    {
+        // This is the case the old guard let through: same version number, different wrapped key,
+        // no re-auth and no audit.
+        var username = $"usermasterkeysub{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+
+        await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Post.Json(MasterKeyDto(version: 2)).ToUrl("/api/v1/users/master");
+            x.StatusCodeShouldBe(HttpStatusCode.OK);
+        });
+
+        var substituted = MasterKeyDto(version: 2);
+        substituted.CipherText = [9, 9, 9];
+
+        await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Post.Json(substituted).ToUrl("/api/v1/users/master");
+            x.StatusCodeShouldBe(HttpStatusCode.BadRequest);
+        });
+
+        using var scope = Host.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+        var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+        Assert.That(user.EncryptedMasterKey!.CipherText, Is.EqualTo(new byte[] { 1, 2, 3 }),
+            "The stored envelope must be untouched by a refused replacement");
+    }
+
+    [Test]
+    public async Task UploadMasterKey_NewVersion_WithoutPassword_ReturnsBadRequest()
+    {
+        var username = $"usermasterkeyver{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+
+        await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Post.Json(MasterKeyDto(version: 1)).ToUrl("/api/v1/users/master");
             x.StatusCodeShouldBe(HttpStatusCode.OK);
         });
 

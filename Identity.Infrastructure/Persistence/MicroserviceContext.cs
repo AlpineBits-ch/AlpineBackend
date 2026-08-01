@@ -19,6 +19,8 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<UserPushToken> UserPushTokens { get; set; }
 
     public DbSet<UserDeviceBackup> UserDeviceBackups { get; set; }
+    public DbSet<UserBackupTransfer> UserBackupTransfers { get; set; }
+    public DbSet<IdentityAuditEvent> IdentityAuditEvents { get; set; }
     public DbSet<LoginSession> LoginSessions { get; set; }
     
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
@@ -92,7 +94,9 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
                 .HasForeignKey<ApplicationUser>(user => user.UserPreferencesId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Two wrappings of the same master key, stored side by side.
             userBuilder.OwnsOne(x => x.EncryptedMasterKey);
+            userBuilder.OwnsOne(x => x.RecoveryCodeWrappedMasterKey);
         });
 
         modelBuilder.Entity<UserPublicKey>(key =>
@@ -136,12 +140,43 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
                 .WithMany(u => u.Backups)
                 .HasForeignKey(b => b.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // One-to-*many*, not one-to-one.
             backup.HasOne<UserDevice>(b => b.Device)
-                .WithOne(d => d.Backup)
-                .HasForeignKey<UserDeviceBackup>(b => b.DeviceId)
+                .WithMany(d => d.Backups)
+                .HasForeignKey(b => b.DeviceId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // The retention sweep and every read are "this device's versions, newest first".
+            backup.HasIndex(b => new { b.DeviceId, b.Version }).IsUnique();
+            backup.HasIndex(b => b.UserId);
         });
-       
+
+        modelBuilder.Entity<UserBackupTransfer>(transfer =>
+        {
+            transfer.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The pending-transfers read is "what is waiting for this device", and the expiry sweep
+            // walks the same rows.
+            transfer.HasIndex(t => new { t.UserId, t.TargetDeviceId });
+            transfer.HasIndex(t => t.ExpiresAt);
+        });
+
+        modelBuilder.Entity<IdentityAuditEvent>(audit =>
+        {
+            audit.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(a => a.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The only read is "this account's recent security events, newest first".
+            audit.HasIndex(a => new { a.UserId, a.CreatedAt });
+        });
+
+
 
         modelBuilder.Entity<UserKeyPackage>(keyPackage =>
         {

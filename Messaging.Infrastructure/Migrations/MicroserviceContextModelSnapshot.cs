@@ -227,12 +227,12 @@ namespace Messaging.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_member_devices");
 
-                    b.HasIndex("ConversationMemberId")
-                        .HasDatabaseName("ix_member_devices_conversation_member_id");
-
                     b.HasIndex("DeviceId")
-                        .IsUnique()
                         .HasDatabaseName("ix_member_devices_device_id");
+
+                    b.HasIndex("ConversationMemberId", "DeviceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_member_devices_conversation_member_id_device_id");
 
                     b.ToTable("member_devices", (string)null);
                 });
@@ -422,6 +422,65 @@ namespace Messaging.Persistence.Migrations
                     b.ToTable("minimal_attachments", (string)null);
                 });
 
+            modelBuilder.Entity("Messaging.Domain.Entities.MlsAdmissionChallenge", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<byte[]>("Challenge")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("challenge");
+
+                    b.Property<string>("ContextId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("context_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("IssuedByDeviceId")
+                        .HasColumnType("text")
+                        .HasColumnName("issued_by_device_id");
+
+                    b.Property<string>("IssuedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("issued_by_user_id");
+
+                    b.Property<string>("JoinRequestId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("join_request_id");
+
+                    b.Property<byte[]>("Proof")
+                        .HasColumnType("bytea")
+                        .HasColumnName("proof");
+
+                    b.Property<DateTimeOffset?>("ProofSubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("proof_submitted_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mls_admission_challenges");
+
+                    b.HasIndex("JoinRequestId", "ExpiresAt")
+                        .HasDatabaseName("ix_mls_admission_challenges_join_request_id_expires_at");
+
+                    b.ToTable("mls_admission_challenges", (string)null);
+                });
+
             modelBuilder.Entity("Messaging.Domain.Entities.MlsCommit", b =>
                 {
                     b.Property<string>("Id")
@@ -458,6 +517,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("generation");
 
+                    b.Property<bool>("IsProposal")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_proposal");
+
                     b.Property<string>("SenderDeviceId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -480,7 +543,8 @@ namespace Messaging.Persistence.Migrations
 
                     b.HasIndex("ContextId", "Generation", "Epoch")
                         .IsUnique()
-                        .HasDatabaseName("ix_mls_commits_context_id_generation_epoch");
+                        .HasDatabaseName("ix_mls_commits_context_id_generation_epoch")
+                        .HasFilter("is_proposal = false");
 
                     b.ToTable("mls_commits", (string)null);
                 });
@@ -630,6 +694,10 @@ namespace Messaging.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("requester_user_id");
+
+                    b.Property<bool>("RequiresManualApproval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_manual_approval");
 
                     b.Property<string>("SignatureKeyFingerprint")
                         .IsRequired()
@@ -898,6 +966,18 @@ namespace Messaging.Persistence.Migrations
                         .HasForeignKey("MessageId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .HasConstraintName("fk_minimal_attachments_messages_message_id");
+                });
+
+            modelBuilder.Entity("Messaging.Domain.Entities.MlsAdmissionChallenge", b =>
+                {
+                    b.HasOne("Messaging.Domain.Entities.MlsJoinRequest", "JoinRequest")
+                        .WithMany()
+                        .HasForeignKey("JoinRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_mls_admission_challenges_mls_join_requests_join_request_id");
+
+                    b.Navigation("JoinRequest");
                 });
 
             modelBuilder.Entity("Messaging.Domain.Entities.MlsCommit", b =>

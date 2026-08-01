@@ -1,15 +1,22 @@
 using System.Security.Claims;
+using Domain;
+using Echo.Realtime;
+using Echo.Realtime.Devices;
 using Facet.Extensions;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
 using Messaging.Contracts.Bus.Events;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
+using Messaging.Domain.Enums;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.Http;
@@ -103,6 +110,42 @@ public class MlsEndpoints
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
         return Results.Ok(await mls.GetStateAsync(conversationId));
+    }
+
+    /// <summary>
+    /// Turns encryption on for a conversation, or re-keys it by minting the next generation.
+    /// </summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/enable")]
+    public static async Task<IResult> EnableConversationMls(
+        string conversationId,
+        EnableMlsDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await mls.EnableAsync(
+            conversationId, conversationId, null, userId, dto, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Turns encryption off for a conversation.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/disable")]
+    public static async Task<IResult> DisableConversationMls(
+        string conversationId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await mls.DisableAsync(conversationId, conversationId, null, userId, DateTimeOffset.UtcNow));
     }
 
     // ══════════════════════════════════════════════════════════════════════════ Guild channels
@@ -303,6 +346,224 @@ public class MlsEndpoints
         return ToHttp(await joinRequests.CancelAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
     }
 
+    // ══════════════════════════════════════════════════════════════════════════ Conversation join
+    // requests
+
+    /// <summary>Asks to be let into an encrypted conversation.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests")]
+    public static async Task<IResult> RequestConversationAccess(
+        string conversationId,
+        SubmitJoinRequestDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        var protectionLevel = await ResolveProtectionLevelAsync(bus, userId);
+
+        var result = await joinRequests.SubmitAsync(
+            conversationId, conversationId, null, userId, dto, DateTimeOffset.UtcNow,
+            MlsContextKind.Conversation, protectionLevel);
+
+        if (result.Status == MlsOperationStatus.Ok && result.Value is MlsJoinRequestDto request)
+        {
+            // Conversation membership is known here, so the announcement goes direct.
+            var audience = await ctx.Members
+                .Where(m => m.ConversationId == conversationId && m.UserId != userId)
+                .Select(m => m.UserId)
+                .ToListAsync();
+
+            if (audience.Count > 0)
+            {
+                await hub.Clients.Users(audience).SendAsync("conversation.MlsJoinRequest", new
+                {
+                    contextId = conversationId,
+                    conversationId,
+                    requestId = request.Id,
+                    requesterUserId = userId,
+                    requesterDeviceId = dto.DeviceId,
+                    requesterDeviceName = dto.DeviceName,
+                    generation = request.Generation,
+                    // The fingerprint is the value a human actually compares out of band; the
+                    // key-package hash changes every request and cannot be read over a phone call.
+                    signatureKeyFingerprint = dto.SignatureKeyFingerprint,
+                    requiresManualApproval = request.RequiresManualApproval,
+                });
+            }
+        }
+
+        return ToHttp(result);
+    }
+
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests")]
+    public static async Task<IResult> ListConversationJoinRequests(
+        string conversationId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return Results.Ok(await joinRequests.ListPendingAsync(
+            conversationId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+    }
+
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/approve")]
+    public static async Task<IResult> ApproveConversationJoinRequest(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.ApproveAsync(
+            conversationId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+    }
+
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/deny")]
+    public static async Task<IResult> DenyConversationJoinRequest(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.DenyAsync(conversationId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>Withdraws your own request.</summary>
+    [WolverineDelete("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}")]
+    public static async Task<IResult> CancelConversationJoinRequest(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        return ToHttp(await joinRequests.CancelAsync(conversationId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ Admission proof
+    // relay
+
+    /// <summary>An existing device posts a 32-byte nonce for the joining device to sign.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/challenge")]
+    public static async Task<IResult> IssueAdmissionChallenge(
+        string conversationId,
+        string requestId,
+        IssueAdmissionChallengeDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        var issuerDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+
+        return ToHttp(await joinRequests.IssueChallengeAsync(
+            conversationId, requestId, userId,
+            string.IsNullOrWhiteSpace(issuerDeviceId) ? null : issuerDeviceId,
+            dto, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The joining device collects the outstanding nonce.</summary>
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/challenge")]
+    public static async Task<IResult> GetAdmissionChallenge(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.GetChallengeAsync(conversationId, requestId, userId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The joining device submits its signature. Stored verbatim; never checked here.</summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/proof")]
+    public static async Task<IResult> SubmitAdmissionProof(
+        string conversationId,
+        string requestId,
+        SubmitAdmissionProofDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.SubmitProofAsync(
+            conversationId, requestId, userId, dto, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>The proof, for the device that issued the challenge to verify locally.</summary>
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/proof")]
+    public static async Task<IResult> GetAdmissionProof(
+        string conversationId,
+        string requestId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsJoinRequestService joinRequests)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        return ToHttp(await joinRequests.GetProofAsync(conversationId, requestId, DateTimeOffset.UtcNow));
+    }
+
+    /// <summary>
+    /// The requester's protection level, or the strict one when Identity cannot answer.
+    /// </summary>
+    private static async Task<ProtectionLevel> ResolveProtectionLevelAsync(IMessageBus bus, string userId)
+    {
+        try
+        {
+            var response = await bus.InvokeAsync<GetUserProtectionLevelResponse>(
+                new GetUserProtectionLevelRequest { UserIds = [userId] });
+
+            return response.Levels.FirstOrDefault(l => l.UserId == userId)?.Level
+                   ?? ProtectionLevel.VerifiedDevices;
+        }
+        catch (Exception)
+        {
+            return ProtectionLevel.VerifiedDevices;
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // Welcomes (context-agnostic - a device fetches everything waiting for it)
     // ══════════════════════════════════════════════════════════════════════════
@@ -317,19 +578,12 @@ public class MlsEndpoints
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var legacyCaller = string.IsNullOrWhiteSpace(deviceId);
+        var query = ctx.PendingWelcomes.AsNoTracking()
+            .Where(w => w.UserId == userId && w.ConsumedAt == null);
 
-        var query = ctx.PendingWelcomes.Where(w => w.UserId == userId && w.ConsumedAt == null);
-        if (!legacyCaller) query = query.Where(w => w.DeviceId == deviceId);
+        if (!string.IsNullOrWhiteSpace(deviceId)) query = query.Where(w => w.DeviceId == deviceId);
 
         var welcomes = await query.OrderBy(w => w.CreatedAt).ToListAsync();
-
-        if (legacyCaller && welcomes.Count > 0)
-        {
-            var now = DateTimeOffset.UtcNow;
-            foreach (var welcome in welcomes) welcome.ConsumedAt = now;
-            await ctx.SaveChangesAsync();
-        }
 
         return Results.Ok(welcomes.SelectFacets<PendingWelcome, PendingWelcomeDto>());
     }
@@ -339,16 +593,34 @@ public class MlsEndpoints
     public static async Task<IResult> AckWelcomes(
         AckWelcomesDto dto,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
         [NotBody] MicroserviceContext ctx)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
         if (dto.WelcomeIds.Count == 0) return Results.Ok(new AckWelcomesResultDto { Acknowledged = 0 });
 
-        // Scoped to the caller so an id guessed from another user's stream is a no-op, not a denial
-        // of service that strands someone else's device outside the group.
+        var deviceId = dto.DeviceId;
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            deviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        }
+
+        if (string.IsNullOrWhiteSpace(deviceId))
+        {
+            return Results.BadRequest(
+                "deviceId is required, either in the body or as the X-Device-Id header. A Welcome is " +
+                "sealed to one device's leaf, and acknowledging across all of a user's devices " +
+                "destroys the others' only way into the group.");
+        }
+
+        // Scoped to the caller *and* the device, so an id guessed from another stream is a no-op
+        // rather than a denial of service that strands somebody else's device outside the group.
         var welcomes = await ctx.PendingWelcomes
-            .Where(w => dto.WelcomeIds.Contains(w.Id) && w.UserId == userId && w.ConsumedAt == null)
+            .Where(w => dto.WelcomeIds.Contains(w.Id)
+                        && w.UserId == userId
+                        && w.DeviceId == deviceId
+                        && w.ConsumedAt == null)
             .ToListAsync();
 
         var now = DateTimeOffset.UtcNow;

@@ -1,3 +1,4 @@
+using Domain;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Identity.Domain.Enums;
@@ -28,6 +29,13 @@ public class ConsumeMlsTokensForUserHandler
             .Include(d => d.KeyPackages)
             .ToListAsync();
 
+        // Which of the requested accounts refuse the reusable last-resort package.
+        var strictAccounts = (await ctx.Users.AsNoTracking()
+                .Where(u => userIds.Contains(u.Id) && u.ProtectionLevel == ProtectionLevel.VerifiedDevices)
+                .Select(u => u.Id)
+                .ToListAsync())
+            .ToHashSet();
+
         var tokens = new List<DeviceTokenResponse>();
         var unreachable = new List<UnreachableDeviceResponse>();
 
@@ -38,18 +46,24 @@ public class ConsumeMlsTokensForUserHandler
                 .Where(p => p is { IsLastResort: false, ConsumedAt: null } && p.ExpiresAt > now)
                 .MinBy(p => p.CreatedAt);
 
+            var usedLastResort = false;
+
             if (package is not null)
             {
                 package.ConsumedAt = now;
             }
-            else
+            else if (!strictAccounts.Contains(device.UserId))
             {
                 // Reusable by design - see UserKeyPackage.IsLastResort. Deliberately not stamped.
                 package = device.KeyPackages
                     .Where(p => p.IsLastResort && p.ExpiresAt > now)
                     .MaxBy(p => p.CreatedAt);
+                usedLastResort = package is not null;
             }
 
+            // A VerifiedDevices account has no floor to fall back to: joining through a reusable
+            // package costs the leaf its forward secrecy, and refusing that is most of what the
+            // strict tier is buying.
             if (package is null)
             {
                 unreachable.Add(new UnreachableDeviceResponse
@@ -68,6 +82,12 @@ public class ConsumeMlsTokensForUserHandler
                 DeviceId = device.ClientDeviceId,
                 UserId = device.UserId,
                 Token = package.KeyPackage,
+                // Carried with the package, not fetched separately: otherwise there is a window in
+                // which the server could pair one device's key package with another's certificate.
+                Certificate = device.HasValidCertificateAt(now) ? device.Certificate : null,
+                CertificateExpiresAt = device.CertificateExpiresAt,
+                CertificateIdentityKeyVersion = device.CertificateIdentityKeyVersion,
+                IsLastResort = usedLastResort,
             });
         }
 

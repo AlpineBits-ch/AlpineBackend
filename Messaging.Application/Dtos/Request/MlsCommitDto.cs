@@ -28,12 +28,21 @@ public class PublishMlsCommitDto
 
     /// <summary>Join requests this commit admits.</summary>
     public List<string> FulfilledJoinRequestIds { get; set; } = new();
+
+    /// <summary>
+    /// Set when the payload is a bare proposal (a Remove a leaving device published for the others
+    /// to commit) rather than a commit.
+    /// </summary>
+    public bool IsProposal { get; set; }
 }
 
 /// <summary>Ids of Welcomes whose group the device has actually joined.</summary>
 public class AckWelcomesDto
 {
     public List<string> WelcomeIds { get; set; } = new();
+
+    /// <summary>Required.</summary>
+    public string DeviceId { get; set; } = null!;
 }
 
 [Facet(typeof(MlsCommit))]
@@ -53,6 +62,15 @@ public class MlsCommitPublishedDto
 
     public int Generation { get; set; }
     public long Epoch { get; set; }
+
+    /// <summary>Echoes back whether the stored row was a proposal, so a client cannot mistake a
+    /// successful proposal publish for the group having moved.</summary>
+    public bool IsProposal { get; set; }
+
+    /// <summary>True when the server already held this exact commit from this device and returned
+    /// the stored row instead of writing a second one. The publish succeeded - the client should
+    /// keep its merged state rather than treating this as a lost race and discarding it.</summary>
+    public bool Duplicate { get; set; }
 }
 
 public class AckWelcomesResultDto

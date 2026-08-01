@@ -17,6 +17,7 @@ public class MicroserviceContext : DbContext
     public DbSet<MlsGroupGeneration> MlsGroupGenerations { get; set; }
     public DbSet<MlsJoinRequest> MlsJoinRequests { get; set; }
     public DbSet<MlsJoinRequestApproval> MlsJoinRequestApprovals { get; set; }
+    public DbSet<MlsAdmissionChallenge> MlsAdmissionChallenges { get; set; }
     public DbSet<Attachment> Attachments { get; set; }
     
     public DbSet<Message> Messages { get; set; }
@@ -132,7 +133,29 @@ public class MicroserviceContext : DbContext
 
             // The dedup/fork guard: two members committing concurrently both target the same next
             // epoch, and exactly one insert survives.
-            commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch }).IsUnique();
+            if (Database.IsNpgsql())
+            {
+                commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch })
+                    .IsUnique()
+                    .HasFilter("is_proposal = false");
+            }
+            else
+            {
+                commitBuilder.HasIndex(c => new { c.ContextId, c.Generation, c.Epoch });
+            }
+        });
+
+        modelBuilder.Entity<MlsAdmissionChallenge>(challengeBuilder =>
+        {
+            challengeBuilder
+                .HasOne(c => c.JoinRequest)
+                .WithMany()
+                .HasForeignKey(c => c.JoinRequestId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Both reads are "the live challenge for this request": one to answer it, one to verify
+            // the answer.
+            challengeBuilder.HasIndex(c => new { c.JoinRequestId, c.ExpiresAt });
         });
 
         modelBuilder.Entity<MlsGroupGeneration>(generationBuilder =>
@@ -201,7 +224,9 @@ public class MicroserviceContext : DbContext
                 .WithMany(x => x.Devices).HasForeignKey(x => x.ConversationMemberId)
                 .OnDelete(DeleteBehavior.Cascade);
             
-            memberDeviceBuilder.HasIndex(x => x.DeviceId).IsUnique();
+            // Unique per membership, not globally.
+            memberDeviceBuilder.HasIndex(x => new { x.ConversationMemberId, x.DeviceId }).IsUnique();
+            memberDeviceBuilder.HasIndex(x => x.DeviceId);
         });
 
     }

@@ -64,6 +64,44 @@ apparatus is worse than none.
 Note §L.5: detection must work at **every** phase including `Observe`; `Observe` suppresses
 *removal*, never detection.
 
+## 2c. Nothing admits a device that appears after the group does — **the live multi-device failure**
+
+Reported 2026-08-02: a recipient could read an encrypted message on their phone and not on their
+desktop, same account. Not the base64 bug, and **not** the `POST api/v1/devices` 400 either — Echo
+was redeployed with `3bde2f0` while this was being investigated and registration is healthy.
+
+The mechanism is enumeration, and it is in the design rather than in one line of code. An MLS group
+is whatever set of devices the *creating client* sealed Welcomes to, which is one key package per
+active device that still had one; a device with none comes back in `unreachableDevices` and is left
+out. **Nothing on either side ever adds it afterwards.** So a device that was dry, or that did not
+exist yet, or whose stock was left stale by the registration bug while it was live, stays outside
+that group permanently — the server being fixed does not heal it.
+
+Server side is now as loud as it can be (contract **§L.14**): creation reports the creator's own
+devices as well as members' — it never did, which was a genuine silent skip and is fixed with tests —
+and commit-publish and enable report coverage where they previously reported nothing. All three also
+log a warning naming the device.
+
+What that does **not** do is get the device back in, and only a client can:
+
+- **Wire §B's conversation join-request sweep at launch on both clients.** It exists server-side and
+  is driven by neither. This is the repair path; without it the new reports name a problem with no
+  remedy attached.
+- **Alpine's "Re-link device" was a no-op** — it only called `refreshState`, which catches a device up
+  on missed commits and cannot create a leaf that was never added, so the button cleared the banner
+  and the banner returned on reload. That is what the **deployed** build still does. Alpine's working
+  tree already fixes it: `MlsJoinRequestService.relink` tries the cheap remedy, then submits a §B
+  join request. Unreleased at the time of writing; Alpine's agent owns it.
+- **venta-mobile's creation check is per user, not per device**
+  (`conversation_encryption_service.dart:66-74`): it reduces the server's per-device
+  `unreachableDevices` to "did this *user* appear at all", so a member with one good handset and one
+  dry one passes as reachable and the dry one is dropped in silence. Alpine's dialog already does this
+  correctly. Mobile's agent owns this.
+
+Prerequisite for a server-side coverage read route: `MlsGroupGeneration` records `ActivatedByUserId`
+but not a device, so the server cannot distinguish the creator's own creating device from one left
+out. Additive nullable column; not taken.
+
 ## 3. Cross-cutting residuals
 
 - **Legacy bare-`messageId` cache fallback.** `MlsStore._cacheKey`'s own comment documents it as a

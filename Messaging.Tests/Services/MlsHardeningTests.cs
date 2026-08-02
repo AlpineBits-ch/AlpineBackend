@@ -1,3 +1,5 @@
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Domain;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Services;
@@ -7,6 +9,8 @@ using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Messaging.Tests.Helpers;
 using Microsoft.EntityFrameworkCore;
+
+using static Messaging.Tests.Helpers.TestMlsServices;
 
 namespace Messaging.Tests.Services;
 
@@ -38,7 +42,7 @@ public class MlsHardeningTests
         _context = new TestMessagingContext(Guid.NewGuid().ToString());
         _hub = new FakeMessagingHubContext();
         _bus = new FakeMessageBus();
-        _service = new MlsGroupService(_context, _hub, _bus, new MlsJoinRequestService(_context));
+        _service = new MlsGroupService(_context, _hub, _bus, new MlsJoinRequestService(_context), Coverage(_bus));
     }
 
     [TearDown]
@@ -179,6 +183,139 @@ public class MlsHardeningTests
         var result = await PublishChannel(epoch: 1, device: "device-b");
 
         Assert.That(result.Status, Is.EqualTo(MlsOperationStatus.Conflict));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // A device left outside the group must not be left there in silence
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>A service whose Identity answers with the given devices, keyed by user.</summary>
+    private MlsGroupService ServiceKnowing(params (string UserId, string DeviceId)[] devices)
+    {
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            GetUserDevicesRequest r => new GetUserDevicesResponse
+            {
+                Devices = devices
+                    .Where(d => r.UserIds.Contains(d.UserId))
+                    .Select(d => new UserDeviceSummaryResponse
+                    {
+                        UserId = d.UserId, ClientDeviceId = d.DeviceId, DeviceName = d.DeviceId,
+                    })
+                    .ToList(),
+            },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        return new MlsGroupService(_context, _hub, bus, new MlsJoinRequestService(_context), Coverage(bus));
+    }
+
+    [Test]
+    public async Task PublishCommit_AddingSomeoneWhoseSecondDeviceGotNoWelcome_NamesThatDevice()
+    {
+        // Adding somebody to an encrypted conversation is a roster row and then an Add commit
+        // carrying one Welcome per device, and the publisher builds that list from whatever
+        // /consume-tokens gave back. A device that had run out of key packages is simply absent from
+        // the answer, so it never gets a leaf - and nothing anywhere said so. The person joining
+        // reads the conversation on one handset and sees nothing on the other; the person who added
+        // them was told it worked.
+        await SeedConversation(AdminId, MemberId);
+        var service = ServiceKnowing(
+            (MemberId, "device-member-phone"),
+            (MemberId, "device-member-desktop"));
+
+        await service.EnableAsync(ConversationId, ConversationId, null, AdminId, EnableDto(), T0);
+
+        var result = await service.PublishCommitAsync(ConversationId, ConversationId, null, AdminId,
+            new PublishMlsCommitDto
+            {
+                Epoch = 1,
+                Commit = MlsWire.Commit(),
+                SenderDeviceId = "device-admin",
+                Welcomes =
+                [
+                    new DeviceWelcomeDto { UserId = MemberId, DeviceId = "device-member-phone", Welcome = [7] },
+                ],
+            }, [], T0);
+
+        Assert.That(result.Status, Is.EqualTo(MlsOperationStatus.Ok));
+        var payload = (MlsCommitPublishedDto)result.Value!;
+        Assert.That(payload.UnreachableDevices.Select(d => (d.UserId, d.DeviceId)),
+            Is.EquivalentTo(new[] { (MemberId, "device-member-desktop") }));
+    }
+
+    [Test]
+    public async Task PublishCommit_CarryingNoWelcomes_AccusesNobody()
+    {
+        // An update or a removal admits nobody, so there is no coverage question to ask. Comparing
+        // against the roster anyway would report every long-standing member's devices as missing on
+        // every ordinary commit, and a check that always fires is a check somebody turns off.
+        await SeedConversation(AdminId, MemberId);
+        var service = ServiceKnowing(
+            (MemberId, "device-member-phone"),
+            (MemberId, "device-member-desktop"));
+
+        await service.EnableAsync(ConversationId, ConversationId, null, AdminId, EnableDto(), T0);
+
+        var result = await service.PublishCommitAsync(ConversationId, ConversationId, null, AdminId,
+            new PublishMlsCommitDto
+            {
+                Epoch = 1,
+                Commit = MlsWire.Commit(),
+                SenderDeviceId = "device-admin",
+            }, [], T0);
+
+        Assert.That(((MlsCommitPublishedDto)result.Value!).UnreachableDevices, Is.Empty);
+    }
+
+    [Test]
+    public async Task PublishCommit_ADeviceAlreadyWelcomedEarlierInTheGeneration_IsNotReportedAgain()
+    {
+        // Already in the group needs no new Welcome. Without this the second person added to a
+        // conversation would drag the first one's devices into the report, which is how a true
+        // signal turns into noise.
+        await SeedConversation(AdminId, MemberId);
+        var service = ServiceKnowing(
+            (MemberId, "device-member-phone"),
+            (MemberId, "device-member-desktop"));
+
+        await service.EnableAsync(ConversationId, ConversationId, null, AdminId,
+            EnableDto(0, new DeviceWelcomeDto { UserId = MemberId, DeviceId = "device-member-desktop", Welcome = [1] }),
+            T0);
+
+        var result = await service.PublishCommitAsync(ConversationId, ConversationId, null, AdminId,
+            new PublishMlsCommitDto
+            {
+                Epoch = 1,
+                Commit = MlsWire.Commit(),
+                SenderDeviceId = "device-admin",
+                Welcomes =
+                [
+                    new DeviceWelcomeDto { UserId = MemberId, DeviceId = "device-member-phone", Welcome = [7] },
+                ],
+            }, [], T0);
+
+        Assert.That(((MlsCommitPublishedDto)result.Value!).UnreachableDevices, Is.Empty);
+    }
+
+    [Test]
+    public async Task Enable_ForAConversation_ReportsMemberDevicesTheNewGenerationLeftBehind()
+    {
+        // Enabling or re-keying mints a group only the welcomed devices will ever hold. A device the
+        // enabling client could not fetch a key package for is dropped at that instant and stays
+        // dropped - and this path reported nothing at all.
+        await SeedConversation(AdminId, MemberId);
+        var service = ServiceKnowing(
+            (MemberId, "device-member-phone"),
+            (MemberId, "device-member-desktop"));
+
+        var result = await service.EnableAsync(ConversationId, ConversationId, null, AdminId,
+            EnableDto(0, new DeviceWelcomeDto { UserId = MemberId, DeviceId = "device-member-phone", Welcome = [1] }),
+            T0);
+
+        var payload = (MlsToggleResultDto)result.Value!;
+        Assert.That(payload.UnreachableDevices.Select(d => (d.UserId, d.DeviceId)),
+            Is.EquivalentTo(new[] { (MemberId, "device-member-desktop") }));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

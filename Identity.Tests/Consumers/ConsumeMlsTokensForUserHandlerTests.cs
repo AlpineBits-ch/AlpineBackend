@@ -94,6 +94,28 @@ public class ConsumeMlsTokensForUserHandlerTests
     }
 
     [Test]
+    public async Task Handle_TwoDevicesOneOutOfKeyPackages_AnswersWithBothAToken_AndAnUnreachable()
+    {
+        // The exact shape of the live report: one account, phone and desktop, desktop out of key
+        // packages. The answer must not be "user-1 is reachable" - that is true of the user and
+        // false of the desktop, and a caller that reduces this to a per-user check builds a group
+        // the desktop can never read. Both halves have to be in the response for the caller to have
+        // any chance of telling a human.
+        var phone = SeedDevice("user-1", "device-phone");
+        SeedDevice("user-1", "device-desktop");
+        SeedPackage(phone, 1);
+        await _context.SaveChangesAsync();
+
+        var response = await Consume("user-1");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.DeviceTokens.Select(t => t.DeviceId), Is.EquivalentTo(new[] { "device-phone" }));
+            Assert.That(response.UnreachableDevices.Select(d => d.DeviceId), Is.EquivalentTo(new[] { "device-desktop" }));
+        });
+    }
+
+    [Test]
     public async Task Handle_ThreeDevices_StillReturnsOneEach()
     {
         var devices = new[] { "d-1", "d-2", "d-3" }.Select(id => SeedDevice("user-1", id)).ToList();

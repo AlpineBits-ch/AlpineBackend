@@ -1,4 +1,5 @@
 ﻿using Facet;
+using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Entities;
 
 namespace Messaging.Application.Dtos.Request;
@@ -90,6 +91,21 @@ public class MlsCommitPublishedDto
     /// the stored row instead of writing a second one. The publish succeeded - the client should
     /// keep its merged state rather than treating this as a lost race and discarding it.</summary>
     public bool Duplicate { get; set; }
+
+    /// <summary>
+    /// Devices belonging to the people this commit admits that received no Welcome from it, and so
+    /// hold no leaf in the group.
+    ///
+    /// <para>Empty on a commit that carries no Welcomes - an update, a removal, a proposal - because
+    /// such a commit admits nobody and there is nothing to be missing from it.</para>
+    ///
+    /// <para><b>Surface this.</b> These devices cannot read the context and their owner gets no
+    /// error of their own: a message simply fails to decrypt, which is indistinguishable from the
+    /// conversation being broken. The client that published the commit is the only party in a
+    /// position to tell a human, and the only remedy - another Add commit, once that device has
+    /// uploaded key packages - is one only a member's client can produce.</para>
+    /// </summary>
+    public List<UnreachableDeviceDto> UnreachableDevices { get; set; } = new();
 }
 
 public class AckWelcomesResultDto

@@ -1,4 +1,5 @@
 using Facet;
+using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 
@@ -85,6 +86,17 @@ public class MlsToggleResultDto
 
     /// <summary>True when the context was already in the requested state and nothing changed.</summary>
     public bool AlreadyInRequestedState { get; set; }
+
+    /// <summary>
+    /// Member devices that got no Welcome for the generation just minted, and therefore cannot read
+    /// anything sent under it.
+    ///
+    /// <para>Only populated on enable, and only for conversations - a channel's roster lives in
+    /// Guild and is not enumerable from here. The enabling user's own devices are excluded: the
+    /// request carries no sender device id, so the device holding the new group cannot be told apart
+    /// from one that was left out of it.</para>
+    /// </summary>
+    public List<UnreachableDeviceDto> UnreachableDevices { get; set; } = new();
 }
 
 /// <summary>Returned on 409 so a client that lost the race to commit knows exactly where the group

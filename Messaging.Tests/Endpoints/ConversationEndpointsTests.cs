@@ -1,6 +1,8 @@
 using Domain;
+using Echo.Realtime.Devices;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Microsoft.AspNetCore.Http;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Endpoints;
@@ -15,6 +17,8 @@ using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
 using Social.Contracts.Dtos;
 using ConversationDto = Messaging.Application.Dtos.Response.ConversationDto;
+
+using static Messaging.Tests.Helpers.TestMlsServices;
 
 namespace Messaging.Tests.Endpoints;
 
@@ -50,6 +54,18 @@ public class ConversationEndpointsTests
         BannerUrl = "",
         Relationships = friendUserIds.Select(f => new RelationshipDto { Id = "rel-" + f, UserId = f, Status = RelationshipStatus.Accepted }).ToList(),
     };
+
+    /// <summary>
+    /// A request carrying the creating device's id, which is what every client in the field stamps
+    /// on every call. The server needs it to tell the device that built the group - and therefore
+    /// has no Welcome addressed to it - apart from one that was left out of the group.
+    /// </summary>
+    private static HttpContext Http(string? callingDeviceId = "device-caller")
+    {
+        var http = new DefaultHttpContext();
+        if (callingDeviceId is not null) http.Request.Headers[DeviceIdentity.HeaderName] = callingDeviceId;
+        return http;
+    }
 
     private static ConversationMember MakeMember(string id, string userId, string conversationId) => new()
     {
@@ -130,7 +146,7 @@ public class ConversationEndpointsTests
         var bus = new FakeMessageBus();
         var dto = new CreateConversationDto { Members = [new CreateConversationMemberDto { UserId = "user-2" }] };
 
-        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.Anonymous(), _context);
+        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.Anonymous(), _context, Coverage(bus), Http());
 
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
@@ -146,7 +162,7 @@ public class ConversationEndpointsTests
         });
         var dto = new CreateConversationDto { Members = [] };
 
-        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -163,7 +179,7 @@ public class ConversationEndpointsTests
         });
         var dto = new CreateConversationDto { Members = [new CreateConversationMemberDto { UserId = "user-2" }] };
 
-        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -181,7 +197,7 @@ public class ConversationEndpointsTests
         });
         var dto = new CreateConversationDto { Members = [new CreateConversationMemberDto { UserId = "user-2" }] };
 
-        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -202,7 +218,7 @@ public class ConversationEndpointsTests
             Members = [new CreateConversationMemberDto { UserId = "user-2" }],
         };
 
-        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
@@ -234,7 +250,7 @@ public class ConversationEndpointsTests
             DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9, 9, 9] }],
         };
 
-        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        var result = await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -284,11 +300,95 @@ public class ConversationEndpointsTests
         var dto = EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-laptop", UserId = "user-2", Welcome = [9] });
 
         var result = await endpoint.CreateConversation(
-            dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+            dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
         var created = (Ok<ConversationDto>)result;
         Assert.That(created.Value!.UnreachableDevices.Select(d => d.DeviceId),
             Is.EquivalentTo(new[] { "device-phone" }));
+    }
+
+    /// <summary>Bus that knows both users and reports devices for whichever of them is asked about.</summary>
+    private static FakeMessageBus EncryptedCreationBus(
+        IReadOnlyList<string> userOneDeviceIds,
+        IReadOnlyList<string> userTwoDeviceIds) =>
+        new(msg => msg switch
+        {
+            GetProfileByUserIdRequest r when r.UserId == "user-1" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-1", "user-2") },
+            GetProfileByUserIdRequest r when r.UserId == "user-2" => new GetProfileByUserIdResponse { Profile = ProfileFor("user-2", "user-1") },
+            GetUserDevicesRequest r => new GetUserDevicesResponse
+            {
+                Devices = new[] { ("user-1", userOneDeviceIds), ("user-2", userTwoDeviceIds) }
+                    .Where(pair => r.UserIds.Contains(pair.Item1))
+                    .SelectMany(pair => pair.Item2.Select(d => new UserDeviceSummaryResponse
+                    {
+                        UserId = pair.Item1, ClientDeviceId = d, DeviceName = d,
+                    }))
+                    .ToList(),
+            },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+    [Test]
+    public async Task CreateConversation_Encrypted_CreatorsOwnSecondDeviceWithNoWelcome_IsReported()
+    {
+        // The reported failure, from the side nobody was looking at. `createDto.Members` never
+        // contains the caller - they are added separately as selfMember - so the per-device
+        // reachability check skipped the creator's own devices entirely. Somebody starting an
+        // encrypted DM from their phone got a conversation their own desktop could never read, and
+        // the response, the log and the client all said it went fine. It is the same silent skip the
+        // member-side check was written to stop, one participant to the left.
+        var endpoint = new ConversationEndpoints();
+        var bus = EncryptedCreationBus(
+            userOneDeviceIds: ["device-caller", "device-desktop"],
+            userTwoDeviceIds: ["device-2"]);
+
+        var dto = EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] });
+
+        var result = await endpoint.CreateConversation(
+            dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
+            Coverage(bus), Http("device-caller"));
+
+        var created = (Ok<ConversationDto>)result;
+        Assert.That(created.Value!.UnreachableDevices.Select(d => (d.UserId, d.DeviceId)),
+            Is.EquivalentTo(new[] { ("user-1", "device-desktop") }));
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_TheCreatingDeviceItselfIsNeverReported()
+    {
+        // It holds the group directly and so has no Welcome addressed to it. Naming it would be a
+        // false alarm on the one device that can certainly read the conversation - and a check that
+        // fires on every single creation is a check somebody switches off.
+        var endpoint = new ConversationEndpoints();
+        var bus = EncryptedCreationBus(userOneDeviceIds: ["device-caller"], userTwoDeviceIds: ["device-2"]);
+
+        var result = await endpoint.CreateConversation(
+            EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }),
+            allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
+            Coverage(bus), Http("device-caller"));
+
+        Assert.That(((Ok<ConversationDto>)result).Value!.UnreachableDevices, Is.Empty);
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_WithNoDeviceIdHeader_DoesNotAccuseTheCreatorsOwnDevices()
+    {
+        // Without the header there is no way to tell which of the caller's devices is the one
+        // asking, so they are left out of the scan rather than reported wholesale. Telling a client
+        // its own machine cannot read the conversation it just built would be worse than the silence
+        // this replaces. Members are still checked - that half never needed the header.
+        var endpoint = new ConversationEndpoints();
+        var bus = EncryptedCreationBus(
+            userOneDeviceIds: ["device-caller", "device-desktop"],
+            userTwoDeviceIds: ["device-2", "device-2-spare"]);
+
+        var result = await endpoint.CreateConversation(
+            EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }),
+            allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
+            Coverage(bus), Http(callingDeviceId: null));
+
+        Assert.That(((Ok<ConversationDto>)result).Value!.UnreachableDevices.Select(d => (d.UserId, d.DeviceId)),
+            Is.EquivalentTo(new[] { ("user-2", "device-2-spare") }));
     }
 
     [Test]
@@ -302,7 +402,7 @@ public class ConversationEndpointsTests
             new DeviceWelcomeDto { DeviceId = "device-phone", UserId = "user-2", Welcome = [8] });
 
         var result = await endpoint.CreateConversation(
-            dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+            dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
         Assert.That(((Ok<ConversationDto>)result).Value!.UnreachableDevices, Is.Empty);
     }
@@ -317,7 +417,7 @@ public class ConversationEndpointsTests
         var bus = EncryptedCreationBus("device-phone");
 
         var result = await endpoint.CreateConversation(
-            EncryptedDto(), allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+            EncryptedDto(), allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
@@ -334,7 +434,7 @@ public class ConversationEndpointsTests
         try
         {
             var result = await endpoint.CreateConversation(
-                EncryptedDto(), allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+                EncryptedDto(), allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
             Assert.That(result, Is.InstanceOf<BadRequest<CreateConversationRejectedDto>>());
             var rejection = (BadRequest<CreateConversationRejectedDto>)result;
@@ -358,7 +458,7 @@ public class ConversationEndpointsTests
         try
         {
             var result = await endpoint.CreateConversation(
-                EncryptedDto(), allowPartialDeviceCoverage: true, bus, TestPrincipal.ForUser("user-1"), _context);
+                EncryptedDto(), allowPartialDeviceCoverage: true, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
             // The caller said, explicitly, that it understands some devices will never read this.
             Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
@@ -385,7 +485,7 @@ public class ConversationEndpointsTests
 
         var result = await endpoint.CreateConversation(
             EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }),
-            allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+            allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
 
         Assert.That(result, Is.InstanceOf<Ok<ConversationDto>>());
     }
@@ -410,7 +510,7 @@ public class ConversationEndpointsTests
             DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }],
         };
 
-        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         var conversation = await _context.Conversations.SingleAsync();
@@ -448,7 +548,7 @@ public class ConversationEndpointsTests
             DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }],
         };
 
-        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         var conversation = await _context.Conversations.SingleAsync();
@@ -479,7 +579,7 @@ public class ConversationEndpointsTests
             Members = [new CreateConversationMemberDto { UserId = "user-2" }],
         };
 
-        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         Assert.That(await _context.MlsGroupGenerations.AnyAsync(), Is.False);
@@ -501,7 +601,7 @@ public class ConversationEndpointsTests
             DeviceWelcomes = [new DeviceWelcomeDto { DeviceId = "device-1", UserId = "user-2", Welcome = [9, 9, 9] }],
         };
 
-        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context);
+        await endpoint.CreateConversation(dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context, Coverage(bus), Http());
         await _context.SaveChangesAsync();
 
         Assert.That(_context.PendingWelcomes.Any(w => w.UserId == "user-2" && w.DeviceId == "device-1"), Is.True);

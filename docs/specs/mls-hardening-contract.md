@@ -1531,3 +1531,57 @@ as well as a service name, and the doubled public path is what every shipped cli
 
 Unit and single-service integration tests cannot catch this class of bug — they call the internal
 path. The mismatch exists only in the seam between the two route tables.
+
+### L.14 Device coverage is reported on every path that forms a group, not only on creation
+
+**The group is chosen entirely by the client.** The server stores exactly the `deviceWelcomes` it is
+handed and adds nothing: it holds no group keys, so only a member's client can produce an Add commit.
+Which devices get a leaf is therefore whatever `POST /api/v1/conversations/consume-tokens` returned,
+which is one key package per **active device that still had one**. A device with none comes back in
+`unreachableDevices` instead of a token and is simply absent from the group. Nothing later adds it.
+
+That answer is correct and the reporting around it was not. Three gaps, all producing the same
+user-visible symptom — the same account reads a thread on one handset and sees nothing on the other,
+with no error anywhere:
+
+1. **`POST /api/v1/conversations` never checked the creator's own devices.** `Members` does not
+   contain the caller — the server appends them separately — so the per-device reachability scan,
+   which exists precisely to catch "the laptop is in and the phone is not", skipped the one account
+   most likely to notice. Starting an encrypted DM from your phone could hand you a conversation your
+   own desktop could never read, reported as a clean success. The scan now includes the caller, with
+   the **creating device** excluded by `X-Device-Id` — it holds the group directly and has no Welcome
+   by construction. With no header the caller's devices are left out of the scan rather than reported
+   wholesale; every shipped client stamps it.
+
+2. **`POST .../mls/commits` reported nothing.** Adding somebody is a roster row and then an Add
+   commit, and the second step is where a device goes missing. `MlsCommitPublishedDto` now carries
+   `unreachableDevices`, scoped to **the users this commit welcomes** — the set being admitted.
+   Devices already holding a leaf in the generation (an earlier Welcome, or a commit they published)
+   and the publisher's own device are excluded, so an ordinary update or removal commit reports
+   nothing and the signal does not become noise.
+
+3. **`POST .../mls/enable` reported nothing.** Enabling or re-keying mints a group only the welcomed
+   devices will ever hold. `MlsToggleResultDto` now carries `unreachableDevices` for conversations.
+   The enabling user's **own** devices are excluded: `EnableMlsDto` has no sender device id, so the
+   device holding the group it just built cannot be told apart from one left out of it.
+
+Every skip is also logged as a warning by `MlsDeviceCoverageService`, naming user and device, so it
+is visible to an operator even when the client discards the field.
+
+**Clients must surface all three.** A device in these lists cannot read the context and its owner
+gets no error of their own — the message simply fails to decrypt, which is indistinguishable from the
+conversation being broken.
+
+> **Still open, and it is the part that strands devices permanently.** A device that registers or
+> replenishes key packages *after* a group is formed is never added by anything. The designed repair
+> is §B's conversation join request, which exists server-side and is driven by neither client at
+> launch (`mls-remaining-work.md` §2, §K.6). Until that is wired, the reports above tell somebody a
+> device is stranded but nothing gets it back in, and a client offering "re-link device" that only
+> re-fetches commits is offering a remedy that cannot work — catching up on commits cannot create a
+> leaf that was never added.
+>
+> Server-side, a coverage *read* route was considered and deliberately not added: the server cannot
+> tell which device activated a generation (`MlsGroupGeneration` records `ActivatedByUserId`, not a
+> device), so such a route would report the creator's own creating device as outside the group it
+> built. Recording the activating and committing device per generation is the prerequisite; it is an
+> additive nullable column and has not been taken.

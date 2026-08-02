@@ -1,9 +1,11 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
 using Domain;
+using Echo.Realtime.Devices;
 using Facet.Extensions;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Messaging.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Messaging.Application.Dtos.Request;
@@ -215,10 +217,11 @@ public class ConversationEndpoints
     [WolverinePost( "/api/v1/conversations")]
     public async Task<IResult> CreateConversation(CreateConversationDto createDto,
         [FromQuery] bool allowPartialDeviceCoverage,
-        [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
+        [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
+        [NotBody] MlsDeviceCoverageService coverage, [NotBody] HttpContext http )
     {
-        
-        
+
+
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return Results.Unauthorized();
         
@@ -279,7 +282,7 @@ public class ConversationEndpoints
             // and whose phone was not is a user who reads the conversation on one machine and sees
             // undecryptable noise on the other - with nothing anywhere saying why. The old check
             // asked only whether the user appeared at all, so the phone was silently dropped.
-            unreachableDevices = await ResolveUnreachableDevicesAsync(createDto, messageBus);
+            unreachableDevices = await ResolveUnreachableDevicesAsync(createDto, userId, coverage, http);
 
             // Permissive by default during the rollout. Clients in the field cannot pass the
             // override flag, so refusing here would take away their ability to create an encrypted
@@ -362,43 +365,57 @@ public class ConversationEndpoints
     }
 
     /// <summary>
-    /// Which member devices got no Welcome.
+    /// Which participant devices got no Welcome.
     ///
-    /// <para>Asks Identity for each member's active devices and subtracts the ones the caller
+    /// <para>Asks Identity for each participant's active devices and subtracts the ones the caller
     /// actually sealed a Welcome to. If Identity cannot answer, the list comes back empty rather
     /// than blocking creation - a degraded reachability report is a far better failure than being
     /// unable to start a conversation because a sibling service is down.</para>
+    ///
+    /// <para><b>The creator's own other devices are participants and are checked here too.</b> They
+    /// were not, and that was the last place a device could be dropped from a new group in complete
+    /// silence: <c>createDto.Members</c> never contains the caller - the caller is added separately
+    /// as <c>selfMember</c> - so the one check that exists to catch "this person's laptop is in and
+    /// their phone is not" skipped the very account most likely to notice. Somebody starting an
+    /// encrypted DM from their phone got a conversation their own desktop could never read, and both
+    /// the response and the log said everything was fine.</para>
+    ///
+    /// <para>The creating device itself is excluded, because it holds the group directly and has by
+    /// construction no Welcome addressed to it; reporting it would be a false positive on the one
+    /// device that can certainly read the conversation. It is identified from <c>X-Device-Id</c>.
+    /// That header is not authenticated, and this use does not need it to be - it can only
+    /// <i>suppress</i> a warning about one of the caller's own devices, so the worst a forged value
+    /// achieves is hiding a diagnostic from the person who forged it. Where a header decides whether
+    /// a caller may <i>read</i> something it must come from the session instead; see
+    /// <c>SessionDeviceResolver</c> in Identity.</para>
+    ///
+    /// <para>With no header there is no way to tell which of the caller's devices is the one asking,
+    /// so their devices are left out of the scan entirely rather than reported wholesale - a client
+    /// told its own machine cannot read the conversation it just created would be worse than the
+    /// silence this replaces. Every client in the field stamps the header on every request.</para>
     /// </summary>
     private static async Task<List<UnreachableDeviceDto>> ResolveUnreachableDevicesAsync(
-        CreateConversationDto createDto, IMessageBus messageBus)
+        CreateConversationDto createDto,
+        string callerUserId,
+        MlsDeviceCoverageService coverage,
+        HttpContext http)
     {
-        var memberIds = createDto.Members.Select(m => m.UserId).Distinct().ToList();
-        if (memberIds.Count == 0) return [];
+        var participantIds = createDto.Members.Select(m => m.UserId).Distinct().ToList();
 
-        GetUserDevicesResponse devices;
-        try
-        {
-            devices = await messageBus.InvokeAsync<GetUserDevicesResponse>(
-                new GetUserDevicesRequest { UserIds = memberIds });
-        }
-        catch (Exception)
-        {
-            return [];
-        }
-
-        var welcomed = createDto.DeviceWelcomes
+        var covered = createDto.DeviceWelcomes
             .Select(w => (w.UserId, w.DeviceId))
             .ToHashSet();
 
-        return devices.Devices
-            .Where(d => !welcomed.Contains((d.UserId, d.ClientDeviceId)))
-            .Select(d => new UnreachableDeviceDto
-            {
-                UserId = d.UserId,
-                DeviceId = d.ClientDeviceId,
-                DeviceName = d.DeviceName,
-            })
-            .ToList();
+        var creatingDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        if (!string.IsNullOrWhiteSpace(creatingDeviceId))
+        {
+            participantIds.Add(callerUserId);
+            covered.Add((callerUserId, creatingDeviceId));
+        }
+
+        if (participantIds.Count == 0) return [];
+
+        return await coverage.ResolveAsync("new conversation", participantIds, covered);
     }
 
   

@@ -3,6 +3,7 @@ using Echo.Realtime;
 using Messaging.Contracts.Bus.Events;
 using Facet.Extensions;
 using Messaging.Application.Dtos.Request;
+using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
@@ -43,7 +44,8 @@ public class MlsGroupService(
     MicroserviceContext ctx,
     IHubContext<EchoRealtimeHub> hub,
     IMessageBus bus,
-    MlsJoinRequestService joinRequests)
+    MlsJoinRequestService joinRequests,
+    MlsDeviceCoverageService coverage)
 {
     /// <summary>Minimum spacing between toggles of the same context.
     ///
@@ -235,7 +237,45 @@ public class MlsGroupService(
             ContextId = contextId,
             Encrypted = true,
             Generation = generation.Generation,
+            UnreachableDevices = await ResolveEnableCoverageAsync(
+                contextId, conversationId, userId, recipients, stored),
         });
+    }
+
+    /// <summary>
+    /// Which member devices this newly-minted generation left behind.
+    ///
+    /// <para>Enabling encryption, or re-keying, mints a group that only the devices given a Welcome
+    /// here will ever hold. A device the enabling client could not fetch a key package for is
+    /// dropped at this instant and stays dropped: nothing later notices, and the person holding it
+    /// sees an encrypted context they cannot read with no error of their own. Reporting it is the
+    /// only thing the server can do about that, and it was doing nothing.</para>
+    ///
+    /// <para><b>The enabling user's own devices are not scanned.</b> <c>EnableMlsDto</c> carries no
+    /// sender device id, so there is no way to tell which of them is the one holding the group it
+    /// just built - and reporting that device as unable to read the context it created would be a
+    /// false alarm on the only device that certainly can. Conversation creation does not have this
+    /// problem because it can read <c>X-Device-Id</c>; this path is a re-key, where the omission
+    /// costs a warning rather than correctness.</para>
+    ///
+    /// <para>Channels only ever reach here bootstrapping, with membership living in Guild and no
+    /// roster this service can enumerate, so there is nothing to compare against.</para>
+    /// </summary>
+    private async Task<List<UnreachableDeviceDto>> ResolveEnableCoverageAsync(
+        string contextId,
+        string? conversationId,
+        string enablingUserId,
+        IReadOnlySet<string>? recipients,
+        IReadOnlyCollection<DeviceWelcomeDto> stored)
+    {
+        if (conversationId is null || recipients is null) return [];
+
+        var others = recipients.Where(u => u != enablingUserId).ToList();
+        if (others.Count == 0) return [];
+
+        var covered = stored.Select(w => (w.UserId, w.DeviceId)).ToHashSet();
+
+        return await coverage.ResolveAsync(contextId, others, covered);
     }
 
     /// <summary>
@@ -534,7 +574,77 @@ public class MlsGroupService(
             Generation = active.Generation,
             Epoch = dto.Epoch,
             IsProposal = dto.IsProposal,
+            UnreachableDevices = await ResolveCommitCoverageAsync(
+                contextId, active.Generation, userId, dto.SenderDeviceId, dto.Welcomes, storedWelcomes),
         });
+    }
+
+    /// <summary>
+    /// Which devices of the people this commit admits were left out of it.
+    ///
+    /// <para>Adding somebody to an encrypted context is two steps - the roster row, then an Add
+    /// commit carrying one Welcome per device - and the second step is where a device goes missing.
+    /// The publisher builds it from whatever <c>/consume-tokens</c> gave back, and a device with no
+    /// key package left is simply absent from that answer. Creation has reported this per device for
+    /// a while; the add path reported nothing at all, so somebody joining a group conversation on
+    /// two handsets could end up reading it on one of them forever, with the person who added them
+    /// told the add succeeded.</para>
+    ///
+    /// <para><b>Scoped to the users this commit actually welcomes</b>, which is exactly the set being
+    /// admitted. Comparing against the whole roster would report every long-standing member's devices
+    /// as missing, because a device already in the group needs no new Welcome - the check would cry
+    /// wolf on every commit and be switched off.</para>
+    ///
+    /// <para>A device of a welcomed user is treated as already holding a leaf when it has a Welcome
+    /// from earlier in this generation or has published a commit in it - the same artifacts
+    /// <see cref="HasGroupParticipationAsync"/> reads membership from, narrowed to a device. The
+    /// publisher's own device is added directly: it merged locally and has no Welcome by
+    /// construction.</para>
+    /// </summary>
+    private async Task<List<UnreachableDeviceDto>> ResolveCommitCoverageAsync(
+        string contextId,
+        int generation,
+        string senderUserId,
+        string senderDeviceId,
+        IReadOnlyCollection<DeviceWelcomeDto> submittedWelcomes,
+        IReadOnlyCollection<DeviceWelcomeDto> storedWelcomes)
+    {
+        // No Welcomes means this commit admits nobody - an update, a removal, a proposal. There is
+        // no coverage question to ask, and asking it would report the entire roster.
+        if (submittedWelcomes.Count == 0) return [];
+
+        // Who the publisher *meant* to admit, against what actually landed. StoreWelcomes drops a
+        // Welcome addressed outside the roster without saying so, and that drop has the same effect
+        // as never minting one: reading the audience from the submitted list and the coverage from
+        // the stored list makes a rejected Welcome show up here instead of vanishing.
+        var welcomedUsers = submittedWelcomes
+            .Select(w => w.UserId)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct()
+            .ToList();
+
+        var covered = storedWelcomes.Select(w => (w.UserId, w.DeviceId)).ToHashSet();
+        covered.Add((senderUserId, senderDeviceId));
+
+        var priorWelcomes = await ctx.PendingWelcomes.AsNoTracking()
+            .Where(w => w.ContextId == contextId
+                        && w.Generation == generation
+                        && welcomedUsers.Contains(w.UserId))
+            .Select(w => new { w.UserId, w.DeviceId })
+            .ToListAsync();
+
+        foreach (var welcome in priorWelcomes) covered.Add((welcome.UserId, welcome.DeviceId));
+
+        var priorCommitters = await ctx.MlsCommits.AsNoTracking()
+            .Where(c => c.ContextId == contextId
+                        && c.Generation == generation
+                        && welcomedUsers.Contains(c.SenderUserId))
+            .Select(c => new { c.SenderUserId, c.SenderDeviceId })
+            .ToListAsync();
+
+        foreach (var commit in priorCommitters) covered.Add((commit.SenderUserId, commit.SenderDeviceId));
+
+        return await coverage.ResolveAsync(contextId, welcomedUsers, covered);
     }
 
     /// <summary>

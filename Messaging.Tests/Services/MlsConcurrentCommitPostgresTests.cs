@@ -150,7 +150,8 @@ public class MlsConcurrentCommitPostgresTests
     }
 
     private static MlsGroupService ServiceFor(MicroserviceContext ctx) =>
-        new(ctx, new FakeMessagingHubContext(), new FakeMessageBus(), new MlsJoinRequestService(ctx));
+        new(ctx, new FakeMessagingHubContext(), new FakeMessageBus(), new MlsJoinRequestService(ctx),
+            Helpers.TestMlsServices.Coverage(new FakeMessageBus()));
 
     private async Task SeedGenerationAsync()
     {

@@ -8,6 +8,8 @@ using Messaging.Domain.Enums;
 using Messaging.Tests.Helpers;
 using Microsoft.EntityFrameworkCore;
 
+using static Messaging.Tests.Helpers.TestMlsServices;
+
 namespace Messaging.Tests.Services;
 
 /// <summary>
@@ -45,7 +47,7 @@ public class MlsGroupServiceTests
         _context = new TestMessagingContext(Guid.NewGuid().ToString());
         _hub = new FakeMessagingHubContext();
         _bus = new FakeMessageBus();
-        _service = new MlsGroupService(_context, _hub, _bus, new MlsJoinRequestService(_context));
+        _service = new MlsGroupService(_context, _hub, _bus, new MlsJoinRequestService(_context), Coverage(_bus));
     }
 
     [TearDown]

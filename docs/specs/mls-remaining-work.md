@@ -77,9 +77,19 @@ Note §L.5: detection must work at **every** phase including `Observe`; `Observe
   `messageId` (`mls.service.ts:341`, `:347`). The parity this doc asserted did not exist, and the
   gap is exploitable: see the Alpine review's H1. Alpine must adopt mobile's exact key shape before
   either platform drains anything.
-- **Alpine's frontend suite has timing-sensitive tests** that fail under CPU load (4 failures
-  with a concurrent `cargo test`, then four clean runs alone, with zero TypeScript changed).
-  Worth fixing before it bites in CI.
+- ~~**Alpine's frontend suite has timing-sensitive tests** that fail under CPU load.~~
+  **Wrong, and fixed 2026-08-02.** There was no timing dependency — `voice-engine.service.spec.ts`
+  contains no timer at all. `@angular/build:unit-test` defaults Vitest to `isolate: false` to mimic
+  the Karma experience, so every spec file in a worker shares one module registry and `vi.mock` is
+  not per-file: whichever file in the batch registers last wins. Vitest batches by core count, which
+  is why the suite passed on a 32-core dev box and failed on a 4-core CI runner, and why adding two
+  spec files appeared to break four unrelated ones. "Passes when run alone" meant "no other file in
+  the batch to clobber the mock", not "no CPU contention".
+
+  Fixed with `test.isolate: true` via `runnerConfig` in `angular.json`; no assertion changed and
+  nothing skipped. **Lesson worth keeping:** the symptoms (`vi.mocked(...).mockImplementation is not
+  a function`, `Cannot read properties of undefined (reading 'invoke')`) never name the cause, and
+  the nondeterminism across identical re-runs was the real tell.
 - **`mls_current_state_dir`** was added to Alpine with no TypeScript consumer.
 - **Alpine's `export_backup` drops mobile's 9th `account_identity` argument** — no §H identity key
   on Alpine yet. The import side still reads it, so mobile-written blobs open intact. Revisit when

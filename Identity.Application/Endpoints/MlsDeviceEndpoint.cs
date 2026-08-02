@@ -81,8 +81,8 @@ public class MlsDeviceEndpoint
             var rotated = incomingKey.Length > 0
                           && !incomingKey.AsSpan().SequenceEqual(existingDevice.IdentityPublicKey);
 
-            // Decided before the rotation gate, because for the whole installed base the gate is
-            // otherwise unpassable.
+            // Decided before the rotation gate, because for the whole mobile installed base the
+            // gate is otherwise unpassable.
             var claim = await sessionDevices.TryClaimAsync(user, userId, existingDevice);
 
             if (claim == SessionDeviceResolver.ClaimResult.Claimed)

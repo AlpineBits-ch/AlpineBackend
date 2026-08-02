@@ -606,7 +606,7 @@ public class MlsDeviceEndpointTests
     }
 
     /// <summary>
-    /// The upgrade case, and the regression that took every install in the field off the air.
+    /// The upgrade case, and the regression that took the whole mobile install base off the air.
     /// </summary>
     [Test]
     public async Task Register_FromASessionOlderThanTheDeviceRow_RotatesWithoutAPasswordAndClaimsTheRow()

@@ -16,8 +16,23 @@ public class EncryptedMasterKey
     /// <summary>KDF identifier, e.g. <c>argon2id</c>.</summary>
     public string? Kdf { get; init; }
 
-    /// <summary>Lets a client check a passphrase without downloading and trial-decrypting every
-    /// backup blob. Optional; a client that omits it simply gets no early failure.</summary>
+    /// <summary>
+    /// A value derived client-side from the master key - not from the credential that wraps it - so
+    /// that the server can compare wrappings without ever holding the key.
+    /// </summary>
     public byte[]? PublicVerifier { get; init; }
 
+    /// <summary>Returns a copy carrying <paramref name="verifier"/>.</summary>
+    public EncryptedMasterKey WithPublicVerifier(byte[]? verifier) => new()
+    {
+        CipherText = CipherText,
+        Salt = Salt,
+        Iv = Iv,
+        Argon2Iterations = Argon2Iterations,
+        Argon2Memory = Argon2Memory,
+        Argon2Parallelism = Argon2Parallelism,
+        Version = Version,
+        Kdf = Kdf,
+        PublicVerifier = verifier,
+    };
 }

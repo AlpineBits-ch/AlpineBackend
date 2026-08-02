@@ -1,16 +1,14 @@
 using System.Security.Claims;
 using Domain;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Contracts.Bus.Events;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
 using Identity.Domain.Enums;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Wolverine;
 using Wolverine.Http;
 
 namespace Identity.Application.Endpoints;
@@ -19,6 +17,9 @@ namespace Identity.Application.Endpoints;
 [Authorize]
 public class ProtectionLevelEndpoint
 {
+    /// <summary>How far the client's signed timestamp may sit from server time.</summary>
+    public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(10);
+
     [WolverineGet("api/v1/identity/protection-level")]
     public static async Task<IResult> Get(
         [NotBody] ClaimsPrincipal principal, [NotBody] MicroserviceContext ctx)
@@ -44,7 +45,8 @@ public class ProtectionLevelEndpoint
     public static async Task<(IResult, ProtectionLevelChanged?)> Put(
         PutProtectionLevelDto dto,
         [NotBody] ClaimsPrincipal principal,
-        [NotBody] UserManager<ApplicationUser> users,
+        [NotBody] IAccountPasswordVerifier passwords,
+        [NotBody] SessionDeviceResolver sessionDevices,
         [NotBody] MicroserviceContext ctx)
     {
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -56,6 +58,30 @@ public class ProtectionLevelEndpoint
         // An unsigned level is not a level.
         if (dto.SignedAssertion is null or { Length: 0 })
             return (Results.BadRequest("signedAssertion is required"), null);
+
+        var now = DateTimeOffset.UtcNow;
+
+        // The signed timestamp, checked for sanity and then stored untouched.
+        if (dto.UpdatedAt == default)
+        {
+            return (Results.BadRequest(
+                "updatedAt is required: it is part of the signed payload, and the server stores it "
+                + "verbatim so clients can reconstruct exactly what was signed."), null);
+        }
+
+        var skew = dto.UpdatedAt - now;
+        if (skew > MaxClockSkew || skew < -MaxClockSkew)
+        {
+            return (Results.BadRequest(
+                $"updatedAt is more than {MaxClockSkew.TotalMinutes:0} minutes from server time "
+                + $"({now:O}). Check the device clock and re-sign."), null);
+        }
+
+        if (user.ProtectionLevelUpdatedAt is { } previousStamp && dto.UpdatedAt < previousStamp)
+        {
+            return (Results.BadRequest(
+                "updatedAt must not move backwards; the stored assertion is newer than this one."), null);
+        }
 
         // Optimistic concurrency on the version, not last-write-wins.
         if (dto.Version != user.ProtectionLevelVersion + 1)
@@ -82,22 +108,25 @@ public class ProtectionLevelEndpoint
         }
 
         // Upgrades need no ceremony - tightening your own account should never be gated.
-        if (isDowngrade && (string.IsNullOrEmpty(dto.Password) || !await users.CheckPasswordAsync(user, dto.Password)))
-            return (Results.BadRequest("Downgrading the protection level requires the account password."), null);
+        if (isDowngrade)
+        {
+            var check = await passwords.CheckAsync(user, dto.Password);
+            if (!check.IsOk()) return (Results.BadRequest(check.Describe("Downgrading the protection level")), null);
+        }
 
         var previous = user.ProtectionLevel;
-        var now = DateTimeOffset.UtcNow;
+        var actingDeviceId = (await sessionDevices.ResolveAsync(principal, userId))?.ClientDeviceId ?? dto.DeviceId;
 
         user.ProtectionLevel = dto.Level;
         user.ProtectionLevelAssertion = dto.SignedAssertion;
         user.ProtectionLevelVersion = dto.Version;
-        user.ProtectionLevelUpdatedAt = now;
+        user.ProtectionLevelUpdatedAt = dto.UpdatedAt;
 
         ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
         {
             UserId = userId,
             Action = IdentityAuditActions.ProtectionLevelChanged,
-            ClientDeviceId = dto.DeviceId,
+            ClientDeviceId = actingDeviceId,
             Detail = $"{previous} -> {dto.Level} (v{dto.Version})",
             CreatedAt = now,
         }));
@@ -109,7 +138,7 @@ public class ProtectionLevelEndpoint
             Level = dto.Level,
             SignedAssertion = dto.SignedAssertion,
             Version = dto.Version,
-            UpdatedAt = now,
+            UpdatedAt = dto.UpdatedAt,
         }), new ProtectionLevelChanged
         {
             UserId = userId,
@@ -117,7 +146,7 @@ public class ProtectionLevelEndpoint
             Level = dto.Level,
             Version = dto.Version,
             SignedAssertion = dto.SignedAssertion,
-            ChangedByDeviceId = dto.DeviceId,
+            ChangedByDeviceId = actingDeviceId,
             IsDowngrade = isDowngrade,
             ChangedAt = now,
         });

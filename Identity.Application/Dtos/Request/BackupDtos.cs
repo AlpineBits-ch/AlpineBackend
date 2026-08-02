@@ -18,7 +18,10 @@ public class PutRecoveryKeyDto
     public byte[] Iv { get; set; } = null!;
     public byte[] CipherText { get; set; } = null!;
 
-    /// <summary>Optional.</summary>
+    /// <summary>
+    /// A value derived from the master key - never from the password - that the server can compare
+    /// without ever holding the key itself.
+    /// </summary>
     public byte[]? PublicVerifier { get; set; }
 
     /// <summary>Account password.</summary>
@@ -40,6 +43,10 @@ public class MasterKeyWrappingDto
     public byte[] Salt { get; set; } = null!;
     public byte[] Iv { get; set; } = null!;
     public byte[] CipherText { get; set; } = null!;
+
+    /// <summary>
+    /// Derived from the master key, so both wrappings of one key must carry the same value.
+    /// </summary>
     public byte[]? PublicVerifier { get; set; }
 }
 
@@ -52,7 +59,15 @@ public class RewrapMasterKeyDto
     /// it. A mismatch means the client is holding a master key the account has moved on from.</summary>
     public int Version { get; set; }
 
+    /// <summary>The new wrapping.</summary>
     public MasterKeyWrappingDto PasswordWrapping { get; set; } = null!;
+
+    /// <summary>The account password - the in-app path, where the user changed their password while
+    /// still able to sign in. Alternative to <see cref="RewrapTicket"/>.</summary>
+    public string? Password { get; set; }
+
+    /// <summary>The single-use ticket returned by <c>POST api/v1/user/reset-password</c>.</summary>
+    public string? RewrapTicket { get; set; }
 }
 
 public class RecoveryKeyDto
@@ -88,6 +103,9 @@ public class PutRecoveryKeyResultDto
     /// version and is therefore no longer openable. Populated on the refusal as well as on the
     /// acknowledged write, so the client can show exactly what it is about to lose.</summary>
     public List<string> OrphanedBlobDeviceIds { get; set; } = new();
+
+    /// <summary>Whether the account now has a <c>publicVerifier</c> on file.</summary>
+    public bool HasPublicVerifier { get; set; }
 }
 
 /// <summary>Metadata for one device's stored backup. Never carries the blob.</summary>

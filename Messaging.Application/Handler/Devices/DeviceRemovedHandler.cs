@@ -20,10 +20,24 @@ public class DeviceRemovedHandler
         var deviceId = message.ClientDeviceId;
         if (string.IsNullOrWhiteSpace(deviceId)) return;
 
+        // Without an owner there is no way to tell this device's artifacts from a namesake's, and
+        // guessing would destroy somebody else's. Refusing to act is the only safe reading.
+        var userId = message.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            logger.LogWarning(
+                "DeviceRemoved for {DeviceId} carried no UserId; skipping - ClientDeviceId is only "
+                + "unique per user and an unscoped sweep would consume another account's Welcomes",
+                deviceId);
+            return;
+        }
+
         var now = DateTimeOffset.UtcNow;
 
         var pending = await ctx.MlsJoinRequests
-            .Where(r => r.RequesterDeviceId == deviceId && r.State == MlsJoinRequestState.Pending)
+            .Where(r => r.RequesterUserId == userId
+                        && r.RequesterDeviceId == deviceId
+                        && r.State == MlsJoinRequestState.Pending)
             .ToListAsync();
 
         foreach (var request in pending)
@@ -33,18 +47,18 @@ public class DeviceRemovedHandler
         }
 
         var welcomes = await ctx.PendingWelcomes
-            .Where(w => w.DeviceId == deviceId && w.ConsumedAt == null)
+            .Where(w => w.UserId == userId && w.DeviceId == deviceId && w.ConsumedAt == null)
             .ToListAsync();
 
         foreach (var welcome in welcomes) welcome.ConsumedAt = now;
 
         var contexts = welcomes.Select(w => w.ContextId)
             .Concat(await ctx.PendingWelcomes
-                .Where(w => w.DeviceId == deviceId)
+                .Where(w => w.UserId == userId && w.DeviceId == deviceId)
                 .Select(w => w.ContextId)
                 .ToListAsync())
             .Concat(await ctx.MlsCommits
-                .Where(c => c.SenderDeviceId == deviceId)
+                .Where(c => c.SenderUserId == userId && c.SenderDeviceId == deviceId)
                 .Select(c => c.ContextId)
                 .ToListAsync())
             .Distinct()

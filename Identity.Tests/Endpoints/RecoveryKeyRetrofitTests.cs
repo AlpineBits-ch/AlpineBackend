@@ -94,7 +94,12 @@ public class RecoveryKeyRetrofitTests
         await ctx.SaveChangesAsync();
     }
 
-    private static PutRecoveryKeyDto Envelope(int version, MasterKeyWrappingDto? recovery, byte[]? cipherText = null) => new()
+    /// <summary>Defaults to no <paramref name="publicVerifier"/>, which is the shape of every account
+    /// in the field and therefore the shape the retrofit path has to accept. A rotation must supply
+    /// one - that is the write where key material is established, so it is the only point at which the
+    /// value can be demanded at all.</summary>
+    private static PutRecoveryKeyDto Envelope(int version, MasterKeyWrappingDto? recovery,
+        byte[]? cipherText = null, byte[]? publicVerifier = null) => new()
     {
         Version = version,
         Kdf = "argon2id",
@@ -105,6 +110,7 @@ public class RecoveryKeyRetrofitTests
         Iv = [3],
         CipherText = cipherText ?? PasswordCipherText,
         Password = Password,
+        PublicVerifier = publicVerifier,
         RecoveryCodeWrapping = recovery,
     };
 
@@ -302,7 +308,8 @@ public class RecoveryKeyRetrofitTests
         var result = await Host.Scenario(x =>
         {
             x.WithBearerToken(token);
-            x.Put.Json(Envelope(version: 2, RecoveryWrapping(), cipherText: [8, 8, 8]))
+            x.Put.Json(Envelope(version: 2, RecoveryWrapping(), cipherText: [8, 8, 8],
+                    publicVerifier: Enumerable.Repeat((byte)0x77, 32).ToArray()))
                 .ToUrl("/api/v1/backup/recovery-key");
             x.StatusCodeShouldBe(HttpStatusCode.Conflict);
         });

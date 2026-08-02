@@ -349,12 +349,14 @@ public class MlsGroupServiceTests
     // Commit publication against generations
     // ══════════════════════════════════════════════════════════════════════════
 
+    /// <summary>Published as the admin, who activated the generation and therefore has the
+    /// participation evidence the commit route now requires.</summary>
     private Task<MlsOperationResult> PublishChannelCommit(long epoch, int? generation = null, DateTimeOffset? at = null) =>
         _service.PublishCommitAsync(ChannelId, null, ChannelId, AdminId, new PublishMlsCommitDto
         {
             Epoch = epoch,
             Generation = generation,
-            Commit = [10, 11],
+            Commit = MlsWire.Commit(),
             SenderDeviceId = "device-a",
         }, [], at ?? T0);
 

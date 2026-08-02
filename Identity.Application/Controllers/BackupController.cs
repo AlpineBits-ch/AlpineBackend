@@ -1,5 +1,7 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Contracts.Bus.Events;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
@@ -25,7 +27,13 @@ namespace Identity.Application.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/v1")]
-public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUser> users, IMessageBus bus)
+public class BackupController(
+    MicroserviceContext ctx,
+    UserManager<ApplicationUser> users,
+    IAccountPasswordVerifier passwords,
+    SessionDeviceResolver sessionDevices,
+    MasterKeyRewrapTicketService rewrapTickets,
+    IMessageBus bus)
     : ControllerBase
 {
     /// <summary>Header carrying the calling device's client device id.</summary>
@@ -47,13 +55,45 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
 
     private string? CallerId => User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-    private string? CallingDeviceId
+    private UserDevice? _sessionDevice;
+    private bool _sessionDeviceResolved;
+
+    /// <summary>The device this session was established from, resolved through
+    /// <c>session_id -> LoginSession.DeviceId</c>. Null when the session is not bound to one.
+    /// Memoised: several routes need it more than once and it is a join, not a header read.</summary>
+    private async Task<UserDevice?> SessionDeviceAsync(string userId)
     {
-        get
+        if (_sessionDeviceResolved) return _sessionDevice;
+
+        _sessionDevice = await sessionDevices.ResolveAsync(User, userId);
+        _sessionDeviceResolved = true;
+        return _sessionDevice;
+    }
+
+    /// <summary>The id to put in an audit row or a security push: the one derived from the session,
+    /// never the one the caller asked us to record. A forgeable forensic trail is worse than
+    /// none.</summary>
+    private async Task<string?> AuditDeviceIdAsync(string userId) =>
+        (await SessionDeviceAsync(userId))?.ClientDeviceId;
+
+    /// <summary>Refuses unless the caller's session belongs to <paramref name="device"/>.</summary>
+    private async Task<IActionResult?> RequireCallingDeviceAsync(string userId, UserDevice device)
+    {
+        var session = await SessionDeviceAsync(userId);
+
+        if (session is null) return SessionDeviceRequired(device.ClientDeviceId);
+
+        if (!string.Equals(session.Id, device.Id, StringComparison.Ordinal))
         {
-            var value = Request.Headers[DeviceIdHeader].ToString();
-            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "wrong_device",
+                detail = "Only the device that owns this backup may act on it.",
+                callingDeviceId = session.ClientDeviceId,
+            });
         }
+
+        return null;
     }
 
     // ══════════════════════════════════════════════════════════════════════════ Recovery-key
@@ -71,11 +111,21 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         var user = await users.FindByIdAsync(userId);
         if (user is null) return Unauthorized();
 
-        if (string.IsNullOrEmpty(dto.Password) || !await users.CheckPasswordAsync(user, dto.Password))
-            return BadRequest("Incorrect password");
+        var check = await passwords.CheckAsync(user, dto.Password);
+        if (!check.IsOk()) return BadRequest(check.Describe("Writing the recovery-key envelope"));
 
         if (dto.CipherText is null or { Length: 0 } || dto.Salt is null or { Length: 0 })
             return BadRequest("Salt and cipherText are required");
+
+        if (KdfParameterError(dto.Kdf, dto.Iterations, dto.MemoryKiB, dto.Parallelism) is { } kdfError)
+            return BadRequest(kdfError);
+
+        if (dto.RecoveryCodeWrapping is { } wrapping
+            && KdfParameterError(wrapping.Kdf, wrapping.Iterations, wrapping.MemoryKiB, wrapping.Parallelism)
+                is { } recoveryKdfError)
+        {
+            return BadRequest(recoveryKdfError);
+        }
 
         // A strict account must have the second wrapping: the tier's whole promise is that a
         // server-assisted password reset cannot restore encrypted history, and that is only true
@@ -90,6 +140,18 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
             && (recovery.CipherText is null or { Length: 0 } || recovery.Salt is null or { Length: 0 }))
         {
             return BadRequest("recoveryCodeWrapping requires salt and cipherText");
+        }
+
+        // Both wrappings seal the same master key, so a verifier derived from that key must be the
+        // same on both.
+        if (dto.RecoveryCodeWrapping?.PublicVerifier is { Length: > 0 } recoveryVerifier
+            && dto.PublicVerifier is { Length: > 0 } passwordVerifier
+            && !CryptographicOperations.FixedTimeEquals(recoveryVerifier, passwordVerifier))
+        {
+            return BadRequest(
+                "publicVerifier differs between the password wrapping and the recovery-code wrapping. "
+                + "Both wrap the same master key, so both must derive the same verifier; two different "
+                + "values mean the recovery code opens key material no backup is sealed under.");
         }
 
         var current = user.EncryptedMasterKey;
@@ -112,24 +174,97 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
                     + "password, or bump the version to rotate the master key.");
             }
 
+            // ── Verifier backfill ─────────────────────────────────────────────────────
+            var backfilled = false;
+            var effectiveVerifier = current.PublicVerifier;
+
+            if (dto.PublicVerifier is { Length: > 0 } submitted)
+            {
+                if (effectiveVerifier is { Length: > 0 } stored)
+                {
+                    if (!CryptographicOperations.FixedTimeEquals(stored, submitted))
+                    {
+                        return BadRequest(
+                            "publicVerifier does not match the one stored at this version. The verifier "
+                            + "is derived from the master key, so a different value means different key "
+                            + "material - bump the version to rotate, which is the operation that "
+                            + "actually replaces a key.");
+                    }
+                }
+                else
+                {
+                    effectiveVerifier = submitted;
+                    backfilled = true;
+                }
+            }
+
+            // The recovery-code wrapping seals the key the envelope already holds, so it inherits that
+            // key's verifier rather than being allowed to introduce a competing one.
+            if (dto.RecoveryCodeWrapping?.PublicVerifier is { Length: > 0 } incomingRecoveryVerifier
+                && effectiveVerifier is { Length: > 0 } known
+                && !CryptographicOperations.FixedTimeEquals(known, incomingRecoveryVerifier))
+            {
+                return BadRequest(
+                    "recoveryCodeWrapping.publicVerifier does not match the one this account's master "
+                    + "key already has. This wrapping seals different key material, so the recovery "
+                    + "code would open nothing any backup is sealed under.");
+            }
+
+            effectiveVerifier ??= dto.RecoveryCodeWrapping?.PublicVerifier;
+            if (effectiveVerifier is { Length: > 0 } && current.PublicVerifier is null or { Length: 0 })
+            {
+                user.EncryptedMasterKey = current.WithPublicVerifier(effectiveVerifier);
+                backfilled = true;
+            }
+
             if (dto.RecoveryCodeWrapping is null)
             {
-                // Genuinely idempotent: nothing submitted that is not already stored.
-                return Ok(new PutRecoveryKeyResultDto { Version = current.Version });
+                if (backfilled)
+                {
+                    Audit(userId, IdentityAuditActions.RecoveryKeyWritten,
+                        $"publicVerifier backfilled at v{dto.Version} (no rotation)",
+                        await AuditDeviceIdAsync(userId));
+                    await ctx.SaveChangesAsync();
+                }
+
+                // Otherwise genuinely idempotent: nothing submitted that is not already stored.
+                return Ok(new PutRecoveryKeyResultDto
+                {
+                    Version = current.Version,
+                    HasPublicVerifier = effectiveVerifier is { Length: > 0 },
+                });
             }
 
             // Additive.
-            user.RecoveryCodeWrappedMasterKey = ToWrapping(dto.RecoveryCodeWrapping, dto.Version);
+            user.RecoveryCodeWrappedMasterKey = ToWrapping(dto.RecoveryCodeWrapping, dto.Version)
+                .WithPublicVerifier(effectiveVerifier);
 
             Audit(userId, IdentityAuditActions.RecoveryKeyWritten,
-                $"recovery-code wrapping added at v{dto.Version} (no rotation)", CallingDeviceId);
+                $"recovery-code wrapping added at v{dto.Version} (no rotation)"
+                + (backfilled ? "; publicVerifier backfilled" : string.Empty),
+                await AuditDeviceIdAsync(userId));
 
             await ctx.SaveChangesAsync();
 
-            return Ok(new PutRecoveryKeyResultDto { Version = dto.Version });
+            return Ok(new PutRecoveryKeyResultDto
+            {
+                Version = dto.Version,
+                HasPublicVerifier = effectiveVerifier is { Length: > 0 },
+            });
         }
 
         // ── Version bump: a genuine rotation, which does orphan blobs ─────────────────
+
+        // Required here and only here.
+        if (dto.PublicVerifier is null or { Length: 0 })
+        {
+            return BadRequest(
+                "publicVerifier is required when writing or rotating the master key. Derive it from "
+                + "the master key (not from the password) so the server can later confirm that a "
+                + "re-wrap seals the same key; without it, POST backup/recovery-key/rewrap-password "
+                + "has nothing to check and any holder of a session can orphan every backup blob.");
+        }
+
         var orphaned = current is null
             ? []
             : await ctx.UserDeviceBackups
@@ -160,9 +295,16 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
             PublicVerifier = dto.PublicVerifier,
         };
 
-        user.RecoveryCodeWrappedMasterKey = dto.RecoveryCodeWrapping is null
-            ? null
-            : ToWrapping(dto.RecoveryCodeWrapping, dto.Version);
+        if (dto.RecoveryCodeWrapping is null)
+        {
+            user.RecoveryCodeWrappedMasterKey = null;
+        }
+        else
+        {
+            // Same key, so same verifier; the cross-check above already refused a conflicting one.
+            user.RecoveryCodeWrappedMasterKey = ToWrapping(dto.RecoveryCodeWrapping, dto.Version)
+                .WithPublicVerifier(dto.RecoveryCodeWrapping.PublicVerifier ?? dto.PublicVerifier);
+        }
 
         // A fresh envelope means a freshly wrapped password half, so any stale stamp from an earlier
         // reset no longer applies.
@@ -173,7 +315,12 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
 
         await ctx.SaveChangesAsync();
 
-        return Ok(new PutRecoveryKeyResultDto { Version = dto.Version, OrphanedBlobDeviceIds = orphaned });
+        return Ok(new PutRecoveryKeyResultDto
+        {
+            Version = dto.Version,
+            OrphanedBlobDeviceIds = orphaned,
+            HasPublicVerifier = true,
+        });
     }
 
     [HttpGet("backup/recovery-key")]
@@ -222,7 +369,63 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
             return BadRequest("passwordWrapping requires salt and cipherText");
         }
 
-        // This re-wraps the existing key; it does not mint a new one.
+        if (KdfParameterError(dto.PasswordWrapping.Kdf, dto.PasswordWrapping.Iterations,
+                dto.PasswordWrapping.MemoryKiB, dto.PasswordWrapping.Parallelism) is { } kdfError)
+        {
+            return BadRequest(kdfError);
+        }
+
+        // ── 1. A credential, not a session ───────────────────────────────────────────
+        var authorised = await rewrapTickets.TryConsumeAsync(userId, dto.RewrapTicket);
+
+        if (!authorised)
+        {
+            var check = await passwords.CheckAsync(user, dto.Password);
+            if (check == PasswordCheckResult.LockedOut)
+                return BadRequest(check.Describe("Re-wrapping the master key"));
+
+            authorised = check.IsOk();
+        }
+
+        if (!authorised)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "credential_required",
+                detail = "Re-wrapping the master key needs either the account password or the "
+                         + "single-use ticket returned by the password reset that invalidated it. "
+                         + "This write destroys the account's encrypted history if it is wrong, so a "
+                         + "session token is not enough on its own.",
+            });
+        }
+
+        // ── 2.
+        var storedVerifier = user.RecoveryCodeWrappedMasterKey?.PublicVerifier is { Length: > 0 } rv
+            ? rv
+            : user.EncryptedMasterKey.PublicVerifier;
+
+        var submittedVerifier = dto.PasswordWrapping.PublicVerifier;
+
+        if (submittedVerifier is null or { Length: 0 })
+        {
+            return BadRequest(
+                "passwordWrapping.publicVerifier is required. It is what proves this wrapping seals "
+                + "the master key the account already has, rather than replacing it with bytes "
+                + "nothing can open.");
+        }
+
+        var verifierChecked = storedVerifier is { Length: > 0 };
+
+        if (verifierChecked
+            && !CryptographicOperations.FixedTimeEquals(storedVerifier!, submittedVerifier))
+        {
+            // Refused before anything is written.
+            return BadRequest(
+                "publicVerifier does not match the one this account's master key already has. This "
+                + "wrapping seals different key material; writing it would orphan every backup blob.");
+        }
+
+        // ── 3. Same key, same version ────────────────────────────────────────────────
         if (dto.Version != user.EncryptedMasterKey.Version)
         {
             return Conflict(new { currentVersion = user.EncryptedMasterKey.Version, submitted = dto.Version });
@@ -231,12 +434,55 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         user.EncryptedMasterKey = ToWrapping(dto.PasswordWrapping, dto.Version);
         user.MasterKeyPasswordWrappingInvalidatedAt = null;
 
-        Audit(userId, IdentityAuditActions.MasterKeyRewrapped, $"password wrapping restored at v{dto.Version}",
-            CallingDeviceId);
+        // Trust-on-first-use for the accounts that predate the verifier, so the next re-wrap has
+        // something to compare against.
+        if (!verifierChecked && user.RecoveryCodeWrappedMasterKey is { } recoveryWrapping
+            && recoveryWrapping.PublicVerifier is null or { Length: 0 })
+        {
+            user.RecoveryCodeWrappedMasterKey = recoveryWrapping.WithPublicVerifier(submittedVerifier);
+        }
+
+        Audit(userId, IdentityAuditActions.MasterKeyRewrapped,
+            $"password wrapping restored at v{dto.Version}"
+            + (verifierChecked
+                ? "; publicVerifier verified"
+                : "; publicVerifier accepted unverified (account had none stored)"),
+            await AuditDeviceIdAsync(userId));
 
         await ctx.SaveChangesAsync();
 
-        return Ok(new { version = dto.Version, encryptedHistoryRecoverable = true });
+        return Ok(new
+        {
+            version = dto.Version,
+            encryptedHistoryRecoverable = true,
+            // Not decoration.
+            verifierChecked,
+        });
+    }
+
+    /// <summary>
+    /// Refuses KDF parameters that would cost more to honour than any client could reasonably ask
+    /// for.
+    /// </summary>
+    private static string? KdfParameterError(string? kdf, int iterations, int memoryKiB, int parallelism)
+    {
+        const int maxMemoryKiB = 1024 * 1024;   // 1 GiB
+        const int maxIterations = 10;
+        const int maxParallelism = 16;
+
+        if (!string.IsNullOrWhiteSpace(kdf) && kdf != "argon2id" && kdf != "argon2i" && kdf != "argon2d")
+            return $"Unsupported kdf '{kdf}'.";
+
+        if (memoryKiB < 0 || memoryKiB > maxMemoryKiB)
+            return $"memoryKiB must be between 0 and {maxMemoryKiB} ({maxMemoryKiB / 1024} MiB).";
+
+        if (iterations < 0 || iterations > maxIterations)
+            return $"iterations must be between 0 and {maxIterations}.";
+
+        if (parallelism < 0 || parallelism > maxParallelism)
+            return $"parallelism must be between 0 and {maxParallelism}.";
+
+        return null;
     }
 
     private static EncryptedMasterKey ToWrapping(MasterKeyWrappingDto dto, int version) => new()
@@ -270,6 +516,7 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
     // ══════════════════════════════════════════════════════════════════════════ Per-device blob
     // ══════════════════════════════════════════════════════════════════════════
 
+    /// <summary>Uploads a device's backup blob.</summary>
     [HttpPut("devices/client/{deviceId}/backup")]
     [RequestSizeLimit(UserDeviceBackup.MaxSizeBytes + 4096)]
     public async Task<IActionResult> PutBackup(string deviceId)
@@ -279,6 +526,7 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
 
         var device = await ResolveOwnDeviceAsync(userId, deviceId);
         if (device is null) return DeviceRejection(deviceId);
+        if (await RequireCallingDeviceAsync(userId, device) is { } denied) return denied;
 
         if (!int.TryParse(Request.Headers[BackupVersionHeader].ToString(), out var version) || version <= 0)
             return BadRequest($"{BackupVersionHeader} is required and must be a positive integer.");
@@ -366,7 +614,7 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         if (superseded.Count > 0) ctx.UserDeviceBackups.RemoveRange(superseded);
 
         Audit(userId, IdentityAuditActions.BackupWritten, $"{deviceId} v{version} ({payload.Length} bytes)",
-            CallingDeviceId);
+            await AuditDeviceIdAsync(userId));
 
         await ctx.SaveChangesAsync();
 
@@ -391,7 +639,7 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
 
         var device = await ResolveOwnDeviceAsync(userId, deviceId);
         if (device is null) return DeviceRejection(deviceId);
-        if (!IsCallingDevice(deviceId)) return Forbid();
+        if (await RequireCallingDeviceAsync(userId, device) is { } denied) return denied;
 
         var backup = await ctx.UserDeviceBackups.AsNoTracking()
             .Where(b => b.DeviceId == device.Id)
@@ -417,8 +665,9 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         return File(backup.Backup, "application/octet-stream");
     }
 
-    /// <summary>Metadata only, so a client can decide whether a restore is worth downloading. Not
-    /// audited as a read: no key material crosses the wire.</summary>
+    /// <summary>
+    /// Metadata only, so a client can decide whether a restore is worth downloading.
+    /// </summary>
     [HttpGet("devices/client/{deviceId}/backup/meta")]
     public async Task<IActionResult> GetBackupMeta(string deviceId)
     {
@@ -427,6 +676,7 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
 
         var device = await ResolveOwnDeviceAsync(userId, deviceId);
         if (device is null) return DeviceRejection(deviceId);
+        if (await RequireCallingDeviceAsync(userId, device) is { } denied) return denied;
 
         var backup = await ctx.UserDeviceBackups.AsNoTracking()
             .Where(b => b.DeviceId == device.Id)
@@ -446,13 +696,14 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
 
         var device = await ResolveOwnDeviceAsync(userId, deviceId);
         if (device is null) return DeviceRejection(deviceId);
-        if (!IsCallingDevice(deviceId)) return Forbid();
+        if (await RequireCallingDeviceAsync(userId, device) is { } denied) return denied;
 
         var blobs = await ctx.UserDeviceBackups.Where(b => b.DeviceId == device.Id).ToListAsync();
         if (blobs.Count == 0) return NoContent();
 
         ctx.UserDeviceBackups.RemoveRange(blobs);
-        Audit(userId, IdentityAuditActions.BackupDeleted, $"{deviceId} ({blobs.Count} versions)", CallingDeviceId);
+        Audit(userId, IdentityAuditActions.BackupDeleted, $"{deviceId} ({blobs.Count} versions)",
+            await AuditDeviceIdAsync(userId));
         await ctx.SaveChangesAsync();
 
         return NoContent();
@@ -497,9 +748,10 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         var userId = CallerId;
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        var source = CallingDeviceId;
-        if (string.IsNullOrWhiteSpace(source)) return BadRequest($"{DeviceIdHeader} is required.");
-        if (await ResolveOwnDeviceAsync(userId, source) is null) return Forbid();
+        // The source is the session's device, not a header.
+        var sourceDevice = await SessionDeviceAsync(userId);
+        if (sourceDevice is null) return SessionDeviceRequired();
+        var source = sourceDevice.ClientDeviceId;
 
         if (dto.CipherText is null or { Length: 0 }) return BadRequest("cipherText is required");
         if (dto.WrappedTo is null or { Length: 0 }) return BadRequest("wrappedTo is required");
@@ -550,9 +802,9 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         var userId = CallerId;
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        var target = CallingDeviceId;
-        if (string.IsNullOrWhiteSpace(target)) return BadRequest($"{DeviceIdHeader} is required.");
-        if (await ResolveOwnDeviceAsync(userId, target) is null) return Forbid();
+        var targetDevice = await SessionDeviceAsync(userId);
+        if (targetDevice is null) return SessionDeviceRequired();
+        var target = targetDevice.ClientDeviceId;
 
         var now = DateTimeOffset.UtcNow;
 
@@ -587,8 +839,10 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
         var userId = CallerId;
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        var target = CallingDeviceId;
-        if (string.IsNullOrWhiteSpace(target)) return BadRequest($"{DeviceIdHeader} is required.");
+        // The claim hands over a wrapped copy of a signing key.
+        var targetDevice = await SessionDeviceAsync(userId);
+        if (targetDevice is null) return SessionDeviceRequired();
+        var target = targetDevice.ClientDeviceId;
 
         var transfer = await ctx.UserBackupTransfers
             .FirstOrDefaultAsync(t => t.Id == id && t.UserId == userId && t.TargetDeviceId == target);
@@ -632,8 +886,20 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
     private IActionResult DeviceRejection(string clientDeviceId) =>
         ctx.UserDevices.Any(d => d.ClientDeviceId == clientDeviceId) ? Forbid() : NotFound();
 
-    private bool IsCallingDevice(string clientDeviceId) =>
-        string.Equals(CallingDeviceId, clientDeviceId, StringComparison.Ordinal);
+    /// <summary>The refusal every unbound session gets, with the way out attached.</summary>
+    private IActionResult SessionDeviceRequired(string? clientDeviceId = null) =>
+        StatusCode(StatusCodes.Status403Forbidden, new
+        {
+            error = "session_device_unbound",
+            detail = "This session is not bound to a registered device, so it cannot act as one. "
+                     + "Backup and transfer routes are per-device and resolve the device from the "
+                     + "session rather than from the X-Device-Id header, which any caller can write.",
+            remedy = clientDeviceId is null
+                ? "POST api/v1/devices/client/{deviceId}/bind-session with the account password, or "
+                  + "sign in again with the X-Device-Id header set."
+                : $"POST api/v1/devices/client/{clientDeviceId}/bind-session with the account "
+                  + "password, or sign in again with the X-Device-Id header set.",
+        });
 
     private Task<int> CurrentRecoveryKeyVersionAsync(string userId) =>
         ctx.Users.AsNoTracking()
@@ -665,12 +931,13 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
             IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
         }));
 
+    /// <summary>Records and announces a backup read.</summary>
     private async Task RecordReadAsync(string userId, UserDevice device, UserDeviceBackup backup)
     {
         var now = DateTimeOffset.UtcNow;
+        var readBy = await AuditDeviceIdAsync(userId);
 
-        Audit(userId, IdentityAuditActions.BackupRead, $"{device.ClientDeviceId} v{backup.Version}",
-            CallingDeviceId);
+        Audit(userId, IdentityAuditActions.BackupRead, $"{device.ClientDeviceId} v{backup.Version}", readBy);
 
         // Committed before the bytes leave, so a read that is announced is a read that is recorded.
         await ctx.SaveChangesAsync();
@@ -680,7 +947,7 @@ public class BackupController(MicroserviceContext ctx, UserManager<ApplicationUs
             UserId = userId,
             DeviceId = device.ClientDeviceId,
             DeviceName = device.DeviceName,
-            ReadByDeviceId = CallingDeviceId,
+            ReadByDeviceId = readBy,
             ReadAt = now,
         });
     }

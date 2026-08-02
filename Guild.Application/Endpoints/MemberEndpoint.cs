@@ -84,6 +84,12 @@ public class MemberEndpoint
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.GuildId == guildId && m.UserId == dto.UserId);
         if (member != null) ctx.GuildMembers.Remove(member);
 
+        // ComputePermissionsForUserAsync serves the cached permission set before it ever re-reads
+        // membership, so without this the banned user keeps their channel permissions for up to the
+        // 15-minute cache TTL while the direct GuildMembers.AnyAsync checks elsewhere already
+        // reject them - access that outlives the ban, and an inconsistency that is hard to read.
+        await permissionService.InvalidateUserPermissionsCacheAsync(guildId, dto.UserId);
+
         auditLog.Log(guildId, userId, AuditActionType.MemberBanned, dto.UserId, new { dto.Reason });
 
         var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
@@ -155,6 +161,9 @@ public class MemberEndpoint
         if (!canModerate) return Results.Forbid();
 
         ctx.GuildMembers.Remove(member);
+
+        // Same stale-permission-cache reason as the ban path above.
+        await permissionService.InvalidateUserPermissionsCacheAsync(guildId, member.UserId);
 
         auditLog.Log(guildId, userId, AuditActionType.MemberKicked, member.UserId);
 
@@ -328,7 +337,8 @@ public class MemberEndpoint
     public async Task<IResult> LeaveGuildAsync(string guildId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] AuditLogService auditLog, [NotBody] IHubContext<EchoRealtimeHub> hub,
-        [NotBody] GuildHydrateService guildHydrateService, [NotBody] IMessageBus bus)
+        [NotBody] GuildHydrateService guildHydrateService, [NotBody] IMessageBus bus,
+        [NotBody] GuildPermissionService permissionService)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -343,6 +353,9 @@ public class MemberEndpoint
         if (member is null) return Results.NotFound();
 
         ctx.GuildMembers.Remove(member);
+
+        // Same stale-permission-cache reason as the ban path above.
+        await permissionService.InvalidateUserPermissionsCacheAsync(guildId, userId);
 
         auditLog.Log(guildId, userId, AuditActionType.MemberLeft, userId);
 

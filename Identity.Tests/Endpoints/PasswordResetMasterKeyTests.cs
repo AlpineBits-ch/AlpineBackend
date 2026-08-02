@@ -64,13 +64,22 @@ public class PasswordResetMasterKeyTests
         user.EncryptedMasterKey = new EncryptedMasterKey
         {
             CipherText = [1, 1, 1], Salt = [2], Iv = [3], Version = 1, Kdf = "argon2id",
+            PublicVerifier = Verifier,
         };
         user.RecoveryCodeWrappedMasterKey = withRecoveryCodeWrapping
-            ? new EncryptedMasterKey { CipherText = [4, 4, 4], Salt = [5], Iv = [6], Version = 1, Kdf = "argon2id" }
+            ? new EncryptedMasterKey
+            {
+                CipherText = [4, 4, 4], Salt = [5], Iv = [6], Version = 1, Kdf = "argon2id",
+                PublicVerifier = Verifier,
+            }
             : null;
 
         await ctx.SaveChangesAsync();
     }
+
+    /// <summary>Derived client-side from the master key; the server only ever compares it across
+    /// wrappings. See <c>BackupController.RewrapPassword</c>.</summary>
+    private static readonly byte[] Verifier = Enumerable.Repeat((byte)0x77, 32).ToArray();
 
     private static async Task<JsonElement> ResetPasswordAsync(string email)
     {
@@ -176,7 +185,11 @@ public class PasswordResetMasterKeyTests
     {
         var (username, email, _) = await RegisterAsync("rewrapmk");
         await SeedMasterKeyAsync(username, withRecoveryCodeWrapping: true);
-        await ResetPasswordAsync(email);
+
+        // The reset mints the single-use permit for the re-wrap it just made necessary.
+        var reset = await ResetPasswordAsync(email);
+        var ticket = reset.GetProperty("masterKeyRewrapTicket").GetString();
+        Assert.That(ticket, Is.Not.Null.And.Not.Empty);
 
         var tokenResult = await Host.Scenario(x =>
         {
@@ -197,10 +210,11 @@ public class PasswordResetMasterKeyTests
             x.Post.Json(new RewrapMasterKeyDto
             {
                 Version = 1,
+                RewrapTicket = ticket,
                 PasswordWrapping = new MasterKeyWrappingDto
                 {
                     CipherText = [7, 7, 7], Salt = [8], Iv = [9], Iterations = 3,
-                    MemoryKiB = 65536, Parallelism = 1,
+                    MemoryKiB = 65536, Parallelism = 1, PublicVerifier = Verifier,
                 },
             }).ToUrl("/api/v1/backup/recovery-key/rewrap-password");
             x.StatusCodeShouldBe(HttpStatusCode.OK);
@@ -227,15 +241,20 @@ public class PasswordResetMasterKeyTests
         var (username, _, token) = await RegisterAsync("rewrapver");
         await SeedMasterKeyAsync(username, withRecoveryCodeWrapping: true);
 
+        // The password and the matching verifier are both supplied deliberately: the version check
+        // is the last of the three gates, so a request that fails an earlier one would return 403
+        // and never reach it.
         await Host.Scenario(x =>
         {
             x.WithBearerToken(token);
             x.Post.Json(new RewrapMasterKeyDto
             {
                 Version = 7,
+                Password = OldPassword,
                 PasswordWrapping = new MasterKeyWrappingDto
                 {
                     CipherText = [7], Salt = [8], Iv = [9], Iterations = 3, MemoryKiB = 65536, Parallelism = 1,
+                    PublicVerifier = Verifier,
                 },
             }).ToUrl("/api/v1/backup/recovery-key/rewrap-password");
             x.StatusCodeShouldBe(HttpStatusCode.Conflict);

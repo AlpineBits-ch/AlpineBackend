@@ -12,6 +12,7 @@ public class CreateGuildMemberParams
     public string? Nickname { get; init; }
     public string? Bio { get; init; }
     public string? InviteId { get; init; }
+    public string? InviteCode { get; init; }
     public string Username { get; init; }
 }
 
@@ -30,7 +31,12 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
 
     public string? InviteId { get; init; }
     public GuildInvite? Invite { get; init; }
-    
+
+    /// <summary>
+    /// Snapshot of the invite's <see cref="GuildInvite.Code"/> taken at join time.
+    /// </summary>
+    public string? InviteCode { get; init; }
+
     /// <summary>
     /// Uppercased haystack for the member-search endpoint's <c>Contains</c> query.
     /// </summary>
@@ -94,6 +100,7 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
             Type = parameters.Type,
             SearchValue = BuildSearchValue(parameters.Username, parameters.Nickname),
             InviteId = parameters.InviteId,
+            InviteCode = parameters.InviteCode,
             // Onboarding only gates the organic invite-redemption join path (InviteEndpoint
             // constructs GuildMember directly and sets this explicitly) - bot installs and
             // federated shadow members created through this factory were never shown a rules

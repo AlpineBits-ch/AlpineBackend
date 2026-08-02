@@ -119,7 +119,9 @@ public class MlsHardeningTests
         _service.PublishCommitAsync(ChannelId, null, ChannelId, AdminId, new PublishMlsCommitDto
         {
             Epoch = epoch,
-            Commit = commit ?? [10, 11],
+            // Real MLSMessage framing, because the server now checks that the declared kind matches
+            // the payload's - see MlsMessageInspector.
+            Commit = commit ?? (isProposal ? MlsWire.Proposal() : MlsWire.Commit()),
             SenderDeviceId = device,
             IsProposal = isProposal,
         }, [], at ?? T0);
@@ -147,9 +149,9 @@ public class MlsHardeningTests
     public async Task PublishCommit_DifferentBytesAtTheSameEpoch_IsStillAConflict()
     {
         await _service.EnableAsync(ChannelId, null, ChannelId, AdminId, EnableDto(), T0);
-        await PublishChannel(epoch: 1, commit: [10, 11]);
+        await PublishChannel(epoch: 1, commit: MlsWire.Commit(epoch: 0));
 
-        var result = await PublishChannel(epoch: 1, commit: [99, 99]);
+        var result = await PublishChannel(epoch: 1, commit: MlsWire.Commit(epoch: 99));
 
         // Idempotency is matched on the exact payload for a reason: two different commits at one
         // epoch is a genuine fork, not a retry, and treating it as one would silently drop a change.
@@ -188,9 +190,9 @@ public class MlsHardeningTests
     public async Task PublishProposal_DoesNotBlockTheRealCommitAtThatEpoch()
     {
         await _service.EnableAsync(ChannelId, null, ChannelId, AdminId, EnableDto(epoch: 3), T0);
-        await PublishChannel(epoch: 4, commit: [1, 1], isProposal: true);
+        await PublishChannel(epoch: 4, commit: MlsWire.Proposal(epoch: 1), isProposal: true);
 
-        var real = await PublishChannel(epoch: 4, commit: [2, 2]);
+        var real = await PublishChannel(epoch: 4, commit: MlsWire.Commit(epoch: 2));
 
         // A proposal announced at N+1 must not consume the epoch slot the commit that actually
         // establishes N+1 needs, or the group can never move again.
@@ -218,13 +220,13 @@ public class MlsHardeningTests
     public async Task GetCommits_WithNoActiveGeneration_ReturnsOnlyTheMostRecentOne()
     {
         await _service.EnableAsync(ChannelId, null, ChannelId, AdminId, EnableDto(epoch: 0), T0);
-        await PublishChannel(epoch: 1, commit: [1], at: T0);
+        await PublishChannel(epoch: 1, commit: MlsWire.Commit(epoch: 1), at: T0);
         var afterCooldown = T0 + MlsGroupService.ToggleCooldown + TimeSpan.FromSeconds(1);
         await _service.DisableAsync(ChannelId, null, ChannelId, AdminId, afterCooldown);
 
         var later = afterCooldown + MlsGroupService.ToggleCooldown + TimeSpan.FromSeconds(1);
         await _service.EnableAsync(ChannelId, null, ChannelId, AdminId, EnableDto(epoch: 0), later);
-        await PublishChannel(epoch: 1, commit: [2], at: later);
+        await PublishChannel(epoch: 1, commit: MlsWire.Commit(epoch: 2), at: later);
         var evenLater = later + MlsGroupService.ToggleCooldown + TimeSpan.FromSeconds(1);
         await _service.DisableAsync(ChannelId, null, ChannelId, AdminId, evenLater);
 
@@ -409,7 +411,9 @@ public class MlsHardeningTests
         await _service.PublishCommitAsync(ConversationId, ConversationId, null, AdminId,
             new PublishMlsCommitDto
             {
-                Epoch = 1, Commit = [1], SenderDeviceId = "device-a", FulfilledJoinRequestIds = [requestId],
+                Epoch = 1, Commit = MlsWire.Commit(), SenderDeviceId = "device-a",
+                FulfilledJoinRequestIds = [requestId],
+                Welcomes = [new DeviceWelcomeDto { UserId = MemberId, DeviceId = "device-new", Welcome = MlsWire.Welcome() }],
             }, [AdminId, MemberId], T0);
 
         // Nobody was asked.
@@ -428,7 +432,9 @@ public class MlsHardeningTests
         await _service.PublishCommitAsync(ConversationId, ConversationId, null, AdminId,
             new PublishMlsCommitDto
             {
-                Epoch = 1, Commit = [1], SenderDeviceId = "device-a", FulfilledJoinRequestIds = [requestId],
+                Epoch = 1, Commit = MlsWire.Commit(), SenderDeviceId = "device-a",
+                FulfilledJoinRequestIds = [requestId],
+                Welcomes = [new DeviceWelcomeDto { UserId = MemberId, DeviceId = "device-new", Welcome = MlsWire.Welcome() }],
             }, [AdminId, MemberId], T0);
 
         // Somebody on the account already saw this one and allowed it; raising it as a security
@@ -444,7 +450,7 @@ public class MlsHardeningTests
         await _service.EnableAsync(ConversationId, ConversationId, null, AdminId, EnableDto(epoch: 0), T0);
 
         await _service.PublishCommitAsync(ConversationId, ConversationId, null, AdminId,
-            new PublishMlsCommitDto { Epoch = 1, Commit = [1], SenderDeviceId = "device-a" },
+            new PublishMlsCommitDto { Epoch = 1, Commit = MlsWire.Commit(), SenderDeviceId = "device-a" },
             [AdminId, MemberId], T0);
 
         // Conversation membership is known locally, so this one does not go via the bus.

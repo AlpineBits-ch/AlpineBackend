@@ -109,7 +109,7 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        return Results.Ok(await mls.GetStateAsync(conversationId));
+        return Results.Ok(await mls.GetStateAsync(conversationId, userId));
     }
 
     /// <summary>
@@ -200,7 +200,7 @@ public class MlsEndpoints
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
 
-        return Results.Ok(await mls.GetStateAsync(channelId));
+        return Results.Ok(await mls.GetStateAsync(channelId, userId));
     }
 
     /// <summary>Publishing a commit needs only ViewChannel: adding and removing group members tracks
@@ -256,6 +256,7 @@ public class MlsEndpoints
         SubmitJoinRequestDto dto,
         [NotBody] ClaimsPrincipal user,
         [NotBody] IMessageBus bus,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] MlsJoinRequestService joinRequests)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -263,6 +264,9 @@ public class MlsEndpoints
 
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
+
+        if (await OwnsDeviceAsync(devices, userId, dto.DeviceId) is { } deviceError)
+            return Results.BadRequest(deviceError);
 
         var result = await joinRequests.SubmitAsync(
             channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow);
@@ -294,7 +298,8 @@ public class MlsEndpoints
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
 
-        return Results.Ok(await joinRequests.ListPendingAsync(channelId, DateTimeOffset.UtcNow));
+        return Results.Ok(await joinRequests.ListPendingAsync(
+            channelId, DateTimeOffset.UtcNow, MlsContextKind.Channel, userId));
     }
 
     /// <summary>Vouches for a request.</summary>
@@ -303,7 +308,9 @@ public class MlsEndpoints
         string channelId,
         string requestId,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
         [NotBody] IMessageBus bus,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] MlsJoinRequestService joinRequests)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -312,7 +319,10 @@ public class MlsEndpoints
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
 
-        return ToHttp(await joinRequests.ApproveAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
+        var approverDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
+
+        return ToHttp(await joinRequests.ApproveAsync(
+            channelId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Channel, approverDeviceId));
     }
 
     [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests/{requestId}/deny")]
@@ -358,6 +368,7 @@ public class MlsEndpoints
         [NotBody] IMessageBus bus,
         [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -365,6 +376,9 @@ public class MlsEndpoints
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        if (await OwnsDeviceAsync(devices, userId, dto.DeviceId) is { } deviceError)
+            return Results.BadRequest(deviceError);
 
         var protectionLevel = await ResolveProtectionLevelAsync(bus, userId);
 
@@ -374,14 +388,15 @@ public class MlsEndpoints
 
         if (result.Status == MlsOperationStatus.Ok && result.Value is MlsJoinRequestDto request)
         {
-            // Conversation membership is known here, so the announcement goes direct.
+            // Everyone in the conversation, the requester's own account included.
             var audience = await ctx.Members
-                .Where(m => m.ConversationId == conversationId && m.UserId != userId)
+                .Where(m => m.ConversationId == conversationId)
                 .Select(m => m.UserId)
                 .ToListAsync();
 
             if (audience.Count > 0)
             {
+                // Deliberately no KeyPackage.
                 await hub.Clients.Users(audience).SendAsync("conversation.MlsJoinRequest", new
                 {
                     contextId = conversationId,
@@ -402,6 +417,19 @@ public class MlsEndpoints
         return ToHttp(result);
     }
 
+    /// <summary>
+    /// Refuses a device id that is not one of the caller's own registered devices.
+    /// </summary>
+    private static async Task<string?> OwnsDeviceAsync(DeviceIdResolver devices, string userId, string? deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return "DeviceId is required";
+
+        return await devices.IsRegisteredAsync(userId, deviceId, failOpen: false)
+            ? null
+            : $"'{deviceId}' is not one of your registered devices. Register it first, and note that "
+              + "a device id is only ever yours - admission is per device of your own account.";
+    }
+
     [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests")]
     public static async Task<IResult> ListConversationJoinRequests(
         string conversationId,
@@ -415,14 +443,17 @@ public class MlsEndpoints
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
         return Results.Ok(await joinRequests.ListPendingAsync(
-            conversationId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+            conversationId, DateTimeOffset.UtcNow, MlsContextKind.Conversation, userId));
     }
 
+    /// <summary>Vouches for a request.</summary>
     [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/approve")]
     public static async Task<IResult> ApproveConversationJoinRequest(
         string conversationId,
         string requestId,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -431,8 +462,11 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
+        var approverDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
+
         return ToHttp(await joinRequests.ApproveAsync(
-            conversationId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+            conversationId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Conversation,
+            approverDeviceId));
     }
 
     [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/deny")]
@@ -476,6 +510,7 @@ public class MlsEndpoints
         IssueAdmissionChallengeDto dto,
         [NotBody] ClaimsPrincipal user,
         [NotBody] HttpContext http,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -484,12 +519,12 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        var issuerDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        // Validated, not merely read: the issuer id decides whose challenge may be superseded, so an
+        // unchecked header would hand back the displacement primitive that scoping removed.
+        var issuerDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
 
         return ToHttp(await joinRequests.IssueChallengeAsync(
-            conversationId, requestId, userId,
-            string.IsNullOrWhiteSpace(issuerDeviceId) ? null : issuerDeviceId,
-            dto, DateTimeOffset.UtcNow));
+            conversationId, requestId, userId, issuerDeviceId, dto, DateTimeOffset.UtcNow));
     }
 
     /// <summary>The joining device collects the outstanding nonce.</summary>
@@ -534,6 +569,8 @@ public class MlsEndpoints
         string conversationId,
         string requestId,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -542,7 +579,10 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        return ToHttp(await joinRequests.GetProofAsync(conversationId, requestId, DateTimeOffset.UtcNow));
+        var callerDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
+
+        return ToHttp(await joinRequests.GetProofAsync(
+            conversationId, requestId, userId, callerDeviceId, DateTimeOffset.UtcNow));
     }
 
     /// <summary>

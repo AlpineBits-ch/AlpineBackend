@@ -24,6 +24,9 @@ public class PutProtectionLevelDto
     /// <summary>Must be exactly the stored version plus one.</summary>
     public int Version { get; set; }
 
+    /// <summary>The timestamp inside <see cref="SignedAssertion"/>, stored verbatim.</summary>
+    public DateTimeOffset UpdatedAt { get; set; }
+
     /// <summary>Account password.</summary>
     public string? Password { get; set; }
 

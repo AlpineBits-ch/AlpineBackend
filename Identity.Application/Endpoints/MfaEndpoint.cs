@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Web;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Domain.Aggregates;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -69,7 +70,8 @@ public class MfaEndpoint
     }
 
     [WolverinePost("api/v1/user/mfa/disable")]
-    public async Task<IResult> Disable(DisableMfaDto dto, [NotBody] ClaimsPrincipal principal, [NotBody] UserManager<ApplicationUser> manager)
+    public async Task<IResult> Disable(DisableMfaDto dto, [NotBody] ClaimsPrincipal principal,
+        [NotBody] UserManager<ApplicationUser> manager, [NotBody] IAccountPasswordVerifier passwords)
     {
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
@@ -77,7 +79,8 @@ public class MfaEndpoint
         var user = await manager.FindByIdAsync(userId);
         if (user is null) return Results.Unauthorized();
 
-        if (!await manager.CheckPasswordAsync(user, dto.Password)) return Results.BadRequest("Incorrect password");
+        var check = await passwords.CheckAsync(user, dto.Password);
+        if (!check.IsOk()) return Results.BadRequest(check.Describe("Disabling MFA"));
 
         await manager.SetTwoFactorEnabledAsync(user, false);
         // Invalidate the old secret too - re-enrolling later must not silently accept codes from
@@ -88,7 +91,9 @@ public class MfaEndpoint
     }
 
     [WolverinePost("api/v1/user/mfa/recovery-codes")]
-    public async Task<IResult> RegenerateRecoveryCodes(RegenerateMfaRecoveryCodesDto dto, [NotBody] ClaimsPrincipal principal, [NotBody] UserManager<ApplicationUser> manager)
+    public async Task<IResult> RegenerateRecoveryCodes(RegenerateMfaRecoveryCodesDto dto,
+        [NotBody] ClaimsPrincipal principal, [NotBody] UserManager<ApplicationUser> manager,
+        [NotBody] IAccountPasswordVerifier passwords)
     {
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
@@ -97,7 +102,9 @@ public class MfaEndpoint
         if (user is null) return Results.Unauthorized();
 
         if (!user.TwoFactorEnabled) return Results.BadRequest("MFA is not enabled");
-        if (!await manager.CheckPasswordAsync(user, dto.Password)) return Results.BadRequest("Incorrect password");
+
+        var check = await passwords.CheckAsync(user, dto.Password);
+        if (!check.IsOk()) return Results.BadRequest(check.Describe("Regenerating MFA recovery codes"));
 
         var recoveryCodes = await manager.GenerateNewTwoFactorRecoveryCodesAsync(user, 8);
 

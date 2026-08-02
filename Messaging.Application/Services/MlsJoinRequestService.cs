@@ -70,9 +70,11 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         if (active is null)
             return MlsOperationResult.BadRequest("This context is not encrypted; no request is needed.");
 
+        // Scoped to the requester as well as the device.
         var existing = await ctx.MlsJoinRequests
             .FirstOrDefaultAsync(r => r.ContextId == contextId
                                       && r.Generation == active.Generation
+                                      && r.RequesterUserId == requesterUserId
                                       && r.RequesterDeviceId == dto.DeviceId
                                       && r.State == MlsJoinRequestState.Pending);
 
@@ -136,8 +138,10 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         return recentlyAdmitted == 0;
     }
 
+    /// <summary>The review queue.</summary>
     public async Task<List<MlsJoinRequestDto>> ListPendingAsync(
-        string contextId, DateTimeOffset now, MlsContextKind kind = MlsContextKind.Channel)
+        string contextId, DateTimeOffset now, MlsContextKind kind = MlsContextKind.Channel,
+        string? callerUserId = null)
     {
         var active = await ctx.MlsGroupGenerations
             .AsNoTracking()
@@ -157,16 +161,19 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
 
-        return requests.Select(r => ToDto(r, required)).ToList();
+        return requests
+            .Select(r => ToDto(r, required, includeKeyPackage: r.RequesterUserId == callerUserId))
+            .ToList();
     }
 
-    /// <summary>Records one member's approval.</summary>
+    /// <summary>Records one approval.</summary>
     public async Task<MlsOperationResult> ApproveAsync(
         string contextId,
         string requestId,
         string approverUserId,
         DateTimeOffset now,
-        MlsContextKind kind = MlsContextKind.Channel)
+        MlsContextKind kind = MlsContextKind.Channel,
+        string? approverDeviceId = null)
     {
         var request = await ctx.MlsJoinRequests
             .Include(r => r.Approvals)
@@ -181,9 +188,22 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
                 Reason = "This request is no longer open.",
             });
 
-        // Vouching for yourself is not review.
         if (request.RequesterUserId == approverUserId)
-            return MlsOperationResult.BadRequest("You cannot approve your own join request.");
+        {
+            if (string.IsNullOrWhiteSpace(approverDeviceId))
+            {
+                return MlsOperationResult.BadRequest(
+                    "Approving your own account's join request requires a validated X-Device-Id, so "
+                    + "the server can tell one of your devices from the one asking to be let in.");
+            }
+
+            // Vouching for yourself is not review.
+            if (string.Equals(approverDeviceId, request.RequesterDeviceId, StringComparison.Ordinal))
+            {
+                return MlsOperationResult.BadRequest(
+                    "A device cannot approve its own join request.");
+            }
+        }
 
         var required = await RequiredApprovalsFor(contextId, request.Generation, kind);
 
@@ -259,16 +279,28 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
     /// admitted without a human ever tapping approve.
     /// </returns>
     public async Task<List<MlsJoinRequest>> FulfilAsync(
-        string contextId, IReadOnlyCollection<string> requestIds, DateTimeOffset now)
+        string contextId,
+        IReadOnlyCollection<string> requestIds,
+        IReadOnlyCollection<(string UserId, string DeviceId)> welcomedDevices,
+        int required,
+        DateTimeOffset now)
     {
         if (requestIds.Count == 0) return [];
 
-        var requests = await ctx.MlsJoinRequests
+        var candidates = await ctx.MlsJoinRequests
             .Include(r => r.Approvals)
             .Where(r => requestIds.Contains(r.Id)
                         && r.ContextId == contextId
                         && r.State == MlsJoinRequestState.Pending)
             .ToListAsync();
+
+        var welcomed = welcomedDevices.ToHashSet();
+
+        var requests = candidates
+            .Where(r => welcomed.Contains((r.RequesterUserId, r.RequesterDeviceId)))
+            .Where(r => r.Approvals.Select(a => a.ApproverUserId).Distinct().Count() >= required
+                        || !r.RequiresManualApproval)
+            .ToList();
 
         foreach (var request in requests)
         {
@@ -313,9 +345,12 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         if (request.RequesterUserId == issuerUserId && request.RequesterDeviceId == issuerDeviceId)
             return MlsOperationResult.BadRequest("A device cannot challenge its own join request.");
 
-        // One live challenge per request.
+        // One live challenge per issuer, not per request.
         var superseded = await ctx.MlsAdmissionChallenges
-            .Where(c => c.JoinRequestId == requestId && c.Proof == null)
+            .Where(c => c.JoinRequestId == requestId
+                        && c.Proof == null
+                        && c.IssuedByUserId == issuerUserId
+                        && c.IssuedByDeviceId == issuerDeviceId)
             .ToListAsync();
         if (superseded.Count > 0) ctx.MlsAdmissionChallenges.RemoveRange(superseded);
 
@@ -401,7 +436,8 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
     }
 
     /// <summary>The proof, for the device that issued the challenge to verify locally.</summary>
-    public async Task<MlsOperationResult> GetProofAsync(string contextId, string requestId, DateTimeOffset now)
+    public async Task<MlsOperationResult> GetProofAsync(
+        string contextId, string requestId, string callerUserId, string? callerDeviceId, DateTimeOffset now)
     {
         var request = await ctx.MlsJoinRequests.AsNoTracking()
             .FirstOrDefaultAsync(r => r.Id == requestId && r.ContextId == contextId);
@@ -409,7 +445,11 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         if (request is null) return MlsOperationResult.NotFound("Join request not found");
 
         var challenge = await ctx.MlsAdmissionChallenges.AsNoTracking()
-            .Where(c => c.JoinRequestId == requestId && c.Proof != null)
+            .Where(c => c.JoinRequestId == requestId
+                        && c.Proof != null
+                        && c.IssuedByUserId == callerUserId
+                        && (c.IssuedByDeviceId == null || callerDeviceId == null
+                                                       || c.IssuedByDeviceId == callerDeviceId))
             .OrderByDescending(c => c.ProofSubmittedAt)
             .FirstOrDefaultAsync();
 
@@ -438,11 +478,12 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         Answered = challenge.Proof is { Length: > 0 },
     };
 
-    private static MlsJoinRequestDto ToDto(MlsJoinRequest request, int required)
+    private static MlsJoinRequestDto ToDto(MlsJoinRequest request, int required, bool includeKeyPackage = false)
     {
         var dto = request.ToFacet<MlsJoinRequest, MlsJoinRequestDto>();
         dto.RequiredApprovals = required;
         dto.ApproverUserIds = request.Approvals.Select(a => a.ApproverUserId).Distinct().ToList();
+        if (includeKeyPackage) dto.KeyPackage = request.KeyPackage;
         return dto;
     }
 }

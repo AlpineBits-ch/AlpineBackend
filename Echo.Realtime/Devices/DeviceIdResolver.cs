@@ -54,7 +54,23 @@ public sealed class DeviceIdResolver(IMessageBus bus, IDistributedCache cache, I
         return new DeviceIdResult(deviceId, WasProvided: true, await IsRegisteredAsync(userId, deviceId, ct));
     }
 
-    private async Task<bool> IsRegisteredAsync(string userId, string deviceId, CancellationToken ct)
+    /// <summary>
+    /// The caller's device id only if it really is one of this user's registered devices, and null
+    /// otherwise - including when Identity cannot be reached.
+    /// </summary>
+    public async Task<string?> ResolveVerifiedAsync(
+        HttpRequest request, string userId, CancellationToken ct = default)
+    {
+        var header = request.Headers[DeviceIdentity.HeaderName].ToString();
+        if (string.IsNullOrWhiteSpace(header)) return null;
+
+        var deviceId = header.Trim();
+        return await IsRegisteredAsync(userId, deviceId, ct, failOpen: false) ? deviceId : null;
+    }
+
+    /// <summary>Whether the id names an active device of this user.</summary>
+    public async Task<bool> IsRegisteredAsync(
+        string userId, string deviceId, CancellationToken ct = default, bool failOpen = true)
     {
         var key = CacheKey(userId, deviceId);
         if (await cache.GetStringAsync(key, ct) is not null) return true;
@@ -68,9 +84,10 @@ public sealed class DeviceIdResolver(IMessageBus bus, IDistributedCache cache, I
         catch (Exception ex)
         {
             // Identity being unreachable must not take calls and voice down with it.
-            logger.LogWarning(ex, "Device validation unavailable for user {UserId}, accepting device {DeviceId} unverified",
-                userId, deviceId);
-            return true;
+            logger.LogWarning(ex,
+                "Device validation unavailable for user {UserId}, device {DeviceId} treated as {Verdict}",
+                userId, deviceId, failOpen ? "valid" : "unverified");
+            return failOpen;
         }
 
         if (!response.IsRegistered) return false;

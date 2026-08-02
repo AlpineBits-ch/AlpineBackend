@@ -44,7 +44,7 @@ public class InviteEndpoint
     
     [WolverinePost("/api/v1/guilds/{guildId}/invite")]
 
-    public async Task<IResult> CreateInviteAsync(string guildId, CreateInviteDto createInviteDto, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService)
+    public async Task<IResult> CreateInviteAsync(string guildId, CreateInviteDto createInviteDto, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -72,6 +72,9 @@ public class InviteEndpoint
         invite.Guild = guild;
 
         ctx.GuildInvites.Add(invite);
+
+        auditLog.Log(guildId, userId, AuditActionType.InviteCreated, invite.Id,
+            new { invite.Code, invite.Type, invite.ExpiresAt, invite.MaxUses, invite.ChannelId });
 
         return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
     }
@@ -107,19 +110,22 @@ public class InviteEndpoint
         return dto;
     }
     [WolverineDelete("/api/v1/invites/{inviteId}")]
-    public async Task<IResult> DeleteInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx,  [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService)
+    public async Task<IResult> DeleteInviteAsync(string inviteId, [NotBody] MicroserviceContext ctx,  [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
         var invite = await ctx.GuildInvites.Include(g => g.Guild).FirstOrDefaultAsync(i => i.Id == inviteId);
 
         if(invite is null) return Results.NotFound();
-        
+
         if(!await permissionService.CanUserPerformActionOnGuildAsync(userId, invite.GuildId, Permissions.ManageChannel))
             return Results.Forbid();
-        
+
         ctx.GuildInvites.Remove(invite);
-        
+
+        auditLog.Log(invite.GuildId, userId, AuditActionType.InviteDeleted, invite.Id,
+            new { invite.Code, invite.UseCount });
+
         return Results.Ok(invite.ToFacet<GuildInvite, InviteDto>());
     }
 
@@ -153,6 +159,11 @@ public class InviteEndpoint
 
         var isBanned = await ctx.Set<GuildBan>().AnyAsync(b => b.GuildId == invite.GuildId && b.BannedUserId == userId);
         if (isBanned) return Results.Forbid();
+
+        // Redeeming while already a member is a no-op, not a second membership.
+        var alreadyMember = await ctx.GuildMembers
+            .AnyAsync(m => m.GuildId == invite.GuildId && m.UserId == userId);
+        if (alreadyMember) return Results.Conflict("User is already a member of this guild.");
 
         invite.UseCount++;
         if(invite.Type == InviteType.OneTime || invite.IsExhausted()) invite.State = InviteState.Expired;
@@ -191,6 +202,7 @@ public class InviteEndpoint
             UserId = userId,
             JoinedAt = joinedAt,
             InviteId = invite.Id,
+            InviteCode = invite.Code,
             Nickname = profileResponse.Profile.UserName,
             SearchValue = searchValue.ToUpperInvariant(),
             // Only members who join while onboarding is actually configured are gated by it -
@@ -200,9 +212,15 @@ public class InviteEndpoint
 
         ctx.GuildMembers.Add(member);
 
+        // A guild with no @everyone role is malformed rather than impossible - imports and template
+        // instantiation both build the role set themselves - and the previous `role!` turned that
+        // into an NRE (a 500) after the member had already been added to the change tracker.
         var role = guild.Roles.FirstOrDefault(r => r.Type == RoleType.Everyone);
-        
-        role!.Members.Add(new RoleMember()
+        if (role is null)
+            return Results.Problem("Guild is missing its @everyone role; cannot complete the join.",
+                statusCode: StatusCodes.Status500InternalServerError);
+
+        role.Members.Add(new RoleMember()
         {
             Id = RoleMember.GenerateId(),
             UpdatedAt = DateTime.UtcNow,
@@ -210,7 +228,7 @@ public class InviteEndpoint
             MemberId = member.Id,
             RoleId = role.Id,
         });
-        
+
         var cacheKeyOne = GuildPermissionsForUser.GetCacheKey(guild.Id, userId);
         await cache.RemoveAsync(cacheKeyOne);
 

@@ -22,6 +22,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<UserBackupTransfer> UserBackupTransfers { get; set; }
     public DbSet<IdentityAuditEvent> IdentityAuditEvents { get; set; }
     public DbSet<LoginSession> LoginSessions { get; set; }
+    public DbSet<RevokedDeviceCertificate> RevokedDeviceCertificates { get; set; }
     
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -174,6 +175,19 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
 
             // The only read is "this account's recent security events, newest first".
             audit.HasIndex(a => new { a.UserId, a.CreatedAt });
+        });
+
+        modelBuilder.Entity<RevokedDeviceCertificate>(revocation =>
+        {
+            revocation.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deliberately NOT keyed to user_devices: the whole point is that the row outlives the
+            // device row it describes.
+            revocation.HasIndex(r => new { r.UserId, r.CertificateFingerprint }).IsUnique();
+            revocation.HasIndex(r => new { r.UserId, r.RevokedAt });
         });
 
 

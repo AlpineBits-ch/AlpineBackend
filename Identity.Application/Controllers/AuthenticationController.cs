@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using FluentValidation.Results;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Identity.Domain.Aggregates;
@@ -19,6 +20,7 @@ public class AuthenticationController(
     MicroserviceContext ctx,
     IMessageBus bus,
     SignInManager<ApplicationUser> signInManager,
+    Identity.Application.Services.IAccountPasswordVerifier passwords,
     UserManager<ApplicationUser> manager) : ControllerBase
 {
     private async Task<ApplicationUser?> FindUserByUsernameOrEmail(string usernameOrEmail)
@@ -42,10 +44,12 @@ public class AuthenticationController(
             return NotFound("user not found");
         }
 
-        if (!await manager.CheckPasswordAsync(user, password.Password))
-        {
-            return BadRequest("wrong password");
-        }
+        // This route's entire purpose is "prove you are the account holder", so it is the single
+        // most attractive place to grind passwords. Lockout-aware.
+        var verify = await passwords.CheckAsync(user, password.Password);
+        if (verify == Services.PasswordCheckResult.LockedOut)
+            return StatusCode(StatusCodes.Status423Locked, "Too many incorrect passwords. Try again later.");
+        if (!verify.IsOk()) return BadRequest("wrong password");
 
         return Ok();
     }
@@ -65,7 +69,7 @@ public class AuthenticationController(
 
         await manager.UpdateSecurityStampAsync(user);
 
-        if (await manager.CheckPasswordAsync(user, request.Password))
+        if ((await passwords.CheckAsync(user, request.Password)).IsOk())
         {
             var principal = await signInManager.CreateUserPrincipalAsync(user);
             return SignIn(principal: principal,

@@ -273,7 +273,7 @@ namespace Identity.Infrastructure.Migrations
                 columns: new[] { "user_id", "target_device_id" });
         }
 
-        /// <inheritdoc />
+        /// <summary>Reverses <see cref="Up"/>.</summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
@@ -281,6 +281,17 @@ namespace Identity.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "user_backup_transfers");
+
+            // Before the version column disappears: keep the newest blob per device and drop the
+            // rest, so the unique index restored at the end of this method has data it can build on.
+            // ctid breaks ties for rows that somehow share a version - there is no unique key left to
+            // order by once `version` is gone, and a tie must not stall the rollback.
+            migrationBuilder.Sql("""
+                DELETE FROM user_device_backups a
+                USING user_device_backups b
+                WHERE a.device_id = b.device_id
+                  AND (a.version < b.version OR (a.version = b.version AND a.ctid < b.ctid));
+                """);
 
             migrationBuilder.DropIndex(
                 name: "ix_user_device_backups_device_id_version",

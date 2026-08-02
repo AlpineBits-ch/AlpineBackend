@@ -135,7 +135,7 @@ namespace Identity.Infrastructure.Migrations
                 onDelete: ReferentialAction.SetNull);
         }
 
-        /// <inheritdoc />
+        /// <summary>Reverses <see cref="Up"/>.</summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(
@@ -233,11 +233,32 @@ namespace Identity.Infrastructure.Migrations
                 .OldAnnotation("Npgsql:Enum:user_status", "active,banned,deleted,inactive,pending_deletion,purge_in_progress")
                 .OldAnnotation("Npgsql:Enum:user_type", "admin,bot,default,moderator");
 
+            // Name every id that the old global uniqueness would have rejected, so the rollback is
+            // not silent about the one guarantee it cannot give back.
+            migrationBuilder.Sql("""
+                DO $$
+                DECLARE colliding text;
+                BEGIN
+                    SELECT string_agg(d.client_device_id, ', ')
+                    INTO colliding
+                    FROM (
+                        SELECT client_device_id
+                        FROM user_devices
+                        GROUP BY client_device_id
+                        HAVING count(*) > 1
+                    ) d;
+
+                    IF colliding IS NOT NULL THEN
+                        RAISE WARNING 'ix_user_devices_client_device_id is being restored NON-UNIQUE: % is held by more than one account. Global uniqueness of client_device_id cannot be re-established without deleting another user''s device row.', colliding;
+                    END IF;
+                END $$;
+                """);
+
+            // Deliberately not unique - see the remarks on this method.
             migrationBuilder.CreateIndex(
                 name: "ix_user_devices_client_device_id",
                 table: "user_devices",
-                column: "client_device_id",
-                unique: true);
+                column: "client_device_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_user_devices_user_id",

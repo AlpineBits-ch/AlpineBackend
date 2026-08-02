@@ -58,7 +58,8 @@ public class PasswordResetEndpoint
 
     [WolverinePost("api/v1/user/reset-password")]
     public async Task<IResult> ResetPassword(ResetPasswordDto dto, [NotBody] IDistributedCache cache,
-        [NotBody] MicroserviceContext ctx, [NotBody] UserManager<ApplicationUser> manager)
+        [NotBody] MicroserviceContext ctx, [NotBody] UserManager<ApplicationUser> manager,
+        [NotBody] MasterKeyRewrapTicketService rewrapTickets)
     {
         var normalized = dto.Email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
@@ -110,10 +111,15 @@ public class PasswordResetEndpoint
             await ctx.SaveChangesAsync();
         }
 
+        // The permit for the re-wrap this reset just made necessary.
+        string? rewrapTicket = null;
+        if (mustRewrap) rewrapTicket = await rewrapTickets.IssueAsync(user.Id);
+
         return Results.Ok(new ResetPasswordResultDto
         {
             MasterKeyRewrapRequired = mustRewrap,
             EncryptedHistoryRecoverable = !historyLost,
+            MasterKeyRewrapTicket = rewrapTicket,
         });
     }
 }

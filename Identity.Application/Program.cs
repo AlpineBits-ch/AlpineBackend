@@ -130,6 +130,17 @@ builder.Services.AddHttpClient<SteamOpenIdService>();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddScoped<EmailService>();
+
+// Every password-gated route goes through one lockout-aware check, and every per-device rule
+// resolves its device from the session rather than from the X-Device-Id header.
+builder.Services.AddScoped<Identity.Application.Services.IAccountPasswordVerifier,
+    Identity.Application.Services.AccountPasswordVerifier>();
+builder.Services.AddScoped<Identity.Application.Services.SessionDeviceResolver>();
+builder.Services.AddScoped<Identity.Application.Services.MasterKeyRewrapTicketService>();
+
+// The §I.1 rollout knobs, from configuration rather than from whatever the binary was compiled
+// with. Absent or unparsable values keep the safe default - see MlsPolicy.Bind.
+Domain.MlsPolicy.Bind(builder.Configuration);
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddHostedService<Identity.Application.Services.AccountDeletionPurgeSweepService>();
 

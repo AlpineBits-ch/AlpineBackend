@@ -15,5 +15,8 @@ public class AccountIdentityKeyRotated
 
     public string? ChangedByDeviceId { get; init; }
 
+    /// <summary>True when the account had no identity key at all until this write.</summary>
+    public bool IsFirstPublication { get; init; }
+
     public DateTimeOffset RotatedAt { get; init; }
 }

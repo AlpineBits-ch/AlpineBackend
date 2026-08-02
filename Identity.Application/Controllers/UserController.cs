@@ -3,6 +3,7 @@ using System.Text.Json;
 using AppEnvironment;
 using Facet.Extensions;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
 using Identity.Domain.Enums;
@@ -36,7 +37,8 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
     /// <summary>Uploads the wrapped master key.</summary>
     [HttpPost("master")]
     public async Task<IActionResult> UploadMasterKey(CreateMasterKeyDto dto,
-        [FromServices] UserManager<ApplicationUser> users)
+        [FromServices] IAccountPasswordVerifier passwords,
+        [FromServices] SessionDeviceResolver sessionDevices)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
@@ -54,8 +56,20 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
             if (dto.Version < current.Version)
                 return BadRequest($"Master key version must not go backwards; current version is {current.Version}.");
 
-            if (string.IsNullOrEmpty(dto.Password) || !await users.CheckPasswordAsync(user, dto.Password))
-                return BadRequest("Replacing an existing master key requires the account password.");
+            // Same version, different bytes is either a re-wrap under a new password - which is
+            // what rewrap-password exists for, and which that route gates on a credential plus a
+            // verifier check - or a different master key wearing the current version's number,
+            // which makes every blob sealed under it unopenable while claiming nothing changed.
+            if (current.Version == dto.Version)
+            {
+                return BadRequest(
+                    "The master key wrapping differs from the stored one at the same version. Use "
+                    + "POST api/v1/backup/recovery-key/rewrap-password to re-wrap under a new "
+                    + "password, or bump the version to rotate the master key.");
+            }
+
+            var check = await passwords.CheckAsync(user, dto.Password);
+            if (!check.IsOk()) return BadRequest(check.Describe("Replacing an existing master key"));
 
             logger.LogWarning("Master key replaced for {UserId}: version {Old} -> {New}",
                 userId, current.Version, dto.Version);
@@ -81,7 +95,9 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
         {
             UserId = userId,
             Action = IdentityAuditActions.RecoveryKeyWritten,
-            ClientDeviceId = Request.Headers["X-Device-Id"].ToString() is { Length: > 0 } d ? d : null,
+            // Session-derived, never the header: an audit row naming a device the actor chose is
+            // not evidence.
+            ClientDeviceId = (await sessionDevices.ResolveAsync(User, userId))?.ClientDeviceId,
             Detail = $"master key version {current?.Version.ToString() ?? "none"} -> {dto.Version}",
             IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
         }));

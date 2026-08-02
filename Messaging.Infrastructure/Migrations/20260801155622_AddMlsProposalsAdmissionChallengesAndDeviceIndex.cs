@@ -93,10 +93,22 @@ namespace Messaging.Infrastructure.Migrations
         }
 
         /// <inheritdoc />
+        /// <summary>Reverses <see cref="Up"/>.</summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
                 name: "mls_admission_challenges");
+
+            // While `is_proposal` still exists to select on.
+            migrationBuilder.Sql("DELETE FROM mls_commits WHERE is_proposal = true;");
+
+            // Keep one membership row per device. ctid is the tie-break: there is no meaningful
+            // "right" one to keep once the schema says a device has exactly one conversation.
+            migrationBuilder.Sql("""
+                DELETE FROM member_devices a
+                USING member_devices b
+                WHERE a.device_id = b.device_id AND a.ctid < b.ctid;
+                """);
 
             migrationBuilder.DropIndex(
                 name: "ix_mls_commits_context_id_generation_epoch",

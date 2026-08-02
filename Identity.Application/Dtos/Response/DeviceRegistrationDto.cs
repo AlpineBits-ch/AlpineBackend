@@ -25,3 +25,21 @@ public class ResetKeyPackagesResultDto
 {
     public int DeletedCount { get; set; }
 }
+
+/// <summary>One entry in an account's certificate revocation list.</summary>
+public class RevokedCertificateDto
+{
+    public string DeviceId { get; set; } = null!;
+
+    /// <summary>Lowercase hex SHA-256 of the certificate bytes.</summary>
+    public string CertificateFingerprint { get; set; } = null!;
+
+    public int IdentityKeyVersion { get; set; }
+
+    /// <summary>When it would have expired anyway, so a client can prune on its own clock rather
+    /// than trusting the server to have swept.</summary>
+    public DateTimeOffset? CertificateExpiresAt { get; set; }
+
+    public string? Reason { get; set; }
+    public DateTimeOffset RevokedAt { get; set; }
+}

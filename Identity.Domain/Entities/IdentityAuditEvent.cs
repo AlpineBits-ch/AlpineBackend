@@ -13,6 +13,9 @@ public static class IdentityAuditActions
     public const string KeyPackagesReset = "key-packages.reset";
     public const string DeviceIdentityRotated = "device.identity-rotated";
 
+    /// <summary>A device was unregistered.</summary>
+    public const string DeviceRemoved = "device.removed";
+
     /// <summary>Append-only and surfaced in the UI on purpose: a silent downgrade from
     /// VerifiedDevices is the step that makes auto-admitting an attacker's device possible.</summary>
     public const string ProtectionLevelChanged = "protection-level.changed";
@@ -24,6 +27,12 @@ public static class IdentityAuditActions
     public const string MasterKeyPasswordWrappingInvalidated = "master-key.password-wrapping-invalidated";
 
     public const string MasterKeyRewrapped = "master-key.rewrapped";
+
+    /// <summary>
+    /// A session was bound to a device it did not log in from, which is only possible with the
+    /// account password.
+    /// </summary>
+    public const string SessionDeviceBound = "session.device-bound";
 }
 
 public class CreateIdentityAuditEventParams

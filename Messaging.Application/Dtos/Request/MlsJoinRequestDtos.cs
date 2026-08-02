@@ -32,6 +32,11 @@ public partial class MlsJoinRequestDto
 
     /// <summary>Who has already vouched.</summary>
     public List<string> ApproverUserIds { get; set; } = new();
+
+    /// <summary>
+    /// The exact key-package bytes - present only when the request belongs to the reading account.
+    /// </summary>
+    public byte[]? KeyPackage { get; set; }
 }
 
 public class MlsJoinRequestApprovalResultDto

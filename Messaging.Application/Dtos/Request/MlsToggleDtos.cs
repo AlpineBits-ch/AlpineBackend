@@ -32,7 +32,16 @@ public class MlsContextStateDto
 
     public long? Epoch { get; set; }
     public byte[]? MlsGroupId { get; set; }
+
+    /// <summary>
+    /// The live GroupInfo, or null when the caller has no evidence of ever having been in this
+    /// group.
+    /// </summary>
     public byte[]? MlsGroupInfo { get; set; }
+
+    /// <summary>True when a GroupInfo exists but was not served to this caller, so a client can say
+    /// "ask to be let in" rather than "this group has no rejoin point".</summary>
+    public bool GroupInfoWithheld { get; set; }
 
     /// <summary>Every generation, oldest first, including terminated ones - their messages are still
     /// in the context and a client needs to know the generation existed to explain a stretch of
@@ -40,7 +49,8 @@ public class MlsContextStateDto
     public List<MlsGenerationDto> Generations { get; set; } = new();
 }
 
-[Facet(typeof(MlsGroupGeneration))]
+/// <summary>One generation, minus its GroupInfo.</summary>
+[Facet(typeof(MlsGroupGeneration), nameof(MlsGroupGeneration.MlsGroupInfo))]
 public partial class MlsGenerationDto
 {
 }

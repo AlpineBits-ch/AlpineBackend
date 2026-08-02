@@ -284,10 +284,11 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey(m => m.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
             
+            // SetNull, emphatically not Cascade.
             guildMemberBuilder.HasOne(m => m.Invite)
                 .WithMany(i => i.Members)
                 .HasForeignKey(m => m.InviteId)
-                .OnDelete(DeleteBehavior.Cascade)
+                .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
 
             guildMemberBuilder.HasIndex(m => new { m.GuildId, m.UserId });

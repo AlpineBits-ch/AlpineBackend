@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Identity.Application.Services;
 using System.Text.Json;
 using Identity.Application.Services.Qr;
 using Identity.Application.Services.Steam;
@@ -21,6 +22,7 @@ namespace Identity.Application.Controllers;
 [Route("connect")]
 public class ConnectController(SignInManager<ApplicationUser> signInManager,
     UserManager<ApplicationUser> manager, IDistributedCache cache, MicroserviceContext ctx,
+    Identity.Application.Services.IAccountPasswordVerifier passwords,
     ILogger<ConnectController> logger) : ControllerBase
 {
     [HttpPost("token")]
@@ -49,7 +51,16 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
 
             }
 
-            if (!await manager.CheckPasswordAsync(user, request.Password))
+            // Lockout-aware.
+            var check = await passwords.CheckAsync(user, request.Password);
+            if (check == Services.PasswordCheckResult.LockedOut)
+            {
+                logger.LogInformation("Account {username} is locked out after repeated failures", request.Username);
+                return StatusCode(StatusCodes.Status423Locked,
+                    "Too many incorrect passwords. Try again later.");
+            }
+
+            if (!check.IsOk())
             {
                 logger.LogInformation("The username {username} or password is incorrect", request.Username);
                 return Unauthorized();

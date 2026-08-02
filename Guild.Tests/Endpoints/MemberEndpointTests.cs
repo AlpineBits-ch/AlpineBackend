@@ -320,14 +320,14 @@ public class MemberEndpointTests
     [Test]
     public async Task LeaveGuild_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.CreateAnonymous(), _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.CreateAnonymous(), _auditLog, _hub, _hydrateService, _bus, _permissionService);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task LeaveGuild_GuildDoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.LeaveGuildAsync("nonexistent", _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.LeaveGuildAsync("nonexistent", _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus, _permissionService);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -337,7 +337,7 @@ public class MemberEndpointTests
         _context.Guilds.Add(MakeGuild());
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(OwnerId), _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(OwnerId), _auditLog, _hub, _hydrateService, _bus, _permissionService);
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
@@ -347,7 +347,7 @@ public class MemberEndpointTests
         _context.Guilds.Add(MakeGuild());
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus, _permissionService);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -358,12 +358,53 @@ public class MemberEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = TargetMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus, _permissionService);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(await _context.GuildMembers.AsNoTracking().AnyAsync(m => m.Id == TargetMemberId), Is.False);
         Assert.That(_bus.Published.OfType<MemberRemovedForBots>().Any(e => e.UserId == UserId && e.Reason == "Left"), Is.True);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Removal must drop the
+    // cached permission set ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task LeaveGuild_Valid_InvalidatesUserPermissionCache()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.GuildMembers.Add(new GuildMember { Id = TargetMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
+        await _context.SaveChangesAsync();
+        var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, UserId);
+        _cache.SetEntry(cacheKey, "stale");
+
+        await _endpoint.LeaveGuildAsync(GuildId, _context, TestPrincipal.Create(UserId), _auditLog, _hub, _hydrateService, _bus, _permissionService);
+
+        Assert.That(_cache.HasEntry(cacheKey), Is.False);
+    }
+
+    [Test]
+    public async Task KickMember_Valid_InvalidatesUserPermissionCache()
+    {
+        await SeedModeratorAndTarget(Permissions.KickMembers);
+        var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, TargetUserId);
+        _cache.SetEntry(cacheKey, "stale");
+
+        await _endpoint.KickMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+
+        Assert.That(_cache.HasEntry(cacheKey), Is.False);
+    }
+
+    [Test]
+    public async Task BanMember_Valid_InvalidatesUserPermissionCache()
+    {
+        await SeedModeratorAndTarget(Permissions.BanMembers);
+        var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, TargetUserId);
+        _cache.SetEntry(cacheKey, "stale");
+
+        await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+
+        Assert.That(_cache.HasEntry(cacheKey), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════

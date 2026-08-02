@@ -59,7 +59,8 @@ public class PasswordResetEndpoint
 
     [WolverinePost("api/v1/user/reset-password")]
     public async Task<IResult> ResetPassword(ResetPasswordDto dto, [NotBody] IDistributedCache cache,
-        [NotBody] MicroserviceContext ctx, [NotBody] UserManager<ApplicationUser> manager)
+        [NotBody] MicroserviceContext ctx, [NotBody] UserManager<ApplicationUser> manager,
+        [NotBody] MasterKeyRewrapTicketService rewrapTickets)
     {
         var normalized = dto.Email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
@@ -116,10 +117,25 @@ public class PasswordResetEndpoint
             await ctx.SaveChangesAsync();
         }
 
+        // The permit for the re-wrap this reset just made necessary.
+        //
+        // `rewrap-password` overwrites the wrapping that opens every backup blob on the account, so
+        // it cannot be reachable on a bare session token - but on this journey there is by
+        // definition no usable password to demand instead: the master key is sealed under the one
+        // the user has just lost. What the caller does have is the emailed code they proved a moment
+        // ago, and this carries that proof forward as a single-use, thirty-minute ticket.
+        //
+        // Only minted when a re-wrap can actually succeed. With no recovery-code wrapping the key is
+        // already unrecoverable and a ticket would only invite a client to overwrite the wrapping
+        // with bytes nothing opens.
+        string? rewrapTicket = null;
+        if (mustRewrap) rewrapTicket = await rewrapTickets.IssueAsync(user.Id);
+
         return Results.Ok(new ResetPasswordResultDto
         {
             MasterKeyRewrapRequired = mustRewrap,
             EncryptedHistoryRecoverable = !historyLost,
+            MasterKeyRewrapTicket = rewrapTicket,
         });
     }
 }

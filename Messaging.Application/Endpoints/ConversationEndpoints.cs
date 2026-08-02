@@ -42,6 +42,75 @@ public class ConversationEndpoints
     /// creating a conversation needs - one call per creation - and far below a drain.</summary>
     public const int MaxConsumeCallsPerWindow = 20;
 
+    /// <summary>
+    /// How many times one caller may draw from a given target's devices per
+    /// <see cref="ConsumeTokenPerTargetWindow"/>.
+    ///
+    /// <para><b>The short window was the wrong unit.</b> Twenty calls per two minutes is six hundred
+    /// packages an hour out of a stock of a hundred - so a single friend could empty every device
+    /// you own inside ten minutes, forcing every subsequent join onto the reusable last-resort
+    /// package (no forward secrecy from that point back) and then, on a <c>VerifiedDevices</c>
+    /// account which has no such fallback, into <c>Unreachable</c>: the victim can no longer be added
+    /// to any new conversation at all. Rate is not the right thing to bound here; total draw against
+    /// a particular person is.</para>
+    ///
+    /// <para>Ten a day is far more than adding someone to conversations needs, and takes a tenth of
+    /// one device's stock.</para>
+    /// </summary>
+    public const int MaxConsumePerTargetPerWindow = 10;
+
+    public static readonly TimeSpan ConsumeTokenPerTargetWindow = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// A counter that expires a fixed interval after its <i>first</i> increment.
+    ///
+    /// <para><b>Writing the count back with a fresh
+    /// <see cref="DistributedCacheEntryOptions.AbsoluteExpirationRelativeToNow"/> does not do this.</b>
+    /// It restarts the clock on every draw, which turns "ten per day" into "ten per any twenty-four
+    /// hours of silence" - so a caller who keeps drawing never lets the counter expire, but a caller
+    /// who paces themselves just under the limit resets it forever and the cap becomes a rate, not a
+    /// budget. Since the whole point of the per-target rule (H7) is to bound the <i>total</i> draw
+    /// against one person rather than its rate, that is the wrong shape.</para>
+    ///
+    /// <para>So the window start travels in the value and the TTL is always measured from it. The
+    /// entry still expires on its own, which is what keeps this a cache entry and not a table.</para>
+    /// </summary>
+    private readonly record struct WindowedCount(int Count, DateTimeOffset WindowStart)
+    {
+        public static WindowedCount Parse(string? raw, DateTimeOffset now)
+        {
+            // `count:windowStartUnixSeconds`. A value written by an older build is just a number; it
+            // is read as a count whose window starts now, which at worst grants one extra window.
+            if (string.IsNullOrEmpty(raw)) return new WindowedCount(0, now);
+
+            var separator = raw.IndexOf(':');
+            if (separator < 0)
+                return new WindowedCount(int.TryParse(raw, out var legacy) ? legacy : 0, now);
+
+            if (!int.TryParse(raw.AsSpan(0, separator), out var count)
+                || !long.TryParse(raw.AsSpan(separator + 1), out var startedAt))
+            {
+                return new WindowedCount(0, now);
+            }
+
+            return new WindowedCount(count, DateTimeOffset.FromUnixTimeSeconds(startedAt));
+        }
+
+        public string Serialize() => $"{Count}:{WindowStart.ToUnixTimeSeconds()}";
+
+        /// <summary>What is left of the window, never zero or negative - a non-positive TTL would
+        /// make the write a no-op and silently uncap the counter.</summary>
+        public TimeSpan RemainingAt(DateTimeOffset now, TimeSpan window)
+        {
+            var remaining = WindowStart + window - now;
+            return remaining > TimeSpan.Zero ? remaining : TimeSpan.FromSeconds(1);
+        }
+    }
+
+    /// <summary>Cap on one call's target list, which was unbounded - and every entry costs a package
+    /// from every device that user owns.</summary>
+    public const int MaxConsumeTargets = 200;
+
     [WolverinePost("/api/v1/conversations/consume-tokens")]
     public async Task<IResult> FetchTokensForUsers(ConsumeMlsDeviceTokensForUserRequest request,
         [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
@@ -50,13 +119,20 @@ public class ConversationEndpoints
         var ownUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(ownUserId is null) return Results.Unauthorized();
 
+        var targets = request.UserIds.Distinct().OrderBy(u => u, StringComparer.Ordinal).ToList();
+
+        if (targets.Count > MaxConsumeTargets)
+        {
+            return Results.BadRequest(
+                $"At most {MaxConsumeTargets} users per call; each one costs a single-use key package "
+                + "from every device they own.");
+        }
 
         if (!await IsBefriendedWithUsers(ownUserId, request.UserIds.ToList(), messageBus))
         {
             return Results.BadRequest("User is not friends with the users you are trying to consume tokens for");
         }
 
-        var targets = request.UserIds.Distinct().OrderBy(u => u, StringComparer.Ordinal).ToList();
         var replayKey = $"mls-consume:{ownUserId}:{string.Join(",", targets)}";
 
         // Idempotent inside the window. A client that retried because it never saw the response gets
@@ -70,20 +146,68 @@ public class ConversationEndpoints
             if (replayed is not null) return Results.Ok(replayed);
         }
 
+        var now = DateTimeOffset.UtcNow;
+
         var budgetKey = $"mls-consume-budget:{ownUserId}";
-        var spent = int.TryParse(await cache.GetStringAsync(budgetKey), out var parsed) ? parsed : 0;
-        if (spent >= MaxConsumeCallsPerWindow)
+        var budget = WindowedCount.Parse(await cache.GetStringAsync(budgetKey), now);
+        if (budget.Count >= MaxConsumeCallsPerWindow)
         {
             return Results.Json(
-                new { retryAfterSeconds = (int)ConsumeTokenReplayWindow.TotalSeconds },
+                new
+                {
+                    retryAfterSeconds =
+                        (int)budget.RemainingAt(now, ConsumeTokenReplayWindow).TotalSeconds,
+                },
                 statusCode: StatusCodes.Status429TooManyRequests);
+        }
+
+        // Per-target draw, checked before anything is consumed so a call that would exceed the
+        // budget for one member of the list does not burn packages from the rest.
+        var perTargetKeys = targets.Select(t => $"mls-consume-target:{ownUserId}:{t}").ToList();
+        var perTargetSpend = new WindowedCount[targets.Count];
+
+        for (var i = 0; i < targets.Count; i++)
+        {
+            perTargetSpend[i] = WindowedCount.Parse(await cache.GetStringAsync(perTargetKeys[i]), now);
+
+            if (perTargetSpend[i].Count >= MaxConsumePerTargetPerWindow)
+            {
+                return Results.Json(
+                    new
+                    {
+                        error = "key_package_budget_exhausted",
+                        userId = targets[i],
+                        // The real remainder of *this* target's window, not the window length: the
+                        // budget is spent from the first draw, so a caller told to come back in 24
+                        // hours when 3 remain would simply be wrong.
+                        retryAfterSeconds =
+                            (int)perTargetSpend[i].RemainingAt(now, ConsumeTokenPerTargetWindow).TotalSeconds,
+                    },
+                    statusCode: StatusCodes.Status429TooManyRequests);
+            }
         }
 
         var tokens = await messageBus.InvokeAsync<ConsumeMlsDeviceTokensForUserResponse>(request);
 
-        var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ConsumeTokenReplayWindow };
-        await cache.SetStringAsync(replayKey, JsonSerializer.Serialize(tokens), options);
-        await cache.SetStringAsync(budgetKey, (spent + 1).ToString(), options);
+        await cache.SetStringAsync(replayKey, JsonSerializer.Serialize(tokens),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ConsumeTokenReplayWindow });
+
+        var nextBudget = budget with { Count = budget.Count + 1 };
+        await cache.SetStringAsync(budgetKey, nextBudget.Serialize(), new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = nextBudget.RemainingAt(now, ConsumeTokenReplayWindow),
+        });
+
+        for (var i = 0; i < targets.Count; i++)
+        {
+            var next = perTargetSpend[i] with { Count = perTargetSpend[i].Count + 1 };
+            await cache.SetStringAsync(perTargetKeys[i], next.Serialize(), new DistributedCacheEntryOptions
+            {
+                // Measured from the window's start, so the tenth draw expires at the same instant the
+                // first one set - the counter is a budget, not a rate.
+                AbsoluteExpirationRelativeToNow = next.RemainingAt(now, ConsumeTokenPerTargetWindow),
+            });
+        }
 
         return Results.Ok(tokens);
     }

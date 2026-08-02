@@ -41,6 +41,7 @@ public class InviteEndpointTests
     private FakeInvokingMessageBus _bus = null!;
     private FakeHubContext _hub = null!;
     private GuildHydrateService _hydrateService = null!;
+    private AuditLogService _auditLog = null!;
     private InviteEndpoint _endpoint = null!;
 
     [SetUp]
@@ -52,6 +53,7 @@ public class InviteEndpointTests
         _bus = new FakeInvokingMessageBus();
         _hub = new FakeHubContext();
         _hydrateService = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
+        _auditLog = new AuditLogService(_context);
         _endpoint = new InviteEndpoint();
     }
 
@@ -129,7 +131,7 @@ public class InviteEndpointTests
     [Test]
     public async Task CreateInvite_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto(), _context, TestPrincipal.CreateAnonymous(), _permissionService);
+        var result = await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto(), _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -140,7 +142,7 @@ public class InviteEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto(), _context, TestPrincipal.Create(UserId), _permissionService);
+        var result = await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -155,7 +157,7 @@ public class InviteEndpointTests
         // wouldn't happen in practice since permission resolution needs the guild. Skipped in
         // favor of the Forbid-first coverage above (matches ComputePermissionsForUserAsync
         // resolving to no permissions for a nonexistent guild).
-        var result = await _endpoint.CreateInviteAsync("nonexistent", new CreateInviteDto(), _context, TestPrincipal.Create(UserId), _permissionService);
+        var result = await _endpoint.CreateInviteAsync("nonexistent", new CreateInviteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -164,7 +166,7 @@ public class InviteEndpointTests
     {
         await SeedManagerMember();
 
-        var result = await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto { Type = InviteType.OneTime, MaxUses = 5 }, _context, TestPrincipal.Create(UserId), _permissionService);
+        var result = await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto { Type = InviteType.OneTime, MaxUses = 5 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
         await _context.SaveChangesAsync();
 
         var ok = result as Ok<InviteDto>;
@@ -222,14 +224,14 @@ public class InviteEndpointTests
     [Test]
     public async Task DeleteInvite_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.DeleteInviteAsync("nonexistent", _context, TestPrincipal.CreateAnonymous(), _permissionService);
+        var result = await _endpoint.DeleteInviteAsync("nonexistent", _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task DeleteInvite_DoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.DeleteInviteAsync("nonexistent", _context, TestPrincipal.Create(UserId), _permissionService);
+        var result = await _endpoint.DeleteInviteAsync("nonexistent", _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -241,7 +243,7 @@ public class InviteEndpointTests
         await _context.SaveChangesAsync();
         var invite = await SeedInvite();
 
-        var result = await _endpoint.DeleteInviteAsync(invite.Id, _context, TestPrincipal.Create(UserId), _permissionService);
+        var result = await _endpoint.DeleteInviteAsync(invite.Id, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -251,7 +253,7 @@ public class InviteEndpointTests
         await SeedManagerMember();
         var invite = await SeedInvite();
 
-        var result = await _endpoint.DeleteInviteAsync(invite.Id, _context, TestPrincipal.Create(UserId), _permissionService);
+        var result = await _endpoint.DeleteInviteAsync(invite.Id, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<InviteDto>>());
@@ -439,5 +441,128 @@ public class InviteEndpointTests
         await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
 
         Assert.That(_bus.Published.OfType<Guild.Contracts.Bus.Events.MemberJoinedForBots>().Any(e => e.UserId == UserId && e.GuildId == GuildId), Is.True);
+    }
+
+    [Test]
+    public async Task RedeemInvite_Valid_SnapshotsInviteCodeOnMember()
+    {
+        await SeedRedeemableGuild();
+        var invite = await SeedInvite();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+
+        await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
+        await _context.SaveChangesAsync();
+
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.GuildId == GuildId && m.UserId == UserId);
+        Assert.That(member.InviteId, Is.EqualTo(invite.Id));
+        Assert.That(member.InviteCode, Is.EqualTo(invite.Code), "attribution must survive the invite being deleted");
+    }
+
+    [Test]
+    public async Task RedeemInvite_AlreadyAMember_ReturnsConflictAndDoesNotDuplicateOrBurnAUse()
+    {
+        await SeedRedeemableGuild();
+        var invite = await SeedInvite();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+
+        await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
+        await _context.SaveChangesAsync();
+
+        var second = await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
+        await _context.SaveChangesAsync();
+
+        Assert.That(second, Is.InstanceOf<Conflict<string>>());
+        Assert.That(await _context.GuildMembers.AsNoTracking().CountAsync(m => m.GuildId == GuildId && m.UserId == UserId), Is.EqualTo(1));
+
+        var reloaded = await _context.GuildInvites.AsNoTracking().FirstAsync(i => i.Id == invite.Id);
+        Assert.That(reloaded.UseCount, Is.EqualTo(1), "a rejected re-redeem must not consume a use");
+    }
+
+    [Test]
+    public async Task RedeemInvite_GuildHasNoEveryoneRole_ReturnsProblemInsteadOfThrowing()
+    {
+        _context.Guilds.Add(MakeGuild());
+        await _context.SaveChangesAsync();
+        var invite = await SeedInvite();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+
+        var result = await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
+
+        Assert.That(result, Is.InstanceOf<ProblemHttpResult>());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Invite deletion must not take the members with it
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>The FK used to be ON DELETE CASCADE, so deleting an invite deleted every member who
+    /// had joined through it - silently, since DeleteInviteAsync never loads the Members collection
+    /// and so fires none of the kick/leave side effects. Asserted on the model rather than only
+    /// behaviourally because the InMemory provider has no real FK to enforce.</summary>
+    [Test]
+    public void GuildMemberInviteForeignKey_IsSetNull_NotCascade()
+    {
+        var fk = _context.Model
+            .FindEntityType(typeof(GuildMember))!
+            .FindNavigation(nameof(GuildMember.Invite))!
+            .ForeignKey;
+
+        Assert.That(fk.DeleteBehavior, Is.EqualTo(DeleteBehavior.SetNull));
+    }
+
+    [Test]
+    public async Task DeleteInvite_KeepsMembersWhoJoinedWithIt_AndPreservesInviteCode()
+    {
+        await SeedManagerMember();
+        var invite = await SeedInvite();
+
+        var joiner = new GuildMember
+        {
+            Id = "member-joined", GuildId = GuildId, UserId = "user-joined", JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+            SearchValue = "USER-JOINED", InviteId = invite.Id, InviteCode = invite.Code,
+        };
+        _context.GuildMembers.Add(joiner);
+        await _context.SaveChangesAsync();
+
+        // Loaded so the change tracker actually applies the configured delete behaviour - with
+        // Cascade this is exactly the assertion that fails.
+        await _context.GuildInvites.Include(i => i.Members).FirstAsync(i => i.Id == invite.Id);
+
+        var result = await _endpoint.DeleteInviteAsync(invite.Id, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<InviteDto>>());
+        var survivor = await _context.GuildMembers.AsNoTracking().FirstOrDefaultAsync(m => m.Id == "member-joined");
+        Assert.That(survivor, Is.Not.Null, "deleting an invite must not delete the members who used it");
+        Assert.That(survivor!.InviteId, Is.Null, "the dangling FK is nulled out");
+        Assert.That(survivor.InviteCode, Is.EqualTo(invite.Code), "but the attribution snapshot survives");
+    }
+
+    [Test]
+    public async Task DeleteInvite_WritesAuditLogEntry()
+    {
+        await SeedManagerMember();
+        var invite = await SeedInvite();
+
+        await _endpoint.DeleteInviteAsync(invite.Id, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        var entry = await _context.Set<GuildAuditLogEntry>().AsNoTracking()
+            .FirstOrDefaultAsync(e => e.GuildId == GuildId && e.ActionType == AuditActionType.InviteDeleted);
+        Assert.That(entry, Is.Not.Null);
+        Assert.That(entry!.TargetId, Is.EqualTo(invite.Id));
+    }
+
+    [Test]
+    public async Task CreateInvite_WritesAuditLogEntry()
+    {
+        await SeedManagerMember();
+
+        await _endpoint.CreateInviteAsync(GuildId, new CreateInviteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        Assert.That(await _context.Set<GuildAuditLogEntry>().AsNoTracking()
+            .AnyAsync(e => e.GuildId == GuildId && e.ActionType == AuditActionType.InviteCreated), Is.True);
     }
 }

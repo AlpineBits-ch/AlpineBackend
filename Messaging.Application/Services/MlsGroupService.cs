@@ -1,3 +1,4 @@
+using Domain;
 using Echo.Realtime;
 using Messaging.Contracts.Bus.Events;
 using Facet.Extensions;
@@ -5,6 +6,7 @@ using Messaging.Application.Dtos.Request;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
+using Messaging.Domain.Mls;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -70,7 +72,50 @@ public class MlsGroupService(
         ctx.MlsGroupGenerations
             .FirstOrDefaultAsync(g => g.ContextId == contextId && g.State == MlsGenerationState.Active);
 
-    public async Task<MlsContextStateDto> GetStateAsync(string contextId)
+    /// <summary>
+    /// Whether the server has any evidence this user has ever been inside this MLS group.
+    ///
+    /// <para>The server holds no group state, so it cannot read the roster - but it does hold the
+    /// three artifacts a member necessarily leaves: they switched encryption on, or a Welcome was
+    /// addressed to one of their devices, or they published a commit. Any of the three means they
+    /// were let in by somebody who could actually let them in.</para>
+    ///
+    /// <para>This is deliberately an <i>over</i>-approximation of membership - a removed member still
+    /// has their old Welcome row - and that is the right direction. It is used to withhold a
+    /// GroupInfo and to gate commit publication, where the alternative to a slightly-too-wide rule is
+    /// no rule at all: both were previously reachable with nothing but <c>ViewChannel</c>.</para>
+    /// </summary>
+    public async Task<bool> HasGroupParticipationAsync(string contextId, int generation, string userId)
+    {
+        var activated = await ctx.MlsGroupGenerations.AsNoTracking()
+            .AnyAsync(g => g.ContextId == contextId
+                           && g.Generation == generation
+                           && g.ActivatedByUserId == userId);
+        if (activated) return true;
+
+        var welcomed = await ctx.PendingWelcomes.AsNoTracking()
+            .AnyAsync(w => w.ContextId == contextId && w.Generation == generation && w.UserId == userId);
+        if (welcomed) return true;
+
+        return await ctx.MlsCommits.AsNoTracking()
+            .AnyAsync(c => c.ContextId == contextId && c.Generation == generation && c.SenderUserId == userId);
+    }
+
+    /// <summary>
+    /// A context's encryption state.
+    ///
+    /// <para><b><c>MlsGroupInfo</c> is withheld from callers with no evidence of membership.</b> A
+    /// GroupInfo is everything needed to external-commit into the group, and this route required only
+    /// <c>ViewChannel</c> - so any channel viewer could walk straight past the join-request review
+    /// that exists precisely to decide who gets in. The client-side defence §H.4 describes is gated
+    /// on <c>MlsPolicy.CertificateEnforcement</c>, which starts at Observe and which the server
+    /// itself serves, so it is not a defence against the server at all.</para>
+    ///
+    /// <para>Everything else stays visible on <c>ViewChannel</c>, because a reader genuinely needs to
+    /// know the context is encrypted and which generation is live - that is what tells it to ask for
+    /// admission rather than render the room as broken.</para>
+    /// </summary>
+    public async Task<MlsContextStateDto> GetStateAsync(string contextId, string? callerUserId = null)
     {
         var generations = await ctx.MlsGroupGenerations
             .AsNoTracking()
@@ -80,6 +125,12 @@ public class MlsGroupService(
 
         var active = generations.FirstOrDefault(g => g.State == MlsGenerationState.Active);
 
+        var mayHaveGroupInfo = active is not null
+                               && (MlsPolicy.ServeGroupInfoToNonParticipants
+                                   || (callerUserId is not null
+                                       && await HasGroupParticipationAsync(
+                                           contextId, active.Generation, callerUserId)));
+
         return new MlsContextStateDto
         {
             ContextId = contextId,
@@ -87,7 +138,8 @@ public class MlsGroupService(
             ActiveGeneration = active?.Generation,
             Epoch = active?.Epoch,
             MlsGroupId = active?.MlsGroupId,
-            MlsGroupInfo = active?.MlsGroupInfo,
+            MlsGroupInfo = mayHaveGroupInfo ? active?.MlsGroupInfo : null,
+            GroupInfoWithheld = active?.MlsGroupInfo is { Length: > 0 } && !mayHaveGroupInfo,
             // Past generations are listed because their messages are still in the channel. A client
             // needs to know they existed to explain why a stretch of history it cannot read is
             // there, rather than rendering it as corrupt.
@@ -161,7 +213,7 @@ public class MlsGroupService(
         });
         ctx.MlsGroupGenerations.Add(generation);
 
-        var recipients = await ResolveWelcomeRecipientsAsync(conversationId);
+        var recipients = await ResolveWelcomeRecipientsAsync(contextId, conversationId, bootstrapping: true);
         var stored = StoreWelcomes(
             dto.Welcomes, contextId, conversationId, channelId, generation.Generation, dto.Epoch, recipients);
 
@@ -278,6 +330,8 @@ public class MlsGroupService(
         if (dto.Welcomes.Count > MaxWelcomesPerCall)
             return MlsOperationResult.BadRequest($"At most {MaxWelcomesPerCall} Welcomes per call");
 
+        if (SizeError(dto) is { } sizeError) return MlsOperationResult.BadRequest(sizeError);
+
         var active = await GetActiveGenerationAsync(contextId);
         if (active is null)
         {
@@ -288,6 +342,22 @@ public class MlsGroupService(
                 Reason = "Encryption is not enabled for this context.",
             });
         }
+
+        // Publishing a commit advances the group's epoch for everybody, and on a channel this route
+        // needed only ViewChannel - so somebody who had never been in the group could move the epoch
+        // to a value no member could reach. Membership is not something the server can read, but the
+        // artifacts of having been admitted are.
+        if (!await HasGroupParticipationAsync(contextId, active.Generation, userId))
+        {
+            return MlsOperationResult.BadRequest(
+                "You are not in this MLS group. Being able to see the context is not being in its "
+                + "group - request admission first.");
+        }
+
+        // The declared kind, checked against the payload. See MlsMessageInspector: a member used to
+        // be able to wedge a group permanently by publishing a proposal, or noise, flagged as a
+        // commit at epoch+1.
+        if (InspectCommit(dto, active) is { } shapeError) return MlsOperationResult.BadRequest(shapeError);
 
         // A commit built against a group that has since been replaced must not be applied to the
         // current one - it would advance the wrong group and fork everybody.
@@ -314,6 +384,9 @@ public class MlsGroupService(
             c.ContextId == contextId
             && c.Generation == active.Generation
             && c.Epoch == dto.Epoch
+            // Sender user as well as sender device: ClientDeviceId is client-chosen and unique only
+            // per account, so two members of one channel can legitimately share one.
+            && c.SenderUserId == userId
             && c.SenderDeviceId == dto.SenderDeviceId
             && c.IsProposal == dto.IsProposal);
 
@@ -406,13 +479,25 @@ public class MlsGroupService(
             }
         }
 
-        var recipients = await ResolveWelcomeRecipientsAsync(conversationId);
+        var recipients = await ResolveWelcomeRecipientsAsync(contextId, conversationId, bootstrapping: false);
         var storedWelcomes = StoreWelcomes(
             dto.Welcomes, contextId, conversationId, channelId, active.Generation, dto.Epoch, recipients);
 
         // In the same transaction as the commit: a request marked fulfilled by a commit that then
         // failed to store would look admitted while holding no leaf at all.
-        var admitted = await joinRequests.FulfilAsync(contextId, dto.FulfilledJoinRequestIds, now);
+        //
+        // The ids are checked against what this commit actually carried, not taken on the
+        // publisher's word - see FulfilAsync. `storedWelcomes` rather than `dto.Welcomes`, so a
+        // Welcome that was rejected as addressed outside the roster cannot vouch for an admission.
+        var kind = conversationId is not null ? MlsContextKind.Conversation : MlsContextKind.Channel;
+        var required = await joinRequests.RequiredApprovalsFor(contextId, active.Generation, kind);
+
+        var admitted = await joinRequests.FulfilAsync(
+            contextId,
+            dto.FulfilledJoinRequestIds,
+            storedWelcomes.Select(w => (w.UserId, w.DeviceId)).ToList(),
+            required,
+            now);
 
         await PruneExpiredCommitsAsync(contextId, now);
 
@@ -492,6 +577,99 @@ public class MlsGroupService(
             .ToListAsync();
 
         return commits.SelectFacets<MlsCommit, MlsCommitResponseDto>().ToList();
+    }
+
+    /// <summary>Per-artifact size ceilings.
+    ///
+    /// <para>Only the backup blob had one, so a member could park thirty megabytes per commit -
+    /// retained for thirty days, and multiplied by <see cref="MaxWelcomesPerCall"/> for the
+    /// Welcomes. These are far above any real MLS artifact: a commit in a large group is kilobytes,
+    /// a Welcome is a few hundred bytes per recipient.</para></summary>
+    public const int MaxCommitBytes = 1024 * 1024;
+    public const int MaxGroupInfoBytes = 1024 * 1024;
+    public const int MaxWelcomeBytes = 256 * 1024;
+    public const int MaxKeyPackageBytes = 64 * 1024;
+
+    private static string? SizeError(PublishMlsCommitDto dto)
+    {
+        if (dto.Commit.LongLength > MaxCommitBytes)
+            return $"commit exceeds {MaxCommitBytes} bytes";
+
+        if (dto.GroupInfo is { } info && info.LongLength > MaxGroupInfoBytes)
+            return $"groupInfo exceeds {MaxGroupInfoBytes} bytes";
+
+        foreach (var welcome in dto.Welcomes)
+        {
+            if (welcome.Welcome is { } bytes && bytes.LongLength > MaxWelcomeBytes)
+                return $"a welcome exceeds {MaxWelcomeBytes} bytes";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Checks the payload against what the caller says it is.
+    ///
+    /// <para>Three things, all readable without any group secret (RFC 9420 frames the group id, the
+    /// epoch and the content type outside the encrypted portion):</para>
+    ///
+    /// <list type="bullet">
+    /// <item>It parses as an <c>MLSMessage</c> at all, and as a message rather than a Welcome, a
+    /// GroupInfo or a KeyPackage. Noise flagged <c>isProposal: false</c> at <c>epoch+1</c> was the
+    /// cheapest way to wedge a group forever.</item>
+    /// <item>Its content type matches <c>isProposal</c>. A proposal does not advance any client's
+    /// epoch, so the server advancing the group's on a proposal mislabelled as a commit leaves every
+    /// client one epoch behind a number nothing can reach.</item>
+    /// <item>Its group id is this generation's. A commit for a different group applied to this one
+    /// forks everybody.</item>
+    /// </list>
+    ///
+    /// <para>The framing epoch is deliberately <b>not</b> checked against <c>dto.Epoch</c>: for an
+    /// ordinary commit it is the epoch the commit was built <i>in</i> (one below), for a proposal it
+    /// is the current one, and for an external commit it is the epoch of the GroupInfo the joiner
+    /// built against. Three different relationships, and getting the arithmetic wrong would reject
+    /// legitimate traffic - which is a worse failure than the one being closed here.</para>
+    /// </summary>
+    private static string? InspectCommit(PublishMlsCommitDto dto, MlsGroupGeneration active)
+    {
+        if (!MlsMessageInspector.TryRead(dto.Commit, out var header, out var error))
+            return error;
+
+        if (header.Version != MlsMessageInspector.Mls10)
+            return $"unsupported MLS protocol version {header.Version}";
+
+        if (header.WireFormat is not (MlsWireFormat.PublicMessage or MlsWireFormat.PrivateMessage))
+            return $"a commit must be a PublicMessage or PrivateMessage, not {header.WireFormat}";
+
+        var declaredProposal = header.ContentType == MlsContentType.Proposal;
+
+        if (header.ContentType is not (MlsContentType.Proposal or MlsContentType.Commit))
+            return $"an application message cannot be published as a commit (content type {header.ContentType})";
+
+        if (declaredProposal != dto.IsProposal)
+        {
+            return dto.IsProposal
+                ? "isProposal is true but the payload is a commit"
+                : "isProposal is false but the payload is a proposal; a proposal does not advance the epoch";
+        }
+
+        if (active.MlsGroupId is { Length: > 0 } expected
+            && header.GroupId is { } actual
+            && !expected.AsSpan().SequenceEqual(actual))
+        {
+            return "this payload belongs to a different MLS group";
+        }
+
+        if (dto.GroupInfo is { Length: > 0 } groupInfo)
+        {
+            if (!MlsMessageInspector.TryRead(groupInfo, out var infoHeader, out var infoError))
+                return $"groupInfo: {infoError}";
+
+            if (infoHeader.WireFormat != MlsWireFormat.GroupInfo)
+                return $"groupInfo must be an MLSMessage of wire format GroupInfo, not {infoHeader.WireFormat}";
+        }
+
+        return null;
     }
 
     private static MlsEpochConflictDto EpochRaceLost(MlsGroupGeneration generation, long rejectedEpoch) => new()
@@ -576,22 +754,66 @@ public class MlsGroupService(
     }
 
     /// <summary>
-    /// Who a Welcome may be addressed to, or null when the context's roster is not ours to know.
+    /// Who a Welcome may be addressed to.
     ///
     /// <para>Conversation membership lives here, so a Welcome for someone outside the conversation is
     /// rejected rather than parked - the publisher picks the recipients, and without this any member
-    /// could write rows against arbitrary user ids. Channel membership lives in Guild, so channel
-    /// Welcomes are bounded by count alone.</para>
+    /// could write rows against arbitrary user ids.</para>
+    ///
+    /// <para><b>Channel membership lives in Guild, and "bounded by count alone" was not a bound.</b>
+    /// A channel commit could address Welcomes to any user id at all. Rather than ask Guild to
+    /// resolve a permission-aware viewer roster on every commit - which is a per-recipient round trip
+    /// on the hot path - the rule is drawn from what Messaging already knows about the context:
+    /// a recipient must either have asked to be let in, or have been in it before. Both are exactly
+    /// the population a legitimate Add commit mints Welcomes for.</para>
+    ///
+    /// <para>Returns null only for the generation-activating call, where there is by construction no
+    /// prior participation to point at and the caller already holds <c>ManageChannel</c>.</para>
     /// </summary>
-    private async Task<HashSet<string>?> ResolveWelcomeRecipientsAsync(string? conversationId)
+    private async Task<HashSet<string>?> ResolveWelcomeRecipientsAsync(
+        string contextId, string? conversationId, bool bootstrapping)
     {
-        if (conversationId is null) return null;
+        if (conversationId is not null)
+        {
+            return (await ctx.Members
+                    .AsNoTracking()
+                    .Where(m => m.ConversationId == conversationId)
+                    .Select(m => m.UserId)
+                    .ToListAsync())
+                .ToHashSet();
+        }
 
-        return (await ctx.Members
-                .AsNoTracking()
-                .Where(m => m.ConversationId == conversationId)
-                .Select(m => m.UserId)
-                .ToListAsync())
+        if (bootstrapping) return null;
+
+        var participants = await ctx.PendingWelcomes.AsNoTracking()
+            .Where(w => w.ContextId == contextId)
+            .Select(w => w.UserId)
+            .Distinct()
+            .ToListAsync();
+
+        var committers = await ctx.MlsCommits.AsNoTracking()
+            .Where(c => c.ContextId == contextId)
+            .Select(c => c.SenderUserId)
+            .Distinct()
+            .ToListAsync();
+
+        var activators = await ctx.MlsGroupGenerations.AsNoTracking()
+            .Where(g => g.ContextId == contextId)
+            .Select(g => g.ActivatedByUserId)
+            .Distinct()
+            .ToListAsync();
+
+        var requesters = await ctx.MlsJoinRequests.AsNoTracking()
+            .Where(r => r.ContextId == contextId)
+            .Select(r => r.RequesterUserId)
+            .Distinct()
+            .ToListAsync();
+
+        return participants
+            .Concat(committers)
+            .Concat(activators)
+            .Concat(requesters)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
             .ToHashSet();
     }
 

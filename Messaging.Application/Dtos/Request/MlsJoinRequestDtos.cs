@@ -39,6 +39,20 @@ public partial class MlsJoinRequestDto
     /// <summary>Who has already vouched. Lets a reviewer see they have approved, and see who else
     /// did - a second opinion is only worth something if you can tell whose it was.</summary>
     public List<string> ApproverUserIds { get; set; } = new();
+
+    /// <summary>
+    /// The exact key-package bytes - present only when the request belongs to the reading account.
+    ///
+    /// <para>Per §L.3 the own-device admission flow is the only one in which the §G master-key proof
+    /// means anything, and it needs these bytes: the verifying device has to re-derive the signature
+    /// key and the fingerprint from the key package itself rather than believe the server's summary
+    /// of them. The facet excluded the field outright, so that path could not obtain them by any
+    /// route and the ceremony was unreachable.</para>
+    ///
+    /// <para>Withheld from peers, who have no use for them until the approval threshold is met -
+    /// <see cref="MlsJoinRequestApprovalResultDto.KeyPackage"/> is where they arrive.</para>
+    /// </summary>
+    public byte[]? KeyPackage { get; set; }
 }
 
 public class MlsJoinRequestApprovalResultDto

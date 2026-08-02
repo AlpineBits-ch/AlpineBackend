@@ -1,11 +1,11 @@
 using System.Security.Claims;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Contracts.Bus.Events;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Wolverine.Http;
 
@@ -66,8 +66,14 @@ public class AccountIdentityKeyEndpoint
     /// <summary>
     /// Publishes the account identity key, or rotates it.
     ///
-    /// <para>The first publication is unceremonious - there is nothing to invalidate, and existing
-    /// accounts have to be able to acquire one the first time an upgraded client unlocks.</para>
+    /// <para><b>First publication is a land-grab, not a formality.</b> It used to require no
+    /// password, write no audit row and emit no event, on the reasoning that there is nothing to
+    /// invalidate - but per §I.2 no account in the field has a key, so <i>every</i> account was one
+    /// stolen session token away from having its cryptographic identity chosen by somebody else.
+    /// Whoever publishes first is who every peer TOFU-pins, and every device certificate that peers
+    /// will ever verify chains to it. That is the same power a rotation confers, acquired for less,
+    /// and invisibly. It now costs the same password, writes the same audit row and is broadcast the
+    /// same way; the event carries <c>isFirstPublication</c> so a client can word it correctly.</para>
     ///
     /// <para>A <i>rotation</i> is a security event: it invalidates every peer's pinning and every
     /// device certificate issued under the old key. It costs the account password, is broadcast to
@@ -85,7 +91,8 @@ public class AccountIdentityKeyEndpoint
     public static async Task<(IResult, AccountIdentityKeyRotated?)> Put(
         PutAccountIdentityKeyDto dto,
         [NotBody] ClaimsPrincipal principal,
-        [NotBody] UserManager<ApplicationUser> users,
+        [NotBody] IAccountPasswordVerifier passwords,
+        [NotBody] SessionDeviceResolver sessionDevices,
         [NotBody] MicroserviceContext ctx)
     {
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -108,48 +115,55 @@ public class AccountIdentityKeyEndpoint
             return (Results.Conflict(Describe(user)), null);
         }
 
-        if (!isFirstPublication &&
-            (string.IsNullOrEmpty(dto.Password) || !await users.CheckPasswordAsync(user, dto.Password)))
+        // Both paths, not just rotation. See the remarks: publishing first is the same power as
+        // replacing, and it was the cheaper of the two to steal.
+        var check = await passwords.CheckAsync(user, dto.Password);
+        if (!check.IsOk())
         {
-            return (Results.BadRequest("Rotating the account identity key requires the account password."), null);
+            return (Results.BadRequest(check.Describe(isFirstPublication
+                ? "Publishing the account identity key"
+                : "Rotating the account identity key")), null);
         }
 
         var now = DateTimeOffset.UtcNow;
         var previousVersion = user.AccountIdentityKeyVersion;
+
+        // Recorded from the session, not from the body. `dto.DeviceId` is a string the caller
+        // writes; an audit row naming a device chosen by whoever performed the action is not
+        // evidence of anything.
+        var actingDeviceId = (await sessionDevices.ResolveAsync(principal, userId))?.ClientDeviceId;
 
         user.AccountIdentityPublicKey = dto.PublicKey;
         user.AccountIdentityKeyVersion = dto.Version;
         user.AccountIdentityKeyRotationSignature = dto.RotationSignature;
         user.AccountIdentityKeyUpdatedAt = now;
 
-        if (!isFirstPublication)
+        ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
         {
-            ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
-            {
-                UserId = userId,
-                Action = IdentityAuditActions.AccountIdentityKeyRotated,
-                ClientDeviceId = dto.DeviceId,
-                Detail = dto.RotationSignature is { Length: > 0 }
+            UserId = userId,
+            Action = IdentityAuditActions.AccountIdentityKeyRotated,
+            ClientDeviceId = actingDeviceId,
+            Detail = isFirstPublication
+                ? $"first publication at v{dto.Version} - every peer will pin this key"
+                : dto.RotationSignature is { Length: > 0 }
                     ? $"v{previousVersion} -> v{dto.Version}, signed by the outgoing key"
                     : $"v{previousVersion} -> v{dto.Version}, UNSIGNED - peers must re-verify out of band",
-                CreatedAt = now,
-            }));
-        }
+            CreatedAt = now,
+        }));
 
         await ctx.SaveChangesAsync();
 
-        return (Results.Ok(Describe(user)), isFirstPublication
-            ? null
-            : new AccountIdentityKeyRotated
-            {
-                UserId = userId,
-                PreviousVersion = previousVersion,
-                Version = dto.Version,
-                PublicKey = dto.PublicKey,
-                SignedByOutgoingKey = dto.RotationSignature is { Length: > 0 },
-                ChangedByDeviceId = dto.DeviceId,
-                RotatedAt = now,
-            });
+        return (Results.Ok(Describe(user)), new AccountIdentityKeyRotated
+        {
+            UserId = userId,
+            PreviousVersion = previousVersion,
+            Version = dto.Version,
+            PublicKey = dto.PublicKey,
+            SignedByOutgoingKey = dto.RotationSignature is { Length: > 0 },
+            ChangedByDeviceId = actingDeviceId,
+            IsFirstPublication = isFirstPublication,
+            RotatedAt = now,
+        });
     }
 
     private static AccountIdentityKeyDto Describe(ApplicationUser user) => new()

@@ -261,16 +261,104 @@ public class MlsJoinRequestServiceTests
     }
 
     [Test]
-    public async Task Approve_ByTheRequester_IsRejected()
+    public async Task Approve_ByTheRequester_WithNoResolvedDevice_IsRejected()
     {
         await SeedEncryptedChannel(OWNER, PEER);
         var id = await PendingRequestId();
 
         var result = await _service.ApproveAsync(CHANNEL, id, REQUESTER, T0);
 
-        // Vouching for yourself is not review.
+        // "I could not tell which of your devices this is" must not read as "it was a different
+        // one" - that would let the requesting device approve itself by simply not identifying.
         Assert.That(result.Status, Is.EqualTo(MlsOperationStatus.BadRequest));
         Assert.That(await _context.MlsJoinRequestApprovals.AnyAsync(), Is.False);
+    }
+
+    // ── Own-device admission (C5 / §L.3 flow 1) ───────────────────────────────
+    //
+    // §G.1 requires the admission proof to be verified by the requester's own *other* device, since
+    // that is the only party holding the account master key, while §B and the original code forbade
+    // self-approval outright. The two sets were disjoint, so the entire ceremony was structurally
+    // unreachable. Peer approval was already covered; this is the half that was newly enabled and
+    // had no test at all.
+
+    /// <summary>The flow the §G proof is actually meaningful in: a user adding their second handset,
+    /// approved from the first.</summary>
+    [Test]
+    public async Task Approve_ByAnotherDeviceOfTheRequester_IsAllowed()
+    {
+        // One actor, so the threshold relaxes to a single approval and the own device is the whole
+        // ceremony - which is the point: nobody else has to be involved in adding your own handset.
+        await SeedEncryptedChannel(REQUESTER);
+        var id = await PendingRequestId();
+
+        var result = await _service.ApproveAsync(CHANNEL, id, REQUESTER, T0,
+            approverDeviceId: "device-my-laptop");
+
+        Assert.That(result.Status, Is.EqualTo(MlsOperationStatus.Ok));
+
+        var payload = (MlsJoinRequestApprovalResultDto)result.Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload.ThresholdMet, Is.True);
+            // The approving client mints the Add commit, so it needs the bytes it just vouched for.
+            Assert.That(payload.KeyPackage, Is.EqualTo(SubmitDto().KeyPackage));
+        });
+    }
+
+    /// <summary>The one thing that stays forbidden. Approval by the very device asking to be let in
+    /// proves nothing at all, and it is the only case the old blanket ban was actually right
+    /// about.</summary>
+    [Test]
+    public async Task Approve_ByTheRequestingDeviceItself_IsRejected()
+    {
+        await SeedEncryptedChannel(REQUESTER);
+        var id = await PendingRequestId();
+
+        var result = await _service.ApproveAsync(CHANNEL, id, REQUESTER, T0,
+            approverDeviceId: "device-new");
+
+        Assert.That(result.Status, Is.EqualTo(MlsOperationStatus.BadRequest));
+        Assert.That(await _context.MlsJoinRequestApprovals.AnyAsync(), Is.False);
+    }
+
+    /// <summary>The device id is compared exactly. A near-miss is a different device as far as this
+    /// check is concerned, and treating it as one is what a device trying to wave itself through
+    /// would rely on.</summary>
+    [Test]
+    public async Task Approve_ByTheRequestingDevice_IsRejectedRegardlessOfCasing()
+    {
+        await SeedEncryptedChannel(REQUESTER);
+        await _service.SubmitAsync(CHANNEL, null, CHANNEL, REQUESTER,
+            SubmitDto(deviceId: "Device-New"), T0);
+        var id = (await _context.MlsJoinRequests.SingleAsync()).Id;
+
+        var exact = await _service.ApproveAsync(CHANNEL, id, REQUESTER, T0,
+            approverDeviceId: "Device-New");
+
+        Assert.That(exact.Status, Is.EqualTo(MlsOperationStatus.BadRequest));
+    }
+
+    /// <summary>Own-device approval is not a way around the peer threshold. On a group with other
+    /// actors it still counts as one approval by one user.</summary>
+    [Test]
+    public async Task Approve_ByAnotherOwnDevice_StillCountsAsOnePerson()
+    {
+        await SeedEncryptedChannel(OWNER, PEER, REQUESTER);
+        var id = await PendingRequestId();
+
+        var first = await _service.ApproveAsync(CHANNEL, id, REQUESTER, T0,
+            approverDeviceId: "device-my-laptop");
+        var second = await _service.ApproveAsync(CHANNEL, id, REQUESTER, T0,
+            approverDeviceId: "device-my-tablet");
+
+        var payload = (MlsJoinRequestApprovalResultDto)second.Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(first.Status, Is.EqualTo(MlsOperationStatus.Ok));
+            Assert.That(payload.Approvals, Is.EqualTo(1), "Two of your own devices is one person.");
+            Assert.That(payload.ThresholdMet, Is.False);
+        });
     }
 
     [Test]
@@ -386,7 +474,8 @@ public class MlsJoinRequestServiceTests
         await Submit(SubmitDto(deviceId: "device-b"));
         var admitted = await _context.MlsJoinRequests.FirstAsync(r => r.RequesterDeviceId == "device-a");
 
-        await _service.FulfilAsync(CHANNEL, [admitted.Id], T0);
+        await _service.FulfilAsync(CHANNEL, [admitted.Id],
+            [(admitted.RequesterUserId, "device-a")], required: 0, T0);
         await _context.SaveChangesAsync();
 
         var states = await _context.MlsJoinRequests
@@ -403,10 +492,61 @@ public class MlsJoinRequestServiceTests
     {
         await SeedEncryptedChannel(OWNER, PEER);
         var id = await PendingRequestId();
+        var request = await _context.MlsJoinRequests.SingleAsync();
 
-        await _service.FulfilAsync("some-other-channel", [id], T0);
+        await _service.FulfilAsync("some-other-channel", [id],
+            [(request.RequesterUserId, request.RequesterDeviceId)], required: 0, T0);
         await _context.SaveChangesAsync();
 
+        Assert.That((await _context.MlsJoinRequests.SingleAsync()).State,
+            Is.EqualTo(MlsJoinRequestState.Pending));
+    }
+
+    /// <summary>
+    /// The attack: a member attaches somebody else's pending request id to their own commit.
+    ///
+    /// <para><c>FulfilledJoinRequestIds</c> was tied to nothing. Attaching arbitrary ids from the
+    /// same context left those requests <c>Fulfilled</c> (and so unapprovable), spent their owners'
+    /// 24-hour auto-admission budget, and made the server push <c>identity.DeviceAdmitted</c> for
+    /// devices that had never been added - naming a real device and a real fingerprint, which is the
+    /// notification users are told to read as a compromise.</para>
+    ///
+    /// <para>The binding is the Welcome: an Add that admits a device is always accompanied by one,
+    /// so a request with no matching Welcome in this commit was not admitted by it.</para>
+    /// </summary>
+    [Test]
+    public async Task Fulfil_RefusesARequestThisCommitCarriedNoWelcomeFor()
+    {
+        await SeedEncryptedChannel(OWNER, PEER);
+        await Submit(SubmitDto(deviceId: "device-victim"));
+        var victim = await _context.MlsJoinRequests.FirstAsync(r => r.RequesterDeviceId == "device-victim");
+
+        // The commit carried a Welcome for somebody else entirely.
+        var closed = await _service.FulfilAsync(CHANNEL, [victim.Id],
+            [("some-other-user", "some-other-device")], required: 0, T0);
+        await _context.SaveChangesAsync();
+
+        Assert.That(closed, Is.Empty, "no Welcome, no admission - and therefore no notification");
+        Assert.That((await _context.MlsJoinRequests.SingleAsync()).State,
+            Is.EqualTo(MlsJoinRequestState.Pending));
+    }
+
+    /// <summary>A request nobody vouched for is not closed by a commit that claims it was. Manual
+    /// approval is what "requires manual approval" means.</summary>
+    [Test]
+    public async Task Fulfil_RefusesARequestThatNeverMetItsApprovalThreshold()
+    {
+        await SeedEncryptedChannel(OWNER, PEER);
+        await Submit(SubmitDto(deviceId: "device-a"));
+        var request = await _context.MlsJoinRequests.SingleAsync();
+        request.RequiresManualApproval = true;
+        await _context.SaveChangesAsync();
+
+        var closed = await _service.FulfilAsync(CHANNEL, [request.Id],
+            [(request.RequesterUserId, "device-a")], required: 2, T0);
+        await _context.SaveChangesAsync();
+
+        Assert.That(closed, Is.Empty);
         Assert.That((await _context.MlsJoinRequests.SingleAsync()).State,
             Is.EqualTo(MlsJoinRequestState.Pending));
     }

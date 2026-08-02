@@ -280,7 +280,22 @@ namespace Identity.Infrastructure.Migrations
                 columns: new[] { "user_id", "target_device_id" });
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Reverses <see cref="Up"/>.
+        ///
+        /// <para><b>This down is lossy on purpose, and the generated one was simply broken.</b> Up
+        /// turned <c>user_device_backups</c> from one row per device into a versioned history, so by
+        /// the time anyone rolls back the table holds several rows per <c>device_id</c>. The scaffolded
+        /// code recreated <c>ix_user_device_backups_device_id</c> as <c>unique</c> over exactly that
+        /// data, which raises 23505 on any database that has been written to - i.e. the rollback
+        /// failed precisely when it was needed and left the schema half-reverted.</para>
+        ///
+        /// <para>The only way back to a one-row-per-device shape is to throw the older versions away,
+        /// so this deletes all but the newest version of each device's blob before restoring the
+        /// unique index. That destroys backup history, which is the honest cost of narrowing the
+        /// schema - and is why it happens explicitly here rather than as a surprise inside an index
+        /// build.</para>
+        /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
@@ -288,6 +303,17 @@ namespace Identity.Infrastructure.Migrations
 
             migrationBuilder.DropTable(
                 name: "user_backup_transfers");
+
+            // Before the version column disappears: keep the newest blob per device and drop the
+            // rest, so the unique index restored at the end of this method has data it can build on.
+            // ctid breaks ties for rows that somehow share a version - there is no unique key left to
+            // order by once `version` is gone, and a tie must not stall the rollback.
+            migrationBuilder.Sql("""
+                DELETE FROM user_device_backups a
+                USING user_device_backups b
+                WHERE a.device_id = b.device_id
+                  AND (a.version < b.version OR (a.version = b.version AND a.ctid < b.ctid));
+                """);
 
             migrationBuilder.DropIndex(
                 name: "ix_user_device_backups_device_id_version",

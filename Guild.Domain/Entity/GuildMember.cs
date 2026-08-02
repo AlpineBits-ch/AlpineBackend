@@ -12,6 +12,7 @@ public class CreateGuildMemberParams
     public string? Nickname { get; init; }
     public string? Bio { get; init; }
     public string? InviteId { get; init; }
+    public string? InviteCode { get; init; }
     public string Username { get; init; }
 }
 
@@ -30,7 +31,14 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
 
     public string? InviteId { get; init; }
     public GuildInvite? Invite { get; init; }
-    
+
+    /// <summary>Snapshot of the invite's <see cref="GuildInvite.Code"/> taken at join time. The
+    /// <see cref="InviteId"/> FK is SetNull-on-delete, so deleting an invite drops the link but not
+    /// the attribution - which is the whole value of the field for invite-tracking bots and the
+    /// "who brought this member in" view. Null for members who did not join via an invite (owner,
+    /// bot installs, federated shadow members).</summary>
+    public string? InviteCode { get; init; }
+
     /// <summary>Uppercased haystack for the member-search endpoint's <c>Contains</c> query.
     /// Format is <c>USERNAME</c>, or <c>USERNAME\nNICKNAME</c> once a nickname is set - see
     /// <see cref="BuildSearchValue"/>. Every row written before nicknames were editable holds the
@@ -97,6 +105,7 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
             Type = parameters.Type,
             SearchValue = BuildSearchValue(parameters.Username, parameters.Nickname),
             InviteId = parameters.InviteId,
+            InviteCode = parameters.InviteCode,
             // Onboarding only gates the organic invite-redemption join path (InviteEndpoint
             // constructs GuildMember directly and sets this explicitly) - bot installs and
             // federated shadow members created through this factory were never shown a rules

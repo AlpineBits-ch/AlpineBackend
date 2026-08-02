@@ -35,6 +35,15 @@ namespace Messaging.Application.Handler.Devices;
 /// so: <c>ConversationMemberDevice</c> is the table that would answer it exactly, and nothing writes
 /// to it. Over-nudging costs a no-op on a client that finds no such leaf; under-nudging would leave
 /// a live leaf in place, so the approximation deliberately errs wide.</para>
+///
+/// <para><b>Every query here is scoped by user, and that is not decoration.</b> <c>ClientDeviceId</c>
+/// is chosen by the client and is unique only per account, and victim device ids are readable from
+/// <c>MlsJoinRequestDto</c>, the <c>MlsDeviceAdmitted</c> push and the unreachable-devices list. This
+/// handler matched on the bare id while <c>message.UserId</c> sat unused, so any co-member could
+/// register a device under the victim's id, delete it, and have the victim's unclaimed Welcomes
+/// consumed across <i>every</i> context and their pending join requests cancelled. Welcomes are
+/// single-use; that is unrecoverable and invisible from both ends.
+/// <c>PurgeUserDataCommandHandler</c> scopes the identical queries correctly.</para>
 /// </summary>
 public class DeviceRemovedHandler
 {
@@ -47,10 +56,24 @@ public class DeviceRemovedHandler
         var deviceId = message.ClientDeviceId;
         if (string.IsNullOrWhiteSpace(deviceId)) return;
 
+        // Without an owner there is no way to tell this device's artifacts from a namesake's, and
+        // guessing would destroy somebody else's. Refusing to act is the only safe reading.
+        var userId = message.UserId;
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            logger.LogWarning(
+                "DeviceRemoved for {DeviceId} carried no UserId; skipping - ClientDeviceId is only "
+                + "unique per user and an unscoped sweep would consume another account's Welcomes",
+                deviceId);
+            return;
+        }
+
         var now = DateTimeOffset.UtcNow;
 
         var pending = await ctx.MlsJoinRequests
-            .Where(r => r.RequesterDeviceId == deviceId && r.State == MlsJoinRequestState.Pending)
+            .Where(r => r.RequesterUserId == userId
+                        && r.RequesterDeviceId == deviceId
+                        && r.State == MlsJoinRequestState.Pending)
             .ToListAsync();
 
         foreach (var request in pending)
@@ -60,18 +83,18 @@ public class DeviceRemovedHandler
         }
 
         var welcomes = await ctx.PendingWelcomes
-            .Where(w => w.DeviceId == deviceId && w.ConsumedAt == null)
+            .Where(w => w.UserId == userId && w.DeviceId == deviceId && w.ConsumedAt == null)
             .ToListAsync();
 
         foreach (var welcome in welcomes) welcome.ConsumedAt = now;
 
         var contexts = welcomes.Select(w => w.ContextId)
             .Concat(await ctx.PendingWelcomes
-                .Where(w => w.DeviceId == deviceId)
+                .Where(w => w.UserId == userId && w.DeviceId == deviceId)
                 .Select(w => w.ContextId)
                 .ToListAsync())
             .Concat(await ctx.MlsCommits
-                .Where(c => c.SenderDeviceId == deviceId)
+                .Where(c => c.SenderUserId == userId && c.SenderDeviceId == deviceId)
                 .Select(c => c.ContextId)
                 .ToListAsync())
             .Distinct()

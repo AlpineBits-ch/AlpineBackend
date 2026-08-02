@@ -123,7 +123,7 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        return Results.Ok(await mls.GetStateAsync(conversationId));
+        return Results.Ok(await mls.GetStateAsync(conversationId, userId));
     }
 
     /// <summary>
@@ -221,7 +221,11 @@ public class MlsEndpoints
     }
 
     /// <summary>Encryption state of a channel. Only needs ViewChannel - anyone who can read the
-    /// channel needs to know whether to encrypt, and which generation to encrypt under.</summary>
+    /// channel needs to know whether to encrypt, and which generation to encrypt under.
+    ///
+    /// <para><b>The GroupInfo is the exception, and it is gated inside the service.</b> Serving it on
+    /// ViewChannel let any channel viewer external-commit straight into the group and skip the
+    /// join-request review altogether - see <see cref="MlsGroupService.GetStateAsync"/>.</para></summary>
     [WolverineGet("/api/v1/channels/{channelId}/mls/state")]
     public static async Task<IResult> GetChannelMlsState(
         string channelId,
@@ -235,7 +239,7 @@ public class MlsEndpoints
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
 
-        return Results.Ok(await mls.GetStateAsync(channelId));
+        return Results.Ok(await mls.GetStateAsync(channelId, userId));
     }
 
     /// <summary>Publishing a commit needs only ViewChannel: adding and removing group members tracks
@@ -298,6 +302,7 @@ public class MlsEndpoints
         SubmitJoinRequestDto dto,
         [NotBody] ClaimsPrincipal user,
         [NotBody] IMessageBus bus,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] MlsJoinRequestService joinRequests)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -305,6 +310,9 @@ public class MlsEndpoints
 
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
+
+        if (await OwnsDeviceAsync(devices, userId, dto.DeviceId) is { } deviceError)
+            return Results.BadRequest(deviceError);
 
         var result = await joinRequests.SubmitAsync(
             channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow);
@@ -337,7 +345,8 @@ public class MlsEndpoints
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
 
-        return Results.Ok(await joinRequests.ListPendingAsync(channelId, DateTimeOffset.UtcNow));
+        return Results.Ok(await joinRequests.ListPendingAsync(
+            channelId, DateTimeOffset.UtcNow, MlsContextKind.Channel, userId));
     }
 
     /// <summary>
@@ -350,7 +359,9 @@ public class MlsEndpoints
         string channelId,
         string requestId,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
         [NotBody] IMessageBus bus,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] MlsJoinRequestService joinRequests)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -359,7 +370,10 @@ public class MlsEndpoints
         if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
             return Results.Forbid();
 
-        return ToHttp(await joinRequests.ApproveAsync(channelId, requestId, userId, DateTimeOffset.UtcNow));
+        var approverDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
+
+        return ToHttp(await joinRequests.ApproveAsync(
+            channelId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Channel, approverDeviceId));
     }
 
     [WolverinePost("/api/v1/channels/{channelId}/mls/join-requests/{requestId}/deny")]
@@ -414,6 +428,7 @@ public class MlsEndpoints
         [NotBody] IMessageBus bus,
         [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -421,6 +436,9 @@ public class MlsEndpoints
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
+        if (await OwnsDeviceAsync(devices, userId, dto.DeviceId) is { } deviceError)
+            return Results.BadRequest(deviceError);
 
         var protectionLevel = await ResolveProtectionLevelAsync(bus, userId);
 
@@ -430,15 +448,28 @@ public class MlsEndpoints
 
         if (result.Status == MlsOperationStatus.Ok && result.Value is MlsJoinRequestDto request)
         {
-            // Conversation membership is known here, so the announcement goes direct. Everyone
-            // except the requester, because the requester is the device asking.
+            // Everyone in the conversation, the requester's own account included.
+            //
+            // The requester used to be excluded, on the reading that "the requester is the device
+            // asking" - but a user is not a device. Their *other* devices are the only party that
+            // holds the account master key, and therefore the only party that can verify the §G
+            // admission proof; excluding the account made the push audience and the set of possible
+            // verifiers disjoint, so the ceremony could never begin. See §L.3. The requesting device
+            // filters itself out on `requesterDeviceId`.
             var audience = await ctx.Members
-                .Where(m => m.ConversationId == conversationId && m.UserId != userId)
+                .Where(m => m.ConversationId == conversationId)
                 .Select(m => m.UserId)
                 .ToListAsync();
 
             if (audience.Count > 0)
             {
+                // Deliberately no KeyPackage. The bytes go to everyone in the conversation, and a
+                // push is not the place to hand a leaf's public key material to peers who have not
+                // decided to admit it. The requester's *other* devices - the ones that need it to
+                // verify the §G proof - fetch it from `GET .../mls/join-requests`, which returns the
+                // KeyPackage only on requests from the calling user's own account. Own-device
+                // approval therefore takes two calls, and a client that expects the push alone to be
+                // sufficient will silently do nothing.
                 await hub.Clients.Users(audience).SendAsync("conversation.MlsJoinRequest", new
                 {
                     contextId = conversationId,
@@ -459,6 +490,24 @@ public class MlsEndpoints
         return ToHttp(result);
     }
 
+    /// <summary>
+    /// Refuses a device id that is not one of the caller's own registered devices.
+    ///
+    /// <para>A join request names the device to be admitted, and nothing checked that the caller
+    /// owned it. Combined with the dedup lookup ignoring the requester, that let any co-member submit
+    /// a request under a victim's device id and cancel the victim's real one. Fails closed on an
+    /// Identity outage - see <see cref="DeviceIdResolver.ResolveVerifiedAsync"/>.</para>
+    /// </summary>
+    private static async Task<string?> OwnsDeviceAsync(DeviceIdResolver devices, string userId, string? deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId)) return "DeviceId is required";
+
+        return await devices.IsRegisteredAsync(userId, deviceId, failOpen: false)
+            ? null
+            : $"'{deviceId}' is not one of your registered devices. Register it first, and note that "
+              + "a device id is only ever yours - admission is per device of your own account.";
+    }
+
     [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests")]
     public static async Task<IResult> ListConversationJoinRequests(
         string conversationId,
@@ -472,14 +521,25 @@ public class MlsEndpoints
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
         return Results.Ok(await joinRequests.ListPendingAsync(
-            conversationId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+            conversationId, DateTimeOffset.UtcNow, MlsContextKind.Conversation, userId));
     }
 
+    /// <summary>
+    /// Vouches for a request.
+    ///
+    /// <para>A different device of the requester's own account may - that is the own-device
+    /// admission flow of §L.3, and the only one in which the master-key proof means anything. The
+    /// same device may not, which is what "you cannot approve your own request" was reaching for.
+    /// The approving device comes from the validated <c>X-Device-Id</c>, and its absence refuses the
+    /// self-approval path rather than waving it through.</para>
+    /// </summary>
     [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/approve")]
     public static async Task<IResult> ApproveConversationJoinRequest(
         string conversationId,
         string requestId,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -488,8 +548,11 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
+        var approverDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
+
         return ToHttp(await joinRequests.ApproveAsync(
-            conversationId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Conversation));
+            conversationId, requestId, userId, DateTimeOffset.UtcNow, MlsContextKind.Conversation,
+            approverDeviceId));
     }
 
     [WolverinePost("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/deny")]
@@ -542,6 +605,7 @@ public class MlsEndpoints
         IssueAdmissionChallengeDto dto,
         [NotBody] ClaimsPrincipal user,
         [NotBody] HttpContext http,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -550,12 +614,12 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        var issuerDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        // Validated, not merely read: the issuer id decides whose challenge may be superseded, so an
+        // unchecked header would hand back the displacement primitive that scoping removed.
+        var issuerDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
 
         return ToHttp(await joinRequests.IssueChallengeAsync(
-            conversationId, requestId, userId,
-            string.IsNullOrWhiteSpace(issuerDeviceId) ? null : issuerDeviceId,
-            dto, DateTimeOffset.UtcNow));
+            conversationId, requestId, userId, issuerDeviceId, dto, DateTimeOffset.UtcNow));
     }
 
     /// <summary>The joining device collects the outstanding nonce. Only the requester may - handing
@@ -596,12 +660,17 @@ public class MlsEndpoints
     }
 
     /// <summary>The proof, for the device that issued the challenge to verify locally. Everything it
-    /// needs travels together, so it never has to trust the server's account of what was signed.</summary>
+    /// needs travels together, so it never has to trust the server's account of what was signed.
+    ///
+    /// <para>Only the issuer gets it. Any member used to be able to collect a proof made under
+    /// somebody else's nonce.</para></summary>
     [WolverineGet("/api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/proof")]
     public static async Task<IResult> GetAdmissionProof(
         string conversationId,
         string requestId,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] DeviceIdResolver devices,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsJoinRequestService joinRequests)
     {
@@ -610,7 +679,10 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
-        return ToHttp(await joinRequests.GetProofAsync(conversationId, requestId, DateTimeOffset.UtcNow));
+        var callerDeviceId = await devices.ResolveVerifiedAsync(http.Request, userId);
+
+        return ToHttp(await joinRequests.GetProofAsync(
+            conversationId, requestId, userId, callerDeviceId, DateTimeOffset.UtcNow));
     }
 
     /// <summary>
@@ -685,10 +757,18 @@ public class MlsEndpoints
     /// Welcome sealed to another's leaf - which it cannot use, and which the owning device then never
     /// sees again.</para>
     ///
-    /// <para>A client that sends no <c>deviceId</c> falls back to its validated <c>X-Device-Id</c>
-    /// rather than acking nothing: a silent no-op would leave old clients re-fetching the same
-    /// Welcomes forever. With neither, the call is refused with a reason - the one thing that must
-    /// not happen is acking broadly again.</para>
+    /// <para>A client that sends no <c>deviceId</c> falls back to the <c>X-Device-Id</c> header rather
+    /// than acking nothing: a silent no-op would leave old clients re-fetching the same Welcomes
+    /// forever. With neither, the call is refused with a reason - the one thing that must not happen
+    /// is acking broadly again.</para>
+    ///
+    /// <para><b>That header is not validated, and this route does not need it to be.</b> It only
+    /// narrows a delete-shaped write that is already scoped to the caller's own user id, so the worst
+    /// a forged value achieves is acking the attacker's <i>own</i> Welcomes under someone else's
+    /// device id - self-harm. The distinction matters because C2 was created by exactly this comment
+    /// written one word stronger somewhere it was load-bearing: where the header decides whether the
+    /// caller may <i>read</i> something, it must be resolved from the session instead (see
+    /// <c>SessionDeviceResolver</c> in Identity), never taken off the wire.</para>
     /// </summary>
     [WolverinePost("/api/v1/conversations/welcomes/ack")]
     public static async Task<IResult> AckWelcomes(

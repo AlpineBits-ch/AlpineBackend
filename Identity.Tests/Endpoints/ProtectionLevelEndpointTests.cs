@@ -1,6 +1,7 @@
 using Domain;
 using Identity.Application.Dtos.Request;
 using Identity.Application.Endpoints;
+using Identity.Application.Services;
 using Identity.Contracts.Bus.Events;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
@@ -95,41 +96,25 @@ public class ProtectionLevelEndpointTests
         await _context.SaveChangesAsync();
     }
 
-    /// <summary>UserManager is only ever asked to check a password here, and the InMemory provider
-    /// cannot back a real one - so this stands in for exactly that one call.</summary>
-    private static UserManager<ApplicationUser> ManagerAccepting(string password) =>
-        new StubUserManager(password);
+    /// <summary>Lockout-aware in production (<c>SignInManager.CheckPasswordSignInAsync</c>), which
+    /// cannot be constructed over the InMemory provider - so this stands in for exactly that
+    /// call.</summary>
+    private static IAccountPasswordVerifier ManagerAccepting(string password) =>
+        new FakePasswordVerifier(password);
 
-    private sealed class StubUserManager(string password)
-        : UserManager<ApplicationUser>(new StubUserStore(), null!, new PasswordHasher<ApplicationUser>(),
-            [], [], null!, null!, null!, null!)
-    {
-        public override Task<bool> CheckPasswordAsync(ApplicationUser user, string plain) =>
-            Task.FromResult(plain == password);
-    }
+    private SessionDeviceResolver Sessions => TestSessions.Resolver(_context);
 
-    private sealed class StubUserStore : IUserStore<ApplicationUser>
-    {
-        public void Dispose() { }
-        public Task<string> GetUserIdAsync(ApplicationUser user, CancellationToken ct) => Task.FromResult(user.Id);
-        public Task<string?> GetUserNameAsync(ApplicationUser user, CancellationToken ct) => Task.FromResult(user.UserName);
-        public Task SetUserNameAsync(ApplicationUser user, string? name, CancellationToken ct) => Task.CompletedTask;
-        public Task<string?> GetNormalizedUserNameAsync(ApplicationUser user, CancellationToken ct) => Task.FromResult(user.NormalizedUserName);
-        public Task SetNormalizedUserNameAsync(ApplicationUser user, string? name, CancellationToken ct) => Task.CompletedTask;
-        public Task<IdentityResult> CreateAsync(ApplicationUser user, CancellationToken ct) => Task.FromResult(IdentityResult.Success);
-        public Task<IdentityResult> UpdateAsync(ApplicationUser user, CancellationToken ct) => Task.FromResult(IdentityResult.Success);
-        public Task<IdentityResult> DeleteAsync(ApplicationUser user, CancellationToken ct) => Task.FromResult(IdentityResult.Success);
-        public Task<ApplicationUser?> FindByIdAsync(string userId, CancellationToken ct) => Task.FromResult<ApplicationUser?>(null);
-        public Task<ApplicationUser?> FindByNameAsync(string name, CancellationToken ct) => Task.FromResult<ApplicationUser?>(null);
-    }
-
-    private static PutProtectionLevelDto Put(ProtectionLevel level, int version, string? password = null) => new()
+    private static PutProtectionLevelDto Put(ProtectionLevel level, int version, string? password = null,
+        DateTimeOffset? updatedAt = null) => new()
     {
         Level = level,
         Version = version,
         SignedAssertion = Assertion,
         Password = password,
         DeviceId = "device-a",
+        // Part of the signed payload, and stored verbatim - the server used to stamp its own over
+        // the top, which made every assertion unverifiable.
+        UpdatedAt = updatedAt ?? DateTimeOffset.UtcNow,
     };
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -144,7 +129,7 @@ public class ProtectionLevelEndpointTests
         dto.SignedAssertion = [];
 
         var (result, _) = await ProtectionLevelEndpoint.Put(
-            dto, TestPrincipal.ForUser(UserId), ManagerAccepting(Password), _context);
+            dto, TestPrincipal.ForUser(UserId), ManagerAccepting(Password), Sessions, _context);
 
         // An unsigned level is not a level. Accepting one makes the server the authority again by
         // the back door, asserting something no client can check.
@@ -159,7 +144,7 @@ public class ProtectionLevelEndpointTests
 
         var (result, _) = await ProtectionLevelEndpoint.Put(
             Put(ProtectionLevel.VerifiedDevices, version: 5), TestPrincipal.ForUser(UserId),
-            ManagerAccepting(Password), _context);
+            ManagerAccepting(Password), Sessions, _context);
 
         // Two devices changing the level at once must not end with the account on the loser's
         // setting and the winner's assertion.
@@ -175,7 +160,7 @@ public class ProtectionLevelEndpointTests
 
         var (result, evt) = await ProtectionLevelEndpoint.Put(
             Put(ProtectionLevel.VerifiedDevices, version: 1), TestPrincipal.ForUser(UserId),
-            ManagerAccepting(Password), _context);
+            ManagerAccepting(Password), Sessions, _context);
 
         // Tightening your own account should never be gated.
         Assert.That(result, Is.InstanceOf<Ok<ProtectionLevelDto>>());
@@ -195,7 +180,7 @@ public class ProtectionLevelEndpointTests
 
         var (result, _) = await ProtectionLevelEndpoint.Put(
             Put(ProtectionLevel.VerifiedDevices, version: 1), TestPrincipal.ForUser(UserId),
-            ManagerAccepting(Password), _context);
+            ManagerAccepting(Password), Sessions, _context);
 
         // A strict setting that one of your devices silently ignores is worse than no setting,
         // because the user believes they are protected. The blocking device is named so the UI can
@@ -213,7 +198,7 @@ public class ProtectionLevelEndpointTests
 
         var (result, _) = await ProtectionLevelEndpoint.Put(
             Put(ProtectionLevel.VerifiedDevices, version: 1), TestPrincipal.ForUser(UserId),
-            ManagerAccepting(Password), _context);
+            ManagerAccepting(Password), Sessions, _context);
 
         // The tier promises a password reset cannot restore encrypted history. That is only true
         // while the recovery credential is not the password - turning it on beforehand would sell a
@@ -229,7 +214,7 @@ public class ProtectionLevelEndpointTests
 
         var (result, evt) = await ProtectionLevelEndpoint.Put(
             Put(ProtectionLevel.TrustedSignIn, version: 1), TestPrincipal.ForUser(UserId),
-            ManagerAccepting(Password), _context);
+            ManagerAccepting(Password), Sessions, _context);
 
         // Loosening the account is the move an attacker holding a session wants to make.
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
@@ -246,7 +231,7 @@ public class ProtectionLevelEndpointTests
 
         var (result, evt) = await ProtectionLevelEndpoint.Put(
             Put(ProtectionLevel.TrustedSignIn, version: 1, password: Password),
-            TestPrincipal.ForUser(UserId), ManagerAccepting(Password), _context);
+            TestPrincipal.ForUser(UserId), ManagerAccepting(Password), Sessions, _context);
 
         Assert.That(result, Is.InstanceOf<Ok<ProtectionLevelDto>>());
         Assert.Multiple(() =>
@@ -259,5 +244,69 @@ public class ProtectionLevelEndpointTests
         Assert.That(
             _context.IdentityAuditEvents.Any(a => a.Action == IdentityAuditActions.ProtectionLevelChanged),
             Is.True);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // §L.6 - the signed timestamp
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The signed payload is <c>(userId, level, version, updatedAt)</c>. The server used to overwrite
+    /// <c>updatedAt</c> with its own clock, so the bytes a verifier reconstructed from <c>GET</c>
+    /// could never match the bytes that were signed - and since clients fail closed on an
+    /// unverifiable assertion, the entire two-tier system was inert. Stored verbatim.
+    /// </summary>
+    [Test]
+    public async Task Put_StoresTheClientsUpdatedAtVerbatim()
+    {
+        await SeedUser();
+        await SeedDevice("device-a", MlsCapabilities.ProtectionLevelV1);
+
+        var signedAt = DateTimeOffset.UtcNow.AddSeconds(-42);
+
+        var (result, evt) = await ProtectionLevelEndpoint.Put(
+            Put(ProtectionLevel.VerifiedDevices, version: 1, updatedAt: signedAt),
+            TestPrincipal.ForUser(UserId), ManagerAccepting(Password), Sessions, _context);
+
+        Assert.That(result, Is.InstanceOf<Ok<ProtectionLevelDto>>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(((Ok<ProtectionLevelDto>)result).Value!.UpdatedAt, Is.EqualTo(signedAt));
+            Assert.That(evt, Is.Not.Null);
+        });
+
+        var stored = await _context.Users.SingleAsync();
+        Assert.That(stored.ProtectionLevelUpdatedAt, Is.EqualTo(signedAt),
+            "a value the server rewrote is a signature nobody can ever reconstruct");
+    }
+
+    [Test]
+    public async Task Put_WithNoUpdatedAt_IsRejected()
+    {
+        await SeedUser();
+        await SeedDevice("device-a", MlsCapabilities.ProtectionLevelV1);
+
+        var dto = Put(ProtectionLevel.VerifiedDevices, version: 1);
+        dto.UpdatedAt = default;
+
+        var (result, _) = await ProtectionLevelEndpoint.Put(
+            dto, TestPrincipal.ForUser(UserId), ManagerAccepting(Password), Sessions, _context);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task Put_WithAnAbsurdFutureTimestamp_IsRejected()
+    {
+        await SeedUser();
+        await SeedDevice("device-a", MlsCapabilities.ProtectionLevelV1);
+
+        var (result, _) = await ProtectionLevelEndpoint.Put(
+            Put(ProtectionLevel.VerifiedDevices, version: 1, updatedAt: DateTimeOffset.UtcNow.AddYears(100)),
+            TestPrincipal.ForUser(UserId), ManagerAccepting(Password), Sessions, _context);
+
+        // Verbatim is not unbounded: a timestamp in the year 2126 pins a floor no later assertion
+        // could ever beat.
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 }

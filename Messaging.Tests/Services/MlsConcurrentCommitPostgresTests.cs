@@ -223,9 +223,9 @@ public class MlsConcurrentCommitPostgresTests
         await ServiceFor(second).GetActiveGenerationAsync(ChannelId);
 
         var a = ServiceFor(first).PublishCommitAsync(ChannelId, null, ChannelId, AdminId,
-            new PublishMlsCommitDto { Epoch = 1, Commit = [1, 1], SenderDeviceId = "device-a" }, [], T0);
+            new PublishMlsCommitDto { Epoch = 1, Commit = MlsWire.Commit(epoch: 1), SenderDeviceId = "device-a" }, [], T0);
         var b = ServiceFor(second).PublishCommitAsync(ChannelId, null, ChannelId, AdminId,
-            new PublishMlsCommitDto { Epoch = 1, Commit = [2, 2], SenderDeviceId = "device-b" }, [], T0);
+            new PublishMlsCommitDto { Epoch = 1, Commit = MlsWire.Commit(epoch: 2), SenderDeviceId = "device-b" }, [], T0);
 
         var results = await Task.WhenAll(a, b);
 
@@ -255,9 +255,9 @@ public class MlsConcurrentCommitPostgresTests
         var service = ServiceFor(ctx);
 
         var proposal = await service.PublishCommitAsync(ChannelId, null, ChannelId, AdminId,
-            new PublishMlsCommitDto { Epoch = 1, Commit = [1], SenderDeviceId = "d", IsProposal = true }, [], T0);
+            new PublishMlsCommitDto { Epoch = 1, Commit = MlsWire.Proposal(), SenderDeviceId = "d", IsProposal = true }, [], T0);
         var commit = await service.PublishCommitAsync(ChannelId, null, ChannelId, AdminId,
-            new PublishMlsCommitDto { Epoch = 1, Commit = [2], SenderDeviceId = "d" }, [], T0);
+            new PublishMlsCommitDto { Epoch = 1, Commit = MlsWire.Commit(), SenderDeviceId = "d" }, [], T0);
 
         // The index has to be filtered on is_proposal, or a Remove proposal announced at N+1 blocks
         // the commit that establishes N+1 and the group can never move again.

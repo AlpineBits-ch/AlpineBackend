@@ -28,4 +28,16 @@ public class ResetPasswordResultDto
     /// that.</para>
     /// </summary>
     public bool EncryptedHistoryRecoverable { get; set; }
+
+    /// <summary>
+    /// Single-use permit for <c>POST api/v1/backup/recovery-key/rewrap-password</c>, present only
+    /// when <see cref="MasterKeyRewrapRequired"/> is true.
+    ///
+    /// <para>That route destroys the account's encrypted history if it is called with the wrong
+    /// bytes, so it cannot be open to a bare session token. On this journey the user has no usable
+    /// password to prove anything with - they have just set a new one and the master key is sealed
+    /// under the old one - but they did just prove control of the account's email. This carries that
+    /// proof forward. Valid for thirty minutes and consumed by the first successful rewrap.</para>
+    /// </summary>
+    public string? MasterKeyRewrapTicket { get; set; }
 }

@@ -34,8 +34,35 @@ public class EncryptedMasterKey
     /// change of KDF does not silently reinterpret the parameters above.</summary>
     public string? Kdf { get; init; }
 
-    /// <summary>Lets a client check a passphrase without downloading and trial-decrypting every
-    /// backup blob. Optional; a client that omits it simply gets no early failure.</summary>
+    /// <summary>
+    /// A value derived client-side from the <b>master key</b> - not from the credential that wraps
+    /// it - so that the server can compare wrappings without ever holding the key.
+    ///
+    /// <para>Two jobs. It lets a client check a passphrase without downloading and trial-decrypting
+    /// every backup blob; and, because both wrappings of one key derive the same value, it is the
+    /// only thing the server can check when asked to <i>replace</i> a wrapping. Without it,
+    /// <c>rewrap-password</c> is a write of arbitrary bytes over the key every backup on the account
+    /// is sealed under, and the account then reports itself healthy.</para>
+    ///
+    /// <para>Null only on envelopes written before it was required. Those accounts get the credential
+    /// check and nothing else until a write backfills one - see <c>BackupController</c>.</para>
+    /// </summary>
     public byte[]? PublicVerifier { get; init; }
 
+    /// <summary>Returns a copy carrying <paramref name="verifier"/>. Exists because this is an
+    /// init-only owned value: the verifier is established by a later write than the one that created
+    /// the wrapping (backfill and trust-on-first-use both do this), and re-seating the whole value is
+    /// the only way to say so without making every field mutable.</summary>
+    public EncryptedMasterKey WithPublicVerifier(byte[]? verifier) => new()
+    {
+        CipherText = CipherText,
+        Salt = Salt,
+        Iv = Iv,
+        Argon2Iterations = Argon2Iterations,
+        Argon2Memory = Argon2Memory,
+        Argon2Parallelism = Argon2Parallelism,
+        Version = Version,
+        Kdf = Kdf,
+        PublicVerifier = verifier,
+    };
 }

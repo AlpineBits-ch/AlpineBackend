@@ -114,7 +114,7 @@ public class MlsEndpointsTests
     private static PublishMlsCommitDto CommitDto(long epoch) => new()
     {
         Epoch = epoch,
-        Commit = [10, 11, 12],
+        Commit = MlsWire.Commit(),
         SenderDeviceId = "device-a",
     };
 
@@ -281,21 +281,139 @@ public class MlsEndpointsTests
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
+    /// <summary>
+    /// A member of the group may publish without <c>ManageChannel</c> - the group has to be able to
+    /// follow the roster as people gain and lose access, and toggling encryption is the privileged
+    /// action, not this. The owner activated the generation, so they are in it.
+    /// </summary>
     [Test]
-    public async Task PublishChannelCommit_NeedsOnlyViewChannel()
+    public async Task PublishChannelCommit_ByAGroupMember_NeedsOnlyViewChannel()
     {
-        // Every member has to be able to publish commits or the group cannot follow the roster as
-        // people gain and lose access. Toggling encryption is the privileged action, not this.
         await MlsEndpoints.EnableChannelMls(
-            ChannelId, new EnableMlsDto { MlsGroupId = [1], Epoch = 0 }, TestPrincipal.ForUser(OwnerId),
+            ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
+            TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
+
+        var result = await MlsEndpoints.PublishChannelCommit(
+            ChannelId, CommitDto(1), TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
+
+        Assert.That(result, Is.InstanceOf<Ok<object>>().Or.InstanceOf<IValueHttpResult>());
+        Assert.That(await _context.MlsCommits.CountAsync(), Is.EqualTo(1));
+    }
+
+    /// <summary>
+    /// The attack: a channel viewer who has never been admitted to the group wedges its epoch.
+    ///
+    /// <para>The server never parses commits, so a payload it cannot check advances
+    /// <c>active.Epoch</c> to a value no honest client can reach - every subsequent real commit
+    /// 409s, forever, and recovery needs a full re-key. On a channel that required nothing but
+    /// <c>ViewChannel</c>: read access to a room was write access to its group's epoch.</para>
+    /// </summary>
+    [Test]
+    public async Task PublishChannelCommit_ByANonMemberWithViewChannel_CannotAdvanceTheEpoch()
+    {
+        await MlsEndpoints.EnableChannelMls(
+            ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
+            TestPrincipal.ForUser(OwnerId),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         var result = await MlsEndpoints.PublishChannelCommit(
             ChannelId, CommitDto(1), TestPrincipal.ForUser(PeerId),
             ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
 
-        Assert.That(result, Is.InstanceOf<Ok<object>>().Or.InstanceOf<IValueHttpResult>());
-        Assert.That(await _context.MlsCommits.CountAsync(), Is.EqualTo(1));
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.That(await _context.MlsCommits.AnyAsync(), Is.False);
+        Assert.That((await _context.MlsGroupGenerations.SingleAsync()).Epoch, Is.EqualTo(0),
+            "the group's epoch must not move on a stranger's say-so");
+    }
+
+    /// <summary>
+    /// The same wedge from inside the group, using the other half of the trick: a proposal labelled
+    /// as a commit. A proposal advances nobody's epoch, so accepting it as one puts the server one
+    /// ahead of a number every client would have to reach and none can.
+    /// </summary>
+    [Test]
+    public async Task PublishChannelCommit_AProposalLabelledAsACommit_IsRefused()
+    {
+        await MlsEndpoints.EnableChannelMls(
+            ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
+            TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
+
+        var mislabelled = CommitDto(1);
+        mislabelled.Commit = MlsWire.Proposal();
+        mislabelled.IsProposal = false;
+
+        var result = await MlsEndpoints.PublishChannelCommit(
+            ChannelId, mislabelled, TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.That((await _context.MlsGroupGenerations.SingleAsync()).Epoch, Is.EqualTo(0));
+    }
+
+    /// <summary>Garbage bytes are the cheapest version of the same wedge, and were accepted
+    /// verbatim.</summary>
+    [Test]
+    public async Task PublishChannelCommit_WithBytesThatAreNotAnMlsMessage_IsRefused()
+    {
+        await MlsEndpoints.EnableChannelMls(
+            ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
+            TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
+
+        var noise = CommitDto(1);
+        noise.Commit = [0xDE, 0xAD, 0xBE, 0xEF];
+
+        var result = await MlsEndpoints.PublishChannelCommit(
+            ChannelId, noise, TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.That((await _context.MlsGroupGenerations.SingleAsync()).Epoch, Is.EqualTo(0));
+    }
+
+    /// <summary>
+    /// The attack: any channel viewer external-commits into the group.
+    ///
+    /// <para><c>GroupInfo</c> is everything needed to join by external commit, and the state route
+    /// required only <c>ViewChannel</c> - so the join-request review was optional for anyone who
+    /// could read the channel. Worse, mobile calls this route as its first rejoin attempt, so a
+    /// server serving a GroupInfo for a group <i>it</i> controls gets the victim's device to join
+    /// that group and repoint its registry.</para>
+    /// </summary>
+    [Test]
+    public async Task GetChannelMlsState_WithholdsTheGroupInfoFromANonMember()
+    {
+        await MlsEndpoints.EnableChannelMls(
+            ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, MlsGroupInfo = [9, 9, 9], Epoch = 0 },
+            TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
+
+        var stranger = await MlsEndpoints.GetChannelMlsState(
+            ChannelId, TestPrincipal.ForUser(PeerId),
+            ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
+
+        var strangerState = (MlsContextStateDto)((IValueHttpResult)stranger).Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(strangerState.MlsGroupInfo, Is.Null, "a viewer is not a member");
+            Assert.That(strangerState.GroupInfoWithheld, Is.True, "and must be told to ask, not left guessing");
+            // Everything a reader legitimately needs is still there.
+            Assert.That(strangerState.Encrypted, Is.True);
+            Assert.That(strangerState.ActiveGeneration, Is.EqualTo(1));
+        });
+
+        // The generation list must not hand back the same bytes one field further down.
+        Assert.That(strangerState.Generations.Count, Is.EqualTo(1));
+
+        var member = await MlsEndpoints.GetChannelMlsState(
+            ChannelId, TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
+
+        var memberState = (MlsContextStateDto)((IValueHttpResult)member).Value!;
+        Assert.That(memberState.MlsGroupInfo, Is.EqualTo(new byte[] { 9, 9, 9 }));
     }
 
     [Test]

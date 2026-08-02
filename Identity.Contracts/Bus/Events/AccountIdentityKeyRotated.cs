@@ -23,5 +23,16 @@ public class AccountIdentityKeyRotated
 
     public string? ChangedByDeviceId { get; init; }
 
+    /// <summary>
+    /// True when the account had no identity key at all until this write.
+    ///
+    /// <para>Announced as loudly as a rotation, and for the same reason. Whoever publishes first
+    /// becomes the account's cryptographic identity to every peer that TOFU-pins it, and until this
+    /// change that cost one session token and left no trace anywhere - no password, no audit row, no
+    /// broadcast. A first publication the owner did not perform is exactly as serious as a rotation
+    /// they did not perform, so it is exactly as visible.</para>
+    /// </summary>
+    public bool IsFirstPublication { get; init; }
+
     public DateTimeOffset RotatedAt { get; init; }
 }

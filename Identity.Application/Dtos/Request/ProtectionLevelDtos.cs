@@ -27,6 +27,21 @@ public class PutProtectionLevelDto
     /// and is answered with 409 plus the current state so the loser can re-sign.</summary>
     public int Version { get; set; }
 
+    /// <summary>
+    /// The timestamp inside <see cref="SignedAssertion"/>, stored verbatim.
+    ///
+    /// <para><b>Required, and the reason the tier was inert.</b> The signed payload is
+    /// <c>(userId, level, version, updatedAt)</c>; the client signed its own clock and the server
+    /// then stamped <c>DateTimeOffset.UtcNow</c> over the top, so the bytes a verifier reconstructed
+    /// from <c>GET</c> never matched the bytes that were signed and <i>no assertion could ever
+    /// verify</i>. Clients fail closed on an unverifiable assertion, so this was not itself
+    /// exploitable - it simply meant the whole two-tier system did nothing.</para>
+    ///
+    /// <para>Accepted only within <see cref="Endpoints.ProtectionLevelEndpoint.MaxClockSkew"/> of
+    /// server time, and it must not move backwards, so "verbatim" does not mean "unbounded".</para>
+    /// </summary>
+    public DateTimeOffset UpdatedAt { get; set; }
+
     /// <summary>Account password. Required only on a downgrade
     /// (<see cref="ProtectionLevel.VerifiedDevices"/> to <see cref="ProtectionLevel.TrustedSignIn"/>),
     /// which is the change an attacker holding a session actually wants.</summary>

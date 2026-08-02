@@ -28,9 +28,34 @@ public class CreateMLSDeviceDto
 
     /// <summary>What this build understands, e.g. <c>mls.device-cert.v1</c>,
     /// <c>mls.join-request.conversation.v1</c>, <c>mls.protection-level.v1</c>, <c>mls.backup.v1</c>.
-    /// Refreshed on every launch. Null leaves whatever was previously recorded in place, so a
-    /// partial re-registration cannot erase a device's declared support.</summary>
+    /// Refreshed on every launch and merged with what is already recorded - a re-registration can
+    /// add to a device's declared support but never take it away, because erasing it is a way to
+    /// hold the whole account out of <c>VerifiedDevices</c> for the price of a session token.</summary>
     public List<string>? Capabilities { get; set; }
+
+    /// <summary>Account password. Required only when this registration <i>rotates</i> the identity
+    /// key of a device other than the one the session belongs to, because that purges the target
+    /// device's key packages and strands it.</summary>
+    public string? Password { get; set; }
+}
+
+/// <summary>Claims an existing device row for the calling session. See
+/// <c>MlsDeviceEndpoint.BindSessionToDevice</c> - the password is the only thing that makes this
+/// distinguishable from the attack it resembles.</summary>
+public class BindSessionDto
+{
+    public string? Password { get; set; }
+}
+
+public class BindSessionResultDto
+{
+    /// <summary>The client device id this session now acts as.</summary>
+    public string DeviceId { get; set; } = null!;
+
+    /// <summary>False when the session was already bound to this same device - the request changed
+    /// nothing. Distinguished from a fresh bind so a client retrying after a lost response can tell
+    /// which of its attempts landed.</summary>
+    public bool Bound { get; set; }
 }
 
 /// <summary>Reissues a device certificate without re-registering the device. Any device holding the

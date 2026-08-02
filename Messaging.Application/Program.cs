@@ -88,6 +88,10 @@ builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareCo
 builder.Services.AddScoped<ConversationPermissionService>();
 builder.Services.AddScoped<MlsJoinRequestService>();
 builder.Services.AddScoped<MlsGroupService>();
+
+// The §I.1 rollout knobs, read from configuration rather than baked into the binary, so the
+// certificate-enforcement phase is actually flippable and two instances cannot disagree about it.
+Domain.MlsPolicy.Bind(builder.Configuration);
 builder.Services.AddScoped<IceServerService>();
 if (args.Contains("codegen") || args.Contains("describe"))
 {

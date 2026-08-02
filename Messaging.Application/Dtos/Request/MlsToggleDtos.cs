@@ -37,7 +37,21 @@ public class MlsContextStateDto
 
     public long? Epoch { get; set; }
     public byte[]? MlsGroupId { get; set; }
+
+    /// <summary>
+    /// The live GroupInfo, or null when the caller has no evidence of ever having been in this
+    /// group.
+    ///
+    /// <para>This is the object that makes an external commit possible, which is to say it is a way
+    /// into the group that skips the join-request review entirely. Serving it on <c>ViewChannel</c>
+    /// meant the review was optional for anyone who could read the channel. See
+    /// <see cref="GroupInfoWithheld"/>.</para>
+    /// </summary>
     public byte[]? MlsGroupInfo { get; set; }
+
+    /// <summary>True when a GroupInfo exists but was not served to this caller, so a client can say
+    /// "ask to be let in" rather than "this group has no rejoin point".</summary>
+    public bool GroupInfoWithheld { get; set; }
 
     /// <summary>Every generation, oldest first, including terminated ones - their messages are still
     /// in the context and a client needs to know the generation existed to explain a stretch of
@@ -45,7 +59,14 @@ public class MlsContextStateDto
     public List<MlsGenerationDto> Generations { get; set; } = new();
 }
 
-[Facet(typeof(MlsGroupGeneration))]
+/// <summary>
+/// One generation, minus its GroupInfo.
+///
+/// <para>The exclusion is load-bearing: without it this list handed every caller the very bytes
+/// <see cref="MlsContextStateDto.MlsGroupInfo"/> is gated on, one field further down the same
+/// response.</para>
+/// </summary>
+[Facet(typeof(MlsGroupGeneration), nameof(MlsGroupGeneration.MlsGroupInfo))]
 public partial class MlsGenerationDto
 {
 }

@@ -13,6 +13,11 @@ public static class IdentityAuditActions
     public const string KeyPackagesReset = "key-packages.reset";
     public const string DeviceIdentityRotated = "device.identity-rotated";
 
+    /// <summary>A device was unregistered. The row survives the device, which is the point - the
+    /// cascade takes its backup blob and its key packages with it, so "when did that disappear" has
+    /// to be answerable afterwards.</summary>
+    public const string DeviceRemoved = "device.removed";
+
     /// <summary>Append-only and surfaced in the UI on purpose: a silent downgrade from
     /// VerifiedDevices is the step that makes auto-admitting an attacker's device possible.</summary>
     public const string ProtectionLevelChanged = "protection-level.changed";
@@ -26,6 +31,13 @@ public static class IdentityAuditActions
     public const string MasterKeyPasswordWrappingInvalidated = "master-key.password-wrapping-invalidated";
 
     public const string MasterKeyRewrapped = "master-key.rewrapped";
+
+    /// <summary>A session was bound to a device it did not log in from, which is only possible with
+    /// the account password. Audited because it is the one operation that changes <i>which device a
+    /// session is</i>, and therefore which device's backup it may read - the exact decision C2 was
+    /// about. If a session is ever found reading the wrong device's blob, this row is where it
+    /// started.</summary>
+    public const string SessionDeviceBound = "session.device-bound";
 }
 
 public class CreateIdentityAuditEventParams

@@ -98,9 +98,17 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         if (active is null)
             return MlsOperationResult.BadRequest("This context is not encrypted; no request is needed.");
 
+        // Scoped to the requester as well as the device.
+        //
+        // ClientDeviceId is chosen by the client and unique only per account, and victim device ids
+        // are readable straight off MlsJoinRequestDto. Without the user in this predicate, any
+        // co-member could submit a request naming the victim's device id, "supersede" the victim's
+        // genuine pending request, and cancel it - repeatably, for as long as the victim kept
+        // retrying.
         var existing = await ctx.MlsJoinRequests
             .FirstOrDefaultAsync(r => r.ContextId == contextId
                                       && r.Generation == active.Generation
+                                      && r.RequesterUserId == requesterUserId
                                       && r.RequesterDeviceId == dto.DeviceId
                                       && r.State == MlsJoinRequestState.Pending);
 
@@ -175,8 +183,17 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         return recentlyAdmitted == 0;
     }
 
+    /// <summary>
+    /// The review queue.
+    ///
+    /// <para><paramref name="callerUserId"/> decides who gets the key-package bytes: the requester's
+    /// own other devices do, because that is the flow in which they verify the §G admission proof
+    /// against material they re-derive themselves; peers do not until they have crossed the approval
+    /// threshold.</para>
+    /// </summary>
     public async Task<List<MlsJoinRequestDto>> ListPendingAsync(
-        string contextId, DateTimeOffset now, MlsContextKind kind = MlsContextKind.Channel)
+        string contextId, DateTimeOffset now, MlsContextKind kind = MlsContextKind.Channel,
+        string? callerUserId = null)
     {
         var active = await ctx.MlsGroupGenerations
             .AsNoTracking()
@@ -196,22 +213,44 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
             .OrderBy(r => r.CreatedAt)
             .ToListAsync();
 
-        return requests.Select(r => ToDto(r, required)).ToList();
+        return requests
+            .Select(r => ToDto(r, required, includeKeyPackage: r.RequesterUserId == callerUserId))
+            .ToList();
     }
 
     /// <summary>
-    /// Records one member's approval.
+    /// Records one approval.
     ///
     /// <para>When this is the approval that meets the threshold, the response carries the key
     /// package so the approving client can mint the Add commit immediately - it is the one already
     /// holding group keys and already looking at the request.</para>
+    ///
+    /// <para><b>Two flows, per §L.3.</b> §G.1 requires the admission proof to be verified by the
+    /// requester's <i>own other device</i>, because that is the only party holding the account master
+    /// key; §B and the original implementation forbade self-approval outright. Those two sets are
+    /// disjoint, which made the entire admission ceremony structurally unreachable - the only party
+    /// permitted to approve was a peer, who by construction cannot verify a master-key HMAC.</para>
+    ///
+    /// <list type="number">
+    /// <item><b>Own-device admission.</b> A different device of the same account may approve. That
+    /// is the flow the §G proof is meaningful in, and the one a user adding their second handset
+    /// actually walks.</item>
+    /// <item><b>Peer admission.</b> Unchanged, and never asked to verify a proof it cannot: it rests
+    /// on the device certificate and an out-of-band fingerprint comparison.</item>
+    /// </list>
+    ///
+    /// <para>What stays forbidden is the <i>same device</i> approving itself, which proves nothing at
+    /// all. The approving device is resolved by the caller from its session, never from a body field
+    /// - and when the caller cannot establish which device it is, self-approval is refused, because
+    /// "I could not tell" must not read as "it was a different one".</para>
     /// </summary>
     public async Task<MlsOperationResult> ApproveAsync(
         string contextId,
         string requestId,
         string approverUserId,
         DateTimeOffset now,
-        MlsContextKind kind = MlsContextKind.Channel)
+        MlsContextKind kind = MlsContextKind.Channel,
+        string? approverDeviceId = null)
     {
         var request = await ctx.MlsJoinRequests
             .Include(r => r.Approvals)
@@ -226,10 +265,22 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
                 Reason = "This request is no longer open.",
             });
 
-        // Vouching for yourself is not review. The two-person rule is meaningless if one of the two
-        // can be the person being let in.
         if (request.RequesterUserId == approverUserId)
-            return MlsOperationResult.BadRequest("You cannot approve your own join request.");
+        {
+            if (string.IsNullOrWhiteSpace(approverDeviceId))
+            {
+                return MlsOperationResult.BadRequest(
+                    "Approving your own account's join request requires a validated X-Device-Id, so "
+                    + "the server can tell one of your devices from the one asking to be let in.");
+            }
+
+            // Vouching for yourself is not review.
+            if (string.Equals(approverDeviceId, request.RequesterDeviceId, StringComparison.Ordinal))
+            {
+                return MlsOperationResult.BadRequest(
+                    "A device cannot approve its own join request.");
+            }
+        }
 
         var required = await RequiredApprovalsFor(contextId, request.Generation, kind);
 
@@ -307,19 +358,52 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
     /// fulfilled once the device is genuinely in the group. An approval that never resulted in a
     /// commit leaves the request open for someone else to act on.</para>
     /// </summary>
+    /// <para><b>The ids are the caller's claim, and the Welcomes are the evidence.</b> Nothing tied
+    /// them to the commit or to the caller, so a member could attach arbitrary pending ids from the
+    /// same context and have three things happen at once: the requests left <c>Pending</c> and
+    /// became unapprovable, each one spent its owner's 24-hour auto-admission budget, and the server
+    /// pushed <c>identity.DeviceAdmitted</c> for devices that had never been added - naming a real
+    /// device and a real signature-key fingerprint, which is precisely the notification a user is
+    /// told to treat as a compromise.</para>
+    ///
+    /// <para>Two checks, and both are about what the commit <i>did</i> rather than what its publisher
+    /// says it did:</para>
+    ///
+    /// <list type="number">
+    /// <item><b>The commit must carry a Welcome for the requesting device.</b> An Add that admits a
+    /// device is always accompanied by one - that is how the device gets in - so a request with no
+    /// matching Welcome in this commit was not admitted by it. This is the only handle the server has
+    /// on the commit's actual contents, and it is a real one.</item>
+    /// <item><b>The request must have been admissible.</b> Either it met its approval threshold or it
+    /// was eligible for auto-admission. Closing one that had neither turns "fulfilled" into a claim
+    /// no review ever backed.</item>
+    /// </list>
+    ///
     /// <returns>The requests this commit actually closed, so the caller can announce the ones that
     /// were admitted without a human ever tapping approve.</returns>
     public async Task<List<MlsJoinRequest>> FulfilAsync(
-        string contextId, IReadOnlyCollection<string> requestIds, DateTimeOffset now)
+        string contextId,
+        IReadOnlyCollection<string> requestIds,
+        IReadOnlyCollection<(string UserId, string DeviceId)> welcomedDevices,
+        int required,
+        DateTimeOffset now)
     {
         if (requestIds.Count == 0) return [];
 
-        var requests = await ctx.MlsJoinRequests
+        var candidates = await ctx.MlsJoinRequests
             .Include(r => r.Approvals)
             .Where(r => requestIds.Contains(r.Id)
                         && r.ContextId == contextId
                         && r.State == MlsJoinRequestState.Pending)
             .ToListAsync();
+
+        var welcomed = welcomedDevices.ToHashSet();
+
+        var requests = candidates
+            .Where(r => welcomed.Contains((r.RequesterUserId, r.RequesterDeviceId)))
+            .Where(r => r.Approvals.Select(a => a.ApproverUserId).Distinct().Count() >= required
+                        || !r.RequiresManualApproval)
+            .ToList();
 
         foreach (var request in requests)
         {
@@ -377,10 +461,17 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         if (request.RequesterUserId == issuerUserId && request.RequesterDeviceId == issuerDeviceId)
             return MlsOperationResult.BadRequest("A device cannot challenge its own join request.");
 
-        // One live challenge per request. Two outstanding nonces means a reviewer cannot tell which
-        // proof it is looking at, and gives an attacker two chances at one interception.
+        // One live challenge per issuer, not per request.
+        //
+        // Superseding every outstanding nonce made this a displacement primitive: any co-member
+        // could post a challenge of their own and delete the one the requester's real verifier was
+        // waiting on, indefinitely. An issuer may replace its own - that is a retry - and nobody
+        // else's.
         var superseded = await ctx.MlsAdmissionChallenges
-            .Where(c => c.JoinRequestId == requestId && c.Proof == null)
+            .Where(c => c.JoinRequestId == requestId
+                        && c.Proof == null
+                        && c.IssuedByUserId == issuerUserId
+                        && c.IssuedByDeviceId == issuerDeviceId)
             .ToListAsync();
         if (superseded.Count > 0) ctx.MlsAdmissionChallenges.RemoveRange(superseded);
 
@@ -478,8 +569,15 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
     /// <para>Everything needed for that verification travels together - the nonce, the signature, the
     /// device id and the fingerprint - because the verifier must not have to trust the server's
     /// account of what was signed over.</para>
+    ///
+    /// <para><b>Only the issuer.</b> This used to check nothing beyond membership, so every member of
+    /// the context could collect an admission proof made under someone else's nonce. A proof is a
+    /// signature over <c>challenge || deviceId || fingerprint</c>; handing it to parties who did not
+    /// choose the challenge is handing out signed material for a nonce they may have influenced, and
+    /// it is not something anyone but the verifier has a use for.</para>
     /// </summary>
-    public async Task<MlsOperationResult> GetProofAsync(string contextId, string requestId, DateTimeOffset now)
+    public async Task<MlsOperationResult> GetProofAsync(
+        string contextId, string requestId, string callerUserId, string? callerDeviceId, DateTimeOffset now)
     {
         var request = await ctx.MlsJoinRequests.AsNoTracking()
             .FirstOrDefaultAsync(r => r.Id == requestId && r.ContextId == contextId);
@@ -487,7 +585,11 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         if (request is null) return MlsOperationResult.NotFound("Join request not found");
 
         var challenge = await ctx.MlsAdmissionChallenges.AsNoTracking()
-            .Where(c => c.JoinRequestId == requestId && c.Proof != null)
+            .Where(c => c.JoinRequestId == requestId
+                        && c.Proof != null
+                        && c.IssuedByUserId == callerUserId
+                        && (c.IssuedByDeviceId == null || callerDeviceId == null
+                                                       || c.IssuedByDeviceId == callerDeviceId))
             .OrderByDescending(c => c.ProofSubmittedAt)
             .FirstOrDefaultAsync();
 
@@ -516,11 +618,12 @@ public class MlsJoinRequestService(MicroserviceContext ctx)
         Answered = challenge.Proof is { Length: > 0 },
     };
 
-    private static MlsJoinRequestDto ToDto(MlsJoinRequest request, int required)
+    private static MlsJoinRequestDto ToDto(MlsJoinRequest request, int required, bool includeKeyPackage = false)
     {
         var dto = request.ToFacet<MlsJoinRequest, MlsJoinRequestDto>();
         dto.RequiredApprovals = required;
         dto.ApproverUserIds = request.Approvals.Select(a => a.ApproverUserId).Distinct().ToList();
+        if (includeKeyPackage) dto.KeyPackage = request.KeyPackage;
         return dto;
     }
 }

@@ -261,7 +261,7 @@ public class MlsAdmissionTests
 
         Assert.That(submitted.Status, Is.EqualTo(MlsOperationStatus.Ok));
 
-        var relayed = (MlsAdmissionProofDto)(await _service.GetProofAsync(ConversationId, requestId, T0)).Value!;
+        var relayed = (MlsAdmissionProofDto)(await _service.GetProofAsync(ConversationId, requestId, OwnerId, "device-owner", T0)).Value!;
         Assert.Multiple(() =>
         {
             Assert.That(relayed.Proof, Is.EqualTo(new byte[] { 0xDE, 0xAD }));
@@ -313,7 +313,7 @@ public class MlsAdmissionTests
         await _service.SubmitProofAsync(ConversationId, requestId, RequesterId,
             new SubmitAdmissionProofDto { ChallengeId = challenge.ChallengeId, Proof = [1] }, T0);
 
-        var late = await _service.GetProofAsync(ConversationId, requestId,
+        var late = await _service.GetProofAsync(ConversationId, requestId, OwnerId, "device-owner",
             T0 + MlsAdmissionChallenge.Lifetime + TimeSpan.FromSeconds(1));
 
         Assert.That(late.Status, Is.EqualTo(MlsOperationStatus.NotFound));
@@ -355,5 +355,51 @@ public class MlsAdmissionTests
         // gives an attacker two chances at one interception.
         var live = await _context.MlsAdmissionChallenges.SingleAsync();
         Assert.That(live.Challenge, Is.EqualTo(Enumerable.Repeat((byte)9, 32).ToArray()));
+    }
+
+    /// <summary>
+    /// The attack: a co-member displaces the verifier's nonce, indefinitely.
+    ///
+    /// <para>Superseding <i>every</i> outstanding challenge for a request meant any member of the
+    /// context could post one of their own and delete the one the requester's real verifying device
+    /// was waiting on. Repeat and the admission never completes. An issuer may replace its own -
+    /// that is a retry - and nobody else's.</para>
+    /// </summary>
+    [Test]
+    public async Task IssuingAChallenge_DoesNotDisplaceAnotherDevicesOutstandingChallenge()
+    {
+        var requestId = await PendingRequestId();
+        await IssueChallenge(requestId);
+
+        await _service.IssueChallengeAsync(ConversationId, requestId, "co-member", "device-theirs",
+            new IssueAdmissionChallengeDto { Challenge = Enumerable.Repeat((byte)9, 32).ToArray() }, T0);
+
+        var live = await _context.MlsAdmissionChallenges.ToListAsync();
+        Assert.That(live.Any(c => c.Challenge.SequenceEqual(Nonce)), Is.True,
+            "the verifier's own nonce must survive a stranger's challenge");
+    }
+
+    /// <summary>
+    /// The attack: a co-member collects a proof made under somebody else's nonce.
+    ///
+    /// <para>The relay checked only that the caller was in the conversation. A proof is a signature
+    /// over <c>challenge || deviceId || fingerprint</c>, and nobody but the device that chose the
+    /// challenge has any use for it.</para>
+    /// </summary>
+    [Test]
+    public async Task Proof_IsOnlyReadableByTheDeviceThatIssuedTheChallenge()
+    {
+        var requestId = await PendingRequestId();
+        var challenge = (MlsAdmissionChallengeDto)(await IssueChallenge(requestId)).Value!;
+        await _service.SubmitProofAsync(ConversationId, requestId, RequesterId,
+            new SubmitAdmissionProofDto { ChallengeId = challenge.ChallengeId, Proof = [0xDE, 0xAD] }, T0);
+
+        var stranger = await _service.GetProofAsync(
+            ConversationId, requestId, "co-member", "device-theirs", T0);
+
+        Assert.That(stranger.Status, Is.EqualTo(MlsOperationStatus.NotFound));
+
+        var issuer = await _service.GetProofAsync(ConversationId, requestId, OwnerId, "device-owner", T0);
+        Assert.That(issuer.Status, Is.EqualTo(MlsOperationStatus.Ok));
     }
 }

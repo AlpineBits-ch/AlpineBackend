@@ -148,7 +148,36 @@ namespace Identity.Infrastructure.Migrations
                 onDelete: ReferentialAction.SetNull);
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// Reverses <see cref="Up"/>.
+        ///
+        /// <para><b>One thing cannot be reversed, and the scaffolded code failed rather than saying
+        /// so.</b> Up replaced the globally unique <c>ix_user_devices_client_device_id</c> with a
+        /// unique index over <c>(user_id, client_device_id)</c>, because that id is chosen by the
+        /// client and is only ever unique per user. From that moment two accounts may legitimately
+        /// hold a device row with the same <c>client_device_id</c> - a common one at that, since the
+        /// value is often a stable per-handset string and handsets get signed into more than one
+        /// account. The generated Down recreated the old index as <c>unique</c> over exactly that
+        /// data, so on any database where it had happened the rollback raised 23505 on its final
+        /// statement and rolled itself back: the escape hatch was missing precisely on the databases
+        /// that had been used.</para>
+        ///
+        /// <para><b>The index is therefore restored non-unique.</b> The two alternatives are worse.
+        /// Failing is what the bug already did. Deleting the colliding rows would delete a
+        /// <i>different user's</i> device - cascading to their push tokens and their backup blobs, and
+        /// handing the surviving account a device row it does not own, which is the C2 outcome
+        /// arriving by migration. Note the contrast with
+        /// <c>AddMlsIdentityKeysBackupAndProtectionLevel</c>, whose Down does delete: there the
+        /// redundant rows are superseded versions of one device's own blob, which is history, not
+        /// somebody else's data.</para>
+        ///
+        /// <para>Nothing downstream needs the uniqueness: the pre-migration code read
+        /// <c>client_device_id</c> through this index but never relied on the database to keep it
+        /// singular, and re-running <see cref="Up"/> drops the index by name regardless of its kind.
+        /// The collisions are reported as warnings rather than passed over in silence, because after
+        /// a rollback the older code resolves such an id to an arbitrary one of the two rows and an
+        /// operator has to know that before it matters.</para>
+        /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropForeignKey(
@@ -247,11 +276,33 @@ namespace Identity.Infrastructure.Migrations
                 .OldAnnotation("Npgsql:Enum:user_status", "active,banned,deleted,inactive,pending_deletion,purge_in_progress")
                 .OldAnnotation("Npgsql:Enum:user_type", "admin,bot,default,moderator");
 
+            // Name every id that the old global uniqueness would have rejected, so the rollback is
+            // not silent about the one guarantee it cannot give back. A WARNING rather than an
+            // exception: the operator needs to know, and still needs the rollback to finish.
+            migrationBuilder.Sql("""
+                DO $$
+                DECLARE colliding text;
+                BEGIN
+                    SELECT string_agg(d.client_device_id, ', ')
+                    INTO colliding
+                    FROM (
+                        SELECT client_device_id
+                        FROM user_devices
+                        GROUP BY client_device_id
+                        HAVING count(*) > 1
+                    ) d;
+
+                    IF colliding IS NOT NULL THEN
+                        RAISE WARNING 'ix_user_devices_client_device_id is being restored NON-UNIQUE: % is held by more than one account. Global uniqueness of client_device_id cannot be re-established without deleting another user''s device row.', colliding;
+                    END IF;
+                END $$;
+                """);
+
+            // Deliberately not unique - see the remarks on this method.
             migrationBuilder.CreateIndex(
                 name: "ix_user_devices_client_device_id",
                 table: "user_devices",
-                column: "client_device_id",
-                unique: true);
+                column: "client_device_id");
 
             migrationBuilder.CreateIndex(
                 name: "ix_user_devices_user_id",

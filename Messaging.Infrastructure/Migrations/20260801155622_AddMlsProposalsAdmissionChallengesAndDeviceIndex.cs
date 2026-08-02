@@ -100,10 +100,42 @@ namespace Messaging.Infrastructure.Migrations
         }
 
         /// <inheritdoc />
+        /// <summary>
+        /// Reverses <see cref="Up"/>.
+        ///
+        /// <para><b>Two of the three index swaps cannot be undone without deleting rows, and the
+        /// scaffolded code did not.</b> Up widened both indexes precisely because the data no longer
+        /// fits the narrow shape, so recreating them as-was over live data raises 23505 and aborts the
+        /// rollback halfway - the one moment a rollback has to work.</para>
+        ///
+        /// <list type="bullet">
+        /// <item><c>mls_commits</c>: the old unique index had no <c>WHERE is_proposal = false</c>
+        /// filter, so proposals - which by design share an epoch slot with the commit that establishes
+        /// it - collide. They are deleted, which is correct rather than merely convenient: the
+        /// application version being rolled back to has no concept of a proposal and would treat every
+        /// one of these rows as a real commit.</item>
+        /// <item><c>member_devices</c>: <c>device_id</c> was globally unique, meaning one device could
+        /// belong to one conversation in the entire system. Any device in two conversations has to
+        /// lose all but one membership row.</item>
+        /// </list>
+        ///
+        /// <para>Both deletions run before the columns they read are dropped.</para>
+        /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
                 name: "mls_admission_challenges");
+
+            // While `is_proposal` still exists to select on.
+            migrationBuilder.Sql("DELETE FROM mls_commits WHERE is_proposal = true;");
+
+            // Keep one membership row per device. ctid is the tie-break: there is no meaningful
+            // "right" one to keep once the schema says a device has exactly one conversation.
+            migrationBuilder.Sql("""
+                DELETE FROM member_devices a
+                USING member_devices b
+                WHERE a.device_id = b.device_id AND a.ctid < b.ctid;
+                """);
 
             migrationBuilder.DropIndex(
                 name: "ix_mls_commits_context_id_generation_epoch",

@@ -21,8 +21,19 @@ public class PutRecoveryKeyDto
     public byte[] Iv { get; set; } = null!;
     public byte[] CipherText { get; set; } = null!;
 
-    /// <summary>Optional. Lets a client reject a wrong passphrase without downloading and
-    /// trial-decrypting a 16 MiB blob.</summary>
+    /// <summary>
+    /// A value derived from the <b>master key</b> - never from the password - that the server can
+    /// compare without ever holding the key itself.
+    ///
+    /// <para><b>Required when this write establishes key material</b>, i.e. the first envelope and
+    /// every rotation. That is the only moment it can be obtained: the server cannot compute it, so a
+    /// rotation that omits it leaves the account permanently unable to have a re-wrap checked, which
+    /// is the state §C.1 described as protected and was not. Optional on a same-version write, where
+    /// it is either backfilled onto an envelope that has none or compared against the stored one.</para>
+    ///
+    /// <para>Second use: a client can reject a wrong passphrase against this without downloading and
+    /// trial-decrypting a 16 MiB blob.</para>
+    /// </summary>
     public byte[]? PublicVerifier { get; set; }
 
     /// <summary>Account password. Writing this envelope is what makes every backup readable, so it
@@ -52,16 +63,24 @@ public class MasterKeyWrappingDto
     public byte[] Salt { get; set; } = null!;
     public byte[] Iv { get; set; } = null!;
     public byte[] CipherText { get; set; } = null!;
+
+    /// <summary>Derived from the master key, so both wrappings of one key must carry the same value.
+    /// A write that submits two different verifiers is refused: it means two different keys were
+    /// wrapped and called one, and the recovery code would open something no backup is sealed
+    /// under.</summary>
     public byte[]? PublicVerifier { get; set; }
 }
 
 /// <summary>
 /// Re-wraps the master key under a new password after a reset invalidated the old wrapping.
 ///
-/// <para>The client gets here by unlocking from the recovery code, which is the only credential that
-/// survived. No password check: the caller is proving possession of the master key by producing a
-/// wrapping of it, and demanding the new password on top would be asking for something the session
-/// already established.</para>
+/// <para><b>This overwrites the wrapping that makes every backup blob on the account readable.</b>
+/// It used to take nothing but a session token and then clear the "your password wrapping is
+/// broken" stamp on the way out, so one request destroyed the account's entire encrypted history and
+/// reported it as healthy. Exactly one of <see cref="Password"/> or <see cref="RewrapTicket"/> has
+/// to be right now, and <see cref="MasterKeyWrappingDto.PublicVerifier"/> has to match the value the
+/// account already holds - so a caller who cannot open the master key cannot produce a write that
+/// silently orphans every blob.</para>
 /// </summary>
 public class RewrapMasterKeyDto
 {
@@ -69,7 +88,21 @@ public class RewrapMasterKeyDto
     /// it. A mismatch means the client is holding a master key the account has moved on from.</summary>
     public int Version { get; set; }
 
+    /// <summary>The new wrapping. Its <c>publicVerifier</c> is always required, and is compared
+    /// against the account's stored one <i>when the account has one</i> - a wrapping that seals
+    /// different bytes cannot reproduce it. Accounts that predate the verifier have nothing to compare
+    /// against; theirs is stored on first use and the response reports
+    /// <c>verifierChecked: false</c>.</summary>
     public MasterKeyWrappingDto PasswordWrapping { get; set; } = null!;
+
+    /// <summary>The account password - the in-app path, where the user changed their password while
+    /// still able to sign in. Alternative to <see cref="RewrapTicket"/>.</summary>
+    public string? Password { get; set; }
+
+    /// <summary>The single-use ticket returned by <c>POST api/v1/user/reset-password</c>. The
+    /// recovery path, where the password was just reset and the client is unwrapping from the
+    /// recovery code. Alternative to <see cref="Password"/>.</summary>
+    public string? RewrapTicket { get; set; }
 }
 
 public class RecoveryKeyDto
@@ -111,6 +144,12 @@ public class PutRecoveryKeyResultDto
     /// version and is therefore no longer openable. Populated on the refusal as well as on the
     /// acknowledged write, so the client can show exactly what it is about to lose.</summary>
     public List<string> OrphanedBlobDeviceIds { get; set; } = new();
+
+    /// <summary>Whether the account now has a <c>publicVerifier</c> on file. False means a future
+    /// <c>rewrap-password</c> has nothing to compare against and will be gated by the credential
+    /// alone - the client can fix that by re-posting this route at the same version with a verifier,
+    /// which backfills it without rotating anything.</summary>
+    public bool HasPublicVerifier { get; set; }
 }
 
 /// <summary>Metadata for one device's stored backup. Never carries the blob.</summary>

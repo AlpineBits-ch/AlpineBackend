@@ -72,7 +72,31 @@ public sealed class DeviceIdResolver(IMessageBus bus, IDistributedCache cache, I
         return new DeviceIdResult(deviceId, WasProvided: true, await IsRegisteredAsync(userId, deviceId, ct));
     }
 
-    private async Task<bool> IsRegisteredAsync(string userId, string deviceId, CancellationToken ct)
+    /// <summary>
+    /// The caller's device id only if it really is one of this user's registered devices, and null
+    /// otherwise - including when Identity cannot be reached.
+    ///
+    /// <para><b>Fails closed, unlike <see cref="ResolveAsync"/>.</b> That one guesses "valid" on an
+    /// outage, which is right for call and voice state: the cost of being wrong is the old
+    /// single-device behaviour, and the alternative is a hard outage on a feature that has nothing
+    /// to do with security. It is not right for anything that decides <i>who may act on whose MLS
+    /// state</i>, where guessing "valid" means accepting a device id the caller invented. Callers
+    /// making an authorization decision use this.</para>
+    /// </summary>
+    public async Task<string?> ResolveVerifiedAsync(
+        HttpRequest request, string userId, CancellationToken ct = default)
+    {
+        var header = request.Headers[DeviceIdentity.HeaderName].ToString();
+        if (string.IsNullOrWhiteSpace(header)) return null;
+
+        var deviceId = header.Trim();
+        return await IsRegisteredAsync(userId, deviceId, ct, failOpen: false) ? deviceId : null;
+    }
+
+    /// <summary>Whether the id names an active device of this user. <paramref name="failOpen"/>
+    /// decides what an unreachable Identity means - see <see cref="ResolveVerifiedAsync"/>.</summary>
+    public async Task<bool> IsRegisteredAsync(
+        string userId, string deviceId, CancellationToken ct = default, bool failOpen = true)
     {
         var key = CacheKey(userId, deviceId);
         if (await cache.GetStringAsync(key, ct) is not null) return true;
@@ -88,9 +112,12 @@ public sealed class DeviceIdResolver(IMessageBus bus, IDistributedCache cache, I
             // Identity being unreachable must not take calls and voice down with it. Trust the id
             // for this request and log it - the failure mode of guessing "valid" here is the old
             // unvalidated behaviour, which is strictly better than a hard outage.
-            logger.LogWarning(ex, "Device validation unavailable for user {UserId}, accepting device {DeviceId} unverified",
-                userId, deviceId);
-            return true;
+            //
+            // Security decisions pass failOpen: false and get the opposite answer.
+            logger.LogWarning(ex,
+                "Device validation unavailable for user {UserId}, device {DeviceId} treated as {Verdict}",
+                userId, deviceId, failOpen ? "valid" : "unverified");
+            return failOpen;
         }
 
         if (!response.IsRegistered) return false;

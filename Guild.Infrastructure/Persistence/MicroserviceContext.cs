@@ -286,10 +286,16 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey(m => m.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
             
+            // SetNull, emphatically not Cascade. InviteId is attribution metadata, not an ownership
+            // edge: with Cascade, deleting a permanent invite that 400 people had used deleted all
+            // 400 members - and because DeleteInviteAsync never loads the Members collection, EF
+            // emitted a bare DELETE and let Postgres do it silently, firing none of the
+            // audit-log/realtime/MemberRemovedForBots side effects that kick and leave do.
+            // InviteCode carries the attribution forward once the FK is nulled.
             guildMemberBuilder.HasOne(m => m.Invite)
                 .WithMany(i => i.Members)
                 .HasForeignKey(m => m.InviteId)
-                .OnDelete(DeleteBehavior.Cascade)
+                .OnDelete(DeleteBehavior.SetNull)
                 .IsRequired(false);
 
             guildMemberBuilder.HasIndex(m => new { m.GuildId, m.UserId });

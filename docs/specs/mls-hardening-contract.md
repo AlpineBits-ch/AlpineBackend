@@ -722,6 +722,21 @@ Before deploying, run the check already flagged in the plan:
 SELECT count(*) FROM conversations WHERE encryption_state = 'encrypted' AND mls_group_id IS NULL;
 ```
 
+**"Additive and nullable" is not sufficient on its own, and did not hold.** Two migrations in this
+release add no columns but *widen indexes* — `user_device_backups` from one row per device to a
+versioned history, `mls_commits` to a partial unique index that excludes proposals, and
+`member_devices.device_id` from globally unique to a plain lookup. Every one of those is additive in
+the column sense and still made its scaffolded `Down()` unrunnable: each recreated the narrow unique
+index over data the `Up()` had deliberately made non-unique, so the rollback raised 23505 and
+aborted half-applied on any database that had been written to.
+
+**Required of every migration that widens a uniqueness constraint:** the `Down()` must explicitly
+delete the rows that no longer fit, before the constraint is restored and before any column it
+selects on is dropped. That deletion is lossy and must be commented as such at the call site — a
+rollback that silently discards backup history is worse than one that fails, but only if the loss is
+written down where the person running it will read it. Both migrations in this release now do this;
+neither did when the rollback obligation above was first written.
+
 ### I.7 Ordered deployment
 
 1. **Server** with everything defaulted to compatible: `certificateEnforcement = Observe`,
@@ -1123,3 +1138,229 @@ then **re-reads and verifies** the wrapping actually landed, throwing
 `RecoveryCodeNotStoredException` rather than showing a code the server did not
 store. Pinned by `sends the stored password wrapping back byte-identical` and
 `refuses to show a code the server did not store`.
+
+---
+
+## L. Security-review corrections — **supersedes §A–§K wherever they disagree**
+
+Three independent adversarial reviews (2026-08-01) found that several sections above are not merely
+unimplemented but **wrong as specified** — implementing them faithfully would still produce a
+vulnerability. Full findings in `mls-security-findings.md`. This section is authoritative.
+
+### L.1 The master key is random, not password-derived — §G.1 is WRONG
+
+§G.1 states the account master key is "Argon2id-derived from the password." **It is not.** Per
+§C.1.1 and the code it is `random(32)`, wrapped twice under password- and recovery-code-derived keys.
+
+This matters beyond pedantry. If the master key *were* password-derived, every intercepted admission
+proof would be an **offline password-cracking oracle**. It is not, because HMAC under an
+HKDF-derived subkey of a uniformly random key leaks nothing crackable. Anyone implementing §G.1 as
+written would build that oracle. Corrected wording: *"proof of possession of the account master key,
+a random 32-byte secret the server never holds in unwrapped form."*
+
+### L.2 Certificates must bind to the leaf — §K.1's rationale is WRONG
+
+§K.1 justifies signing the device signature key as the base64 *string* "so neither side has to agree
+on a decoding before it can verify." That rationale produced a critical bug: the verifier validates
+the certificate against **the certificate's own self-reported fields**, never against the leaf under
+examination. Certificates are public, so a server replays any genuine certificate for the account
+against a leaf it injected and verification passes — at full enforcement, at 100% coverage.
+
+**Required:** the verifier MUST extract the signature key from the MLS leaf's credential, re-encode
+it, and compare against the certificate's `deviceSignatureKey`; and MUST compare the certificate's
+`deviceId` against the device being verified. A certificate that does not bind to *this* leaf is
+invalid regardless of signature validity. Signing raw bytes rather than the base64 string is the
+cleaner fix; either way the comparison is mandatory.
+
+The certificate payload MUST also include `userId` — without it the object makes no self-contained
+statement about whose device it is, and `ClientDeviceId` is unique only per user.
+
+### L.3 Who approves a conversation join request — §G.1 and §B contradict each other
+
+§G.1 requires the verifier to be **the requester's own other device** (the only party holding the
+master key). §B and the implementation make approval **peer-based**, forbid self-approval, and
+exclude `KeyPackage` from `MlsJoinRequestDto`. The two sets are disjoint, so the ceremony is
+structurally unreachable and, as specified, unimplementable.
+
+**Resolution — there are two distinct flows and the contract must name both:**
+
+1. **Own-device admission** (a user adding their own second device). The audience for
+   `conversation.MlsJoinRequest` MUST include the requester's *other* devices; approval by a
+   different device of the same user MUST be allowed; and that path MUST receive the `KeyPackage`
+   bytes. This is the only flow in which the §G admission proof is meaningful.
+
+   **It takes two calls, and the client has to know that.** The push deliberately carries no
+   `KeyPackage` — it goes to every member of the conversation, and a notification is not the place to
+   hand a leaf's key material to peers who have not decided to admit it. The requester's other
+   devices fetch the bytes from `GET .../mls/join-requests`, which returns `KeyPackage` only on
+   requests from the calling user's own account. A client that treats the push as sufficient will
+   silently do nothing, which is indistinguishable from the ceremony not existing.
+2. **Peer admission** (another user's device). A peer cannot verify a master-key HMAC and must never
+   be asked to. Peer approval rests on the device certificate (§L.2) plus out-of-band fingerprint
+   comparison, and `requiresManualApproval` is always true.
+
+### L.4 Nonce freshness — §J.2's rationale is insufficient
+
+§J.2 says the verifier "never has to trust the server's account of *what* was signed." That is a
+statement about payload binding, not freshness, and both clients consequently verify against a
+challenge **re-fetched from the server**.
+
+**Required:** the issuing device MUST persist `(challengeId, nonce, issuedAt)` locally and MUST
+reject any proof whose challenge bytes are not byte-identical to its own record, with expiry measured
+against its **own** clock. Server-side single-use and windowing are worthless against a malicious
+server and MUST NOT be relied on.
+
+### L.5 Certificate enforcement must not be entirely server-gated — §I.1 is too permissive
+
+§I.1's "never let a client infer the phase from its own version" is right for the
+*missing-certificate* case and wrong as a blanket rule: it hands a malicious server the off switch
+for the only defence against external-commit injection.
+
+**Required, independent of phase:**
+
+- A peer device that has **ever** presented a valid certificate MUST NOT be accepted without one
+  later. Absence after presence is an attack, not a pending upgrade.
+- A leaf whose credential identity is **not already in the group's known set** MUST be surfaced to
+  the user at every phase, including `Observe`.
+- `Observe` suppresses *removal*, never *detection*.
+
+§I.1 must also state plainly that while enforcement is `Observe` there is **no** defence against
+server external-commit injection, and that no hostile-server claim may be made until `Enforce`.
+
+### L.6 Protection level needs a monotonic floor — §G.3 is under-specified
+
+"Every client independently enforces the last validly-signed level it has seen" is unimplementable
+without a version floor, and both clients duly omitted one, so a replayed older assertion verifies
+and lowers the stored level.
+
+**Required:** clients MUST persist the highest `version` ever seen per account and MUST reject any
+lower-versioned assertion as tampering, regardless of signature validity. A 200 with an absent or
+unparsable assertion MUST fail closed to the remembered level (or `VerifiedDevices` when there is
+none) — never to `TrustedSignIn`. A fresh device treats the first successfully-verified assertion as
+its floor and warns on any subsequent decrease.
+
+Also: `PutProtectionLevelDto` MUST carry `UpdatedAt` and the server MUST store the client's value
+verbatim. Today the server stamps its own, so the signed payload can never be reconstructed and **no
+assertion can ever verify**.
+
+### L.7 `X-Device-Id` must be bound to the session — §C.2 rule 1 is unenforced
+
+§C.2 rule 1 requires a "validated `X-Device-Id`". No such validation exists — the header is compared
+to a path parameter, never to the session. The JWT carries `session_id` and `LoginSession` has a
+`DeviceId`.
+
+**Required:** resolve the device from the session's `LoginSession.DeviceId` and treat the header as
+untrusted input. Every per-device rule in §C.2 depends on this. Audit rows and `identity.BackupRead`
+MUST record the **session-derived** device id, never the header — otherwise the forensic trail is
+attacker-controlled.
+
+**And a migration story, which this requirement does not get for free.** `LoginSession.DeviceId` is
+populated at `/connect/token`; every session that predates that plumbing, and every session from a
+client that sends no device id, is null. Enforcing the rule takes all of the per-device backup and
+transfer routes away from those callers on deploy day. Three answers were considered:
+
+- **Backfill.** Not possible. Nothing on a session identifies a device except `DeviceName` and
+  `UserAgent`, both free text; inferring from them would bind sessions to the wrong handset and hand
+  one device another's backup — the C2 outcome, arriving by migration instead of by header.
+- **A grace window on session age.** Rejected, and it is the worst of the three: it re-opens C2 in
+  full for the length of the window, for stolen sessions equally with legitimate ones, and fails
+  *open* on a clock. Availability must not be bought by making the gate temporarily absent.
+- **An explicit re-bind that costs a credential.** Implemented, as
+  `POST api/v1/devices/client/{deviceId}/bind-session`. Binding a session to an *existing* device row
+  is exactly the move a stolen session would make, so the account password is what distinguishes it —
+  the same trade `/connect/token` already makes, where the password grant will bind a fresh session
+  to any named device on the same evidence. Re-binding an already-bound session is refused, and the
+  bind is audited as `session.device-bound`.
+
+The refusal MUST name the remedy. A bare 403 on a route that worked yesterday gives the client
+nothing to act on, and the fix is not one it can infer.
+
+### L.8 `publicVerifier` must be implemented or removed — §C.1
+
+§C.1 lists `publicVerifier` in the envelope, and §J.2 cites "producing a valid wrapping is itself the
+proof" as the safety property of `rewrap-password`. Nothing generates or checks it, so that property
+does not exist and the route is an unauthenticated destructive write.
+
+**Required:** either implement it — a value derived from the master key that the server can compare
+across wrappings, giving both a real proof for `rewrap-password` and a cross-check that the two
+wrappings seal the same key — or delete the field and require a real credential on that route. A dead
+verifier field that the spec cites as the mechanism is worse than no field at all.
+
+**Implemented, with one honest gap.** The server cannot derive the value — it never sees the master
+key — so it can only ever compare what an earlier write stored, and no account in the field has one.
+Three rules make it real rather than decorative:
+
+1. **`PUT backup/recovery-key` MUST require `publicVerifier` on a first write or a rotation.** That
+   is the moment key material is established and therefore the only moment the value can be demanded
+   at all. Omitting this is what left the field null on every account.
+2. **The same-version path MUST backfill it** onto an envelope that has none, and MUST refuse to
+   overwrite one that does. Backfill is how the install base acquires the check without a rotation
+   that would orphan all their blobs; immutability is what stops it from being a field an attacker
+   simply sets to whatever their own wrapping produces. Both are safe on this route because it
+   already costs the account password.
+3. **Both wrappings MUST carry the same verifier**, and a write submitting two different values MUST
+   be refused. They wrap the same key; two values mean the recovery code opens material no backup is
+   sealed under, discovered years later on the one journey with no fallback.
+
+**The gap:** on an account that has no stored verifier, `rewrap-password` cannot compare and the
+credential is the only gate. Refusing those accounts would brick the recovery journey for the entire
+install base to enforce a check whose input does not exist, so the submitted value is stored on first
+use and every subsequent re-wrap is checked for real. The response MUST report `verifierChecked:
+false` and the audit row MUST say so. §C.1's claim is accurate from the second write onward; nothing
+may state it unconditionally until the field is universal.
+
+### L.9 Binding and scoping rules the spec never stated
+
+- **Every query keyed on `ClientDeviceId` MUST also be scoped by `UserId`.** That id is client-chosen
+  and unique only per user; unscoped queries let any co-member destroy another user's Welcomes and
+  join requests.
+- **`FulfilledJoinRequestIds` MUST be validated** against the caller and the commit's actual
+  contents. Unvalidated, a member can burn others' admission budgets and emit fabricated
+  `DeviceAdmitted` notifications naming real devices and fingerprints.
+- **`isProposal` is member-supplied and MUST NOT be trusted for anything that mutates server state.**
+  The server MUST determine proposal-ness by parsing the payload, or MUST NOT advance the epoch on
+  the client's say-so.
+- **`GroupInfo` MUST NOT be served on a read-only permission.** `ViewChannel` currently suffices,
+  letting any channel viewer external-commit in and bypass join-request review entirely.
+- **Password-verifying endpoints MUST use a lockout-aware check.** `CheckPasswordAsync` does not
+  increment `AccessFailedCount`; §C.1's "rate limited" is not satisfied by a generic throughput cap.
+- **§H.2's TOFU pinning requires a safety-number comparison surface.** Pinning with no way for a
+  human to compare out of band is not the Signal mechanism it cites; it trusts whoever answers first.
+- **Certificates need revocation.** Device removal MUST invalidate the certificate. Identity-key
+  rotation is not a revocation mechanism, because it invalidates every peer's pin.
+- **KDF parameters read from a blob header MUST be clamped** (suggest m ≤ 1 GiB, t ≤ 10, p ≤ 16).
+  Unbounded values are a denial of service on the recovery path. *(Weak parameters do not make a
+  stolen blob crackable — that fails closed. The exposure is resource exhaustion only.)*
+- **Message content rendered in an encrypted context MUST come from the decryptor**, and the
+  displayed author MUST be the authenticated `senderIdentity`, never a server-supplied `authorId`.
+  Server-supplied encryption state MUST NOT be able to downgrade a context to cleartext.
+
+### L.10 Widening a uniqueness constraint — §I.6's rule is right twice and wrong once
+
+§I.6 requires that the `Down()` of any migration widening a uniqueness constraint "must explicitly
+delete the rows that no longer fit". That is correct for the two migrations it names and wrong for
+the one it does not.
+
+- `AddMlsIdentityKeysBackupAndProtectionLevel` — `user_device_backups`, one row per device to a
+  versioned history. Delete: the surplus rows are **superseded versions of the same device's own
+  blob**. Narrowing the schema costs the history and nothing else, and only the newest version would
+  ever have been restored from.
+- `AddMlsProposalsAdmissionChallengesAndDeviceIndex` — `mls_commits` and `member_devices`. Delete,
+  same reasoning.
+- `ConsolidateDeviceConcepts` — `user_devices.client_device_id`, globally unique to unique per
+  `(user_id, client_device_id)`. **Do not delete.** The surplus row is *another account's device*.
+  Deleting it destroys that user's device row, cascades to their push tokens and their backup blobs,
+  and leaves the surviving account holding an id it does not exclusively own — which is the C2
+  outcome arriving by migration rather than by header. §I.6 omitted this migration entirely, which is
+  how its broken `Down()` survived the review that fixed the other two.
+
+**Corrected rule.** The `Down()` must be runnable against data the `Up()` made legal. Where the rows
+that no longer fit are redundant *within one owner*, delete them and comment the loss at the call
+site. Where they belong to **different** owners, restore the index **non-unique** and warn — the old
+uniqueness is not recoverable without destroying data that was never the migration's to destroy, and
+a rollback that refuses to run is the failure §I.6 exists to prevent, not a safe default.
+
+**Test obligation.** Neither failure is visible on an empty database and neither is visible to the
+InMemory provider, which ignores unique indexes. Any migration in this class needs a rollback test
+against real Postgres that seeds exactly the rows the `Up()` started permitting —
+`Identity.Tests/Migrations/MigrationRollbackPostgresTests.cs`.

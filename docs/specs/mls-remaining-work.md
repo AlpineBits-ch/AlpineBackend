@@ -108,10 +108,10 @@ log a warning naming the device.
 What that does **not** do is get the device back in, and only a client can:
 
 - **Wire §B's conversation join-request sweep at launch.** This is the repair path; without it the
-  new reports name a problem with no remedy attached. **Alpine is doing this** — a launch-time
-  admission sweep is in its working tree on top of the relink fix below. venta-mobile has
-  `requestAccessWhereMissing` built but still called per-context by the access banner rather than at
-  launch across the conversation list (§K.6), so mobile is the side still outstanding.
+  new reports name a problem with no remedy attached. **Both clients now do this** — Alpine shipped its
+  sweep in 3.0.159, and mobile's is wired into `MlsSessionManager.sync()` (§2e). Note that the sweep
+  alone was not enough: it raised requests nothing could act on. See **§2e** for the four defects that
+  made the ceremony unreachable for conversations.
 - **Alpine's "Re-link device" — fixed in their tree, not yet released.** The **shipped** build only
   calls `refreshState`, which catches a device up on missed commits and cannot create a leaf that was
   never added, so the button clears the banner and the banner returns on reload. Alpine's working tree
@@ -157,9 +157,9 @@ invented unasked. Whoever picks this up: mobile's `establish`-then-prompt split 
 should be preserved — see `MasterKeyService.establish`'s own reasoning about never minting a code
 nobody has seen. Only the trigger is missing, not the flow.
 
-Related and also open: mobile's `requestAccessWhereMissing` (§K.6) is built but not driven at launch,
-the mirror of the sweep Alpine shipped in 3.0.159. Estimated half a day. Sequence it **after** Alpine's
-has proven out in the field so mobile copies a shape that works.
+Related and now **closed** — see §2e: mobile's `requestAccessWhereMissing` (§K.6) is wired into the
+launch sequence at Alpine parity. Left here because §2d itself is still open and the two were reported
+together.
 
 Also noted: `ConversationMemberService` is registered in DI and reached from nowhere, so the
 conversation add-member path has no UI to surface unreachable devices through yet.
@@ -182,6 +182,76 @@ conversation add-member path has no UI to surface unreachable devices through ye
   identity key, so `rotated` was false for it and the old gate never fired.
 - `certificateEnforcement` is `Observe` and §G/§H enforcement is unwired, so no certificate check
   removes or excludes anyone.
+
+## 2e. The admission ceremony was unreachable for conversations — **found and fixed 2026-08-02**
+
+§2c said the repair path was the §B join-request sweep. The sweep worked. **Nothing could act on what it
+produced**, so every request it raised sat `Pending` until it expired.
+
+Reported live: a friend's desktop could not read an encrypted DM, sending threw
+`Conversation … is not encrypted here`, and a real `Pending` request with `requiredApprovals: 1`,
+`approverUserIds: []` was visible on the server. One tap from either party would have admitted it. Four
+independent defects meant no tap was reachable:
+
+1. **Alpine never subscribed to `conversation.MlsJoinRequest`.** `messaging-websocket.service.ts`
+   handled `MlsCommit`, `MlsDeviceRemoved`, `MlsDeviceAdmitted`, `MlsStateChanged` and `Welcome`. The
+   server had been pushing the notification to every member of the conversation the whole time and it
+   was discarded on arrival.
+2. **Neither client had a conversation-scoped review UI.** `approve()` was implemented and correct on
+   both, and on both its only caller was the *guild channel settings* encryption page. A DM request had
+   no screen anywhere. This is the one the user actually hit.
+3. **Mobile's `MlsJoinRequestDto` had no `keyPackage` field**, so the bridge passed `''` into
+   `tryAdmit` and `inspectKeyPackage('')` threw. The server does return the bytes for the caller's own
+   account (`MlsJoinRequestService.cs:217`); the DTO simply dropped them. Own-device admission could not
+   succeed even in principle.
+4. **`answerChallenge` had zero production callers on mobile** — two test callers, so the mechanism was
+   pinned and never wired. The joining device never signed, so the admitting device's `tryAdmit`
+   returned `awaitingProof` forever. The bridge also treated every own-account push as though this
+   device were the admitter, when the requesting device receives that same push and must take the other
+   branch.
+
+**The push notification placeholder was never a separate bug.** v1.0.59's NSE diagnostics returned
+`noGroupForGeneration (generation 1)` and `noGeneration`, with no keychain, App Group or seal failure
+alongside them — so that plumbing is healthy and the `kSecAttrAccessible` incident is not recurring.
+Both outcomes reduce to the registry having no entry for the context: the handset was being asked to
+decrypt a group it had never been admitted to, and said so correctly. Fixing admission fixes the
+notifications.
+
+Diagnostics gap closed at the same time: a registry file that does not exist yields an empty map, which
+was indistinguishable from genuine exclusion — both arrived as `noGroupForGeneration`. `registryAbsent`
+and `registryEmpty` now separate them, and both generation outcomes carry `entries N, for this context
+M`. `read` still answers `[:]` for a missing file, decided by a separate existence check rather than by
+weakening the absence-vs-sealed distinction.
+
+Also closed here: **§K.6 is done** — mobile's launch sweep is wired into `MlsSessionManager.sync()` at
+Alpine parity (per-launch cap, sequential, filtered entirely from local state, so a healthy device makes
+zero requests where it previously made one `getState` per conversation). Mobile gained an encryption
+floor (`hasEverHeldGroup`, derived from retained registry keys) which it had lacked entirely, so "the
+server says plaintext" is no longer believed unconditionally.
+
+**Known behaviour change, being addressed:** mobile has no `conversation.MlsDeviceRemoved` handling at
+all, so it has no equivalent of Alpine's `'removed'` health reason. A sweep plus a review UI without one
+turns a deliberate removal into a recurring approval prompt for the person who performed it — the exact
+wear-down §E9 exists to prevent, and invisible before today because neither half existed on mobile.
+
+Still deliberately not built, and the reasoning is worth keeping: **Alpine cannot do §G at all.** The
+Rust port is about half a day (`hkdf`/`hmac`/`sha2`/`rand` are already in `src-tauri/Cargo.toml` and
+mobile's primitives are ~120 contiguous lines), but both halves of §G need the account master key with
+no user present, and Alpine's `MasterKeyService` requires the password on every call and caches nothing.
+The choice is persisting the master key at rest — which changes what a compromised keychain yields from
+one device's signing key to the key that opens every backup blob on the account — or prompting on both
+sides, which deletes the point of `TrustedSignIn`. Protection level does not exist on Alpine in any
+form either, and `tryAdmit` cannot decide auto-vs-manual without it. Realistically 3–5 days *after*
+those two decisions, in the order: master-key-at-rest → protection level → Rust port →
+`DeviceAdmissionService` → wire into the review panel. Not safely half-buildable, for the same reason
+§2b records.
+
+**§L.4 remains open and now has a second witness.** Mobile's `tryAdmit` re-fetches the challenge from
+the server and checks only `proof.challengeId != challenge.id`; nothing local pins the nonce or measures
+the window on its own clock, so a malicious server can replay a genuine (nonce, proof) pair for the same
+device and fingerprint indefinitely. The contract already states both clients do this (§L.4, line 1249)
+and it sits in the deferred set with C4/C6/C7/H6 — recorded here so Alpine's eventual §G work implements
+it properly rather than mirroring mobile.
 
 ## 3. Cross-cutting residuals
 

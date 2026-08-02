@@ -1,4 +1,5 @@
 using Facet;
+using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 
@@ -69,6 +70,12 @@ public class MlsToggleResultDto
 
     /// <summary>True when the context was already in the requested state and nothing changed.</summary>
     public bool AlreadyInRequestedState { get; set; }
+
+    /// <summary>
+    /// Member devices that got no Welcome for the generation just minted, and therefore cannot read
+    /// anything sent under it.
+    /// </summary>
+    public List<UnreachableDeviceDto> UnreachableDevices { get; set; } = new();
 }
 
 /// <summary>Returned on 409 so a client that lost the race to commit knows exactly where the group

@@ -1,4 +1,5 @@
 ﻿using Facet;
+using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Entities;
 
 namespace Messaging.Application.Dtos.Request;
@@ -71,6 +72,12 @@ public class MlsCommitPublishedDto
     /// the stored row instead of writing a second one. The publish succeeded - the client should
     /// keep its merged state rather than treating this as a lost race and discarding it.</summary>
     public bool Duplicate { get; set; }
+
+    /// <summary>
+    /// Devices belonging to the people this commit admits that received no Welcome from it, and so
+    /// hold no leaf in the group.
+    /// </summary>
+    public List<UnreachableDeviceDto> UnreachableDevices { get; set; } = new();
 }
 
 public class AckWelcomesResultDto

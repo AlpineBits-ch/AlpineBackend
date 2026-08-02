@@ -13,6 +13,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 
+using static Messaging.Tests.Helpers.TestMlsServices;
+
 namespace Messaging.Tests.Endpoints;
 
 /// <summary>
@@ -38,7 +40,7 @@ public class MlsEndpointsTests
         _context = new TestMessagingContext(Guid.NewGuid().ToString());
         _permissions = new ConversationPermissionService(_context, new FakeDistributedCache());
         _hub = new FakeMessagingHubContext();
-        _mls = new MlsGroupService(_context, _hub, new FakeMessageBus(), new MlsJoinRequestService(_context));
+        _mls = new MlsGroupService(_context, _hub, new FakeMessageBus(), new MlsJoinRequestService(_context), Coverage(new FakeMessageBus()));
     }
 
     [TearDown]

@@ -3,6 +3,7 @@ using Echo.Realtime;
 using Messaging.Contracts.Bus.Events;
 using Facet.Extensions;
 using Messaging.Application.Dtos.Request;
+using Messaging.Application.Dtos.Response;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
@@ -39,7 +40,8 @@ public class MlsGroupService(
     MicroserviceContext ctx,
     IHubContext<EchoRealtimeHub> hub,
     IMessageBus bus,
-    MlsJoinRequestService joinRequests)
+    MlsJoinRequestService joinRequests,
+    MlsDeviceCoverageService coverage)
 {
     /// <summary>Minimum spacing between toggles of the same context.</summary>
     public static readonly TimeSpan ToggleCooldown = TimeSpan.FromSeconds(30);
@@ -184,7 +186,27 @@ public class MlsGroupService(
             ContextId = contextId,
             Encrypted = true,
             Generation = generation.Generation,
+            UnreachableDevices = await ResolveEnableCoverageAsync(
+                contextId, conversationId, userId, recipients, stored),
         });
+    }
+
+    /// <summary>Which member devices this newly-minted generation left behind.</summary>
+    private async Task<List<UnreachableDeviceDto>> ResolveEnableCoverageAsync(
+        string contextId,
+        string? conversationId,
+        string enablingUserId,
+        IReadOnlySet<string>? recipients,
+        IReadOnlyCollection<DeviceWelcomeDto> stored)
+    {
+        if (conversationId is null || recipients is null) return [];
+
+        var others = recipients.Where(u => u != enablingUserId).ToList();
+        if (others.Count == 0) return [];
+
+        var covered = stored.Select(w => (w.UserId, w.DeviceId)).ToHashSet();
+
+        return await coverage.ResolveAsync(contextId, others, covered);
     }
 
     /// <summary>Turns encryption off by terminating the active generation.</summary>
@@ -451,7 +473,52 @@ public class MlsGroupService(
             Generation = active.Generation,
             Epoch = dto.Epoch,
             IsProposal = dto.IsProposal,
+            UnreachableDevices = await ResolveCommitCoverageAsync(
+                contextId, active.Generation, userId, dto.SenderDeviceId, dto.Welcomes, storedWelcomes),
         });
+    }
+
+    /// <summary>Which devices of the people this commit admits were left out of it.</summary>
+    private async Task<List<UnreachableDeviceDto>> ResolveCommitCoverageAsync(
+        string contextId,
+        int generation,
+        string senderUserId,
+        string senderDeviceId,
+        IReadOnlyCollection<DeviceWelcomeDto> submittedWelcomes,
+        IReadOnlyCollection<DeviceWelcomeDto> storedWelcomes)
+    {
+        // No Welcomes means this commit admits nobody - an update, a removal, a proposal.
+        if (submittedWelcomes.Count == 0) return [];
+
+        // Who the publisher meant to admit, against what actually landed.
+        var welcomedUsers = submittedWelcomes
+            .Select(w => w.UserId)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct()
+            .ToList();
+
+        var covered = storedWelcomes.Select(w => (w.UserId, w.DeviceId)).ToHashSet();
+        covered.Add((senderUserId, senderDeviceId));
+
+        var priorWelcomes = await ctx.PendingWelcomes.AsNoTracking()
+            .Where(w => w.ContextId == contextId
+                        && w.Generation == generation
+                        && welcomedUsers.Contains(w.UserId))
+            .Select(w => new { w.UserId, w.DeviceId })
+            .ToListAsync();
+
+        foreach (var welcome in priorWelcomes) covered.Add((welcome.UserId, welcome.DeviceId));
+
+        var priorCommitters = await ctx.MlsCommits.AsNoTracking()
+            .Where(c => c.ContextId == contextId
+                        && c.Generation == generation
+                        && welcomedUsers.Contains(c.SenderUserId))
+            .Select(c => new { c.SenderUserId, c.SenderDeviceId })
+            .ToListAsync();
+
+        foreach (var commit in priorCommitters) covered.Add((commit.SenderUserId, commit.SenderDeviceId));
+
+        return await coverage.ResolveAsync(contextId, welcomedUsers, covered);
     }
 
     /// <summary>

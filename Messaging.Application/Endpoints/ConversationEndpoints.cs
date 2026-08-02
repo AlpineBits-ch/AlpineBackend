@@ -1,9 +1,11 @@
 ﻿using System.Security.Claims;
 using System.Text.Json;
 using Domain;
+using Echo.Realtime.Devices;
 using Facet.Extensions;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
+using Messaging.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Messaging.Application.Dtos.Request;
@@ -179,10 +181,11 @@ public class ConversationEndpoints
     [WolverinePost( "/api/v1/conversations")]
     public async Task<IResult> CreateConversation(CreateConversationDto createDto,
         [FromQuery] bool allowPartialDeviceCoverage,
-        [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx )
+        [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
+        [NotBody] MlsDeviceCoverageService coverage, [NotBody] HttpContext http )
     {
-        
-        
+
+
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return Results.Unauthorized();
         
@@ -236,7 +239,7 @@ public class ConversationEndpoints
         if (createDto.Encryption == ChannelEncryptionState.Encrypted)
         {
             // Per device, not per user.
-            unreachableDevices = await ResolveUnreachableDevicesAsync(createDto, messageBus);
+            unreachableDevices = await ResolveUnreachableDevicesAsync(createDto, userId, coverage, http);
 
             // Permissive by default during the rollout.
             if (unreachableDevices.Count > 0
@@ -311,37 +314,29 @@ public class ConversationEndpoints
         return Results.Ok(dto);
     }
 
-    /// <summary>Which member devices got no Welcome.</summary>
+    /// <summary>Which participant devices got no Welcome.</summary>
     private static async Task<List<UnreachableDeviceDto>> ResolveUnreachableDevicesAsync(
-        CreateConversationDto createDto, IMessageBus messageBus)
+        CreateConversationDto createDto,
+        string callerUserId,
+        MlsDeviceCoverageService coverage,
+        HttpContext http)
     {
-        var memberIds = createDto.Members.Select(m => m.UserId).Distinct().ToList();
-        if (memberIds.Count == 0) return [];
+        var participantIds = createDto.Members.Select(m => m.UserId).Distinct().ToList();
 
-        GetUserDevicesResponse devices;
-        try
-        {
-            devices = await messageBus.InvokeAsync<GetUserDevicesResponse>(
-                new GetUserDevicesRequest { UserIds = memberIds });
-        }
-        catch (Exception)
-        {
-            return [];
-        }
-
-        var welcomed = createDto.DeviceWelcomes
+        var covered = createDto.DeviceWelcomes
             .Select(w => (w.UserId, w.DeviceId))
             .ToHashSet();
 
-        return devices.Devices
-            .Where(d => !welcomed.Contains((d.UserId, d.ClientDeviceId)))
-            .Select(d => new UnreachableDeviceDto
-            {
-                UserId = d.UserId,
-                DeviceId = d.ClientDeviceId,
-                DeviceName = d.DeviceName,
-            })
-            .ToList();
+        var creatingDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        if (!string.IsNullOrWhiteSpace(creatingDeviceId))
+        {
+            participantIds.Add(callerUserId);
+            covered.Add((callerUserId, creatingDeviceId));
+        }
+
+        if (participantIds.Count == 0) return [];
+
+        return await coverage.ResolveAsync("new conversation", participantIds, covered);
     }
 
   

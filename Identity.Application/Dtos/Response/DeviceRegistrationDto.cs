@@ -35,6 +35,34 @@ public class DeviceRegistrationDto
     public bool IdentityRotated { get; set; }
 }
 
+/// <summary>
+/// A device certificate as a peer needs to see it, from
+/// <c>GET api/v1/users/{userId}/devices/{deviceId}/certificate</c>.
+///
+/// <para><see cref="IssuedAt"/> and <see cref="ExpiresAt"/> are <b>epoch seconds</b>, not
+/// <c>DateTimeOffset</c>, and deliberately so: they are inside the signature. The verifier
+/// reconstructs the signed payload from this response and checks it against the account identity key
+/// it pinned, so the wire form here has to be the form the signer used. The upload side
+/// (<c>UpdateDeviceCertificateDto</c>) takes ISO-8601 because there the server is storing a window,
+/// not reproducing a payload.</para>
+/// </summary>
+public class DeviceCertificateDto
+{
+    public string DeviceId { get; set; } = null!;
+
+    /// <summary>The MLS signing public key the certificate vouches for - the same value the device
+    /// publishes at registration. What binds the certificate to a particular leaf.</summary>
+    public byte[] DeviceSignatureKey { get; set; } = null!;
+
+    public byte[] Certificate { get; set; } = null!;
+    public long IssuedAt { get; set; }
+    public long ExpiresAt { get; set; }
+
+    /// <summary>Which account identity key version signed it, so a verifier holding a rotated key
+    /// knows to look for the previous one rather than declaring a forgery.</summary>
+    public int IdentityKeyVersion { get; set; }
+}
+
 /// <summary>Result of <c>DELETE api/v1/devices/client/{deviceId}/key-packages</c>.</summary>
 public class ResetKeyPackagesResultDto
 {

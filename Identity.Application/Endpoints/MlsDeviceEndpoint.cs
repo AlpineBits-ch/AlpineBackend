@@ -99,15 +99,49 @@ public class MlsDeviceEndpoint
             var rotated = incomingKey.Length > 0
                           && !incomingKey.AsSpan().SequenceEqual(existingDevice.IdentityPublicKey);
 
+            // Decided before the rotation gate, because for the whole installed base the gate is
+            // otherwise unpassable.
+            //
+            // A shipped client registers a random placeholder identity key on its very first launch
+            // and replaces it with its real MLS signing key the moment it mints an MLS identity - so
+            // every install that predates MLS sends a *genuinely* different key on its next
+            // registration. That is a rotation, and it was gated on proving "self", which such a
+            // session can never do: it was created before the device row existed, so it has no
+            // DeviceId and the only route to one costs the account password. The result was a hard
+            // 400 on every launch, forever, with the client swallowing it.
+            //
+            // Claiming the row here is what makes the caller self. It is refused for any row that is
+            // already somebody's - see SessionDeviceResolver.TryClaimAsync for the exact rule, what
+            // it still stops and what it concedes.
+            var claim = await sessionDevices.TryClaimAsync(user, userId, existingDevice);
+
+            if (claim == SessionDeviceResolver.ClaimResult.Claimed)
+            {
+                // The concession is bounded but real, so it leaves a trace: if a session is ever
+                // found reading the wrong device's backup, this row is where it started.
+                ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
+                {
+                    UserId = userId,
+                    Action = IdentityAuditActions.SessionDeviceBound,
+                    ClientDeviceId = existingDevice.ClientDeviceId,
+                    Detail = "session adopted an unclaimed device row during registration",
+                    CreatedAt = now,
+                }));
+            }
+
             if (rotated)
             {
                 // Rotating another device's identity key empties its key-package stock, which makes
                 // it unreachable for every new group until it next launches and replenishes. That is
                 // a denial of service on somebody else's handset for the price of a session token,
-                // so it is gated exactly like the other two destructive device operations.
-                var denied = await RequireSelfOrPasswordAsync(user, userId, existingDevice, dto.Password,
-                    "Rotating a device identity key", sessionDevices, passwords, ctx);
-                if (denied is not null) return (denied, null);
+                // so it is gated exactly like the other two destructive device operations - unless
+                // the caller is that device, which now includes having just claimed the row.
+                if (!SessionDeviceResolver.IsSelf(claim))
+                {
+                    var denied = await RequireSelfOrPasswordAsync(user, userId, existingDevice, dto.Password,
+                        "Rotating a device identity key", sessionDevices, passwords, ctx);
+                    if (denied is not null) return (denied, null);
+                }
 
                 existingDevice.IdentityPublicKey = incomingKey;
                 existingDevice.UpdatedAt = now;
@@ -163,10 +197,9 @@ public class MlsDeviceEndpoint
         ctx.UserDevices.Add(device);
 
         // A device's very first launch necessarily logs in before it can register itself, so its
-        // session cannot have been bound at /connect/token. Claim it here, and only here: binding a
-        // session to a row that already existed is precisely how a stolen session would appoint
-        // itself the laptop and read the laptop's backup.
-        await sessionDevices.TryBindAsync(user, userId, device.Id);
+        // session cannot have been bound at /connect/token. A row created by this very request is
+        // the trivial case of "a row nobody has ever been", so the same claim rule covers it.
+        await sessionDevices.TryClaimAsync(user, userId, device);
 
         return (Results.Ok(ToRegistrationDto(device, identityRotated: false)), new DeviceRegistered()
         {
@@ -269,6 +302,51 @@ public class MlsDeviceEndpoint
         device.UpdatedAt = now;
 
         return Results.Ok(new { deviceId, expiresAt = dto.ExpiresAt });
+    }
+
+    /// <summary>
+    /// One device's certificate, for a peer verifying the leaf it vouches for.
+    ///
+    /// <para><b>There was no read route at all.</b> §H.4's unrecognised-leaf check is defined as
+    /// "fetch the owner's certificate for that device and verify it against their pinned account
+    /// identity key", and the clients duly call for it - and got a 404, which they correctly read as
+    /// "that device has published none". So the check looked wired end to end and could never do
+    /// anything, at any enforcement phase, no matter how far certificate coverage climbed. Exactly
+    /// the shape of failure §I.1's rollout is supposed to be steering by.</para>
+    ///
+    /// <para>Readable by any authenticated caller, like the account identity key it chains to and the
+    /// revocation list it is checked against: it is a public signed statement whose only purpose is
+    /// being verified by peers, and withholding it would protect nothing but an unverifiable
+    /// leaf.</para>
+    ///
+    /// <para>Timestamps go out as epoch seconds because that is what the certificate signs. The
+    /// verifier reconstructs the signed payload from this response; handing it ISO-8601 would make
+    /// every signature fail to reproduce.</para>
+    /// </summary>
+    [Authorize]
+    [WolverineGet("api/v1/users/{userId}/devices/{deviceId}/certificate")]
+    public static async Task<IResult> GetDeviceCertificate(string userId, string deviceId,
+        [NotBody] MicroserviceContext ctx)
+    {
+        var device = await ctx.UserDevices.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.UserId == userId && d.ClientDeviceId == deviceId);
+
+        // 404 for "no such device" and for "no certificate" alike. A peer's only question is whether
+        // there is something to verify, and distinguishing the two would turn this into a probe for
+        // which device ids an account owns.
+        if (device?.Certificate is not { Length: > 0 }) return Results.NotFound();
+        if (device.CertificateIssuedAt is null || device.CertificateExpiresAt is null)
+            return Results.NotFound();
+
+        return Results.Ok(new DeviceCertificateDto
+        {
+            DeviceId = device.ClientDeviceId,
+            DeviceSignatureKey = device.IdentityPublicKey,
+            Certificate = device.Certificate,
+            IssuedAt = device.CertificateIssuedAt.Value.ToUnixTimeSeconds(),
+            ExpiresAt = device.CertificateExpiresAt.Value.ToUnixTimeSeconds(),
+            IdentityKeyVersion = device.CertificateIdentityKeyVersion,
+        });
     }
 
     private static void ApplyCertificate(UserDevice device, CreateMLSDeviceDto dto)
@@ -529,10 +607,12 @@ public class MlsDeviceEndpoint
     /// <see cref="SessionDeviceResolver"/>), and a time-based grace window would simply switch C2 back
     /// on for a while. This is the remaining answer: pay the credential, keep the session.</para>
     ///
-    /// <para><b>The password is not friction, it is the whole mechanism.</b> Binding to an existing
-    /// device row is exactly the move a stolen session would make to appoint itself the laptop and
-    /// read the laptop's backup, which is why <see cref="SessionDeviceResolver.TryBindAsync"/> refuses
-    /// it outright on the registration path. It is only safe here because the caller proves the
+    /// <para><b>The password is not friction, it is the whole mechanism.</b> Binding to an
+    /// <i>established</i> device row - one some session has already been, or that holds a backup, or
+    /// that is one end of a transfer - is exactly the move a stolen session would make to appoint
+    /// itself the laptop and read the laptop's backup, which is why
+    /// <see cref="SessionDeviceResolver.TryClaimAsync"/> refuses it outright on the registration
+    /// path. It is only safe here because the caller proves the
     /// account, and it grants nothing that the password grant at <c>/connect/token</c> would not have
     /// granted anyway - that route binds a fresh session to any named device on the same evidence.</para>
     ///

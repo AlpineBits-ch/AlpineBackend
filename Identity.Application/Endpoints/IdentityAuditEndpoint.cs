@@ -52,7 +52,9 @@ public class IdentityAuditEndpoint
     public const int MaxPageSize = 200;
     public const int DefaultPageSize = 50;
 
-    [WolverineGet("api/v1/identity/audit-events")]
+    // Public path is /api/v1/identity/audit-events; the gateway strips the service segment, so the
+    // internal route must not repeat it. See GatewayRouteContractTests.
+    [WolverineGet("api/v1/audit-events")]
     public static async Task<IResult> List(
         [FromQuery] int? limit,
         [FromQuery] DateTimeOffset? before,

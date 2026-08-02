@@ -22,10 +22,9 @@ namespace Identity.Application.Services;
 ///
 /// <para><b>Binding.</b> A session is normally bound at <c>/connect/token</c>, which reads the
 /// device id off the request. The one case that cannot be is a device's very first launch: it has to
-/// log in before it can register itself. <see cref="TryBindAsync"/> closes that gap by letting a
-/// still-unbound session claim a device row <i>at the moment that row is created</i> - never an
-/// existing one, because binding to an existing row is exactly the move that would let a stolen
-/// session appoint itself the laptop and read the laptop's backup.</para>
+/// log in before it can register itself. <see cref="TryClaimAsync"/> closes that gap by letting a
+/// still-unbound session claim a device row that nobody has ever been - see that method for the
+/// exact rule and for what it deliberately concedes.</para>
 ///
 /// <para><b>The sessions that already exist.</b> Every session created before <c>/connect/token</c>
 /// learned to record a device - and every session from a client that sends no device id - has
@@ -80,27 +79,106 @@ public sealed class SessionDeviceResolver(MicroserviceContext ctx)
         return device is not null && string.Equals(device.Id, deviceRowId, StringComparison.Ordinal);
     }
 
+    /// <summary>What <see cref="TryClaimAsync"/> did. The caller needs to distinguish these because
+    /// "the session is this device" is an authorization answer, not a diagnostic.</summary>
+    public enum ClaimResult
+    {
+        /// <summary>The session was already bound to this exact row. Nothing changed.</summary>
+        AlreadyBound,
+
+        /// <summary>The session is now this device. Staged on the context, not committed.</summary>
+        Claimed,
+
+        /// <summary>Left alone: no usable session, the session belongs to a different device, or the
+        /// row is not adoptable.</summary>
+        Refused,
+    }
+
+    /// <summary><see cref="ClaimResult.Claimed"/> and <see cref="ClaimResult.AlreadyBound"/> both mean
+    /// "the caller is this device"; only the audit trail cares which.</summary>
+    public static bool IsSelf(ClaimResult result) => result is not ClaimResult.Refused;
+
     /// <summary>
-    /// Binds a still-unbound session to a device row, for the first-launch case where the login
-    /// necessarily happened before the device existed.
+    /// Lets a still-unbound session become a device row, for the first-launch case where the login
+    /// necessarily happened before the device existed - and for the installed base, whose sessions
+    /// predate device binding entirely and can otherwise never acquire one without the password.
     ///
-    /// <para>Only ever called with a row this request just created. Refuses when the session is
-    /// already bound - a session does not change which handset it belongs to - and stages the change
-    /// on the context rather than saving, so it commits with the registration it belongs to.</para>
+    /// <para>Stages the change on the context rather than saving, so it commits with the registration
+    /// it belongs to.</para>
+    ///
+    /// <para><b>The rule is "a row nobody has ever been".</b> Claiming a row is what decides whose
+    /// backup a session may read, whose backup it may overwrite, and which device-to-device transfers
+    /// it may collect - so <see cref="IsAdoptableAsync"/> refuses any row that already has one of
+    /// those, or that any session has ever been bound to. A brand-new row satisfies all three
+    /// trivially, which is why the first-launch case needs no special casing.</para>
+    ///
+    /// <para><b>What this still stops.</b> A stolen session token cannot appoint itself an
+    /// <i>established</i> device: the laptop whose own session is bound to its row, or that holds an
+    /// encrypted backup, or that is one end of a live transfer, is refused here and remains reachable
+    /// only through <see cref="BindExistingAsync"/> at the cost of the account password. Nor can a
+    /// session that is already some device become another one. That is C2 and §L.7's actual property,
+    /// intact.</para>
+    ///
+    /// <para><b>What this concedes, stated rather than buried.</b> A device row that no session has
+    /// ever named and that holds nothing is first-come-first-served among the account's own unbound
+    /// sessions - trust on first use. A token stolen before the legitimate handset's next launch can
+    /// take that row, which locks the real device out of its own per-device routes until the user
+    /// pays the password on <c>bind-session</c>, and makes the thief the recipient of any backup that
+    /// device later writes. The window is per row and closes the first time anybody claims it, which
+    /// every legitimate launch does. It is accepted because the alternative is worse in exactly the
+    /// same direction: without it, an installed-base device cannot re-register at all (its identity
+    /// key rotation is gated on being self), so the row stays unclaimed indefinitely and the same
+    /// window stays open forever - while the honest user gets a password prompt on every launch.</para>
     /// </summary>
-    public async Task<bool> TryBindAsync(ClaimsPrincipal principal, string userId, string deviceRowId)
+    public async Task<ClaimResult> TryClaimAsync(ClaimsPrincipal principal, string userId, UserDevice device)
     {
         var sessionId = SessionIdOf(principal);
-        if (string.IsNullOrWhiteSpace(sessionId)) return false;
+        if (string.IsNullOrWhiteSpace(sessionId)) return ClaimResult.Refused;
 
         var session = await ctx.LoginSessions
             .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.RevokedAt == null);
 
-        if (session is null || session.DeviceId is not null) return false;
+        if (session is null) return ClaimResult.Refused;
 
-        session.DeviceId = deviceRowId;
+        if (session.DeviceId is not null)
+        {
+            return string.Equals(session.DeviceId, device.Id, StringComparison.Ordinal)
+                ? ClaimResult.AlreadyBound
+                : ClaimResult.Refused;
+        }
+
+        if (!await IsAdoptableAsync(device)) return ClaimResult.Refused;
+
+        session.DeviceId = device.Id;
         session.UpdatedAt = DateTimeOffset.UtcNow;
-        return true;
+        return ClaimResult.Claimed;
+    }
+
+    /// <summary>
+    /// Whether a row is one nobody has ever been.
+    ///
+    /// <para>The three checks are not a heuristic for "looks new" - they are an enumeration of
+    /// everything being this device grants (see <c>BackupController</c>): reading and writing its
+    /// backup, and creating or collecting a transfer at either end. A row with none of them is a row
+    /// where adoption transfers no secret that exists yet.</para>
+    ///
+    /// <para><b>Revoked sessions count.</b> A revoked session is still proof that this row was some
+    /// real handset's, which is the question being asked; ignoring them would re-open every row whose
+    /// owner had merely signed out.</para>
+    /// </summary>
+    private async Task<bool> IsAdoptableAsync(UserDevice device)
+    {
+        // Created by the request that is asking. Nothing can reference it yet, and the queries below
+        // would say so - this is here because the first-launch case is the one a reader looks for.
+        if (ctx.Entry(device).State == EntityState.Added) return true;
+
+        if (await ctx.LoginSessions.AnyAsync(s => s.DeviceId == device.Id)) return false;
+        if (await ctx.UserDeviceBackups.AnyAsync(b => b.DeviceId == device.Id)) return false;
+
+        // Transfers name devices by ClientDeviceId, not by row id.
+        return !await ctx.UserBackupTransfers.AnyAsync(
+            t => t.UserId == device.UserId
+                 && (t.TargetDeviceId == device.ClientDeviceId || t.SourceDeviceId == device.ClientDeviceId));
     }
 
     /// <summary>The outcome of <see cref="BindExistingAsync"/>. Distinguished because the caller
@@ -128,10 +206,10 @@ public sealed class SessionDeviceResolver(MicroserviceContext ctx)
     /// Binds an unbound session to a device row that already exists.
     ///
     /// <para><b>The caller must have verified a credential first.</b> This deliberately does what
-    /// <see cref="TryBindAsync"/> refuses to do, and the password is the entire reason it is allowed
-    /// to: without one it would be C2 with extra steps - a stolen session naming the laptop and then
-    /// downloading the laptop's backup, which is precisely the attack this class was written to
-    /// close.</para>
+    /// <see cref="TryClaimAsync"/> refuses to do - take over a row that is already somebody's - and
+    /// the password is the entire reason it is allowed to: without one it would be C2 with extra
+    /// steps, a stolen session naming the laptop and then downloading the laptop's backup, which is
+    /// precisely the attack this class was written to close.</para>
     ///
     /// <para>Exists because the alternative for the install base is worse. Sessions predating device
     /// binding cannot be repaired by any amount of server-side inference (see the type remarks), so

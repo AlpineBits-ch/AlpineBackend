@@ -33,9 +33,23 @@ public class CreateMLSDeviceDto
     /// hold the whole account out of <c>VerifiedDevices</c> for the price of a session token.</summary>
     public List<string>? Capabilities { get; set; }
 
-    /// <summary>Account password. Required only when this registration <i>rotates</i> the identity
-    /// key of a device other than the one the session belongs to, because that purges the target
-    /// device's key packages and strands it.</summary>
+    /// <summary>
+    /// Account password. Required only when this registration <i>rotates</i> the identity key of a
+    /// device the calling session neither is nor can become, because that purges the target device's
+    /// key packages and strands it.
+    ///
+    /// <para>"Can become" is the part that matters for an upgrading install: a session older than the
+    /// device row has no device, and claims the row on this call provided nobody has ever been it -
+    /// see <c>SessionDeviceResolver.TryClaimAsync</c>. So the ordinary
+    /// placeholder-key-becomes-real-signing-key rotation costs nothing, while rotating a device some
+    /// other session has already claimed, or that holds an encrypted backup, still costs the
+    /// password.</para>
+    ///
+    /// <para>Note this is <i>not</i> the same rule as the account identity key at
+    /// <c>PUT api/v1/users/identity-key</c>, which requires the password unconditionally, first
+    /// publication included (contract §J.2, as corrected). A device identity key names one handset; an
+    /// account identity key is what every peer pins.</para>
+    /// </summary>
     public string? Password { get; set; }
 }
 

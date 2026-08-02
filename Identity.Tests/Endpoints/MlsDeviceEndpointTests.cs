@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Domain;
 using Identity.Application.Dtos.Request;
 using Identity.Application.Dtos.Response;
@@ -624,5 +626,247 @@ public class MlsDeviceEndpointTests
         Assert.That(_passwords.Calls, Is.Zero,
             "The device is resolved before the credential, so a wrong account cannot be used to probe "
             + "whether a password is right.");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Registration from the installed base - claiming an unclaimed row
+    // ══════════════════════════════════════════════════════════════════════════
+
+    private async Task SeedBackup(UserDevice device)
+    {
+        _context.UserDeviceBackups.Add(UserDeviceBackup.Create(new CreateUserDeviceBackupParams
+        {
+            UserId = device.UserId,
+            DeviceId = device.Id,
+            Backup = Enumerable.Repeat((byte)0x7F, 64).ToArray(),
+            Version = 1,
+            RecoveryKeyVersion = 1,
+            CreatedAt = DateTimeOffset.UtcNow,
+        }));
+        await _context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// The upgrade case, and the regression that took every install in the field off the air.
+    ///
+    /// <para>A shipped client registers a random placeholder identity key on its first launch and
+    /// publishes its real MLS signing key once it has one - so the next registration is a genuine
+    /// rotation. That rotation was gated on proving "self", which a session created before the device
+    /// row existed can never do: it has no <c>DeviceId</c>, and the only route to one costs the
+    /// account password. Result: <c>POST api/v1/devices</c> answered 400 on every launch, forever,
+    /// and the client swallowed it.</para>
+    /// </summary>
+    [Test]
+    public async Task Register_FromASessionOlderThanTheDeviceRow_RotatesWithoutAPasswordAndClaimsTheRow()
+    {
+        var device = await SeedDevice(identityKey: [1, 2, 3]);
+        var caller = await TestSessions.SignedInOnAsync(_context, UserId, deviceRowId: null);
+
+        var (result, evt) = await _endpoint.CreateDevice(
+            RegisterDto([9, 9, 9]), new FakeIdentityMessageBus(), caller, _context, Sessions, _passwords);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<DeviceRegistrationDto>>());
+            Assert.That(((Ok<DeviceRegistrationDto>)result).Value!.IdentityRotated, Is.True);
+            Assert.That(evt!.IdentityRotated, Is.True);
+            Assert.That(_passwords.Calls, Is.Zero, "The upgrade path must not demand a credential.");
+        });
+
+        Assert.That((await _context.UserDevices.SingleAsync()).IdentityPublicKey,
+            Is.EqualTo(new byte[] { 9, 9, 9 }));
+
+        // And the session is now that device, which is what makes the per-device backup and transfer
+        // routes work again on the very same launch rather than one later.
+        Assert.That(await Sessions.IsCallingDeviceAsync(caller, UserId, device.Id), Is.True);
+
+        Assert.That(await _context.IdentityAuditEvents
+            .AnyAsync(e => e.Action == IdentityAuditActions.SessionDeviceBound), Is.True,
+            "Adoption is the concession this fix makes, so it leaves a durable trace.");
+    }
+
+    /// <summary>An ordinary re-registration claims the row too. Nothing is being rotated, so there is
+    /// no gate to pass - but the session still has to become the device, or an install that never
+    /// rotates stays locked out of its own backup forever.</summary>
+    [Test]
+    public async Task Register_WithAnUnchangedKey_AlsoClaimsAnUnclaimedRow()
+    {
+        var device = await SeedDevice(identityKey: [1, 2, 3]);
+        var caller = await TestSessions.SignedInOnAsync(_context, UserId, deviceRowId: null);
+
+        await _endpoint.CreateDevice(
+            RegisterDto([1, 2, 3]), new FakeIdentityMessageBus(), caller, _context, Sessions, _passwords);
+        await _context.SaveChangesAsync();
+
+        Assert.That(await Sessions.IsCallingDeviceAsync(caller, UserId, device.Id), Is.True);
+    }
+
+    /// <summary>
+    /// §L.7, intact. This is the property <c>BindSession_WithoutThePassword_ChangesNothing</c> states,
+    /// checked on the route that was relaxed.
+    ///
+    /// <para>A row some session has already been is an <i>established</i> device. Letting an unbound
+    /// session on the same account adopt it is precisely C2: appoint yourself the laptop, then read
+    /// the laptop's backup. The relaxation is scoped to rows nobody has ever been, and this is the
+    /// boundary.</para>
+    /// </summary>
+    [Test]
+    public async Task Register_RotatingADeviceSomeSessionHasAlreadyClaimed_StillNeedsThePassword()
+    {
+        var laptop = await SeedDevice(identityKey: [1, 2, 3]);
+
+        // The laptop's own session, which is what makes the row established.
+        await TestSessions.SignedInOnAsync(_context, UserId, laptop.Id);
+
+        var stolen = await TestSessions.SignedInOnAsync(_context, UserId, deviceRowId: null);
+
+        var (refused, noEvent) = await _endpoint.CreateDevice(
+            RegisterDto([9, 9, 9]), new FakeIdentityMessageBus(), stolen, _context, Sessions, _passwords);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(refused, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(noEvent, Is.Null);
+        });
+        Assert.That((await _context.UserDevices.SingleAsync()).IdentityPublicKey,
+            Is.EqualTo(new byte[] { 1, 2, 3 }), "the established device's published key must survive");
+        Assert.That(await Sessions.IsCallingDeviceAsync(stolen, UserId, laptop.Id), Is.False,
+            "and the session must not have become that device on the way past");
+
+        // The password is still the way through, exactly as it was.
+        var dto = RegisterDto([9, 9, 9]);
+        dto.Password = Password;
+        var (allowed, _) = await _endpoint.CreateDevice(
+            dto, new FakeIdentityMessageBus(), stolen, _context, Sessions, _passwords);
+        await _context.SaveChangesAsync();
+
+        Assert.That(allowed, Is.InstanceOf<Ok<DeviceRegistrationDto>>());
+    }
+
+    /// <summary>A row that has never been signed in on but that holds an encrypted backup is not
+    /// unclaimed in any sense that matters: adopting it hands over the one thing being that device
+    /// grants. The password stays.</summary>
+    [Test]
+    public async Task Register_RotatingADeviceThatHoldsABackup_StillNeedsThePassword()
+    {
+        var laptop = await SeedDevice(identityKey: [1, 2, 3]);
+        await SeedBackup(laptop);
+
+        var caller = await TestSessions.SignedInOnAsync(_context, UserId, deviceRowId: null);
+
+        var (refused, _) = await _endpoint.CreateDevice(
+            RegisterDto([9, 9, 9]), new FakeIdentityMessageBus(), caller, _context, Sessions, _passwords);
+        await _context.SaveChangesAsync();
+
+        Assert.That(refused, Is.InstanceOf<BadRequest<string>>());
+        Assert.That(await Sessions.IsCallingDeviceAsync(caller, UserId, laptop.Id), Is.False);
+    }
+
+    /// <summary>A session that is already some device does not become another one, however unclaimed
+    /// the target looks. Otherwise one compromised handset would collect the account.</summary>
+    [Test]
+    public async Task Register_FromASessionBoundToAnotherDevice_CannotRotateTheOtherDevice()
+    {
+        var phone = await SeedDevice(clientDeviceId: "device-phone");
+        var laptop = await SeedDevice(clientDeviceId: ClientDeviceId, identityKey: [1, 2, 3]);
+        var onThePhone = await SignedInOn(phone);
+
+        var (refused, _) = await _endpoint.CreateDevice(
+            RegisterDto([9, 9, 9]), new FakeIdentityMessageBus(), onThePhone, _context, Sessions, _passwords);
+        await _context.SaveChangesAsync();
+
+        Assert.That(refused, Is.InstanceOf<BadRequest<string>>());
+        Assert.That(await Sessions.IsCallingDeviceAsync(onThePhone, UserId, laptop.Id), Is.False);
+        Assert.That(await Sessions.IsCallingDeviceAsync(onThePhone, UserId, phone.Id), Is.True);
+    }
+
+    /// <summary>
+    /// The wire form of <c>identityPublicKey</c>, pinned.
+    ///
+    /// <para>The rotation check is a byte comparison, so an encoding drift between client and server -
+    /// a second base64 layer, a URL-safe alphabet, an int array - would read as a permanent rotation
+    /// and produce exactly the outage this section is about, while looking like a genuine key change
+    /// from the server side. This repo has already shipped two bugs of that shape. The clients send
+    /// standard, padded base64 of the raw 32-byte Ed25519 public key; that is what this asserts.</para>
+    /// </summary>
+    [Test]
+    public void IdentityPublicKey_OnTheWire_IsStandardBase64OfTheRawBytes()
+    {
+        var raw = Enumerable.Range(0, 32).Select(i => (byte)i).ToArray();
+        var json = $$"""
+                     {"clientDeviceId":"device-a","deviceName":"n","deviceType":"Mobile",
+                      "identityPublicKey":"{{Convert.ToBase64String(raw)}}"}
+                     """;
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            Converters = { new JsonStringEnumConverter() },
+        };
+
+        var dto = JsonSerializer.Deserialize<CreateMLSDeviceDto>(json, options)!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.IdentityPublicKey, Is.EqualTo(raw));
+            Assert.That(dto.DeviceType, Is.EqualTo(DeviceType.Mobile),
+                "deviceType travels as a name, not an ordinal - the clients send \"Mobile\".");
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // GET .../certificate - the read side §H.4 verifies against
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task GetDeviceCertificate_ReturnsTheSignedWindowAsEpochSeconds()
+    {
+        var device = await SeedDevice(identityKey: [4, 5, 6]);
+        var issued = DateTimeOffset.UtcNow.AddDays(-1);
+        var expires = DateTimeOffset.UtcNow.AddDays(179);
+        device.Certificate = PlausibleCertificate;
+        device.CertificateIssuedAt = issued;
+        device.CertificateExpiresAt = expires;
+        device.CertificateIdentityKeyVersion = 2;
+        await _context.SaveChangesAsync();
+
+        var result = await MlsDeviceEndpoint.GetDeviceCertificate(UserId, ClientDeviceId, _context);
+        var dto = ((Ok<DeviceCertificateDto>)result).Value!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.DeviceId, Is.EqualTo(ClientDeviceId));
+            Assert.That(dto.Certificate, Is.EqualTo(PlausibleCertificate));
+            Assert.That(dto.DeviceSignatureKey, Is.EqualTo(new byte[] { 4, 5, 6 }),
+                "the certificate is worthless unless the verifier can tell which leaf it vouches for");
+            Assert.That(dto.IdentityKeyVersion, Is.EqualTo(2));
+
+            // Epoch seconds, because that is the form the signature was made over. ISO-8601 here
+            // would make every reconstructed payload fail to verify - silently, as an unsigned leaf.
+            Assert.That(dto.IssuedAt, Is.EqualTo(issued.ToUnixTimeSeconds()));
+            Assert.That(dto.ExpiresAt, Is.EqualTo(expires.ToUnixTimeSeconds()));
+        });
+    }
+
+    [Test]
+    public async Task GetDeviceCertificate_ForADeviceWithoutOne_IsNotFound()
+    {
+        await SeedDevice();
+
+        var result = await MlsDeviceEndpoint.GetDeviceCertificate(UserId, ClientDeviceId, _context);
+
+        // Which the clients already read as "this device has published none", per §I.2.
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task GetDeviceCertificate_ForAnUnknownDevice_IsNotFound()
+    {
+        await SeedDevice();
+
+        var result = await MlsDeviceEndpoint.GetDeviceCertificate(UserId, "device-nobody-has", _context);
+
+        Assert.That(result, Is.InstanceOf<NotFound>());
     }
 }

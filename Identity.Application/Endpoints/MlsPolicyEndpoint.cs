@@ -31,7 +31,12 @@ public class MlsPolicyEndpoint
     /// <para>Configuration, not computation: flipping this is a deliberate operational act taken on
     /// the coverage number below, not something the server decides for itself.</para>
     /// </summary>
-    [WolverineGet("api/v1/identity/mls-policy")]
+    // Not "api/v1/identity/mls-policy". The gateway matches /api/v1/identity/{**rest} and forwards
+    // /api/v1/{**rest}, so an internal route that repeats the prefix is only reachable at the absurd
+    // /api/v1/identity/identity/mls-policy - and this one was, which made the enforcement kill switch
+    // inert in production while failing silently, because an unreadable policy correctly defaults to
+    // Observe. See GatewayRouteContractTests.
+    [WolverineGet("api/v1/mls-policy")]
     public static IResult Get() => Results.Ok(new MlsPolicyDto
     {
         CertificateEnforcement = MlsPolicy.CertificateEnforcement,
@@ -49,7 +54,7 @@ public class MlsPolicyEndpoint
     /// coverage means proposing the removal of real devices belonging to real users whose only
     /// mistake was not having opened the app yet.</para>
     /// </summary>
-    [WolverineGet("api/v1/identity/admin/mls-certificate-coverage")]
+    [WolverineGet("api/v1/admin/mls-certificate-coverage")]
     public static async Task<IResult> Coverage(
         [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx)
     {

@@ -41,12 +41,21 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/api/v1/guild/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
         
+        // Deliberately no path rewrite, unlike every other service route above.
+        //
+        // `/api/v1/federation/events` is a *protocol* path: it is what a remote instance is told to
+        // POST to (federation-protocol.md, deploy/README.md) and what VentaFederationProvider posts
+        // to. Stripping the segment forwarded it to Federation as `/api/v1/events`, which is not a
+        // route the service has - so every federated event and every backfill answered 404 through
+        // the gateway, while working perfectly in the in-process integration tests that call the
+        // service directly. Same shape as the Discord-compat and webhook routes: when the public
+        // path is the contract, the gateway must not rewrite it.
         new RouteConfig
         {
             RouteId = "federation-route",
             ClusterId = "federation-cluster",
             Match = new RouteMatch { Path = "/api/v1/federation/{**catch-all}" }
-        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+        },
 
         new RouteConfig
         {

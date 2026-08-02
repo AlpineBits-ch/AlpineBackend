@@ -66,10 +66,17 @@ Note §L.5: detection must work at **every** phase including `Observe`; `Observe
 
 ## 3. Cross-cutting residuals
 
-- **Legacy bare-`messageId` cache fallback exists on both platforms.** `MlsStore._cacheKey`'s own
-  comment documents it as a cross-conversation plaintext-disclosure vector. Both clients now
-  *write* the composite key and only *read* the bare one as a fallback. Draining it is a
-  coordinated decision — do not diverge on one platform.
+- **Legacy bare-`messageId` cache fallback.** `MlsStore._cacheKey`'s own comment documents it as a
+  cross-conversation plaintext-disclosure vector. Draining it is a coordinated decision — do not
+  diverge on one platform.
+
+  **Correction (2026-08-02, Alpine review).** An earlier version of this line claimed "both clients
+  now *write* the composite key and only *read* the bare one as a fallback". That is true of
+  venta-mobile (`mls_store.dart:160`, `:481`, draining fallback at `:457-467`) and **false of
+  Alpine**, which has no composite key on either side — it writes and reads the bare, server-chosen
+  `messageId` (`mls.service.ts:341`, `:347`). The parity this doc asserted did not exist, and the
+  gap is exploitable: see the Alpine review's H1. Alpine must adopt mobile's exact key shape before
+  either platform drains anything.
 - **Alpine's frontend suite has timing-sensitive tests** that fail under CPU load (4 failures
   with a concurrent `cargo test`, then four clean runs alone, with zero TypeScript changed).
   Worth fixing before it bites in CI.
@@ -85,6 +92,21 @@ Note §L.5: detection must work at **every** phase including `Observe`; `Observe
   as unit tests, which is *not* the same thing.
 - **Deploy Echo and apply migrations.** Two new migrations, additive and nullable, both `Down()`
   methods now fixed with real-Postgres rollback tests. Clients must not ship ahead of the server.
+
+- **⚠ DEPLOY ORDERING — Echo must not go out before Alpine's `publicVerifier` fix.** Echo `6b4a560`
+  hard-refuses any key-establishing write to `PUT /backup/recovery-key` without a `publicVerifier`
+  (`BackupController.cs:344-351`; a brand-new account with `current is null` still reaches the
+  check). Alpine's first-time E2EE setup uses exactly that route (`key-setup-dialog.component.ts:159`)
+  and sends no verifier — and that call path **predates the hardening work** (present at
+  `d016285^`, last touched in `4734c8b`), so this breaks the Alpine build that is **already live**,
+  not just the dev tree. The failure is silent: `catchError` at `:173` collapses the server's
+  actionable 400 into "Something went wrong. Please try again.", looping forever with no diagnostic.
+
+  venta-mobile is **not** affected — `MasterKeyService.establish` deliberately routes its first write
+  through the legacy `POST users/master` and picks up the recovery wrapping via the additive
+  same-version path Echo backfills (`master_key_service.dart:195-233`).
+
+  The derivation is now normative in contract **§L.11** so the clients cannot diverge on it.
 - **Run before deploying:**
   ```sql
   SELECT count(*) FROM conversations WHERE encryption_state = 'encrypted' AND mls_group_id IS NULL;

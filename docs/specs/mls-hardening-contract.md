@@ -827,10 +827,38 @@ GET api/v1/users/{userId}/identity-key
       → 404 when the account has not published one
 PUT api/v1/users/identity-key
       body { publicKey, version, rotationSignature?, password?, deviceId? }
-      first publication needs no password; rotation does
+      password required on BOTH paths — first publication and rotation alike
 PUT api/v1/devices/client/{deviceId}/certificate
       body { certificate, issuedAt, expiresAt, identityKeyVersion }
+GET api/v1/users/{userId}/devices/{deviceId}/certificate
+      → { deviceId, deviceSignatureKey, certificate, issuedAt, expiresAt, identityKeyVersion }
+      → 404 when that device has published none (§I.2's ordinary state)
+      issuedAt/expiresAt are EPOCH SECONDS here, unlike the PUT above, because the verifier
+      reconstructs the signed payload from this response and the signature was made over
+      epoch seconds. ISO-8601 would make every certificate fail to verify, as an unsigned leaf.
 ```
+
+> **Corrected 2026-08-02.** This block previously said *"first publication needs no password; rotation
+> does"*. That was true when it was written and is now wrong, deliberately: §L closed first
+> publication as a critical. Whoever publishes first is who every peer TOFU-pins and what every device
+> certificate chains to — the same power a rotation confers, acquired for less and invisibly — and per
+> §I.2 no account in the field has a key, so *every* account was one stolen session token away from
+> having its cryptographic identity chosen by somebody else. `AccountIdentityKeyEndpoint.Put` requires
+> the password on both paths, writes the same audit row on both, and broadcasts both with
+> `isFirstPublication` set so a client can word the notification correctly.
+>
+> **The consequence is real and is accepted.** An identity key can only be established while the
+> client holds the account password, i.e. at sign-in — a cold start cannot mint one. §G's rollout
+> therefore advances at sign-in rate rather than at launch rate, and §I.1's coverage number climbs
+> correspondingly slowly. That is the intended trade: the alternative is a land-grab window on an
+> unauthenticated-in-practice credential, and there is no third option, because the server cannot
+> distinguish "the account's own first key" from "the first key somebody managed to publish". Clients
+> should do identity-key and certificate generation on the sign-in path and treat a cold start as
+> best-effort (venta-mobile's `AccountEncryptionService` already does).
+>
+> The `GET .../certificate` line is also new: there was no read route at all, so §H.4's
+> unrecognised-leaf check fetched a 404 for every peer and concluded "uncertified" no matter how far
+> coverage climbed.
 
 Conversation MLS re-key, which had no route at all:
 
@@ -861,17 +889,33 @@ Master-key re-wrapping after a password reset (§C.1.1 named the obligation, not
 
 ```
 POST api/v1/backup/recovery-key/rewrap-password
-      body { version, passwordWrapping: { kdf, iterations, memoryKiB, parallelism,
-                                          salt, iv, cipherText, publicVerifier? } }
+      body { version, password? | rewrapTicket?,
+             passwordWrapping: { kdf, iterations, memoryKiB, parallelism,
+                                 salt, iv, cipherText, publicVerifier } }
       → 200 { version, encryptedHistoryRecoverable }
+      → 403 { error: "credential_required" } with neither password nor a valid ticket
       → 409 when version != the stored version
 ```
 
 The client reaches this by unlocking from the recovery code — the only credential a reset leaves
 intact — and re-sealing the **same** master key under the new password. `version` is unchanged, so
-every backup blob stays readable; this is a re-wrap, not a rotation. There is deliberately no
-password check: producing a valid wrapping of the master key *is* the proof, and demanding the
-password would gate the recovery path on the thing that was just reset.
+every backup blob stays readable; this is a re-wrap, not a rotation.
+
+> **Corrected 2026-08-02.** This paragraph previously read *"There is deliberately no password check:
+> producing a valid wrapping of the master key **is** the proof."* Both halves were wrong, and §L.8
+> closed them; the text here was simply left stale.
+>
+> The first half was a critical: nothing verified that the submitted wrapping sealed the master key at
+> all, so the route destroyed the account's master key on a bare session token and then cleared the
+> invalidation stamp, leaving the account reporting itself healthy. The second half named a proof the
+> code never performed — `publicVerifier` was in §C.1's envelope and nothing generated or checked it.
+>
+> As implemented: **a credential is required** — the account password, *or* the single-use
+> `rewrapTicket` minted by the password reset that invalidated the wrapping, which is what keeps the
+> recovery path from depending on the thing that was just reset. **And** `passwordWrapping.publicVerifier`
+> is required and compared against the stored one (§L.11 fixes its derivation, so both clients produce
+> identical bytes). Neither replaces the other: the credential says who is asking, the verifier says
+> that what they are writing seals the key the account already has.
 
 ### J.3 Realtime events the server emits
 
@@ -1364,3 +1408,126 @@ a rollback that refuses to run is the failure §I.6 exists to prevent, not a saf
 InMemory provider, which ignores unique indexes. Any migration in this class needs a rollback test
 against real Postgres that seeds exactly the rows the `Up()` started permitting —
 `Identity.Tests/Migrations/MigrationRollbackPostgresTests.cs`.
+
+---
+
+### L.11 `publicVerifier` — the normative derivation
+
+§L.8 requires the server to hold a `publicVerifier` and names the gap of accounts that have none. It
+never said how to compute one, and the consequence is that **no client derives it**: Alpine declares
+the field and leaves it null, venta-mobile routes its first write through the legacy
+`POST users/master` specifically to dodge the requirement, and Echo hard-refuses any key-establishing
+or rotating write without it (`BackupController.cs:344`, `:537`). A server-side requirement that no
+client can satisfy is not a security mechanism; it is an outage waiting on a deploy.
+
+Two clients each inventing a derivation is the failure mode this project has already lived through
+once — the recovery-code alphabet differed between repos by a single `*` and silently produced a
+wrong key. So the construction is fixed here, once, and neither client may vary it.
+
+**Normative construction.**
+
+```
+publicVerifier = base64_std_pad(
+    HKDF-SHA256(
+        ikm  = masterKey,            // the 32 raw bytes, NOT the password, NOT a wrapping
+        salt = "",                   // empty; the ikm is already uniform random
+        info = "venta.masterkey.verifier.v1",
+        L    = 32,
+    )
+)
+```
+
+- `info` is exact and ASCII, including the version suffix. Any change to the derivation takes a new
+  suffix, never a silent redefinition — an account's stored verifier must stay comparable for the
+  life of its master key.
+- Base64 is standard alphabet **with** padding, matching every other base64 field in §C and §D.
+- Derive it in the **engine** (Rust), beside the wrapping code, and return it alongside both
+  wrappings. Deriving it in TypeScript or Dart puts the master key in the host language on a path
+  that §K.3 otherwise keeps inside the engine.
+
+**Why HKDF of the master key and not of a wrapping.** The value must be identical across a re-wrap —
+that is its entire purpose, proving a `rewrap-password` seals *the same key*. Anything derived from a
+wrapping changes with the salt and nonce and would fail on the first legitimate re-wrap. Anything
+derived from the password is an offline password oracle for whoever reads the row, which is the §L.1
+mistake repeated.
+
+**Why disclosing it is safe.** It is a 32-byte HKDF output over a 32-byte uniformly random ikm. It
+reveals the master key only to an attacker who can invert HKDF-SHA256, and it is not a credential:
+the server accepts it as an *equality check* against a value it already holds, never as authorisation
+to unwrap anything.
+
+**Emit it on:** both wrappings of a first write, both wrappings of a rotation, and the
+`passwordWrapping` of `rewrap-password`. The two wrappings of one master key MUST carry the same
+value — Echo rejects a mismatch (`:199`) precisely because differing verifiers mean the two wrappings
+do not seal the same key.
+
+**Migration.** Accounts that already have key material have no stored verifier. Echo backfills on the
+additive same-version path (`:257-292`), so a client that starts emitting the value retrofits those
+accounts on their next recovery-code write with no rotation and no orphaned blobs. Do **not** rotate
+to install a verifier: rotation orphans every backup blob, which is a far worse outcome than the
+un-verified state it would fix.
+
+### L.12 A session may adopt a device row nobody has ever been
+
+§L.7 bound every per-device route to `LoginSession.DeviceId` and gave sessions that predate that
+plumbing one way back: `POST .../bind-session`, at the cost of the account password. That was
+correct for reads and wrong for registration, and the difference put the entire installed base off
+the air.
+
+**The failure.** A shipped client registers a random 32-byte placeholder as its `identityPublicKey`
+on first launch and republishes its *real* MLS signing key once it has minted an MLS identity. On
+every install that predates MLS, the next `POST api/v1/devices` therefore carries a genuinely
+different key — a §A rotation — and §L.7 gated rotation on proving "self". A session created before
+the device row existed has `DeviceId == null` and no way to acquire one except the password, so the
+gate could never be passed: **400 on every launch, permanently**, swallowed by the client's
+best-effort registration. Not an encoding artifact; the key really does change, exactly once, by
+design of the client.
+
+**The rule.** `SessionDeviceResolver.TryClaimAsync` lets a still-unbound session become a device row
+when **no session has ever been bound to it, it holds no encrypted backup, and it is neither end of a
+live device-to-device transfer**. Those three are an enumeration of everything being a device grants,
+not a heuristic for "looks new". A row created by the request that is asking satisfies all three, so
+the first-launch case needs no special case. Revoked sessions count as claims — a revoked session is
+still proof the row was some real handset's.
+
+Registration claims the row on both paths, rotating and not, and the rotation gate is satisfied by
+having claimed it. Everything else is unchanged: `bind-session` still costs the password, still
+refuses to *re*-bind a session, and `ResetKeyPackages` / `RemoveDevice` are untouched.
+
+**Still stopped.** A stolen session token cannot appoint itself an established device — one some
+session has already been, or that holds a backup, or that is mid-transfer. That is C2 and it is the
+property `BindSession_WithoutThePassword_ChangesNothing` states.
+
+**Conceded, deliberately.** A row nobody has ever been and that holds nothing is first-come,
+first-served among the account's own unbound sessions — trust on first use. A token stolen before the
+real handset's next launch can take that row, which locks the real device out of its own per-device
+routes until the user pays the password on `bind-session`, and makes the thief the recipient of any
+backup that device later writes. The window is per row and closes the first time anybody claims it,
+which every legitimate launch does. It is accepted because refusing it is worse in the same
+direction: the row then stays unclaimed *indefinitely* — the device cannot re-register at all — so
+the same window stays open forever while the honest user is prompted for a password on every launch.
+
+Note that "the caller sent the matching identity key" is **not** usable as evidence here:
+`GET api/v1/devices` returns every device's `clientDeviceId` and `identityPublicKey` to any session
+token, so echoing them back proves nothing an attacker did not already hold.
+
+### L.13 Gateway prefixes are stripped — internal routes must not repeat them
+
+`/api/v1/{service}/{**rest}` is forwarded as `/api/v1/{**rest}`, so an endpoint whose own template
+begins with its service segment is reachable only at `/api/v1/{service}/{service}/...` and 404s at
+the path clients actually call. Four Identity routes shipped that way:
+`identity/mls-policy`, `identity/admin/mls-certificate-coverage` and both halves of
+`identity/protection-level`. Consequences: **the certificate-enforcement kill switch was inert** —
+and silently, because a client that cannot read the policy correctly defaults to `Observe`, which is
+also what a healthy fleet looks like — and **protection level did not exist over the wire at all**.
+Federation had the mirror-image problem: `/api/v1/federation/events` is a *protocol* path a remote
+instance is told to post to, and the gateway was stripping the segment out of it.
+
+Fixed by dropping the segment from the four Identity templates (public paths unchanged, so no client
+release) and by removing the path rewrite from the Federation gateway route (protocol path unchanged,
+so no peer change). `Domain.Tests/Routing/GatewayRouteContractTests` now reads both route tables by
+reflection and fails the build on any recurrence. `messaging` is allowlisted: it is a resource name
+as well as a service name, and the doubled public path is what every shipped client calls.
+
+Unit and single-service integration tests cannot catch this class of bug — they call the internal
+path. The mismatch exists only in the seam between the two route tables.

@@ -7,9 +7,25 @@ Handover state as of 2026-08-02. Companion to `mls-hardening-plan.md`,
 
 | Repo | Commit | Verified |
 |---|---|---|
+| Echo | `5ba86ca` (pushed) | **3131 passed / 0 failed / 6 skipped**, 12 assemblies |
+| venta-mobile | `7310a13`, released as **`v1.0.59`** (TestFlight ✓) | **357 Dart / 59 Rust** / analyze clean |
+| Alpine | `312d7f7`, released as **3.0.159** on `main` + `release` (CI ✓) | **332 Rust / 1090 TS (96 files)** / prod build clean |
+
+> **Deploy state as of 2026-08-02:** Echo is pushed through `5ba86ca`. `1751460` — the fix for a
+> conversation being created without the creator's own devices — **was still awaiting deploy** at the
+> time of writing. Until it is live the server keeps producing the defect the clients now recover from.
+> `5ba86ca` is docs/comments only and needs no deploy of its own.
+
+<details>
+<summary>Earlier state, superseded (kept for the commit trail)</summary>
+
+| Repo | Commit | Verified |
+|---|---|---|
 | Echo | `6b4a560` (pushed) | 3119 passed / 0 failed, all 12 suites incl. the 220 Identity+E2E that had never run |
 | venta-mobile | `c707bc3`, released as `v1.0.55` | 227 Dart / 52 Rust / analyze clean / `swiftc -parse` clean |
 | Alpine | `d016285` (not pushed) | 310 Rust / 970 TS / release build clean |
+
+</details>
 
 The originally reported bug — encrypted messages undecryptable on mobile — is fixed and
 regression-tested. Cross-client golden vectors pass in both directions.
@@ -120,6 +136,33 @@ and backup transfers are refused unless the target resolves. No dangling client 
 anywhere. The residue (`DeviceId IS NULL`) is the documented normal state for old sessions, old
 builds, and correct first-launch ordering, so warning on it would fire on most accounts forever.
 **No warning was added and none should be**, on this evidence.
+
+## 2d. A restored session never establishes a master key — **open, needs a UX decision**
+
+Found 2026-08-02 while verifying why the desktop prompted for a recovery code and the phone never did.
+The build-age explanation (`AccountEncryptionService` had no production callers until `ef0330d`,
+first shipped v1.0.56) is **true but not the whole answer**.
+
+venta-mobile establishes the master key **only on the sign-in path**. `main.dart:85` calls
+`startAuthenticatedServices()` with no password on a restored session, `account_encryption_service.dart:208`
+bails without one, and `_recoveryCodeOwed` short-circuits so the banner never appears.
+
+**Consequence:** a user who updates the app and reopens it — rather than signing out and back in — is
+still keyless and never prompted, on v1.0.59. That is the majority upgrade path. Alpine wins the
+comparison because `checkMasterKey()` runs on every launch, not only at sign-in.
+
+**Not fixed, deliberately.** Establishing requires the password, so the remedy is a new "enter your
+password to set up encryption" prompt, not a wiring change. That is user-facing UX and was not
+invented unasked. Whoever picks this up: mobile's `establish`-then-prompt split is **correct** and
+should be preserved — see `MasterKeyService.establish`'s own reasoning about never minting a code
+nobody has seen. Only the trigger is missing, not the flow.
+
+Related and also open: mobile's `requestAccessWhereMissing` (§K.6) is built but not driven at launch,
+the mirror of the sweep Alpine shipped in 3.0.159. Estimated half a day. Sequence it **after** Alpine's
+has proven out in the field so mobile copies a shape that works.
+
+Also noted: `ConversationMemberService` is registered in DI and reached from nowhere, so the
+conversation add-member path has no UI to surface unreachable devices through yet.
 
 ### Verified correct, so nobody re-checks them
 

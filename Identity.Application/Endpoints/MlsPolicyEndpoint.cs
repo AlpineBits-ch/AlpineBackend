@@ -20,7 +20,8 @@ public class MlsPolicyEndpoint
     /// contracts (required <c>deviceId</c> on the Welcome fetch, rejecting creation on unreachable
     /// devices) apply to it.
     /// </summary>
-    [WolverineGet("api/v1/identity/mls-policy")]
+    // Not "api/v1/identity/mls-policy".
+    [WolverineGet("api/v1/mls-policy")]
     public static IResult Get() => Results.Ok(new MlsPolicyDto
     {
         CertificateEnforcement = MlsPolicy.CertificateEnforcement,
@@ -33,7 +34,7 @@ public class MlsPolicyEndpoint
     /// What fraction of active devices carry an unexpired certificate, and how many accounts have
     /// an identity key at all.
     /// </summary>
-    [WolverineGet("api/v1/identity/admin/mls-certificate-coverage")]
+    [WolverineGet("api/v1/admin/mls-certificate-coverage")]
     public static async Task<IResult> Coverage(
         [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx)
     {

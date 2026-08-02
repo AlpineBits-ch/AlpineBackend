@@ -81,13 +81,34 @@ public class MlsDeviceEndpoint
             var rotated = incomingKey.Length > 0
                           && !incomingKey.AsSpan().SequenceEqual(existingDevice.IdentityPublicKey);
 
+            // Decided before the rotation gate, because for the whole installed base the gate is
+            // otherwise unpassable.
+            var claim = await sessionDevices.TryClaimAsync(user, userId, existingDevice);
+
+            if (claim == SessionDeviceResolver.ClaimResult.Claimed)
+            {
+                // The concession is bounded but real, so it leaves a trace: if a session is ever
+                // found reading the wrong device's backup, this row is where it started.
+                ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
+                {
+                    UserId = userId,
+                    Action = IdentityAuditActions.SessionDeviceBound,
+                    ClientDeviceId = existingDevice.ClientDeviceId,
+                    Detail = "session adopted an unclaimed device row during registration",
+                    CreatedAt = now,
+                }));
+            }
+
             if (rotated)
             {
                 // Rotating another device's identity key empties its key-package stock, which makes
                 // it unreachable for every new group until it next launches and replenishes.
-                var denied = await RequireSelfOrPasswordAsync(user, userId, existingDevice, dto.Password,
-                    "Rotating a device identity key", sessionDevices, passwords, ctx);
-                if (denied is not null) return (denied, null);
+                if (!SessionDeviceResolver.IsSelf(claim))
+                {
+                    var denied = await RequireSelfOrPasswordAsync(user, userId, existingDevice, dto.Password,
+                        "Rotating a device identity key", sessionDevices, passwords, ctx);
+                    if (denied is not null) return (denied, null);
+                }
 
                 existingDevice.IdentityPublicKey = incomingKey;
                 existingDevice.UpdatedAt = now;
@@ -142,7 +163,7 @@ public class MlsDeviceEndpoint
 
         // A device's very first launch necessarily logs in before it can register itself, so its
         // session cannot have been bound at /connect/token.
-        await sessionDevices.TryBindAsync(user, userId, device.Id);
+        await sessionDevices.TryClaimAsync(user, userId, device);
 
         return (Results.Ok(ToRegistrationDto(device, identityRotated: false)), new DeviceRegistered()
         {
@@ -223,6 +244,31 @@ public class MlsDeviceEndpoint
         device.UpdatedAt = now;
 
         return Results.Ok(new { deviceId, expiresAt = dto.ExpiresAt });
+    }
+
+    /// <summary>One device's certificate, for a peer verifying the leaf it vouches for.</summary>
+    [Authorize]
+    [WolverineGet("api/v1/users/{userId}/devices/{deviceId}/certificate")]
+    public static async Task<IResult> GetDeviceCertificate(string userId, string deviceId,
+        [NotBody] MicroserviceContext ctx)
+    {
+        var device = await ctx.UserDevices.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.UserId == userId && d.ClientDeviceId == deviceId);
+
+        // 404 for "no such device" and for "no certificate" alike.
+        if (device?.Certificate is not { Length: > 0 }) return Results.NotFound();
+        if (device.CertificateIssuedAt is null || device.CertificateExpiresAt is null)
+            return Results.NotFound();
+
+        return Results.Ok(new DeviceCertificateDto
+        {
+            DeviceId = device.ClientDeviceId,
+            DeviceSignatureKey = device.IdentityPublicKey,
+            Certificate = device.Certificate,
+            IssuedAt = device.CertificateIssuedAt.Value.ToUnixTimeSeconds(),
+            ExpiresAt = device.CertificateExpiresAt.Value.ToUnixTimeSeconds(),
+            IdentityKeyVersion = device.CertificateIdentityKeyVersion,
+        });
     }
 
     private static void ApplyCertificate(UserDevice device, CreateMLSDeviceDto dto)

@@ -20,7 +20,9 @@ public class ProtectionLevelEndpoint
     /// <summary>How far the client's signed timestamp may sit from server time.</summary>
     public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(10);
 
-    [WolverineGet("api/v1/identity/protection-level")]
+    // Public path is /api/v1/identity/protection-level; the gateway strips the service segment, so
+    // the internal route must not repeat it.
+    [WolverineGet("api/v1/protection-level")]
     public static async Task<IResult> Get(
         [NotBody] ClaimsPrincipal principal, [NotBody] MicroserviceContext ctx)
     {
@@ -41,7 +43,7 @@ public class ProtectionLevelEndpoint
         return user is null ? Results.NotFound() : Results.Ok(user);
     }
 
-    [WolverinePut("api/v1/identity/protection-level")]
+    [WolverinePut("api/v1/protection-level")]
     public static async Task<(IResult, ProtectionLevelChanged?)> Put(
         PutProtectionLevelDto dto,
         [NotBody] ClaimsPrincipal principal,

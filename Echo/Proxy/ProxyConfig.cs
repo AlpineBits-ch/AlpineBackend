@@ -41,12 +41,13 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/api/v1/guild/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
         
+        // Deliberately no path rewrite, unlike every other service route above.
         new RouteConfig
         {
             RouteId = "federation-route",
             ClusterId = "federation-cluster",
             Match = new RouteMatch { Path = "/api/v1/federation/{**catch-all}" }
-        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+        },
 
         new RouteConfig
         {

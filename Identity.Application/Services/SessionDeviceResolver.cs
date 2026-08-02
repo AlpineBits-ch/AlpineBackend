@@ -40,23 +40,66 @@ public sealed class SessionDeviceResolver(MicroserviceContext ctx)
         return device is not null && string.Equals(device.Id, deviceRowId, StringComparison.Ordinal);
     }
 
+    /// <summary>What <see cref="TryClaimAsync"/> did.</summary>
+    public enum ClaimResult
+    {
+        /// <summary>The session was already bound to this exact row. Nothing changed.</summary>
+        AlreadyBound,
+
+        /// <summary>The session is now this device. Staged on the context, not committed.</summary>
+        Claimed,
+
+        /// <summary>Left alone: no usable session, the session belongs to a different device, or the
+        /// row is not adoptable.</summary>
+        Refused,
+    }
+
+    /// <summary><see cref="ClaimResult.Claimed"/> and <see cref="ClaimResult.AlreadyBound"/> both mean
+    /// "the caller is this device"; only the audit trail cares which.</summary>
+    public static bool IsSelf(ClaimResult result) => result is not ClaimResult.Refused;
+
     /// <summary>
-    /// Binds a still-unbound session to a device row, for the first-launch case where the login
-    /// necessarily happened before the device existed.
+    /// Lets a still-unbound session become a device row, for the first-launch case where the login
+    /// necessarily happened before the device existed - and for the installed base, whose sessions
+    /// predate device binding entirely and can otherwise never acquire one without the password.
     /// </summary>
-    public async Task<bool> TryBindAsync(ClaimsPrincipal principal, string userId, string deviceRowId)
+    public async Task<ClaimResult> TryClaimAsync(ClaimsPrincipal principal, string userId, UserDevice device)
     {
         var sessionId = SessionIdOf(principal);
-        if (string.IsNullOrWhiteSpace(sessionId)) return false;
+        if (string.IsNullOrWhiteSpace(sessionId)) return ClaimResult.Refused;
 
         var session = await ctx.LoginSessions
             .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.RevokedAt == null);
 
-        if (session is null || session.DeviceId is not null) return false;
+        if (session is null) return ClaimResult.Refused;
 
-        session.DeviceId = deviceRowId;
+        if (session.DeviceId is not null)
+        {
+            return string.Equals(session.DeviceId, device.Id, StringComparison.Ordinal)
+                ? ClaimResult.AlreadyBound
+                : ClaimResult.Refused;
+        }
+
+        if (!await IsAdoptableAsync(device)) return ClaimResult.Refused;
+
+        session.DeviceId = device.Id;
         session.UpdatedAt = DateTimeOffset.UtcNow;
-        return true;
+        return ClaimResult.Claimed;
+    }
+
+    /// <summary>Whether a row is one nobody has ever been.</summary>
+    private async Task<bool> IsAdoptableAsync(UserDevice device)
+    {
+        // Created by the request that is asking.
+        if (ctx.Entry(device).State == EntityState.Added) return true;
+
+        if (await ctx.LoginSessions.AnyAsync(s => s.DeviceId == device.Id)) return false;
+        if (await ctx.UserDeviceBackups.AnyAsync(b => b.DeviceId == device.Id)) return false;
+
+        // Transfers name devices by ClientDeviceId, not by row id.
+        return !await ctx.UserBackupTransfers.AnyAsync(
+            t => t.UserId == device.UserId
+                 && (t.TargetDeviceId == device.ClientDeviceId || t.SourceDeviceId == device.ClientDeviceId));
     }
 
     /// <summary>The outcome of <see cref="BindExistingAsync"/>.</summary>

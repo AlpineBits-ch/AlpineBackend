@@ -26,6 +26,16 @@ namespace Messaging.Application.Services;
 /// coverage report is a much better outcome than being unable to create a conversation or publish a
 /// commit because a sibling service is down. The degradation is logged, so an operator sees the
 /// difference between "everyone is covered" and "we could not tell".</para>
+///
+/// <para><b>An empty list is not proof of full coverage.</b> This can only account for devices that
+/// have a <c>user_devices</c> row, so a device that never completed registration is invisible here
+/// and to the caller alike. That is not an oversight to be patched at this layer: nothing in the
+/// schema retains a client device id that has no row - sessions and push tokens resolve it and store
+/// null on a miss, backups and transfers refuse the write outright - so there is no signal that such
+/// a device exists, and inventing one from "this account has a session with no device" would fire on
+/// most accounts forever, for reasons unrelated to MLS. See contract §L.14.1. The remedy for an
+/// unregistered device is the join-request path it can use once it registers, not a guess made
+/// here.</para>
 /// </summary>
 public class MlsDeviceCoverageService(IMessageBus bus, ILogger<MlsDeviceCoverageService> logger)
 {

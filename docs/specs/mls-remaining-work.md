@@ -70,11 +70,18 @@ Reported 2026-08-02: a recipient could read an encrypted message on their phone 
 desktop, same account. Not the base64 bug, and **not** the `POST api/v1/devices` 400 either — Echo
 was redeployed with `3bde2f0` while this was being investigated and registration is healthy.
 
-The mechanism is enumeration, and it is in the design rather than in one line of code. An MLS group
-is whatever set of devices the *creating client* sealed Welcomes to, which is one key package per
-active device that still had one; a device with none comes back in `unreachableDevices` and is left
-out. **Nothing on either side ever adds it afterwards.** So a device that was dry, or that did not
-exist yet, or whose stock was left stale by the registration bug while it was live, stays outside
+**The desktop's own root cause turned out to be client-side and Alpine has it:** one `try` block
+wrapped key-package replenishment, the master-key check and pending-Welcome processing, so a single
+failed key-package upload silently skipped the other two — permanently, because nothing else
+processes pending Welcomes. The Welcome was sitting on the server, addressed correctly to that
+device, and the device never read it. Not a registration problem: Alpine never sent a placeholder
+identity key, so the §L.12 400 never fired for it.
+
+The server-side mechanism this exposed is enumeration, and it is in the design rather than in one line
+of code. An MLS group is whatever set of devices the *creating client* sealed Welcomes to, which is
+one key package per active device that still had one; a device with none comes back in
+`unreachableDevices` and is left out. **Nothing on either side ever adds it afterwards.** So a device
+that was dry, that did not exist yet, or that failed to process the Welcome it was sent, stays outside
 that group permanently — the server being fixed does not heal it.
 
 Server side is now as loud as it can be (contract **§L.14**): creation reports the creator's own
@@ -84,14 +91,17 @@ log a warning naming the device.
 
 What that does **not** do is get the device back in, and only a client can:
 
-- **Wire §B's conversation join-request sweep at launch on both clients.** It exists server-side and
-  is driven by neither. This is the repair path; without it the new reports name a problem with no
-  remedy attached.
-- **Alpine's "Re-link device" was a no-op** — it only called `refreshState`, which catches a device up
-  on missed commits and cannot create a leaf that was never added, so the button cleared the banner
-  and the banner returned on reload. That is what the **deployed** build still does. Alpine's working
-  tree already fixes it: `MlsJoinRequestService.relink` tries the cheap remedy, then submits a §B
-  join request. Unreleased at the time of writing; Alpine's agent owns it.
+- **Wire §B's conversation join-request sweep at launch.** This is the repair path; without it the
+  new reports name a problem with no remedy attached. **Alpine is doing this** — a launch-time
+  admission sweep is in its working tree on top of the relink fix below. venta-mobile has
+  `requestAccessWhereMissing` built but still called per-context by the access banner rather than at
+  launch across the conversation list (§K.6), so mobile is the side still outstanding.
+- **Alpine's "Re-link device" — fixed in their tree, not yet released.** The **shipped** build only
+  calls `refreshState`, which catches a device up on missed commits and cannot create a leaf that was
+  never added, so the button clears the banner and the banner returns on reload. Alpine's working tree
+  replaces that: `MlsJoinRequestService.relink` tries the cheap remedy first, then submits a §B join
+  request. **Not an open bug — treat it as closed once Alpine ships**; it is listed only because the
+  build in the field still behaves the old way and that is what a live report will show.
 - **venta-mobile's creation check is per user, not per device**
   (`conversation_encryption_service.dart:66-74`): it reduces the server's per-device
   `unreachableDevices` to "did this *user* appear at all", so a member with one good handset and one
@@ -101,6 +111,34 @@ What that does **not** do is get the device back in, and only a client can:
 Prerequisite for a server-side coverage read route: `MlsGroupGeneration` records `ActivatedByUserId`
 but not a device, so the server cannot distinguish the creator's own creating device from one left
 out. Additive nullable column; not taken.
+
+**A device that never registered cannot be reported at all, and there is no signal that one exists.**
+Assessed and closed — see contract **§L.14.1** for the table. `LoginSession.DeviceId`,
+`UserPushToken.DeviceId` and `UserDeviceBackup.DeviceId` are all FKs to `user_devices.Id`; the first
+two resolve the client-supplied id and store **null** on a miss, the third cannot be written at all,
+and backup transfers are refused unless the target resolves. No dangling client device id survives
+anywhere. The residue (`DeviceId IS NULL`) is the documented normal state for old sessions, old
+builds, and correct first-launch ordering, so warning on it would fire on most accounts forever.
+**No warning was added and none should be**, on this evidence.
+
+### Verified correct, so nobody re-checks them
+
+- **Conversation-creation enumeration.** `/consume-tokens` returns one key package per active device
+  and reports the rest in `unreachableDevices` per device (`ConsumeMlsTokensForUserHandler.cs:52-104`)
+  — with the creator's own devices now included in the creation-time scan (§L.14, the one real bug).
+- **Welcomes are per device end to end.** Fetch filters on `deviceId` and never consumes
+  (`MlsEndpoints.cs:734-751`); ack is scoped to `(UserId, DeviceId)` and refuses rather than acking
+  broadly with neither body field nor header (`:773-805`). A Welcome for device B cannot be consumed
+  or hidden by device A. §E5/§E6 hold.
+- **Alpine's sender path.** Consumes tokens for every participant including its own account, blocks
+  creation on any `unreachableDevices` until a human accepts, passes `allowPartialDeviceCoverage`
+  explicitly, and re-reads the server's list off the creation response. A silent partial set is not
+  coming from the desktop sender.
+- **Alpine's Welcome fetch and ack** always send `deviceId` and ack only what actually joined.
+- **The registration 400 was mobile-only** (§L.12, as corrected). Alpine has never sent a placeholder
+  identity key, so `rotated` was false for it and the old gate never fired.
+- `certificateEnforcement` is `Observe` and §G/§H enforcement is unwired, so no certificate check
+  removes or excludes anyone.
 
 ## 3. Cross-cutting residuals
 

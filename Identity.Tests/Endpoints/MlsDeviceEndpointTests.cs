@@ -647,14 +647,18 @@ public class MlsDeviceEndpointTests
     }
 
     /// <summary>
-    /// The upgrade case, and the regression that took every install in the field off the air.
+    /// The upgrade case, and the regression that took the whole mobile install base off the air.
     ///
-    /// <para>A shipped client registers a random placeholder identity key on its first launch and
+    /// <para>venta-mobile registers a random placeholder identity key on its first launch and
     /// publishes its real MLS signing key once it has one - so the next registration is a genuine
     /// rotation. That rotation was gated on proving "self", which a session created before the device
     /// row existed can never do: it has no <c>DeviceId</c>, and the only route to one costs the
     /// account password. Result: <c>POST api/v1/devices</c> answered 400 on every launch, forever,
     /// and the client swallowed it.</para>
+    ///
+    /// <para>Mobile only. Alpine has always registered its real signing key and re-registers with the
+    /// same stored one, so it never rotated here and was never locked out. What this test pins is the
+    /// rule, which is about any genuinely-changed identity key and is not client-specific.</para>
     /// </summary>
     [Test]
     public async Task Register_FromASessionOlderThanTheDeviceRow_RotatesWithoutAPasswordAndClaimsTheRow()

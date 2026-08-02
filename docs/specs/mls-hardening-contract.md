@@ -1474,14 +1474,25 @@ plumbing one way back: `POST .../bind-session`, at the cost of the account passw
 correct for reads and wrong for registration, and the difference put the entire installed base off
 the air.
 
-**The failure.** A shipped client registers a random 32-byte placeholder as its `identityPublicKey`
-on first launch and republishes its *real* MLS signing key once it has minted an MLS identity. On
-every install that predates MLS, the next `POST api/v1/devices` therefore carries a genuinely
-different key — a §A rotation — and §L.7 gated rotation on proving "self". A session created before
-the device row existed has `DeviceId == null` and no way to acquire one except the password, so the
-gate could never be passed: **400 on every launch, permanently**, swallowed by the client's
-best-effort registration. Not an encoding artifact; the key really does change, exactly once, by
-design of the client.
+**The failure.** **venta-mobile** registers a random 32-byte placeholder as its `identityPublicKey`
+on first launch and republishes its *real* MLS signing key once it has minted an MLS identity
+(`device_id_service.dart:78-82`, `mls_session_manager.dart:81`). On every mobile install that
+predates MLS, the next `POST api/v1/devices` therefore carries a genuinely different key — a §A
+rotation — and §L.7 gated rotation on proving "self". A session created before the device row existed
+has `DeviceId == null` and no way to acquire one except the password, so the gate could never be
+passed: **400 on every launch, permanently**, swallowed by the client's best-effort registration. Not
+an encoding artifact; the key really does change, exactly once, by design of that client.
+
+> **Corrected 2026-08-02 — the placeholder is mobile-only.** This section previously said "a shipped
+> client", which reads as all of them and was taken that way. Alpine has **never** sent a placeholder:
+> it registers the real MLS signing key from the start and re-registers with the same stored key
+> (`device-identity.service.ts:ensureRegistered`, which reads `alpine_mls_{deviceId}_pub` and sends
+> it), so `rotated` was false for Alpine on every re-registration and the old gate never fired for it.
+> Alpine's desktops were **not** taken off the air by this, and any diagnosis that assumed they were
+> is looking in the wrong place.
+>
+> The **rule** below is not mobile-specific and must not be narrowed to match: it governs any
+> registration whose identity key genuinely differs, whatever the client's reason for that.
 
 **The rule.** `SessionDeviceResolver.TryClaimAsync` lets a still-unbound session become a device row
 when **no session has ever been bound to it, it holds no encrypted backup, and it is neither end of a
@@ -1572,16 +1583,56 @@ is visible to an operator even when the client discards the field.
 gets no error of their own — the message simply fails to decrypt, which is indistinguishable from the
 conversation being broken.
 
-> **Still open, and it is the part that strands devices permanently.** A device that registers or
-> replenishes key packages *after* a group is formed is never added by anything. The designed repair
-> is §B's conversation join request, which exists server-side and is driven by neither client at
-> launch (`mls-remaining-work.md` §2, §K.6). Until that is wired, the reports above tell somebody a
-> device is stranded but nothing gets it back in, and a client offering "re-link device" that only
-> re-fetches commits is offering a remedy that cannot work — catching up on commits cannot create a
-> leaf that was never added.
+> **The part that strands devices permanently, and it is client-side.** A device that registers or
+> replenishes key packages *after* a group is formed is never added by anything the server can do.
+> The designed repair is §B's conversation join request, which exists server-side and has to be driven
+> by a client. Until it is, the reports above tell somebody a device is stranded but nothing gets it
+> back in, and a "re-link device" affordance that only re-fetches commits is offering a remedy that
+> cannot work — catching up on commits cannot create a leaf that was never added.
+>
+> Alpine has this in hand (relink now submits a join request, plus a launch-time admission sweep,
+> both unreleased at the time of writing); venta-mobile has `requestAccessWhereMissing` built but not
+> called at launch. Current state per repo lives in `mls-remaining-work.md` §2c — check there rather
+> than treating this paragraph as the status.
 >
 > Server-side, a coverage *read* route was considered and deliberately not added: the server cannot
 > tell which device activated a generation (`MlsGroupGeneration` records `ActivatedByUserId`, not a
 > device), so such a route would report the creator's own creating device as outside the group it
 > built. Recording the activating and committing device per generation is the prerequisite; it is an
 > additive nullable column and has not been taken.
+
+#### L.14.1 A device with no row cannot be reported, and there is no signal that one exists
+
+Coverage is computed from `user_devices`. A device that **never completed registration** — or
+registered and then failed before uploading key packages — appears in neither `deviceTokens` nor
+`unreachableDevices`, so the sender sees complete coverage and creates the conversation cleanly. This
+is the same silent exclusion arriving from the other side: not a device skipped for want of a key
+package, but one the server has no record of.
+
+The obvious mitigation is to distinguish "every known device is covered" from "known devices are
+covered but something implies one we do not know about". **That signal does not exist in this schema,
+and it is absent by construction rather than merely unimplemented.** Every table that could hold a
+dangling device reference resolves the client-supplied id to a row id and discards it on a miss, or
+refuses the write outright:
+
+| Candidate | Why there is nothing to find |
+|---|---|
+| `LoginSession.DeviceId` | FK to `UserDevice.Id`, `OnDelete: SetNull`. `ConnectController.CreateSession` looks the client id up and stores **null** when no row matches — "an unknown id is ignored rather than rejected, because a first login necessarily happens before the device can be registered". The client device id is not retained anywhere. |
+| `UserPushToken.DeviceId` | FK to `UserDevice.Id`, `OnDelete: Cascade`. `UserController.UpsertPushTokenAsync` resolves, logs a warning on a miss, and stores **null** rather than losing the token. |
+| `UserDeviceBackup.DeviceId` | Non-nullable FK, `OnDelete: Cascade`. A blob for an unknown device cannot be written at all. |
+| `UserBackupTransfer.TargetDeviceId` | A raw client device id with no FK — but `BackupController` refuses the create unless it resolves to one of the caller's devices. |
+| `IdentityAuditEvent.ClientDeviceId` | Free text, and it **outlives the device row on purpose**. An id here with no row means the device was *removed*, which is the opposite of never registered. |
+
+What is left is `DeviceId IS NULL` on sessions and push tokens, and that is **not** evidence of a
+missing device. §L.7 already established that null is the ordinary state for every session predating
+that plumbing and every client that does not send the id; the push-token column is nullable for the
+same documented reason, because registering a push token before an MLS device is correct ordering,
+not a failure. Treating null as "you may be missing a device" would fire on a large fraction of
+accounts, permanently, for reasons with nothing to do with MLS — a warning that is always on is a
+warning nobody reads, and it is worse than the silence it replaces.
+
+**So no such warning is emitted, and none should be added on this evidence.** The honest position is
+that peer-side detection of an unregistered device is impossible here: a device the server has never
+seen is indistinguishable from a device that does not exist. The remedy is not a better sender-side
+guess but the repair path above — once the device does register, §B lets it ask its way in, and that
+works regardless of how long it was invisible.

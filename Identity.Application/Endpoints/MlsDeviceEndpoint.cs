@@ -99,16 +99,21 @@ public class MlsDeviceEndpoint
             var rotated = incomingKey.Length > 0
                           && !incomingKey.AsSpan().SequenceEqual(existingDevice.IdentityPublicKey);
 
-            // Decided before the rotation gate, because for the whole installed base the gate is
-            // otherwise unpassable.
+            // Decided before the rotation gate, because for the whole mobile installed base the gate
+            // is otherwise unpassable.
             //
-            // A shipped client registers a random placeholder identity key on its very first launch
-            // and replaces it with its real MLS signing key the moment it mints an MLS identity - so
-            // every install that predates MLS sends a *genuinely* different key on its next
+            // venta-mobile registers a random placeholder identity key on its very first launch and
+            // replaces it with its real MLS signing key the moment it mints an MLS identity - so
+            // every mobile install that predates MLS sends a *genuinely* different key on its next
             // registration. That is a rotation, and it was gated on proving "self", which such a
             // session can never do: it was created before the device row existed, so it has no
             // DeviceId and the only route to one costs the account password. The result was a hard
             // 400 on every launch, forever, with the client swallowing it.
+            //
+            // The placeholder is mobile's alone - Alpine has always registered its real signing key
+            // and re-registers with the same stored one, so `rotated` is false for it and the gate
+            // never fired. The rule here is deliberately not narrowed to match: it is about any
+            // identity key that genuinely changed, whatever made it change.
             //
             // Claiming the row here is what makes the caller self. It is refused for any row that is
             // already somebody's - see SessionDeviceResolver.TryClaimAsync for the exact rule, what

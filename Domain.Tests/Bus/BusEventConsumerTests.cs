@@ -174,6 +174,10 @@ public class BusEventConsumerTests
         if (type is not { IsClass: true, IsAbstract: false }) return false;
         if (type == typeof(object) || type == typeof(string)) return false;
 
+        // A type nobody outside its declaring class can name cannot be routed: Wolverine has to
+        // construct and deserialize it in another process.
+        if (type.IsNestedPrivate || type.IsNestedAssembly || type.IsNestedFamANDAssem) return false;
+
         // A *Response is the reply to an InvokeAsync, not something published.
         if (type.Name.EndsWith("Response", StringComparison.Ordinal)) return false;
 

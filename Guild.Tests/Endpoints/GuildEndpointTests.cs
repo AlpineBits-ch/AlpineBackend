@@ -217,6 +217,73 @@ public class GuildEndpointTests
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
+    // ── DefaultMessageNotifications ─────────────────────────────────────── Discord's
+    // default_message_notifications: what a member who has set nothing falls back to.
+
+    [Test]
+    public async Task UpdateGuild_DefaultMessageNotifications_IsPersisted()
+    {
+        await SeedManagerMember();
+
+        var result = await _endpoint.UpdateGuild(
+            GuildId,
+            new UpdateGuildDto { Name = "x", DefaultMessageNotifications = NotificationLevel.OnlyMentions },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<GuildDto>>());
+            Assert.That(_context.Guilds.Single(g => g.Id == GuildId).DefaultMessageNotifications,
+                Is.EqualTo(NotificationLevel.OnlyMentions));
+        });
+    }
+
+    /// <summary>Omitting the field must leave the setting alone rather than resetting it, the same
+    /// contract SystemChannelId documents - otherwise any older client doing a name edit silently
+    /// reverts the guild to AllMessages.</summary>
+    [Test]
+    public async Task UpdateGuild_DefaultMessageNotificationsOmitted_LeavesItUntouched()
+    {
+        await SeedManagerMember();
+        _context.Guilds.Single(g => g.Id == GuildId).DefaultMessageNotifications = NotificationLevel.OnlyMentions;
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateGuild(
+            GuildId, new UpdateGuildDto { Name = "renamed" },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+
+        Assert.That(_context.Guilds.Single(g => g.Id == GuildId).DefaultMessageNotifications,
+            Is.EqualTo(NotificationLevel.OnlyMentions));
+    }
+
+    [Test]
+    public async Task UpdateGuild_DefaultMessageNotificationsNothing_ReturnsBadRequest()
+    {
+        await SeedManagerMember();
+
+        var result = await _endpoint.UpdateGuild(
+            GuildId,
+            new UpdateGuildDto { Name = "x", DefaultMessageNotifications = NotificationLevel.Nothing },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(_context.Guilds.Single(g => g.Id == GuildId).DefaultMessageNotifications,
+                Is.EqualTo(NotificationLevel.AllMessages), "the rejected value must not have been written");
+        });
+    }
+
+    [Test]
+    public async Task UpdateGuild_NewGuild_DefaultsToAllMessages()
+    {
+        await SeedManagerMember();
+
+        Assert.That(_context.Guilds.Single(g => g.Id == GuildId).DefaultMessageNotifications,
+            Is.EqualTo(NotificationLevel.AllMessages),
+            "existing guilds must keep behaving exactly as they did before this field existed");
+    }
+
     [Test]
     public async Task UpdateGuild_Valid_UpdatesNameAndDescription()
     {

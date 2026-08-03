@@ -8,6 +8,10 @@ namespace Messaging.Contracts.Bus.Response;
 public class MessageSummary
 {
     public string Id { get; set; } = null!;
+
+    /// <summary>The stored timestamp.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
     public string AuthorId { get; set; } = null!;
     public string? ChannelId { get; set; }
     public string? ConversationId { get; set; }

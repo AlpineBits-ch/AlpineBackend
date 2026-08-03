@@ -134,6 +134,22 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(p => p.PinnedById, cm => cm.WithName("pinned_by_id")));
 
         config.Define(
+            new Map<UserMention>()
+                .TableName("user_mentions")
+                .PartitionKey(m => m.UserId)
+                .ClusteringKey(m => m.CreatedAt, SortOrder.Descending)
+                .ClusteringKey(m => m.MessageId, SortOrder.Ascending)
+                .Column(m => m.UserId, cm => cm.WithName("user_id"))
+                .Column(m => m.CreatedAt, cm => cm.WithName("created_at"))
+                .Column(m => m.MessageId, cm => cm.WithName("message_id"))
+                .Column(m => m.ContextId, cm => cm.WithName("context_id"))
+                .Column(m => m.GuildId, cm => cm.WithName("guild_id"))
+                .Column(m => m.ChannelId, cm => cm.WithName("channel_id"))
+                .Column(m => m.ConversationId, cm => cm.WithName("conversation_id"))
+                .Column(m => m.AuthorId, cm => cm.WithName("author_id"))
+                .Column(m => m.Kind, cm => cm.WithName("kind")));
+
+        config.Define(
             new Map<MinimalAttachment>()
                 .Column(a => a.Id, cm => cm.WithName("id"))
                 .Column(a => a.FileName, cm => cm.WithName("file_name"))
@@ -382,6 +398,22 @@ public class ScyllaContext : IAsyncDisposable
             pinned_by_id text,
             PRIMARY KEY (context_id, pinned_at, message_id)
     ) WITH CLUSTERING ORDER BY (pinned_at DESC, message_id ASC);
+"));
+
+        // Per-user mention index behind the inbox's Mentions tab.
+        await session.ExecuteAsync(new SimpleStatement(@"
+            CREATE TABLE IF NOT EXISTS user_mentions (
+            user_id         text,
+            created_at      timestamp,
+            message_id      text,
+            context_id      text,
+            guild_id        text,
+            channel_id      text,
+            conversation_id text,
+            author_id       text,
+            kind            text,
+            PRIMARY KEY (user_id, created_at, message_id)
+    ) WITH CLUSTERING ORDER BY (created_at DESC, message_id ASC);
 "));
     }
 }

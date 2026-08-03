@@ -61,13 +61,20 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     /// <summary>Moderator-imposed "no new messages".</summary>
     public bool IsLocked { get; set; }
 
-    /// <summary>Timestamp of the most recent message, maintained by MessageCreatedHandler. Null
-    /// until the post receives its first message - and null on every post created before this
-    /// field shipped, which is why the activity sort falls back to CreatedAt.</summary>
+    /// <summary>
+    /// Timestamp of the most recent message, maintained by MessageCreatedHandler from the message's
+    /// own stored CreatedAt.
+    /// </summary>
     public DateTimeOffset? LastActivityAt { get; set; }
 
-    /// <summary>Denormalized message count for post cards.</summary>
+    /// <summary>Denormalized message count.</summary>
     public int MessageCount { get; set; }
+
+    /// <summary>
+    /// Id of the most recent message, for handing back to Messaging as an <c>after</c> cursor when
+    /// fetching unread previews.
+    /// </summary>
+    public string? LastMessageId { get; set; }
 
     /// <summary>When this post auto-archives absent further activity; pushed forward by each new
     /// message. Honoured by a periodic sweep, so the flip can lag the timestamp by minutes.</summary>

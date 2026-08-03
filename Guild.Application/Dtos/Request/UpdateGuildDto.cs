@@ -22,4 +22,7 @@ public class UpdateGuildDto
 
     /// <summary>Explicit module set.</summary>
     public GuildFeatures? Features { get; set; }
+
+    /// <summary>What members who have set no preference of their own fall back to.</summary>
+    public NotificationLevel? DefaultMessageNotifications { get; set; }
 }

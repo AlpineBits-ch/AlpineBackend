@@ -14,7 +14,13 @@ public class MessageCreated : DomainEvent
     public string? ConversationId { get; set; }
     
     public string AuthorId { get; set; }
-    
+
+    /// <summary>The message's stored <see cref="Entities.Message.CreatedAt"/>, not the time a
+    /// consumer happened to receive this event. Guild denormalizes it onto the channel row, so
+    /// taking UtcNow downstream instead would drift by the broker latency and put the channel head
+    /// slightly ahead of the message the cursor reads resolve against.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
     public string? InReplyTo { get; set; }
     
     public long? MlsEpoch { get; set; }

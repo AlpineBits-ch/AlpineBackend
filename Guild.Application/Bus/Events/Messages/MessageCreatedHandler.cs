@@ -1,10 +1,13 @@
 ﻿using Echo.Realtime;
 
+using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Messaging.Contracts.Bus.Commands;
+using Messaging.Domain.Entities;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -47,7 +50,7 @@ public class MessageCreatedHandler
 
         await hub.Clients.Users(viewerIds).SendAsync("guild.MessageCreated", message);
 
-        await TouchThreadActivityAsync(message.ChannelId, context);
+        await TouchChannelActivityAsync(message.ChannelId, message.CreatedAt, message.MessageId, context);
 
         // Bots.Application can't join the SignalR/Redis backplane the hub broadcast above rides
         // on, so it gets its own event - carrying the GuildId this handler just resolved, since
@@ -65,67 +68,149 @@ public class MessageCreatedHandler
             SystemMessageVariant = message.SystemMessageVariant,
         });
 
-        // Union of everyone whose mention count should bump: direct @user mentions, members
-        // holding an @role-mentioned role, everyone in the guild (@everyone), or everyone
-        // currently present (@here) — each resolved locally since Guild already owns this data.
-        var mentionedMemberIds = new HashSet<string>();
+        var mentioned = await ResolveMentionedMembersAsync(message, cachedGuildId, presence, viewerIds, context);
+
+        await RecordBroadcastMentionsAsync(message, context);
+
+        await PublishMentionIndexAsync(message, cachedGuildId, mentioned, bus);
+
+        await PushMentionAddedAsync(message, cachedGuildId, mentioned, hub);
+
+        await PublishPushRecipientsAsync(message, cachedGuildId, presence, mentioned, context, notificationService, bus);
+    }
+
+    /// <summary>A mentioned member.</summary>
+    private sealed record MentionedMember(string MemberId, string UserId);
+
+    /// <summary>Who a message mentioned, split by how.</summary>
+    private sealed record MentionedMembers(
+        List<MentionedMember> Direct,
+        HashSet<string> ByRole,
+        List<MentionedMember> Here)
+    {
+        /// <summary>Everyone individually named by this message - what goes in the index.</summary>
+        public IEnumerable<MentionedMember> Indexable => Direct.Concat(Here).DistinctBy(m => m.UserId, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Resolves who this message mentioned - direct @user, members holding an @role-mentioned role,
+    /// the whole guild (@everyone), or the people actually present (@here).
+    /// </summary>
+    private static async Task<MentionedMembers> ResolveMentionedMembersAsync(
+        MessageCreatedForChannel message,
+        string guildId,
+        IReadOnlyCollection<MemberPresenceState> presence,
+        IReadOnlyCollection<string> viewerIds,
+        MicroserviceContext context)
+    {
+        var direct = new List<MentionedMember>();
+        var byRole = new HashSet<string>(StringComparer.Ordinal);
+        var here = new List<MentionedMember>();
 
         if (message.Mentions.Count > 0)
         {
-            var directMemberIds = await context.GuildMembers
-                .Where(m => m.GuildId == cachedGuildId && message.Mentions.Contains(m.UserId))
-                .Select(m => m.Id)
-                .ToListAsync();
-            mentionedMemberIds.UnionWith(directMemberIds);
+            direct.AddRange(await context.GuildMembers
+                .AsNoTracking()
+                .Where(m => m.GuildId == guildId
+                            && message.Mentions.Contains(m.UserId)
+                            && m.UserId != message.AuthorId)
+                .Select(m => new MentionedMember(m.Id, m.UserId))
+                .ToListAsync());
         }
 
         if (message.RoleMentions.Count > 0)
         {
-            var roleMemberIds = await context.RoleMembers
-                .Where(rm => message.RoleMentions.Contains(rm.RoleId))
+            byRole.UnionWith(await context.RoleMembers
+                .AsNoTracking()
+                .Where(rm => message.RoleMentions.Contains(rm.RoleId)
+                             && rm.Member.UserId != message.AuthorId)
                 .Select(rm => rm.MemberId)
-                .ToListAsync();
-            mentionedMemberIds.UnionWith(roleMemberIds);
+                .ToListAsync());
         }
 
-        if (message.MentionsEveryone)
-        {
-            var allMemberIds = await context.GuildMembers
-                .Where(m => m.GuildId == cachedGuildId)
-                .Select(m => m.Id)
-                .ToListAsync();
-            mentionedMemberIds.UnionWith(allMemberIds);
-        }
+        // Deliberately no @everyone expansion.
 
         if (message.MentionsHere)
         {
-            mentionedMemberIds.UnionWith(presence.Select(p => p.MemberId));
+            // Two filters the old code did not apply, both of which produced mentions for people
+            // the message never reached:
+            var viewers = viewerIds.ToHashSet(StringComparer.Ordinal);
+
+            here.AddRange(presence
+                .Where(p => viewers.Contains(p.UserId) && IsOnline(p.Status))
+                .Select(p => new MentionedMember(p.MemberId, p.UserId)));
         }
 
-        foreach (var memberId in mentionedMemberIds)
+        return new MentionedMembers(direct, byRole, here);
+    }
+
+    /// <summary>Whether a presence entry counts as "here".</summary>
+    private static bool IsOnline(string? status) =>
+        Enum.TryParse<OnlineStatus>(status, ignoreCase: true, out var parsed) && parsed == OnlineStatus.Online;
+
+    /// <summary>
+    /// Hands the individually-named recipients to Messaging's mention index, chunked and off the
+    /// hot path.
+    /// </summary>
+    private static async Task PublishMentionIndexAsync(
+        MessageCreatedForChannel message, string guildId, MentionedMembers mentioned, IMessageBus bus)
+    {
+        var recipients = mentioned.Indexable.ToList();
+        if (recipients.Count == 0) return;
+
+        var directUserIds = mentioned.Direct.Select(m => m.UserId).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var chunk in recipients.Chunk(IndexMentionsCommand.MaxRecipients))
         {
-            var readState = await context.ReadStates
-                .Where(rs => rs.ChannelId == message.ChannelId && rs.MemberId == memberId)
-                .FirstOrDefaultAsync();
-
-            if (readState is null)
+            await bus.PublishAsync(new IndexMentionsCommand
             {
-                readState = new ReadState()
-                {
-                    Id = ReadState.GenerateId(),
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow,
-                    ChannelId = message.ChannelId,
-                    MemberId = memberId,
-                    LastReadMessageId = null,
-                    MentionCount = 0,
-                };
-                context.ReadStates.Add(readState);
-            }
-            readState.MentionCount++;
+                MessageId = message.MessageId,
+                CreatedAt = message.CreatedAt,
+                ContextId = message.ChannelId,
+                GuildId = guildId,
+                ChannelId = message.ChannelId,
+                AuthorId = message.AuthorId,
+                Recipients = chunk
+                    .Select(m => new MentionRecipient
+                    {
+                        UserId = m.UserId,
+                        // Direct wins when both apply - being named outright is the more specific
+                        // fact, and it is the one the client renders differently.
+                        Kind = directUserIds.Contains(m.UserId)
+                            ? nameof(MentionKind.Direct)
+                            : nameof(MentionKind.Here),
+                    })
+                    .ToList(),
+            });
         }
+    }
 
-        await PublishPushRecipientsAsync(message, cachedGuildId, presence, mentionedMemberIds, context, notificationService, bus);
+    /// <summary>
+    /// Tells the mentioned users' open clients, so a badge lights up without polling.
+    /// </summary>
+    private static async Task PushMentionAddedAsync(
+        MessageCreatedForChannel message,
+        string guildId,
+        MentionedMembers mentioned,
+        IHubContext<EchoRealtimeHub> hub)
+    {
+        var directUserIds = mentioned.Direct.Select(m => m.UserId).ToHashSet(StringComparer.Ordinal);
+        var recipients = mentioned.Indexable.ToList();
+        if (recipients.Count == 0) return;
+
+        foreach (var group in recipients.GroupBy(r => directUserIds.Contains(r.UserId)))
+        {
+            await hub.Clients.Users(group.Select(r => r.UserId).ToList()).SendAsync("inbox.MentionAdded", new
+            {
+                MessageId = message.MessageId,
+                ChannelId = message.ChannelId,
+                GuildId = guildId,
+                ConversationId = (string?)null,
+                AuthorId = message.AuthorId,
+                Kind = group.Key ? nameof(MentionKind.Direct) : nameof(MentionKind.Here),
+                CreatedAt = message.CreatedAt,
+            });
+        }
     }
 
     /// <summary>
@@ -136,45 +221,49 @@ public class MessageCreatedHandler
         MessageCreatedForChannel message,
         string guildId,
         IReadOnlyCollection<MemberPresenceState> presence,
-        HashSet<string> mentionedMemberIds,
+        MentionedMembers mentioned,
         MicroserviceContext context,
         NotificationResolutionService notificationService,
         IMessageBus bus)
     {
-        // Everyone who could conceivably be notified.
-        var candidates = await context.GuildMembers
-            .AsNoTracking()
-            .Where(m => m.GuildId == guildId && m.UserId != message.AuthorId)
-            .Select(m => new { m.Id, m.UserId })
-            .ToListAsync();
+        // Everyone who could conceivably be notified: whoever the message named, plus whoever's
+        // settings say "tell me about everything" - that case is precisely what the mention set
+        // does not cover.
+        var namedMemberIds = mentioned.Direct.Select(m => m.MemberId)
+            .Concat(mentioned.ByRole)
+            .Concat(mentioned.Here.Select(m => m.MemberId))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var candidates = await notificationService.NotifiableCandidatesAsync(
+            guildId, message.ChannelId, namedMemberIds, message.AuthorId,
+            includeEveryMember: message.MentionsEveryone);
 
         if (candidates.Count == 0) return;
 
         // Connected members already received the message over the realtime hub a few lines above;
         // pushing to them as well is how a notification arrives on the phone for something the
         // user is actively looking at on their desktop.
-        var connectedUserIds = presence.Select(p => p.UserId).ToHashSet();
+        var connectedUserIds = presence.Select(p => p.UserId).ToHashSet(StringComparer.Ordinal);
 
         var resolved = await notificationService.ResolveForChannelAsync(
-            message.ChannelId, candidates.Select(c => c.Id).ToList());
+            message.ChannelId, candidates.Select(c => c.MemberId).ToList());
 
-        var roleMentionedMemberIds = message.RoleMentions.Count > 0
-            ? (await context.RoleMembers.AsNoTracking()
-                .Where(rm => message.RoleMentions.Contains(rm.RoleId))
-                .Select(rm => rm.MemberId)
-                .ToListAsync()).ToHashSet()
-            : [];
+        var directMemberIds = mentioned.Direct.Select(m => m.MemberId).ToHashSet(StringComparer.Ordinal);
+        var hereMemberIds = mentioned.Here.Select(m => m.MemberId).ToHashSet(StringComparer.Ordinal);
 
         var recipients = new List<string>();
         foreach (var candidate in candidates)
         {
             if (connectedUserIds.Contains(candidate.UserId)) continue;
-            if (!resolved.TryGetValue(candidate.Id, out var settings)) continue;
+            if (!resolved.TryGetValue(candidate.MemberId, out var settings)) continue;
             if (!settings.MobilePush) continue;
 
-            var isDirectMention = message.Mentions.Contains(candidate.UserId);
-            var isRoleMention = roleMentionedMemberIds.Contains(candidate.Id);
-            var isEveryoneMention = message.MentionsEveryone || message.MentionsHere;
+            var isDirectMention = directMemberIds.Contains(candidate.MemberId);
+            var isRoleMention = mentioned.ByRole.Contains(candidate.MemberId);
+
+            // @here resolves against the presence snapshot taken when this message was handled, so
+            // it only counts for members who were actually here. @everyone counts for everyone.
+            var isEveryoneMention = message.MentionsEveryone || hereMemberIds.Contains(candidate.MemberId);
 
             if (settings.ShouldNotify(isDirectMention, isRoleMention, isEveryoneMention))
                 recipients.Add(candidate.UserId);
@@ -190,27 +279,71 @@ public class MessageCreatedHandler
             UserIds = recipients,
             AuthorId = message.AuthorId,
             Content = message.Content,
-            IsEncrypted = message.EncryptionState != MessageEncryptionState.Plain,
+            IsEncrypted = message.EncryptionState != Guild.Contracts.Bus.Events.MessageEncryptionState.Plain,
             MlsGeneration = message.MlsGeneration,
         });
     }
 
     /// <summary>
-    /// Denormalizes "when did this post last see activity" onto the thread's channel row.
+    /// Denormalizes the head of the channel onto its row: when it last saw activity, which message
+    /// was last, and how many there have been.
     /// </summary>
-    private static async Task TouchThreadActivityAsync(string channelId, MicroserviceContext context)
+    private static async Task TouchChannelActivityAsync(
+        string channelId, DateTimeOffset messageCreatedAt, string messageId, MicroserviceContext context)
     {
-        var thread = await context.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.Type == ChannelType.Thread);
-        if (thread is null) return;
+        var channel = await context.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return;
 
-        var now = DateTimeOffset.UtcNow;
-
-        thread.LastActivityAt = now;
-        thread.MessageCount++;
+        channel.LastActivityAt = messageCreatedAt;
+        channel.LastMessageId = messageId;
+        channel.MessageCount++;
 
         // Slides against the stored window, not against the previous deadline - the duration is
         // fixed for the post's lifetime, only the deadline moves.
-        if (thread.AutoArchiveMinutes is > 0)
-            thread.AutoArchiveAt = now.AddMinutes(thread.AutoArchiveMinutes.Value);
+        if (channel.Type == ChannelType.Thread && channel.AutoArchiveMinutes is > 0)
+            channel.AutoArchiveAt = messageCreatedAt.AddMinutes(channel.AutoArchiveMinutes.Value);
+    }
+
+    /// <summary>
+    /// Records `@everyone`/`@here`/`@role` as one row per ping rather than one per recipient.
+    /// </summary>
+    private static async Task RecordBroadcastMentionsAsync(
+        MessageCreatedForChannel message, MicroserviceContext context)
+    {
+        if (!message.MentionsEveryone && message.RoleMentions.Count == 0) return;
+
+        var existing = await context.ChannelBroadcastMentions
+            .AsNoTracking()
+            .Where(b => b.MessageId == message.MessageId)
+            .Select(b => b.RoleId)
+            .ToListAsync();
+
+        var seen = existing.ToHashSet(StringComparer.Ordinal);
+        var now = DateTimeOffset.UtcNow;
+
+        void Record(BroadcastMentionKind kind, string? roleId)
+        {
+            if (!seen.Add(roleId)) return;
+
+            context.ChannelBroadcastMentions.Add(new ChannelBroadcastMention
+            {
+                Id = ChannelBroadcastMention.GenerateId(),
+                CreatedAt = now,
+                UpdatedAt = now,
+                ChannelId = message.ChannelId,
+                MessageId = message.MessageId,
+                MessageCreatedAt = message.CreatedAt,
+                AuthorId = message.AuthorId,
+                Kind = kind,
+                RoleId = roleId,
+            });
+        }
+
+        if (message.MentionsEveryone) Record(BroadcastMentionKind.Everyone, null);
+
+        foreach (var roleId in message.RoleMentions.Distinct(StringComparer.Ordinal))
+        {
+            Record(BroadcastMentionKind.Role, roleId);
+        }
     }
 }

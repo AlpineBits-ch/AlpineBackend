@@ -11,6 +11,14 @@ public class ReadState : BaseEntity<ReadState>, IPrefixedEntity
     public string ChannelId { get; set; } = null!;
     public Channel Channel { get; set; } = null!;
     public string? LastReadMessageId { get; set; } = null!;
-    public int MentionCount { get; set; }
+
+    /// <summary>The stored CreatedAt of the acked message.</summary>
+    public DateTimeOffset? LastReadAt { get; set; }
+
+    /// <summary>Snapshot of <see cref="Aggregates.Channel.MessageCount"/> at ack time.</summary>
+    public int MessageCountAtRead { get; set; }
+
+    // MentionCount used to live here as an incremented counter.
+
     public static string Prefix { get; } = "reta";
 }

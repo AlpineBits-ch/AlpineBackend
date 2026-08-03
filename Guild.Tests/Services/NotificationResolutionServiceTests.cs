@@ -98,6 +98,61 @@ public class NotificationResolutionServiceTests
         });
     }
 
+    // ══════════════════════════════════════════════════════════════════════ Guild default
+    // (Discord's default_message_notifications)
+
+    [Test]
+    public void Resolve_NoMemberPreferences_UsesTheGuildDefault()
+    {
+        var result = NotificationResolutionService.Resolve(
+            null, null, null, Now, NotificationLevel.OnlyMentions);
+
+        Assert.That(result.Level, Is.EqualTo(NotificationLevel.OnlyMentions));
+    }
+
+    [Test]
+    public void Resolve_MemberGuildSetting_BeatsTheGuildDefault()
+    {
+        var result = NotificationResolutionService.Resolve(
+            GuildSetting(NotificationLevel.AllMessages), null, null, Now, NotificationLevel.OnlyMentions);
+
+        Assert.That(result.Level, Is.EqualTo(NotificationLevel.AllMessages),
+            "an explicit member preference is the whole point of having one - a quiet guild default must not override someone who asked for everything");
+    }
+
+    [Test]
+    public void Resolve_ChannelOverride_BeatsTheGuildDefault()
+    {
+        var result = NotificationResolutionService.Resolve(
+            null, null, Override(NotificationLevel.AllMessages), Now, NotificationLevel.Nothing);
+
+        Assert.That(result.Level, Is.EqualTo(NotificationLevel.AllMessages));
+    }
+
+    /// <summary>Omitting the parameter has to keep meaning AllMessages: every pre-existing caller
+    /// relies on it, and a silent change of default would flip notification behaviour for every
+    /// guild that has never set one.</summary>
+    [Test]
+    public void Resolve_GuildDefaultOmitted_StillFallsBackToAllMessages()
+    {
+        var result = NotificationResolutionService.Resolve(null, null, null, Now);
+
+        Assert.That(result.Level, Is.EqualTo(NotificationLevel.AllMessages));
+    }
+
+    [Test]
+    public void Resolve_GuildDefaultNothing_SilencesAMemberWhoSetNothing()
+    {
+        var result = NotificationResolutionService.Resolve(
+            null, null, null, Now, NotificationLevel.Nothing);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Level, Is.EqualTo(NotificationLevel.Nothing));
+            Assert.That(result.ShouldNotify(isDirectMention: true, isRoleMention: false, isEveryoneMention: false), Is.False);
+        });
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // Mute resolution, which is independent of level resolution
     // ══════════════════════════════════════════════════════════════════════

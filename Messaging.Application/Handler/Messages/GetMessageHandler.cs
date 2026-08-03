@@ -17,6 +17,7 @@ public class GetMessageHandler
             Message = message is null ? null : new MessageSummary
             {
                 Id = message.Id,
+                CreatedAt = message.CreatedAt,
                 AuthorId = message.AuthorId,
                 ChannelId = message.ChannelId,
                 ConversationId = message.ConversationId,

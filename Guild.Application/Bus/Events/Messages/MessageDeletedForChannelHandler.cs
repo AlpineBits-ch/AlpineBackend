@@ -40,10 +40,17 @@ public class MessageDeletedForChannelHandler
             MessageId = message.MessageId,
         });
 
-        // Keeps the forum post card's reply count honest.
-        var thread = await context.Channels
-            .FirstOrDefaultAsync(c => c.Id == message.ChannelId && c.Type == ChannelType.Thread);
+        // Keeps the forum post card's reply count and the inbox unread badge honest.
+        var channel = await context.Channels.FirstOrDefaultAsync(c => c.Id == message.ChannelId);
 
-        if (thread is not null && thread.MessageCount > 0) thread.MessageCount--;
+        if (channel is not null && channel.MessageCount > 0) channel.MessageCount--;
+
+        // The broadcast ping goes with the message that carried it, so a deleted @everyone stops
+        // showing up in anyone's Mentions tab.
+        var broadcasts = await context.ChannelBroadcastMentions
+            .Where(b => b.MessageId == message.MessageId)
+            .ToListAsync();
+
+        if (broadcasts.Count > 0) context.ChannelBroadcastMentions.RemoveRange(broadcasts);
     }
 }

@@ -65,12 +65,13 @@ public static class MessagingInfrastructure
         {
             logger.LogInformation("Using scylla db for message storage");
             services.AddScoped<IMessageRepository, ScyllaMessageRepository>();
-
+            services.AddScoped<IMentionIndexRepository, ScyllaMentionIndexRepository>();
         }
         else
         {
             logger.LogInformation("Using ef core for message storage");
             services.AddScoped<IMessageRepository, EfCoreMessageRepository>();
+            services.AddScoped<IMentionIndexRepository, EfCoreMentionIndexRepository>();
         }
 
     }

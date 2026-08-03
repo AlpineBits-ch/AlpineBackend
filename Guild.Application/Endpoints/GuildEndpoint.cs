@@ -141,6 +141,16 @@ public class GuildEndpoint
             guild.VerificationLevel = dto.VerificationLevel.Value;
         }
 
+        if (dto.DefaultMessageNotifications is not null)
+        {
+            // Nothing is a valid *member* preference but not a valid guild default - it would
+            // silence the server for everyone who never opened its settings.
+            if (dto.DefaultMessageNotifications.Value == NotificationLevel.Nothing)
+                return Results.BadRequest("A guild default of Nothing is not allowed; members can set that for themselves.");
+
+            guild.DefaultMessageNotifications = dto.DefaultMessageNotifications.Value;
+        }
+
         if (dto.Kind is not null) guild.Kind = dto.Kind.Value;
 
         // Explicit features win; a kind change on its own re-seeds from that kind's preset.

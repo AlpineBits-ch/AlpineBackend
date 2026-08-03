@@ -54,6 +54,12 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
 
     public GuildVerificationLevel VerificationLevel { get; set; } = GuildVerificationLevel.None;
 
+    /// <summary>
+    /// The notification level a member falls back to when they have set nothing of their own - the
+    /// bottom of the chain NotificationResolutionService walks.
+    /// </summary>
+    public NotificationLevel DefaultMessageNotifications { get; set; } = NotificationLevel.AllMessages;
+
     /// <summary>What this guild is - drives the client shell and seeds <see cref="Features"/>.
     /// Nothing here gates on it directly; see <see cref="GuildFeatures"/>.</summary>
     public GuildKind Kind { get; set; } = GuildKind.Community;

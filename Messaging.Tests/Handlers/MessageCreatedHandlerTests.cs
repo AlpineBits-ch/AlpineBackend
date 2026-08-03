@@ -138,6 +138,23 @@ public class MessageCreatedHandlerTests
         Assert.That(hubClients.SentMessages, Is.Empty);
     }
 
+    /// <summary>Guild writes this straight onto Channel.LastActivityAt, and its unread predicate
+    /// compares it against ReadState.LastReadAt. Re-stamping it downstream instead of forwarding it
+    /// would put the channel head slightly ahead of the message a cursor read resolves against, so
+    /// the assertion is exact equality rather than a tolerance.</summary>
+    [Test]
+    public async Task Handle_ChannelMessage_ForwardsCreatedAtUnchanged()
+    {
+        var bus = new FakeMessageBus();
+        var evt = MakeEvent(channelId: "chan-1");
+        evt.CreatedAt = new DateTimeOffset(2026, 3, 4, 5, 6, 7, 890, TimeSpan.Zero);
+
+        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+
+        var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
+        Assert.That(forwarded.CreatedAt, Is.EqualTo(evt.CreatedAt));
+    }
+
     [Test]
     public async Task Handle_ChannelMessage_MapsInviteType()
     {

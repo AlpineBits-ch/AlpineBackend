@@ -10,7 +10,7 @@ public static class VerificationCodeService
     private static string Key(string email) => $"verification_code:{email}";
 
     public static Task<string> GetOrCreateCodeAsync(IDistributedCache cache, string email) =>
-        OneTimeCodeService.GetOrCreateCodeAsync(cache, Key(email), Ttl);
+        OneTimeCodeService.GetOrCreateCodeAsync(cache, Key(email), Ttl, OneTimeCodeFormat.NumericSixDigit);
 
     public static Task<OneTimeCodeResult> ValidateAsync(IDistributedCache cache, string email, string? submittedCode) =>
         OneTimeCodeService.ValidateAsync(cache, Key(email), submittedCode, Ttl);

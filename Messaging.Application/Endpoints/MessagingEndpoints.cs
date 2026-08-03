@@ -27,11 +27,12 @@ namespace Messaging.Application.Endpoints;
 
 public class MessagingEndpoints
 {
+    /// <summary>Deliberately returns a bare IResult and no cascaded event.</summary>
     [WolverinePost("/api/v1/messaging")]
-    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls)
+    public async Task<IResult> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        if(userId is null) return (Results.Unauthorized(), null);
+        if(userId is null) return Results.Unauthorized();
 
         var authorIdType = user.FindFirstValue("user_type") == "Bot" ? AuthorIdType.Bot : AuthorIdType.User;
 
@@ -42,11 +43,11 @@ public class MessagingEndpoints
         var mentions = Truncate(dto.Mentions, MaxMentionsPerMessage);
         var roleMentions = Truncate(dto.RoleMentions, MaxMentionsPerMessage);
 
-        if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
+        if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return Results.BadRequest();
 
         // The two ids are mutually exclusive, and that has to be enforced rather than assumed.
         if (!string.IsNullOrWhiteSpace(dto.ConversationId) && !string.IsNullOrWhiteSpace(dto.ChannelId))
-            return (Results.BadRequest("Specify either channelId or conversationId, not both."), null);
+            return Results.BadRequest("Specify either channelId or conversationId, not both.");
 
         // Authoritative copies of the client's mention flags.
         var mentionsEveryone = dto.MentionsEveryone;
@@ -62,7 +63,7 @@ public class MessagingEndpoints
                     Permission = ExternalPermission.SendMessages
                 });
 
-            if(!response.IsAllowed) return (Results.Forbid(), null);
+            if(!response.IsAllowed) return Results.Forbid();
 
             // @everyone/@here is a permission, not a client decision.
             if (mentionsEveryone || mentionsHere)
@@ -96,7 +97,7 @@ public class MessagingEndpoints
                         Reason = blockedReason,
                     });
 
-                    return (Results.Json(new { error = "automod_blocked", reason = blockedReason }, statusCode: StatusCodes.Status403Forbidden), null);
+                    return Results.Json(new { error = "automod_blocked", reason = blockedReason }, statusCode: StatusCodes.Status403Forbidden);
                 }
 
                 // Deliberately the last gate before the message is created: passing the check
@@ -108,9 +109,9 @@ public class MessagingEndpoints
                     var retryAfter = await SlowModeGuard.CheckAsync(dto.ChannelId, userId, response.SlowModeSeconds, cache);
                     if (retryAfter is not null)
                     {
-                        return (Results.Json(
+                        return Results.Json(
                             new { error = "slowmode", retry_after = retryAfter.Value, global = false },
-                            statusCode: StatusCodes.Status429TooManyRequests), null);
+                            statusCode: StatusCodes.Status429TooManyRequests);
                     }
                 }
             }
@@ -118,12 +119,12 @@ public class MessagingEndpoints
         else
         {
             var conversation = await context.Conversations.Include(c => c.Members).FirstOrDefaultAsync(c => c.Id == dto.ConversationId);
-            if(conversation is null) return (Results.NotFound(), null);
-        
+            if(conversation is null) return Results.NotFound();
+
             if(conversation.Members.All(m => m.UserId != userId))
             {
-                return (Results.Forbid(), null);
-            }   
+                return Results.Forbid();
+            }
             conversation.UpdatedAt = DateTime.UtcNow;
 
         }
@@ -156,39 +157,39 @@ public class MessagingEndpoints
         {
             if (encryptionState != MessageEncryptionState.Encrypted)
             {
-                return (Results.Conflict(new MlsSendConflictDto
+                return Results.Conflict(new MlsSendConflictDto
                 {
                     ContextId = mlsContextId!,
                     Encrypted = true,
                     ActiveGeneration = activeGeneration.Generation,
                     Reason = "This context is end-to-end encrypted; plaintext messages are not accepted.",
-                }), null);
+                });
             }
 
             // A client that predates generations sends none, and the only group it could have
             // encrypted against is the live one - so stamp it rather than refusing.
             if (mlsGeneration is { } claimed && claimed != activeGeneration.Generation)
             {
-                return (Results.Conflict(new MlsSendConflictDto
+                return Results.Conflict(new MlsSendConflictDto
                 {
                     ContextId = mlsContextId!,
                     Encrypted = true,
                     ActiveGeneration = activeGeneration.Generation,
                     Reason = $"Message was encrypted under generation {claimed}; the context is on generation {activeGeneration.Generation}.",
-                }), null);
+                });
             }
 
             mlsGeneration = activeGeneration.Generation;
         }
         else if (encryptionState == MessageEncryptionState.Encrypted)
         {
-            return (Results.Conflict(new MlsSendConflictDto
+            return Results.Conflict(new MlsSendConflictDto
             {
                 ContextId = mlsContextId ?? string.Empty,
                 Encrypted = false,
                 ActiveGeneration = null,
                 Reason = "Encryption is not enabled for this context; nobody joining later could read this message.",
-            }), null);
+            });
         }
 
 
@@ -211,38 +212,10 @@ public class MessagingEndpoints
             MlsGeneration = mlsGeneration,
             SenderDeviceId = dto.SenderDeviceId
         });
-        
-       
-        
-        
 
-        return (Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>()),
-            new MessageCreated()
-            {
-                MessageId = message.Id,
-                ChannelId = dto.ChannelId,
-                ConversationId = dto.ConversationId,
-                ContextId = message.ContextId,
-                // Off the stored entity.
-                CreatedAt = message.CreatedAt,
-                Content = message.Content,
-                CorrelationId = message.ContextId,
-                AuthorId = userId,
-                Attachments = message.Attachments,
-                InReplyTo = message.InReplyTo,
-                EncryptionState = message.EncryptionState,
-                Mentions = message.Mentions,
-                // Carried for the same reason Mentions is.
-                RoleMentions = message.RoleMentions,
-                MentionsEveryone = message.MentionsEveryone,
-                MentionsHere = message.MentionsHere,
-                MlsSequenceNumber = message.MlsSequenceNumber,
-                SenderDeviceId = message.SenderDeviceId,
-                MlsEpoch = message.MlsEpoch,
-                // Stamped by the block above from the context's active generation, so it is set
-                // even for clients that send none.
-                MlsGeneration = message.MlsGeneration,
-            });
+        // No cascaded event here - CreateMessageCommandHandler already raised the MessageCreated
+        // for this message (see the remarks on this method).
+        return Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>());
     }
 
     /// <summary>Hard cap on how many users or roles one message may mention, matching the limit

@@ -112,6 +112,45 @@ public class InboxMentionService(
     }
 
     /// <summary>@everyone and @role pings, evaluated against membership at read time.</summary>
+    /// <summary>One broadcast ping, before membership and suppression have had their say.</summary>
+    internal sealed record BroadcastRow(
+        string MessageId,
+        DateTimeOffset MessageCreatedAt,
+        string AuthorId,
+        BroadcastMentionKind Kind,
+        string? RoleId,
+        string ChannelId,
+        string GuildId);
+
+    /// <summary>The broadcast half of the Mentions tab, as one query.</summary>
+    internal static IQueryable<BroadcastRow> BuildBroadcastQuery(
+        MicroserviceContext ctx,
+        string userId,
+        IReadOnlyCollection<string> guildIds,
+        DateTimeOffset since,
+        DateTimeOffset? beforeAt,
+        string? beforeId)
+    {
+        var query = ctx.ChannelBroadcastMentions
+            .AsNoTracking()
+            .Where(b => guildIds.Contains(b.Channel.GuildId)
+                        && b.MessageCreatedAt >= since
+                        && b.AuthorId != userId);
+
+        if (beforeAt is not null)
+        {
+            query = query.Where(b =>
+                b.MessageCreatedAt < beforeAt
+                || (b.MessageCreatedAt == beforeAt && string.Compare(b.MessageId, beforeId) < 0));
+        }
+
+        return query
+            .OrderByDescending(b => b.MessageCreatedAt)
+            .Select(b => new BroadcastRow(
+                b.MessageId, b.MessageCreatedAt, b.AuthorId, b.Kind, b.RoleId, b.ChannelId,
+                b.Channel.GuildId));
+    }
+
     private async Task<List<Candidate>> LoadBroadcastAsync(
         string userId, MentionFilter filter, DateTimeOffset since,
         DateTimeOffset? beforeAt, string? beforeId, int limit)
@@ -135,26 +174,7 @@ public class InboxMentionService(
             .Select(rm => new { rm.RoleId, rm.CreatedAt, rm.ExpiresAt })
             .ToListAsync();
 
-        var query = ctx.ChannelBroadcastMentions
-            .AsNoTracking()
-            .Where(b => guildIds.Contains(b.Channel.GuildId)
-                        && b.MessageCreatedAt >= since
-                        && b.AuthorId != userId);
-
-        if (beforeAt is not null)
-        {
-            query = query.Where(b =>
-                b.MessageCreatedAt < beforeAt
-                || (b.MessageCreatedAt == beforeAt && string.Compare(b.MessageId, beforeId) < 0));
-        }
-
-        var rows = await query
-            .OrderByDescending(b => b.MessageCreatedAt)
-            .Select(b => new
-            {
-                b.MessageId, b.MessageCreatedAt, b.AuthorId, b.Kind, b.RoleId, b.ChannelId,
-                GuildId = b.Channel.GuildId,
-            })
+        var rows = await BuildBroadcastQuery(ctx, userId, guildIds, since, beforeAt, beforeId)
             // Over-fetched because the membership and suppression filters below can reject rows, and
             // a short page would look like the end of the list.
             .Take((limit + 1) * 4)

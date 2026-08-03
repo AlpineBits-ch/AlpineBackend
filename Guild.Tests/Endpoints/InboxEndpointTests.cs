@@ -2,6 +2,7 @@ using Guild.Application.Endpoints;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
+using Guild.Persistence.Persistence;
 using Guild.Tests.Helpers;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -13,8 +14,8 @@ namespace Guild.Tests.Endpoints;
 /// twin of the guild.UpdateLastRead hub method, so the check button works without a live socket)
 /// and read-all (the header's clear-everything button).
 /// </summary>
-[TestFixture]
-public class InboxEndpointTests
+[TestFixtureSource(typeof(GuildContextProviders))]
+public class InboxEndpointTests(IGuildContextProvider provider)
 {
     private const string UserId = "user-1";
     private const string GuildId = "gild-1";
@@ -23,15 +24,15 @@ public class InboxEndpointTests
     private static readonly DateTimeOffset JoinedAt = new(2026, 8, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset HeadAt = new(2026, 8, 2, 0, 0, 0, TimeSpan.Zero);
 
-    private TestGuildContext _context = null!;
+    private MicroserviceContext _context = null!;
     private FakeHubContext _hub = null!;
     private FakeInvokingMessageBus _bus = null!;
     private InboxEndpoint _endpoint = null!;
 
     [SetUp]
-    public void SetUp()
+    public async Task SetUp()
     {
-        _context = new TestGuildContext(Guid.NewGuid().ToString());
+        _context = await provider.CreateAsync();
         _hub = new FakeHubContext();
         _bus = new FakeInvokingMessageBus();
         _endpoint = new InboxEndpoint();

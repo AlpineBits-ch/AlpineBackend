@@ -15,6 +15,10 @@ namespace Messaging.Application.Commands;
 
 public class CreateMessageCommandHandler
 {
+    /// <summary>
+    /// Creates the message and cascades the one <see cref="MessageCreated"/> the rest of the system
+    /// reacts to - realtime fan-out, guild channel fan-out, and from there the phone push.
+    /// </summary>
     public async Task<(Message, MessageCreated)> Handle(CreateMessageCommand command, IMessageRepository ctx, MicroserviceContext db)
     {
 
@@ -98,6 +102,9 @@ public class CreateMessageCommandHandler
             MessageId = message.Id,
             ChannelId = command.ChannelId,
             ConversationId = command.ConversationId,
+            // Derived by the entity as `ConversationId ??
+            ContextId = message.ContextId,
+            CorrelationId = message.ContextId,
             // From the entity, not the command: this is the timestamp the message was actually
             // stored under, which is what downstream cursor comparisons have to agree with.
             CreatedAt = message.CreatedAt,

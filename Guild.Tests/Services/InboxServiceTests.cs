@@ -2,6 +2,7 @@ using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
+using Guild.Persistence.Persistence;
 using Guild.Tests.Helpers;
 using Messaging.Contracts.Bus.Request;
 using Messaging.Contracts.Bus.Response;
@@ -10,8 +11,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Guild.Tests.Services;
 
 /// <summary>Covers <see cref="InboxService"/> - the Unread tab.</summary>
-[TestFixture]
-public class InboxServiceTests
+[TestFixtureSource(typeof(GuildContextProviders))]
+public class InboxServiceTests(IGuildContextProvider provider)
 {
     private const string UserId = "user-1";
     private const string OwnerId = "user-owner";
@@ -21,15 +22,15 @@ public class InboxServiceTests
 
     private static readonly DateTimeOffset JoinedAt = new(2026, 8, 1, 0, 0, 0, TimeSpan.Zero);
 
-    private TestGuildContext _context = null!;
+    private MicroserviceContext _context = null!;
     private FakeDistributedCache _cache = null!;
     private FakeInvokingMessageBus _bus = null!;
     private InboxService _service = null!;
 
     [SetUp]
-    public void SetUp()
+    public async Task SetUp()
     {
-        _context = new TestGuildContext(Guid.NewGuid().ToString());
+        _context = await provider.CreateAsync();
         _cache = new FakeDistributedCache();
         _bus = new FakeInvokingMessageBus();
         _bus.SetResponse<GetChannelMessagePagesRequest>(new GetChannelMessagePagesResponse { Pages = [] });

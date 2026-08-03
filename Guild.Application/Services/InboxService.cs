@@ -34,8 +34,10 @@ public class InboxService(
 
     public static string GuildIconThumbnailUrl(string guildId) => $"{GuildIconUrl(guildId)}/thumbnail";
 
-    /// <summary>One row of the unread query, before muting and permissions have had their say.</summary>
-    private sealed record UnreadRow(
+    /// <summary>One row of the unread query, before muting and permissions have had their say.
+    /// Internal rather than private so the translation tests can assert the query this projects
+    /// into actually compiles to SQL - see InboxQueryTranslationTests.</summary>
+    internal sealed record UnreadRow(
         string MemberId,
         string GuildId,
         string GuildName,
@@ -136,6 +138,18 @@ public class InboxService(
     /// <summary>The unread predicate, as one query.</summary>
     private async Task<List<UnreadRow>> QueryUnreadAsync(string userId, int take, string? cursor)
     {
+        var rows = await BuildUnreadQuery(ctx, userId, cursor)
+            .Take(take)
+            .ToListAsync();
+
+        // Household modules keep no message history, so "unread" is meaningless for them.
+        return rows.Where(r => !r.ChannelType.IsHouseholdModule()).ToList();
+    }
+
+    /// <summary>The unread query itself, ordered but not yet paged.</summary>
+    internal static IQueryable<UnreadRow> BuildUnreadQuery(
+        MicroserviceContext ctx, string userId, string? cursor)
+    {
         var query =
             from member in ctx.GuildMembers.AsNoTracking()
             where member.UserId == userId
@@ -148,40 +162,37 @@ public class InboxService(
                   && (readState == null
                         ? channel.LastActivityAt > member.JoinedAt
                         : channel.LastActivityAt > readState.LastReadAt)
-            select new UnreadRow(
-                member.Id,
-                channel.GuildId,
-                channel.Guild.Name,
-                channel.Id,
-                channel.Name,
-                channel.Type,
-                channel.CategoryId,
-                channel.Category != null ? channel.Category.Name : null,
-                channel.ParentChannelId,
-                channel.ParentChannel != null ? channel.ParentChannel.Name : null,
-                channel.LastActivityAt!.Value,
-                channel.LastMessageId,
-                channel.MessageCount,
-                readState != null ? readState.LastReadMessageId : null,
-                readState != null ? readState.MessageCountAtRead : 0,
-                readState != null ? readState.LastReadAt : null,
-                member.JoinedAt);
+            select new { member, channel, readState };
 
         if (cursor is not null && TryDecodeCursor(cursor, out var afterActivity, out var afterChannelId))
         {
             query = query.Where(r =>
-                r.LastActivityAt < afterActivity
-                || (r.LastActivityAt == afterActivity && string.Compare(r.ChannelId, afterChannelId) > 0));
+                r.channel.LastActivityAt < afterActivity
+                || (r.channel.LastActivityAt == afterActivity
+                    && string.Compare(r.channel.Id, afterChannelId) > 0));
         }
 
-        var rows = await query
-            .OrderByDescending(r => r.LastActivityAt)
-            .ThenBy(r => r.ChannelId)
-            .Take(take)
-            .ToListAsync();
-
-        // Household modules keep no message history, so "unread" is meaningless for them.
-        return rows.Where(r => !r.ChannelType.IsHouseholdModule()).ToList();
+        return query
+            .OrderByDescending(r => r.channel.LastActivityAt)
+            .ThenBy(r => r.channel.Id)
+            .Select(r => new UnreadRow(
+                r.member.Id,
+                r.channel.GuildId,
+                r.channel.Guild.Name,
+                r.channel.Id,
+                r.channel.Name,
+                r.channel.Type,
+                r.channel.CategoryId,
+                r.channel.Category != null ? r.channel.Category.Name : null,
+                r.channel.ParentChannelId,
+                r.channel.ParentChannel != null ? r.channel.ParentChannel.Name : null,
+                r.channel.LastActivityAt!.Value,
+                r.channel.LastMessageId,
+                r.channel.MessageCount,
+                r.readState != null ? r.readState.LastReadMessageId : null,
+                r.readState != null ? r.readState.MessageCountAtRead : 0,
+                r.readState != null ? r.readState.LastReadAt : null,
+                r.member.JoinedAt));
     }
 
     /// <summary>Muted channels, categories and guilds drop out of Unread - the onboarding card

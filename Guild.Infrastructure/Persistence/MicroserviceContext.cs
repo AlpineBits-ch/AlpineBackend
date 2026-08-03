@@ -19,6 +19,7 @@ public class MicroserviceContext : DbContext
     public DbSet<RoleMember> RoleMembers { get; set; }
     public DbSet<GuildInvite> GuildInvites { get; set; }
     public DbSet<ReadState> ReadStates { get; set; }
+    public DbSet<ChannelBroadcastMention> ChannelBroadcastMentions { get; set; }
     public DbSet<Wiki> Wikis { get; set; }
     public DbSet<WikiPage> WikiPages { get; set; }
     public DbSet<WikiCategory> WikiCategories { get; set; }
@@ -145,6 +146,30 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey(x => x.ChannelId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // No explicit index on MemberId: the FK above already creates one, which is what the
+            // inbox's "every read state this member has" query rides.
+        });
+
+        modelBuilder.Entity<ChannelBroadcastMention>(broadcastBuilder =>
+        {
+            broadcastBuilder.HasOne(x => x.Channel)
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Read shape is always "broadcasts in these channels since this timestamp" - the unread
+            // predicate and the mentions page both slice it that way.
+            broadcastBuilder.HasIndex(x => new { x.ChannelId, x.MessageCreatedAt })
+                .HasDatabaseName("IX_broadcast_mentions_channel_created");
+
+            // Retention sweep orders by age across every channel at once, so it needs its own.
+            broadcastBuilder.HasIndex(x => x.MessageCreatedAt)
+                .HasDatabaseName("IX_broadcast_mentions_created");
+
+            // A retried handler must not write the ping twice; the read path counts rows.
+            broadcastBuilder.HasIndex(x => new { x.MessageId, x.RoleId })
+                .IsUnique()
+                .HasDatabaseName("IX_broadcast_mentions_message_role");
         });
 
         modelBuilder.Entity<GuildNotificationSetting>(settingBuilder =>

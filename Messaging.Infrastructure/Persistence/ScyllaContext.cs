@@ -134,6 +134,22 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(p => p.PinnedById, cm => cm.WithName("pinned_by_id")));
 
         config.Define(
+            new Map<UserMention>()
+                .TableName("user_mentions")
+                .PartitionKey(m => m.UserId)
+                .ClusteringKey(m => m.CreatedAt, SortOrder.Descending)
+                .ClusteringKey(m => m.MessageId, SortOrder.Ascending)
+                .Column(m => m.UserId, cm => cm.WithName("user_id"))
+                .Column(m => m.CreatedAt, cm => cm.WithName("created_at"))
+                .Column(m => m.MessageId, cm => cm.WithName("message_id"))
+                .Column(m => m.ContextId, cm => cm.WithName("context_id"))
+                .Column(m => m.GuildId, cm => cm.WithName("guild_id"))
+                .Column(m => m.ChannelId, cm => cm.WithName("channel_id"))
+                .Column(m => m.ConversationId, cm => cm.WithName("conversation_id"))
+                .Column(m => m.AuthorId, cm => cm.WithName("author_id"))
+                .Column(m => m.Kind, cm => cm.WithName("kind")));
+
+        config.Define(
             new Map<MinimalAttachment>()
                 .Column(a => a.Id, cm => cm.WithName("id"))
                 .Column(a => a.FileName, cm => cm.WithName("file_name"))
@@ -384,6 +400,36 @@ public class ScyllaContext : IAsyncDisposable
             pinned_by_id text,
             PRIMARY KEY (context_id, pinned_at, message_id)
     ) WITH CLUSTERING ORDER BY (pinned_at DESC, message_id ASC);
+"));
+
+        // Per-user mention index behind the inbox's Mentions tab. Messages are partitioned by
+        // context and there is no secondary index on the mentions collection, so "every message that
+        // mentioned me, across every guild" cannot be answered from the messages table at all -
+        // hence a denormalized lookup, the same shape as pinned_messages above.
+        //
+        // Only direct and @here mentions land here. @everyone and @role are recorded once per
+        // message on the Guild side instead: their recipients are reconstructable from durable state
+        // at read time, so materializing them per user would cost one row per member per ping.
+        //
+        // No content column - the row is a pointer, and the body is read back from `messages` for
+        // the page being rendered. That keeps ciphertext out of a second place and stops edits and
+        // deletes going stale here.
+        //
+        // Rows are written with a TTL (see ScyllaMentionIndexRepository.Retention), so Scylla expires
+        // them itself and there is no reaper to schedule.
+        await session.ExecuteAsync(new SimpleStatement(@"
+            CREATE TABLE IF NOT EXISTS user_mentions (
+            user_id         text,
+            created_at      timestamp,
+            message_id      text,
+            context_id      text,
+            guild_id        text,
+            channel_id      text,
+            conversation_id text,
+            author_id       text,
+            kind            text,
+            PRIMARY KEY (user_id, created_at, message_id)
+    ) WITH CLUSTERING ORDER BY (created_at DESC, message_id ASC);
 "));
     }
 }

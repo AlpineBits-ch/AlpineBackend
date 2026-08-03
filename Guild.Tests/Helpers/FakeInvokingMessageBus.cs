@@ -22,6 +22,10 @@ public class FakeInvokingMessageBus : IMessageBus
     /// message of type TRequest.</summary>
     public void SetResponse<TRequest>(object response) => _responses[typeof(TRequest)] = response;
 
+    /// <summary>Drops every canned response, so the next InvokeAsync throws. How a test says "the
+    /// other service is unreachable" without needing a second fake.</summary>
+    public void ClearResponses() => _responses.Clear();
+
     public ValueTask PublishAsync<T>(T message, DeliveryOptions? options = null)
     {
         if (message is not null) Published.Add(message);

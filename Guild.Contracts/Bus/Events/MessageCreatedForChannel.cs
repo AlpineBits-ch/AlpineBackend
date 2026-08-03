@@ -23,6 +23,12 @@ public class MessageCreatedForChannel
     public string MessageId { get; set; }
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
+
+    /// <summary>The message's stored CreatedAt, carried across from Messaging. Guild writes it
+    /// straight onto Channel.LastActivityAt, so it has to be the stored value rather than a
+    /// downstream UtcNow.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
     public MessageEncryptionState EncryptionState { get; set; }
 
     /// <summary>Which MLS group generation the ciphertext was sealed under; null on plaintext.

@@ -35,6 +35,13 @@ public class MessagingEndpoints
 
         var authorIdType = user.FindFirstValue("user_type") == "Bot" ? AuthorIdType.Bot : AuthorIdType.User;
 
+        // Both arrays are raw client input and drive per-recipient work downstream (mention
+        // indexing, unread counts, push resolution). @everyone is permission-gated below, but role
+        // mentions are not - without a cap any member could list every role in the guild and buy an
+        // unbounded fan-out with one request. Same limit Discord documents on allowed_mentions.
+        var mentions = Truncate(dto.Mentions, MaxMentionsPerMessage);
+        var roleMentions = Truncate(dto.RoleMentions, MaxMentionsPerMessage);
+
         if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
 
         // The two ids are mutually exclusive, and that has to be enforced rather than assumed.
@@ -213,8 +220,8 @@ public class MessagingEndpoints
             ConversationId = dto.ConversationId,
             Attachments = attachments,
             InReplyTo = dto.InReplyTo,
-            Mentions = dto.Mentions.ToList(),
-            RoleMentions = dto.RoleMentions.ToList(),
+            Mentions = mentions,
+            RoleMentions = roleMentions,
             MentionsEveryone = mentionsEveryone,
             MentionsHere = mentionsHere,
             EncryptionState = encryptionState,
@@ -252,6 +259,20 @@ public class MessagingEndpoints
                 MlsGeneration = message.MlsGeneration,
             });
     }
+
+    /// <summary>Hard cap on how many users or roles one message may mention, matching the limit
+    /// Discord documents on allowed_mentions. Every entry costs per-recipient work downstream, so
+    /// this is what stops one request buying an unbounded fan-out.</summary>
+    public const int MaxMentionsPerMessage = 100;
+
+    /// <summary>Deduplicates and caps a client-supplied mention list.
+    ///
+    /// Over-long lists are truncated rather than rejected, matching how a missing MentionEveryone
+    /// permission strips the flag instead of failing the send: the mention markup is part of the
+    /// text, so a message carrying too much of it is still an ordinary message that should deliver -
+    /// it just does not get to ping everyone it named.</summary>
+    private static List<string> Truncate(IEnumerable<string>? ids, int max) =>
+        ids is null ? [] : ids.Distinct(StringComparer.Ordinal).Take(max).ToList();
 
     /// <summary>Hard cap on one bulk-delete call, matching Discord's. Also what keeps the
     /// per-message id resolution below affordable - each one is a secondary-index lookup.</summary>

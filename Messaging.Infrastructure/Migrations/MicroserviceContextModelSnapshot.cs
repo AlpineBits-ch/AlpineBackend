@@ -886,6 +886,59 @@ namespace Messaging.Persistence.Migrations
                     b.ToTable("reactions", (string)null);
                 });
 
+            modelBuilder.Entity("Messaging.Domain.Entities.UserMention", b =>
+                {
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("MessageId")
+                        .HasColumnType("text")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("AuthorId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("author_id");
+
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("ContextId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("context_id");
+
+                    b.Property<string>("ConversationId")
+                        .HasColumnType("text")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.HasKey("UserId", "MessageId")
+                        .HasName("pk_user_mentions");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_user_mentions_created");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("IX_user_mentions_user_created");
+
+                    b.ToTable("user_mentions", (string)null);
+                });
+
             modelBuilder.Entity("Messaging.Infrastructure.Persistence.MessageSearchEntry", b =>
                 {
                     b.Property<string>("MessageId")

@@ -65,15 +65,27 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     /// being locked (dormant, revivable by anyone posting).</summary>
     public bool IsLocked { get; set; }
 
-    /// <summary>Timestamp of the most recent message, maintained by MessageCreatedHandler. Null
-    /// until the post receives its first message - and null on every post created before this
-    /// field shipped, which is why the activity sort falls back to CreatedAt.</summary>
+    /// <summary>Timestamp of the most recent message, maintained by MessageCreatedHandler from the
+    /// message's own stored CreatedAt. Null until the channel receives its first message - and null
+    /// on everything created before this field shipped, which is why the activity sort falls back
+    /// to CreatedAt.
+    ///
+    /// Maintained for <b>every</b> channel type, not just forum posts: it is the head-of-channel
+    /// the inbox unread predicate compares against ReadState.LastReadAt.</summary>
     public DateTimeOffset? LastActivityAt { get; set; }
 
-    /// <summary>Denormalized message count for post cards. Best-effort: it counts creates and
-    /// deletes seen on the bus, so it can drift from Messaging's true count under message loss and
-    /// is never used for anything but display.</summary>
+    /// <summary>Denormalized message count. Best-effort: it counts creates and deletes seen on the
+    /// bus, so it can drift from Messaging's true count under message loss and is never used for
+    /// anything but display - the unread badge, and post cards.</summary>
     public int MessageCount { get; set; }
+
+    /// <summary>Id of the most recent message, for handing back to Messaging as an <c>after</c>
+    /// cursor when fetching unread previews.
+    ///
+    /// Opaque - never compared, only passed through. Ids minted before the ULID change do not sort,
+    /// and this may point at a message that has since been deleted, which is the same caveat
+    /// Discord documents on its own <c>last_message_id</c>.</summary>
+    public string? LastMessageId { get; set; }
 
     /// <summary>When this post auto-archives absent further activity; pushed forward by each new
     /// message. Honoured by a periodic sweep, so the flip can lag the timestamp by minutes.</summary>

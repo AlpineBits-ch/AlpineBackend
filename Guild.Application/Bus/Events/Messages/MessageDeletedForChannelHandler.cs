@@ -40,13 +40,23 @@ public class MessageDeletedForChannelHandler
             MessageId = message.MessageId,
         });
 
-        // Keeps the forum post card's reply count honest. Clamped at zero rather than trusting the
-        // counter: it's a denormalized best-effort tally over bus events, so a delete whose create
-        // was never seen would otherwise drive it negative. LastActivityAt deliberately isn't
-        // rewound - deleting a message doesn't make the post less recently active.
-        var thread = await context.Channels
-            .FirstOrDefaultAsync(c => c.Id == message.ChannelId && c.Type == ChannelType.Thread);
+        // Keeps the forum post card's reply count and the inbox unread badge honest. Clamped at zero
+        // rather than trusting the counter: it's a denormalized best-effort tally over bus events,
+        // so a delete whose create was never seen would otherwise drive it negative. LastActivityAt
+        // deliberately isn't rewound - deleting a message doesn't make a channel less recently
+        // active, and rewinding it would resurrect read channels in everyone's inbox.
+        //
+        // Every channel type, matching MessageCreatedHandler: the count is no longer forum-only.
+        var channel = await context.Channels.FirstOrDefaultAsync(c => c.Id == message.ChannelId);
 
-        if (thread is not null && thread.MessageCount > 0) thread.MessageCount--;
+        if (channel is not null && channel.MessageCount > 0) channel.MessageCount--;
+
+        // The broadcast ping goes with the message that carried it, so a deleted @everyone stops
+        // showing up in anyone's Mentions tab.
+        var broadcasts = await context.ChannelBroadcastMentions
+            .Where(b => b.MessageId == message.MessageId)
+            .ToListAsync();
+
+        if (broadcasts.Count > 0) context.ChannelBroadcastMentions.RemoveRange(broadcasts);
     }
 }

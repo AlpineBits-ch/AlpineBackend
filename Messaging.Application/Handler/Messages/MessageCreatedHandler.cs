@@ -74,6 +74,7 @@ public class MessageCreatedHandler
                 AuthorId = messageCreated.AuthorId,
                 ChannelId = messageCreated.ChannelId,
                 MessageId = messageCreated.MessageId,
+                CreatedAt = messageCreated.CreatedAt,
                 Content = messageCreated.Content,
                 Mentions = messageCreated.Mentions,
                 RoleMentions = messageCreated.RoleMentions,

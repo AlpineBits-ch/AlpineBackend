@@ -73,6 +73,19 @@ public class CreateMessageCommandTests
         });
     }
 
+    /// <summary>The event carries the timestamp the row was actually stored under, not one taken
+    /// again when the event is built. Downstream, Guild denormalizes it onto the channel row and
+    /// compares it against read cursors, so the two have to be the same instant.</summary>
+    [Test]
+    public async Task Handle_StampsEventCreatedAtFromTheStoredMessage()
+    {
+        var handler = new CreateMessageCommandHandler();
+
+        var (message, evt) = await handler.Handle(MakeCommand(), _repo, _context);
+
+        Assert.That(evt.CreatedAt, Is.EqualTo(message.CreatedAt));
+    }
+
     [Test]
     public async Task Handle_EncryptedMessage_DoesNotCreateSearchEntry()
     {

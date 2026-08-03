@@ -24,6 +24,7 @@ public class MicroserviceContext : DbContext
     public DbSet<MinimalAttachment> MinimalAttachments { get; set; }
     public DbSet<Reaction> Reactions { get; set; }
     public DbSet<MessageSearchEntry> MessageSearchEntries { get; set; }
+    public DbSet<UserMention> UserMentions { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -66,6 +67,24 @@ public class MicroserviceContext : DbContext
             messageBuilder.HasIndex(x => x.ChannelId);
             messageBuilder.HasIndex(x => new { x.ContextId, x.IsPinned });
 
+        });
+
+        modelBuilder.Entity<UserMention>(mentionBuilder =>
+        {
+            // Mirrors the Scylla primary key: partitioned by user, one row per (user, message).
+            // A composite key rather than a surrogate id because the write path is an upsert that
+            // must stay idempotent under Wolverine retries.
+            mentionBuilder.HasKey(m => new { m.UserId, m.MessageId });
+
+            // The page read: one user's mentions, newest first. Matches the Scylla clustering order
+            // so both backends page identically.
+            mentionBuilder.HasIndex(m => new { m.UserId, m.CreatedAt })
+                .HasDatabaseName("IX_user_mentions_user_created");
+
+            // Postgres has no per-row TTL, so retention is a sweep - which orders by age across
+            // every user at once.
+            mentionBuilder.HasIndex(m => m.CreatedAt)
+                .HasDatabaseName("IX_user_mentions_created");
         });
 
         modelBuilder.Entity<MessageSearchEntry>(searchBuilder =>

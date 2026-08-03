@@ -1,6 +1,9 @@
 # Inbox (Discord-parity) — implementation plan
 
-Status: **plan only, nothing implemented.** Written 2026-08-03 against `main` (`d6d2f19`).
+Status: **Phases 0-4 implemented 2026-08-03.** Client-facing reference lives in `Guild.Application/docs/inbox-frontend-guide.md`.
+Migrations generated, **not applied**.
+
+Original status: plan only. Written 2026-08-03 against `main` (`d6d2f19`).
 
 Reference: `discord_inbox.png`. Two tabs — **Unread** and **Mentions** — in a popout with a
 header carrying *mark-all-read* and a mention-count badge. Each Unread group is one channel:
@@ -56,30 +59,58 @@ in this feature runs on **timestamps**. Ids stay opaque cursors handed to
 `GetMessagePageByCursorAsync`, which resolves them via the `message_id` secondary index. Hence
 `ReadState.LastReadAt`.
 
-### 2.2 The existing `@everyone` fan-out is an N+1 loop and must be fixed first
+### 2.2 Two O(members) paths in `MessageCreatedHandler` — **fixed, Phase 0 (2026-08-03)**
 
-`Guild.Application/Bus/Events/Messages/MessageCreatedHandler.cs:108-129`:
+| | Where it was | When it fired |
+|---|---|---|
+| Loaded every member row, then handed all ids to two `IN`-list queries | `PublishPushRecipientsAsync` | **every message** |
+| One sequential `SELECT` + upsert per mentioned member | the mention loop | every `@everyone` |
 
-```csharp
-foreach (var memberId in mentionedMemberIds)
-{
-    var readState = await context.ReadStates
-        .Where(rs => rs.ChannelId == ... && rs.MemberId == memberId)
-        .FirstOrDefaultAsync();      // one round trip, per member, sequentially
-    ...
-}
-```
+The second was the dramatic one — 5,000 sequential Postgres round trips for an `@everyone` in a
+5,000-member guild, inside a single Wolverine handler on the message-create path. The first was the
+one always paid.
 
-For `@everyone` in a 5,000-member guild that is 5,000 sequential Postgres round trips inside a
-single Wolverine handler, on the message-create hot path. Hanging mention-index writes off the
-same loop would double it. **Fixing this is a prerequisite, not an optional cleanup** — see
-Phase 0.
+Both are now set-based. The mention badge is one chunked read plus one batched write;
+`NotificationResolutionService.NotifiableCandidatesAsync` narrows the push candidate set to the
+members who can actually clear `ShouldNotify`, which under a guild default of `OnlyMentions` is just
+the ones the message named. `Guild.DefaultMessageNotifications` (Discord's
+`default_message_notifications`) is what makes that reduction available.
+
+`AllMessages` guilds remain O(members) on the push path. That is what the setting means and no query
+can shrink it — the fix is that it costs one query instead of one per member, and that a large guild
+can opt out.
+
+Also fixed in the same pass: the author was being counted as mentioned by their own `@everyone`, and
+`@here` unioned the whole presence set unfiltered — so an `@here` in a private channel bumped the
+badge of every online member of the guild, including those without `ViewChannel`.
 
 ### 2.3 `Channel.LastActivityAt` / `MessageCount` exist but are thread-only
 
 `TouchThreadActivityAsync` (same file, line 213) early-returns for anything that isn't
 `ChannelType.Thread`. The fields (`Guild.Domain/Aggregates/Channel.cs:71,76`) are exactly what
 the Unread tab needs — they just need to be maintained for every channel type.
+
+### 2.3b Fan out only when the recipient set is not reconstructable
+
+The rule that decides the whole write path:
+
+> Materialise per-user rows **iff** the recipient predicate cannot be evaluated later from durable
+> state. Otherwise write one row and evaluate at read time.
+
+| Mention | Recipients | Reconstructable? | Write |
+|---|---|---|---|
+| `@user` | on the message | yes — but the message is not *findable*, Scylla is partitioned by context | fan out, bounded by the message |
+| `@everyone` / `@here` | guild members, bounded below by `GuildMember.JoinedAt` | **yes**, durably | one broadcast row |
+| `@role` | role holders, bounded below by `RoleMember.CreatedAt`, above by `ExpiresAt` | **yes**, durably | one broadcast row |
+
+Direct mentions are indexed for *findability*, not because the predicate is unknowable, and the list
+is bounded by one message — `MessagingEndpoints.MaxMentionsPerMessage` caps it at 100, the limit
+Discord documents on `allowed_mentions`. Broadcast mentions never reach the index at all.
+
+**Evidence.** Discord's Message object carries `mentions` (user objects), `mention_roles`
+(*"array of role object ids"* — never expanded) and `mention_everyone` (a single boolean). There is
+**no `mention_here` field**; `mention_everyone` covers both. If broadcast recipients were
+materialised server-side, none of those fields would need to exist.
 
 ### 2.4 The bus events carry no message timestamp
 
@@ -314,10 +345,69 @@ Same 31-day TTL, same fan-out, written only when `guild_id` is non-null — DMs 
 only. The filtered read becomes a single-partition scan instead of app-side filtering with a
 bounded over-fetch loop that can still return short pages.
 
-**What it costs:** the fan-out writes two rows per guild mention instead of one. Irrelevant for
-direct mentions; for `@everyone` in a 5,000-member guild it is 10,000 tiny LSM appends rather than
-5,000. Absorbable because the fan-out is already offloaded to its own queue and chunked (§5.3) —
-the chunk cap is what actually bounds this, not the row count.
+**What it costs:** two rows per guild mention instead of one — and since only *direct* mentions
+reach this index (§2.3b), that is two rows per named user, capped at 100 per message. The earlier
+version of this section worried about 10,000 LSM appends for an `@everyone`; under the broadcast-row
+design that case never touches this table at all.
+
+### 5.2b Broadcast mentions — one row, evaluated at read time
+
+`@everyone`, `@here` and `@role` write a single row to Guild's Postgres, not to the mention index:
+
+```
+ChannelBroadcastMention { ChannelId, MessageId, CreatedAt, AuthorId, Kind (Everyone|Role), RoleId? }
+index (ChannelId, CreatedAt DESC)
+```
+
+Postgres rather than Scylla deliberately: the Unread query is already a pure-Postgres join over
+`GuildMember ⋈ Channel ⋈ ReadState`, and role/guild membership and `ViewChannel` all live there, so
+broadcast evaluation folds into that same query instead of a cross-service call. Volume is tiny —
+`@everyone` is permission-gated (`MessagingEndpoints.cs:72-87`) so it is a handful of rows per guild
+per day. Pruned at 31 days by a sweep, in the thread-auto-archive job style.
+
+**The predicate.** Exact, and the reason read-time evaluation works at all:
+
+```
+mentionsMe(bm, member, readState, resolved) =
+     bm.CreatedAt > member.JoinedAt
+  && bm.CreatedAt > (readState?.LastReadAt ?? member.JoinedAt)
+  && bm.AuthorId != member.UserId
+  && ( bm.Kind == Everyone
+         ? !resolved.SuppressEveryone
+         : holdsRole(member, bm.RoleId, at: bm.CreatedAt) && !resolved.SuppressRoleMentions )
+  && canView(member.UserId, bm.ChannelId)
+
+holdsRole(m, roleId, at) =
+     rm.CreatedAt < at                                -- held the role when it was sent
+  && (rm.ExpiresAt is null || rm.ExpiresAt > at)      -- time-boxed GuestAccess roles
+```
+
+`rm.CreatedAt < at` is load-bearing: without it, being given a role would retroactively fill the
+inbox with last week's `@role` pings. Discord has that false positive because it evaluates against
+*current* roles; we do not.
+
+**Documented false negative:** losing a role, or a role being removed and re-added, drops old
+`@role` mentions (`RoleMember.CreatedAt` becomes the re-add time). Discord behaves the same way.
+
+**`@here` does not become a broadcast row.** See §5.2c.
+
+### 5.2c `@here` is unresolved
+
+Presence is a Redis sorted set scored by heartbeat (`GuildHydrateService.cs:76-117`) — volatile and
+evicted, so "who was online at 14:32" is unknowable after the fact. Two decisions were taken that do
+not compose:
+
+1. **Index:** `@here` collapses into `@everyone` (Discord parity — there is no `mention_here` field,
+   so Discord cannot distinguish them either once stored). Zero fan-out.
+2. **Audience:** `@here` reaches members whose presence `Status` is `Online` only.
+
+Under (1) a read-time evaluation returns the broadcast to *every* member, which contradicts (2).
+**Resolved in favour of (2): `@here` fans out** to the online members who can see the channel.
+
+It is the only reading consistent with both "100% reliable" and "online only", it is exact, and it is
+bounded by presence rather than by membership - on a path that is already O(presence) for the
+realtime broadcast. `@everyone` and `@role` remain one row each, so the guild-sized case never fans
+out.
 
 ### 5.3 Fan-out (write path)
 
@@ -364,11 +454,30 @@ increments `ConversationMember.MentionCount`** (§2.7).
 5. `DELETE /api/v1/inbox/mentions/{messageId}` dismisses one (the X in the UI); it deletes the
    index row. Idempotent — dismissing twice is `204`.
 
-### 5.5 Header badge
+### 5.5 Header badge — derived, never incremented
 
-`GET /api/v1/inbox/summary` → `{ unreadChannelCount, mentionCount }`. `mentionCount` is the sum
-of `ReadState.MentionCount` across the caller's members (already maintained, already reset on
-ack) plus DM `ConversationMember.MentionCount` once §2.7 is fixed — no index scan needed.
+`GET /api/v1/inbox/summary` → `{ unreadChannelCount, mentionCount }`, computed:
+
+```
+mentionCount(member, channel) =
+    count(user_mentions rows        where created_at > readState.LastReadAt)   -- direct
+  + count(ChannelBroadcastMention   where the §5.2b predicate holds)           -- @everyone / @role
+```
+
+`readState.MentionCount++` was not idempotent — a Wolverine retry doubled it, a permanent handler
+failure lost it forever, and deleting a message left it high. It also *cannot* be right under §2.3b:
+broadcast mentions have no per-user write to hang an increment on. Deriving is idempotent by primary
+key, self-heals on replay, and drops automatically when a message is deleted.
+
+The direct-mention partition scan is capped at 1,000 rows; past that the count is reported capped.
+
+**Wire compatibility.** `ReadStateDto` is a `[Facet]` nested inside `MemberDto` and `SelfMemberDto`
+(`Dtos/Response/MemberDto.cs:30,50`), so dropping the column would silently remove
+`readState.mentionCount` from `/me`. The property stays, declared explicitly on the partial and
+populated from the derived count. A test pins the serialized shape.
+
+`ConversationMember.MentionCount` — never incremented anywhere today (§2.7) — gets the same
+treatment: derived rather than fixed.
 
 ---
 
@@ -407,11 +516,15 @@ live in the DM list). Scope accordingly:
 
 | Phase | Content | Independently shippable |
 |---|---|---|
-| **0** | Fix the N+1 `@everyone` ReadState loop (§2.2); add `CreatedAt` to `MessageCreated` + `MessageCreatedForChannel` (§2.4) | Yes — pure perf/correctness win, no new surface |
-| **1** | `Channel.LastMessageId` + generalized `LastActivityAt`/`MessageCount`; `ReadState.LastReadAt` + `MessageCountAtRead`; migration; `ResolveForMemberAsync` | Yes — nothing reads it yet |
+| **0** ✅ **done 2026-08-03** | Both O(members) paths made set-based (§2.2); `Guild.DefaultMessageNotifications`; mention arrays capped at 100; author excluded from their own mentions; `@here` filtered to online channel viewers; `CreatedAt` on both bus events (§2.4) | Yes — pure perf/correctness, no new surface |
+| **1** | `Channel.LastMessageId` + generalized `LastActivityAt`/`MessageCount`; `ReadState.LastReadAt` + `MessageCountAtRead`; `ChannelBroadcastMention` (§5.2b); migration; `ResolveForMemberAsync` | Yes — nothing reads it yet |
 | **2** | Unread tab: `InboxEndpoint.GetUnreadAsync`, batched preview request/handler in Messaging, mark-read + read-all | Yes |
-| **3** | `user_mentions` table (both backends), `IMentionIndexRepository`, `IndexMentionsCommand` fan-out, DM mention-count fixes | Yes — index fills before the UI reads it |
-| **4** | Mentions tab: read, filter, dismiss; `inbox.MentionAdded` push; `/inbox/summary` | Yes |
+| **3** | `user_mentions` table (both backends), `IMentionIndexRepository`, `IndexMentionsCommand` fan-out for direct mentions only, derived counts replacing `ReadState.MentionCount`, DM fixes. **Resolve §5.2c first.** | Yes — index fills before the UI reads it |
+| **4** | Mentions tab: merged read over both sources, filter, dismiss; `inbox.MentionAdded` push; `/inbox/summary` | Yes |
+
+**Phase 0 deliberately kept `ReadState.MentionCount` as an incremented counter.** Deleting it there
+would have left badges reading zero until Phase 3 lands the derived count. It is made set-based, not
+removed.
 
 Phase 3 landing before Phase 4 means the index has real data by the time the tab ships. There is
 **no backfill** — mentions predating Phase 3 will not appear, which is correct behaviour for a

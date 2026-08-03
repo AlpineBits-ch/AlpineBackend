@@ -220,6 +220,12 @@ public class BusEventConsumerTests
         if (type is not { IsClass: true, IsAbstract: false }) return false;
         if (type == typeof(object) || type == typeof(string)) return false;
 
+        // A type nobody outside its declaring class can name cannot be routed: Wolverine has to
+        // construct and deserialize it in another process. Worth stating because records make this
+        // easy to trip - the compiler gives every one of them a public clone method returning its
+        // own type, so a private nested record inside a handler reads as a cascaded message.
+        if (type.IsNestedPrivate || type.IsNestedAssembly || type.IsNestedFamANDAssem) return false;
+
         // A *Response is the reply to an InvokeAsync, not something published. Wolverine returns it
         // to the caller rather than routing it, so demanding a handler for one is nonsense.
         if (type.Name.EndsWith("Response", StringComparison.Ordinal)) return false;

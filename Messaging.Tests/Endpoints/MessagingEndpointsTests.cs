@@ -186,6 +186,117 @@ public class MessagingEndpointsTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // Mention caps
+    //
+    // Mentions and RoleMentions are raw client input and every entry costs per-recipient work
+    // downstream. @everyone is permission-gated; role mentions are not, so without a cap any member
+    // could name every role in the guild and buy an unbounded fan-out with a single request.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Allowed to send and to ping the room, so nothing else interferes with the cap.</summary>
+    private FakeMessageBus MentionBus() => new(msg => msg switch
+    {
+        HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
+        GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+        CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
+        _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
+    });
+
+    private async Task<CreateMessageCommand> SendWithMentions(
+        IEnumerable<string> mentions, IEnumerable<string> roleMentions)
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = MentionBus();
+        var dto = new CreateMessageDto
+        {
+            Content = "hi",
+            ChannelId = "chan-1",
+            Mentions = mentions.ToList(),
+            RoleMentions = roleMentions.ToList(),
+        };
+
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+
+        return bus.Invoked.OfType<CreateMessageCommand>().Single();
+    }
+
+    [Test]
+    public async Task CreateMessage_MentionsUnderTheCap_ArePassedThroughUnchanged()
+    {
+        var users = Enumerable.Range(0, 5).Select(i => $"user-{i}").ToList();
+        var roles = Enumerable.Range(0, 3).Select(i => $"role-{i}").ToList();
+
+        var command = await SendWithMentions(users, roles);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(command.Mentions, Is.EqualTo(users).AsCollection);
+            Assert.That(command.RoleMentions, Is.EqualTo(roles).AsCollection);
+        });
+    }
+
+    [Test]
+    public async Task CreateMessage_MentionsOverTheCap_AreTruncatedButTheMessageStillSends()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = MentionBus();
+        var over = MessagingEndpoints.MaxMentionsPerMessage + 50;
+        var dto = new CreateMessageDto
+        {
+            Content = "hi",
+            ChannelId = "chan-1",
+            Mentions = Enumerable.Range(0, over).Select(i => $"user-{i}").ToList(),
+            RoleMentions = Enumerable.Range(0, over).Select(i => $"role-{i}").ToList(),
+        };
+
+        var (result, _) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+
+        var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Created<MessageDto>>(), "over-mentioning is not a rejectable offence - the message still delivers");
+            Assert.That(command.Mentions, Has.Count.EqualTo(MessagingEndpoints.MaxMentionsPerMessage));
+            Assert.That(command.RoleMentions, Has.Count.EqualTo(MessagingEndpoints.MaxMentionsPerMessage));
+        });
+    }
+
+    /// <summary>Exactly at the cap must survive whole - an off-by-one here silently drops a real
+    /// mention from a legitimate message.</summary>
+    [Test]
+    public async Task CreateMessage_MentionsExactlyAtTheCap_AreNotTruncated()
+    {
+        var users = Enumerable.Range(0, MessagingEndpoints.MaxMentionsPerMessage).Select(i => $"user-{i}").ToList();
+
+        var command = await SendWithMentions(users, []);
+
+        Assert.That(command.Mentions, Has.Count.EqualTo(MessagingEndpoints.MaxMentionsPerMessage));
+    }
+
+    /// <summary>Mentioning the same person five times is one mention. Deduplicating before the cap
+    /// also stops a repeated id being used to push distinct ids out of the window.</summary>
+    [Test]
+    public async Task CreateMessage_DuplicateMentions_AreCollapsedBeforeTheCapApplies()
+    {
+        var duplicated = Enumerable.Repeat("user-1", 150).Append("user-2").ToList();
+
+        var command = await SendWithMentions(duplicated, []);
+
+        Assert.That(command.Mentions, Is.EqualTo(new[] { "user-1", "user-2" }).AsCollection);
+    }
+
+    [Test]
+    public async Task CreateMessage_NoMentions_ProducesEmptyLists()
+    {
+        var command = await SendWithMentions([], []);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(command.Mentions, Is.Empty);
+            Assert.That(command.RoleMentions, Is.Empty);
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // Encryption-state enforcement
     //
     // The context decides whether a message may be plaintext, not the client. A client that has not

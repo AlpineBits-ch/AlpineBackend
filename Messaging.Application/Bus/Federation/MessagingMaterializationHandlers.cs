@@ -54,6 +54,9 @@ public class MessagingMaterializationHandlers
             ChannelId = message.ChannelId,
             AuthorId = message.SenderId,
             Content = message.Content,
+            // Off the row that was just written, so the federated path denormalizes the same
+            // timestamp downstream as the local one does.
+            CreatedAt = created.CreatedAt,
             Attachments = [],
         });
     }

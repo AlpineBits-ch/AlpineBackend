@@ -106,6 +106,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_activity_at");
 
+                    b.Property<string>("LastMessageId")
+                        .HasColumnType("text")
+                        .HasColumnName("last_message_id");
+
                     b.Property<int>("MessageCount")
                         .HasColumnType("integer")
                         .HasColumnName("message_count");
@@ -162,6 +166,10 @@ namespace Guild.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<int>("DefaultMessageNotifications")
+                        .HasColumnType("integer")
+                        .HasColumnName("default_message_notifications");
 
                     b.Property<string>("Description")
                         .HasColumnType("text")
@@ -304,6 +312,63 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("ix_categories_guild_id");
 
                     b.ToTable("categories", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ChannelBroadcastMention", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AuthorId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("author_id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("MessageCreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("message_created_at");
+
+                    b.Property<string>("MessageId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("message_id");
+
+                    b.Property<string>("RoleId")
+                        .HasColumnType("text")
+                        .HasColumnName("role_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_channel_broadcast_mentions");
+
+                    b.HasIndex("MessageCreatedAt")
+                        .HasDatabaseName("IX_broadcast_mentions_created");
+
+                    b.HasIndex("ChannelId", "MessageCreatedAt")
+                        .HasDatabaseName("IX_broadcast_mentions_channel_created");
+
+                    b.HasIndex("MessageId", "RoleId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_broadcast_mentions_message_role");
+
+                    b.ToTable("channel_broadcast_mentions", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.ChannelPermission", b =>
@@ -2037,6 +2102,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("LastReadAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_read_at");
+
                     b.Property<string>("LastReadMessageId")
                         .HasColumnType("text")
                         .HasColumnName("last_read_message_id");
@@ -2049,6 +2118,10 @@ namespace Guild.Persistence.Migrations
                     b.Property<int>("MentionCount")
                         .HasColumnType("integer")
                         .HasColumnName("mention_count");
+
+                    b.Property<int>("MessageCountAtRead")
+                        .HasColumnType("integer")
+                        .HasColumnName("message_count_at_read");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2474,6 +2547,18 @@ namespace Guild.Persistence.Migrations
                         .HasConstraintName("fk_categories_guilds_guild_id");
 
                     b.Navigation("Guild");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ChannelBroadcastMention", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_channel_broadcast_mentions_channels_channel_id");
+
+                    b.Navigation("Channel");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.ChannelPermission", b =>

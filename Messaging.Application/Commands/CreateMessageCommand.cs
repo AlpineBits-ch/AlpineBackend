@@ -100,6 +100,9 @@ public class CreateMessageCommandHandler
             MessageId = message.Id,
             ChannelId = command.ChannelId,
             ConversationId = command.ConversationId,
+            // From the entity, not the command: this is the timestamp the message was actually
+            // stored under, which is what downstream cursor comparisons have to agree with.
+            CreatedAt = message.CreatedAt,
             Content = command.Content,
             Mentions = command.Mentions,
             RoleMentions = command.RoleMentions,

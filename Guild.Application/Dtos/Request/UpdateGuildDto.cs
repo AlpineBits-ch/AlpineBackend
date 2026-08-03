@@ -23,4 +23,11 @@ public class UpdateGuildDto
     /// <summary>Explicit module set. Disabling a module hides it and strips its permissions but
     /// never deletes its data, so this is always reversible.</summary>
     public GuildFeatures? Features { get; set; }
+
+    /// <summary>What members who have set no preference of their own fall back to. Null/omitted
+    /// leaves it untouched. Only AllMessages and OnlyMentions are accepted, matching Discord's
+    /// default_message_notifications - Nothing as a *guild-wide* default would silence a server for
+    /// everyone who never opened its settings, which is not a thing an admin should be able to do
+    /// on their behalf.</summary>
+    public NotificationLevel? DefaultMessageNotifications { get; set; }
 }

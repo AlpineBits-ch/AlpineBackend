@@ -8,6 +8,11 @@ namespace Messaging.Contracts.Bus.Response;
 public class MessageSummary
 {
     public string Id { get; set; } = null!;
+
+    /// <summary>The stored timestamp. Guild's read-cursor ack needs it: acking a message that is not
+    /// the channel's head is the one case it cannot answer from its own denormalized state.</summary>
+    public DateTimeOffset CreatedAt { get; set; }
+
     public string AuthorId { get; set; } = null!;
     public string? ChannelId { get; set; }
     public string? ConversationId { get; set; }

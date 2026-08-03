@@ -45,8 +45,10 @@ public static class CallEndNotifier
         {
             CallId = call.Id,
             ConversationId = call.ConversationId,
+            CallerId = call.CreatorId,
             CallerName = callerProfile.Profile?.UserName ?? string.Empty,
             CallerAvatarUrl = callerProfile.Profile?.AvatarUrl,
+            CancelReason = CallCancelReason.Ended,
         });
     }
 }

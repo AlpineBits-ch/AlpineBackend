@@ -189,6 +189,21 @@ public class CallTests
     }
 
     [Test]
+    public void Decline_CarriesTheDecliningDevice_OnTheEvent()
+    {
+        // The decliner's *other* devices are still ringing and get a cancel push, so that push has
+        // to name the device that acted - it is what lets the declining device recognise and ignore
+        // its own copy (CallPushPayload.ExcludeDeviceId). Without it the declining handset is told
+        // to cancel a ring it has already dismissed; harmless in itself, but on iOS that costs a
+        // phantom report-and-end which CallKit writes into the call log.
+        var call = MakeCall("user-1", Participant("user-1"), Participant("user-2"), Participant("user-3"));
+
+        call.Decline("user-2", "phone-2");
+
+        Assert.That(call.GetDomainEvents().OfType<CallDeclined>().Single().DeviceId, Is.EqualTo("phone-2"));
+    }
+
+    [Test]
     public void Decline_GroupCall_OneOfMultipleDeclines_CallStaysAlive()
     {
         var call = MakeCall("user-1", Participant("user-1"), Participant("user-2"), Participant("user-3"));

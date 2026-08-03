@@ -133,6 +133,7 @@ public class Call : Aggregate<Call>, IPrefixedEntity
         {
             CallId = this.Id,
             UserId = userId,
+            DeviceId = deviceId,
         });
 
         if (Participants.Count == 2)

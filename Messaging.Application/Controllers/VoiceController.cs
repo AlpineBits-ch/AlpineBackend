@@ -40,6 +40,18 @@ public class VoiceController(
         SlidingExpiration = TimeSpan.FromMinutes(40)
     };
 
+    /// <summary>Reverse index answering "is a call ringing for this user right now", written when
+    /// the call is placed and read by <see cref="GetPendingCall"/>. Absolute, not sliding, and
+    /// comfortably longer than CallCreatedHandler's 50-second ring timeout: it only has to outlive
+    /// the ring, and it is never deleted - see <see cref="GetPendingCall"/> for why expiry alone is
+    /// enough.</summary>
+    private static readonly DistributedCacheEntryOptions PendingCallOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
+    };
+
+    private static string PendingCallKey(string userId) => $"user-ringing:{userId}";
+
     /// <summary>Resolves X-Device-Id and checks it really is one of this user's registered
     /// devices. Absent header still falls back to the shared "default" bucket (pre-update builds
     /// keep working, with the old single-device behaviour); a header naming an unknown device is
@@ -112,13 +124,28 @@ public class VoiceController(
 
         await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
 
+        // Neither of the two ways a callee hears about this is guaranteed. SignalR does not replay
+        // call.IncomingCall, so a client that was not connected when it went out - killed,
+        // backgrounded onto a dead socket, or simply opened afterwards - never receives it; and the
+        // push fallback below is best-effort by nature. This index is the third leg: it lets such a
+        // client ask "am I being called?" on connect. See GetPendingCall.
+        await Task.WhenAll(request.Participants.Select(p =>
+            cache.SetStringAsync(PendingCallKey(p), call.Id, PendingCallOptions)));
+
         var pushTokens = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
             new GetPushTokensForUsersRequest { UserIds = request.Participants });
         await CallPushService.SendIncomingCallAsync(pushTokens.Of(PushTokenKind.Fcm), pushTokens.Of(PushTokenKind.ApnsVoip), new CallPushPayload
         {
             CallId = call.Id,
             ConversationId = call.ConversationId,
-            CallerName = response.Profile.UserName,
+            CallerId = userId,
+            // The one string the native call screen has to show. A profile with no username is not
+            // supposed to exist, but this push is the only chance to name the caller - iOS reports
+            // the call to CallKit straight off the payload, long before any Dart code or API call
+            // could fill a gap in - so an empty one leaves a nameless ring rather than failing loudly.
+            CallerName = string.IsNullOrWhiteSpace(response.Profile.UserName)
+                ? "Incoming call"
+                : response.Profile.UserName,
             CallerAvatarUrl = response.Profile.AvatarUrl,
         });
 
@@ -138,6 +165,40 @@ public class VoiceController(
 
         var call = await callStore.LoadAsync<Call>(Call.GetCacheId(callId));
         if (call == null || !call.IsParticipant(userId)) return NotFound();
+
+        return Ok(call);
+    }
+
+    /// <summary>
+    /// The call ringing for the caller right now, or <c>204</c> when there is none.
+    ///
+    /// <para>The catch-up read for the incoming-call UI, and the counterpart to
+    /// <see cref="GetCall"/>'s catch-up for a call already joined. `call.IncomingCall` is a live
+    /// broadcast that is never replayed, so a client that missed it - offline at the time, or
+    /// launched while the phone was already ringing - had no way to find out it was being called
+    /// short of the user answering a push that may never have arrived.</para>
+    /// </summary>
+    [HttpGet("call/pending")]
+    public async Task<IActionResult> GetPendingCall()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var callId = await cache.GetStringAsync(PendingCallKey(userId));
+        if (string.IsNullOrWhiteSpace(callId)) return NoContent();
+
+        // The index is a hint; the call is the authority. Nothing deletes the key - a call can end
+        // in half a dozen ways (accept, decline, ring timeout, caller hang-up, alone timeout,
+        // everyone left) and missing the cleanup on any one of them would ring a reopening app for
+        // a call that is long over. Re-checking here costs one cache read and cannot go stale.
+        var call = await callStore.LoadAsync<Call>(Call.GetCacheId(callId));
+        if (call is null || call.Status is not (CallStatus.Pending or CallStatus.Connected)) return NoContent();
+
+        // Still Pending for *this* user specifically: a group call others have already joined is
+        // Connected overall while it goes on ringing here, and a call this user already answered or
+        // declined on another device must not ring again.
+        var me = call.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null || me.Status != CallStatus.Pending) return NoContent();
 
         return Ok(call);
     }

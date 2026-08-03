@@ -3,6 +3,10 @@
 Two tabs — **Unread** and **Mentions** — spanning every guild the caller is in. Backend work is
 done; this is what the client needs to build against it.
 
+> **Already have a client running?** Read
+> [`inbox-client-migration.md`](./inbox-client-migration.md) first — there is one field that
+> silently changed value, and it is a two-minute fix.
+
 ## Base URL
 
 ```

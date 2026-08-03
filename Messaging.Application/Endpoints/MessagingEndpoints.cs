@@ -242,6 +242,10 @@ public class MessagingEndpoints
                 ChannelId = dto.ChannelId,
                 ConversationId = dto.ConversationId,
                 ContextId = message.ContextId,
+                // Off the stored entity. Left unset this defaults to 0001-01-01, which Guild then
+                // denormalizes onto Channel.LastActivityAt - breaking the forum activity sort, the
+                // thread auto-archive deadline and the inbox unread predicate all at once.
+                CreatedAt = message.CreatedAt,
                 Content = message.Content,
                 CorrelationId = message.ContextId,
                 AuthorId = userId,
@@ -249,6 +253,11 @@ public class MessagingEndpoints
                 InReplyTo = message.InReplyTo,
                 EncryptionState = message.EncryptionState,
                 Mentions = message.Mentions,
+                // Carried for the same reason Mentions is. Without these three the guild side never
+                // saw a role or @everyone ping sent over HTTP at all.
+                RoleMentions = message.RoleMentions,
+                MentionsEveryone = message.MentionsEveryone,
+                MentionsHere = message.MentionsHere,
                 MlsSequenceNumber = message.MlsSequenceNumber,
                 SenderDeviceId = message.SenderDeviceId,
                 MlsEpoch = message.MlsEpoch,

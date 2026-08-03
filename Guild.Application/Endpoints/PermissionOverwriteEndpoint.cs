@@ -72,6 +72,44 @@ public class PermissionOverwriteEndpoint
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
         => RemoveAsync(ctx, user, permissionService, auditLog, categoryId: categoryId, memberId: memberId);
 
+    /// <summary>
+    /// Validates the overwrite's target. Returns null when the caller may proceed, otherwise the
+    /// result to send back.
+    ///
+    /// Two separate defects this closes. First, neither the role nor the member was ever checked to
+    /// belong to the guild the channel/category resolves to, so an overwrite could reference another
+    /// guild's @everyone role and shadow the legitimate one on this channel. Second, there was no
+    /// rank check at all: a low-positioned ManagePermissions holder could rewrite the overwrites of
+    /// roles above their own - the same escalation RoleEndpoint guards with CanManageRoleAsync and
+    /// MemberEndpoint guards with CanModerateTargetAsync.
+    /// </summary>
+    private static async Task<IResult?> EnsureTargetIsInGuildAndOutrankedAsync(
+        MicroserviceContext ctx, GuildPermissionService permissionService,
+        string userId, string guildId, string? roleId, string? memberId)
+    {
+        if (roleId is not null)
+        {
+            var roleInGuild = await ctx.Roles.AsNoTracking().AnyAsync(r => r.Id == roleId && r.GuildId == guildId);
+            if (!roleInGuild) return Results.NotFound();
+
+            if (!await permissionService.CanManageRoleAsync(userId, guildId, roleId)) return Results.Forbid();
+        }
+
+        if (memberId is not null)
+        {
+            var targetUserId = await ctx.GuildMembers.AsNoTracking()
+                .Where(m => m.Id == memberId && m.GuildId == guildId)
+                .Select(m => m.UserId)
+                .FirstOrDefaultAsync();
+
+            if (targetUserId is null) return Results.NotFound();
+
+            if (!await permissionService.CanModerateTargetAsync(userId, targetUserId, guildId)) return Results.Forbid();
+        }
+
+        return null;
+    }
+
     private static async Task<string?> ResolveGuildIdAsync(MicroserviceContext ctx, string? channelId, string? categoryId)
     {
         if (channelId != null)
@@ -93,8 +131,18 @@ public class PermissionOverwriteEndpoint
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions);
         if (!isAuthorized) return (Results.Forbid(), null);
 
+        // Clamped in BOTH directions. Only Allow was checked before, so a junior holding just
+        // ManagePermissions could write an overwrite that DENIED bits they do not themselves hold -
+        // hiding a channel from, and silencing, staff ranked far above them. A deny is as much an
+        // exercise of a permission as a grant.
         var canGrant = await permissionService.CanGrantPermissionsAsync(userId, guildId, dto.AllowPermissions);
         if (!canGrant) return (Results.Forbid(), null);
+
+        var canDeny = await permissionService.CanGrantPermissionsAsync(userId, guildId, dto.DenyPermissions);
+        if (!canDeny) return (Results.Forbid(), null);
+
+        var targetCheck = await EnsureTargetIsInGuildAndOutrankedAsync(ctx, permissionService, userId, guildId, roleId, memberId);
+        if (targetCheck is not null) return (targetCheck, null);
 
         var existing = await ctx.Set<ChannelPermission>()
             .Where(p => p.ChannelId == channelId && p.CategoryId == categoryId && p.RoleId == roleId && p.MemberId == memberId)
@@ -164,6 +212,11 @@ public class PermissionOverwriteEndpoint
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions);
         if (!isAuthorized) return (Results.Forbid(), null);
+
+        // Deleting an overwrite changes the effective permissions of whoever it targets - removing
+        // a deny is a grant - so it needs the same hierarchy gate as writing one.
+        var targetCheck = await EnsureTargetIsInGuildAndOutrankedAsync(ctx, permissionService, userId, guildId, roleId, memberId);
+        if (targetCheck is not null) return (targetCheck, null);
 
         var existing = await ctx.Set<ChannelPermission>()
             .Where(p => p.ChannelId == channelId && p.CategoryId == categoryId && p.RoleId == roleId && p.MemberId == memberId)

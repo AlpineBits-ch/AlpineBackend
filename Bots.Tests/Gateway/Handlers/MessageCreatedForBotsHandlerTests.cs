@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -10,6 +10,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class MessageCreatedForBotsHandlerTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
     private FakeGatewayMessageBus _bus = null!;
 
@@ -42,7 +43,7 @@ public class MessageCreatedForBotsHandlerTests
 
         await MessageCreatedForBotsHandler.Handle(
             new MessageCreatedForBots { GuildId = "gld_unlinked", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_1", Content = "hi"u8.ToArray(), EncryptionState = MessageEncryptionState.Plain },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         Assert.That(_bus.Invoked, Is.Empty);
         Assert.That(subscriber.Messages, Is.Empty);
@@ -57,7 +58,7 @@ public class MessageCreatedForBotsHandlerTests
 
         await MessageCreatedForBotsHandler.Handle(
             new MessageCreatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_author", Content = "hello world"u8.ToArray(), EncryptionState = MessageEncryptionState.Plain },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(botUserId, Is.EqualTo("usr_bot1"));
@@ -75,7 +76,7 @@ public class MessageCreatedForBotsHandlerTests
 
         await MessageCreatedForBotsHandler.Handle(
             new MessageCreatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_author", Content = "secret"u8.ToArray(), EncryptionState = MessageEncryptionState.Encrypted },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(data.GetProperty("content").GetString(), Is.EqualTo(""));
@@ -90,7 +91,7 @@ public class MessageCreatedForBotsHandlerTests
 
         await MessageCreatedForBotsHandler.Handle(
             new MessageCreatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_ghost", Content = "hi"u8.ToArray(), EncryptionState = MessageEncryptionState.Plain },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(data.GetProperty("author").GetProperty("username").GetString(), Is.EqualTo("usr_ghost"));

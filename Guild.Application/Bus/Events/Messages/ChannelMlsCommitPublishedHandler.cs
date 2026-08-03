@@ -32,7 +32,8 @@ public class ChannelMlsCommitPublishedHandler
         GuildHydrateService service,
         MicroserviceContext context,
         IDistributedCache cache,
-        ILogger<ChannelMlsCommitPublishedHandler> logger)
+        ILogger<ChannelMlsCommitPublishedHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -54,13 +55,16 @@ public class ChannelMlsCommitPublishedHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - see ChannelAudienceService. This carries no key material, but it
+        // does reveal that a private channel exists and is actively re-keying.
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
 
         // Same event name as the conversation path, because it is the same instruction to the
         // client: fetch commits above your local epoch and apply them in order. Clients switch on
         // contextId - a channel commit says nothing about conversation membership.
         await hub.Clients
-            .Users(presence.Select(p => p.UserId))
+            .Users(viewerIds)
             .SendAsync("conversation.MlsCommit", new
             {
                 contextId = message.ChannelId,

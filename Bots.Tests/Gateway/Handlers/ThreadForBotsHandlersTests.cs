@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -8,6 +8,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class ThreadForBotsHandlersTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
 
     [SetUp]
@@ -35,7 +36,7 @@ public class ThreadForBotsHandlersTests
 
         await ThreadCreatedForBotsHandler.Handle(
             new ThreadCreatedForBots { GuildId = "gld_unlinked", ChannelId = "ch_thread", ParentChannelId = "ch_parent", Name = "new-thread" },
-            _context, registry);
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Is.Empty);
     }
@@ -48,7 +49,7 @@ public class ThreadForBotsHandlersTests
 
         await ThreadCreatedForBotsHandler.Handle(
             new ThreadCreatedForBots { GuildId = "gld_1", ChannelId = "ch_thread", ParentChannelId = "ch_parent", Name = "new-thread" },
-            _context, registry);
+            _context, registry, _visibility);
 
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.Multiple(() =>
@@ -69,7 +70,7 @@ public class ThreadForBotsHandlersTests
 
         await ThreadUpdatedForBotsHandler.Handle(
             new ThreadUpdatedForBots { GuildId = "gld_unlinked", ChannelId = "ch_thread", ParentChannelId = "ch_parent", Name = "renamed", Archived = true },
-            _context, registry);
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Is.Empty);
     }
@@ -82,7 +83,7 @@ public class ThreadForBotsHandlersTests
 
         await ThreadUpdatedForBotsHandler.Handle(
             new ThreadUpdatedForBots { GuildId = "gld_1", ChannelId = "ch_thread", ParentChannelId = "ch_parent", Name = "archived-thread", Archived = true },
-            _context, registry);
+            _context, registry, _visibility);
 
         var (_, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(eventName, Is.EqualTo("THREAD_UPDATE"));
@@ -98,7 +99,7 @@ public class ThreadForBotsHandlersTests
 
         await ThreadUpdatedForBotsHandler.Handle(
             new ThreadUpdatedForBots { GuildId = "gld_1", ChannelId = "ch_thread", ParentChannelId = "ch_parent", Name = "t", Archived = false },
-            _context, registry);
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Has.Count.EqualTo(2));
     }

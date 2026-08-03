@@ -16,6 +16,25 @@ public class UploadedFile
 
 public class FileService(IAmazonS3 s3Client)
 {
+    /// <summary>Image types accepted for avatars and banners. The uploaded ContentType is stored
+    /// on the S3 object and replayed by the presigned GET, so an unrestricted value would let a
+    /// caller have arbitrary content served back under their own profile key.</summary>
+    private static readonly HashSet<string> AllowedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/png", "image/jpeg", "image/webp", "image/gif"
+    };
+
+    public const long MaxImageBytes = 8 * 1024 * 1024;
+
+    /// <summary>Returns null when the upload is acceptable, otherwise the reason to reject it.</summary>
+    public static string? ValidateImageUpload(IFormFile? file)
+    {
+        if (file is null || file.Length == 0) return "A file is required.";
+        if (file.Length > MaxImageBytes) return $"File exceeds the {MaxImageBytes / (1024 * 1024)}MB limit.";
+        if (!AllowedImageContentTypes.Contains(file.ContentType)) return "Unsupported image type.";
+        return null;
+    }
+
     public async Task<UploadedFile> UploadAvatarAsync(IFormFile file, string profileId)
     {
         var config = Env.StorageConfiguration;

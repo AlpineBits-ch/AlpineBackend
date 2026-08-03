@@ -39,6 +39,27 @@ public class ApplicationUserTests
     }
 
     [Test]
+    public void Create_EnablesLockout()
+    {
+        // Users are persisted with ctx.Users.Add, never UserManager.CreateAsync - which is the only
+        // place ASP.NET Identity would set this. With it false, UserManager.IsLockedOutAsync
+        // short-circuits to false and SignInManager can never return LockedOut, so every
+        // lockout-aware password gate in this service is silently inert while access_failed_count
+        // and lockout_end are still being written.
+        var user = ApplicationUser.Create(ValidParams());
+
+        Assert.That(user.LockoutEnabled, Is.True);
+    }
+
+    [Test]
+    public void CreateBot_EnablesLockout()
+    {
+        var bot = ApplicationUser.CreateBot("user_bot1", "Test Bot");
+
+        Assert.That(bot.LockoutEnabled, Is.True);
+    }
+
+    [Test]
     public void Create_ValidParams_AddsUserCreatedDomainEventWithMatchingCorrelationId()
     {
         var user = ApplicationUser.Create(ValidParams());

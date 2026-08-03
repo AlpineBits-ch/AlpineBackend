@@ -20,6 +20,7 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
     public GetGuildMemberResponse GuildMemberResponse { get; set; } = new() { Member = null };
     public GetUserByIdResponse UserResponse { get; set; } = new() { User = null };
     public HasUserPermissionToChannelResponse PermissionResponse { get; set; } = new() { IsAllowed = true, Permission = ExternalPermission.SendMessages };
+    public HasUserPermissionToGuildResponse GuildPermissionResponse { get; set; } = new() { IsAllowed = true, Permission = ExternalPermission.ViewChannel };
     public GetGuildSnapshotForBotResponse GuildSnapshotResponse { get; set; } = new() { Guild = null };
     public GetMessageResponse MessageResponse { get; set; } = new() { Message = null };
 
@@ -32,6 +33,7 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
             _ when typeof(T) == typeof(GetGuildMemberResponse) => GuildMemberResponse,
             _ when typeof(T) == typeof(GetUserByIdResponse) => UserResponse,
             _ when typeof(T) == typeof(HasUserPermissionToChannelResponse) => PermissionResponse,
+            _ when typeof(T) == typeof(HasUserPermissionToGuildResponse) => GuildPermissionResponse,
             _ when typeof(T) == typeof(GetGuildSnapshotForBotResponse) => GuildSnapshotResponse,
             _ when typeof(T) == typeof(GetMessageResponse) => MessageResponse,
             _ => throw new NotImplementedException($"FakeGatewayMessageBus has no canned response for {message.GetType().Name}"),

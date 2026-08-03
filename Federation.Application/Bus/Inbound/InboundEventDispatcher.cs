@@ -28,6 +28,13 @@ public static class InboundEventDispatcher
         var originInstance = await db.FederationInstances.FirstOrDefaultAsync(i => i.Host == @event.Host, ct);
         if (originInstance is null) return; // Shouldn't happen: the inbound endpoint already validated the host is registered.
 
+        // The signature on the envelope proves the event came from @event.Host - it says nothing
+        // about *whose* id the payload names. Without this check an Active peer could set SenderId
+        // to a user belonging to a different instance and act as them: severing friendships it has
+        // no relationship to, or re-establishing ones the local user refused. Bind the sender to
+        // the instance that actually signed the event.
+        if (!IsSenderFromOrigin(@event.SenderId, @event.Host)) return;
+
         var originInstanceId = originInstance.Id;
         var senderId = @event.SenderId;
 
@@ -72,5 +79,45 @@ public static class InboundEventDispatcher
     {
         var colonIndex = federatedOrPlainId.IndexOf(':');
         return colonIndex < 0 ? federatedOrPlainId : federatedOrPlainId[..colonIndex];
+    }
+
+    /// <summary>
+    /// A sender id is <c>&lt;userId&gt;:&lt;originHost&gt;</c> (see UserService.GetFederatedUserId).
+    /// The qualifier must name the instance that signed the event. Fails closed on an unqualified
+    /// id, since an unqualified sender is indistinguishable from a local user.
+    ///
+    /// Compared on authority (host[:port]) rather than raw string: the qualifier is written from
+    /// InstanceUrl, which may or may not carry a scheme or trailing slash depending on how the
+    /// instance is configured, while FederationEvent.Host is a full URL.
+    /// </summary>
+    private static bool IsSenderFromOrigin(string? senderId, string? originHost)
+    {
+        if (string.IsNullOrWhiteSpace(senderId)) return false;
+
+        var colonIndex = senderId.IndexOf(':');
+        if (colonIndex < 0) return false;
+
+        var qualifier = NormalizeAuthority(senderId[(colonIndex + 1)..]);
+        var origin = NormalizeAuthority(originHost);
+
+        return qualifier.Length > 0
+               && origin.Length > 0
+               && string.Equals(qualifier, origin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Reduces a host value - with or without scheme, port, path or trailing slash - to a
+    /// bare comparable authority.</summary>
+    private static string NormalizeAuthority(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var trimmed = value.Trim().TrimEnd('/');
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var absolute))
+            return absolute.Authority;
+
+        // Scheme-less ("origin.example.com" or "origin.example.com/x") - take the first segment.
+        var slashIndex = trimmed.IndexOf('/');
+        return slashIndex < 0 ? trimmed : trimmed[..slashIndex];
     }
 }

@@ -1,4 +1,5 @@
-﻿using Messaging.Contracts.Bus.Commands;
+﻿using Microsoft.EntityFrameworkCore;
+using Messaging.Contracts.Bus.Commands;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Messaging.Domain.Events.Message;
@@ -61,6 +62,22 @@ public class CreateMessageCommandHandler
             })).ToList()
         });
         await ctx.CreateMessageAsync(message);
+
+        // Bind each attachment to the context it was posted into, so AttachmentController can
+        // authorize downloads against the same permission the message itself is subject to. Only
+        // the caller's own still-unbound uploads are stamped: an attachment id already belonging to
+        // another context must not be re-pointed by referencing it from a new message.
+        if (command.Attachments.Count > 0)
+        {
+            var attachmentIds = command.Attachments.Select(a => a.Id).ToList();
+            var rows = await db.Attachments
+                .Where(a => attachmentIds.Contains(a.Id)
+                            && a.ContextId == null
+                            && a.CreatorId == command.AuthorId)
+                .ToListAsync();
+
+            foreach (var row in rows) row.ContextId = message.ContextId;
+        }
 
         // Only Plain-encryption ordinary messages get indexed - there's nothing to search in an
         // MLS-encrypted ciphertext blob server-side, and system messages (join/leave/invite) have

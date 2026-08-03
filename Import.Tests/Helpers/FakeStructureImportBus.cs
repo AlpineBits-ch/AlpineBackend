@@ -1,4 +1,7 @@
+using Guild.Contracts;
 using Guild.Contracts.Bus.Commands;
+using Guild.Contracts.Bus.Request;
+using Guild.Contracts.Bus.Response;
 using Wolverine;
 using Wolverine.Runtime.Routing;
 using Wolverine.Transports;
@@ -16,6 +19,11 @@ public class FakeStructureImportBus : IMessageBus
 
     public ImportGuildStructureResponse Response { get; set; } = new() { GuildId = "gld_new" };
 
+    /// <summary>Answer for the guild-permission check the link endpoints now make. Defaults to
+    /// allowed so tests that are not about authorization stay focused.</summary>
+    public HasUserPermissionToGuildResponse GuildPermissionResponse { get; set; } =
+        new() { IsAllowed = true, Permission = ExternalPermission.ManageGuild };
+
     public Task<T> InvokeAsync<T>(object message, CancellationToken cancellation = default, TimeSpan? timeout = null)
     {
         Invoked.Add(message);
@@ -23,6 +31,7 @@ public class FakeStructureImportBus : IMessageBus
         object response = message switch
         {
             ImportGuildStructureCommand => Response,
+            HasUserPermissionToGuildRequest => GuildPermissionResponse,
             _ => throw new NotImplementedException($"FakeStructureImportBus has no canned response for {message.GetType().Name}"),
         };
 

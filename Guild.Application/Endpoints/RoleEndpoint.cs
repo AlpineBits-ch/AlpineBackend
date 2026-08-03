@@ -150,6 +150,20 @@ public class RoleEndpoint()
         var canManageRole = await permissionService.CanManageRoleAsync(userId, role.GuildId, roleId);
         if (!canManageRole) return (Results.Forbid(), null);
 
+        // The member must belong to the same guild as the role. Both guards above are evaluated
+        // against role.GuildId, so without this an attacker who owned any guild of their own could
+        // create a Superadmin role there and attach a member row belonging to a *different* guild -
+        // and permission resolution, which selects role_members by member id, would then grant that
+        // role's bits inside the victim guild. There is no FK expressing this invariant: the two
+        // foreign keys on RoleMember point at Role and GuildMember independently.
+        var memberGuildId = await ctx.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.Id == memberId)
+            .Select(m => m.GuildId)
+            .FirstOrDefaultAsync();
+
+        if (memberGuildId is null || memberGuildId != role.GuildId) return (Results.NotFound(), null);
+
         auditLog.Log(role.GuildId, userId, AuditActionType.RoleUpdated, roleId, new { Action = "MemberAdded", MemberId = memberId });
 
         var created = DateTime.UtcNow;

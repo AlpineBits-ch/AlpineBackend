@@ -36,6 +36,11 @@ builder.Services.AddSingleton<GatewayConnectionRegistry>();
 builder.Services.AddScoped<GatewayHandshakeService>();
 builder.Services.AddSingleton<PendingInteractionStore>();
 
+// Keeps the gateway's per-channel permission filtering off the per-message hot path. Backed by the
+// shared distributed cache, not an in-process one: Bots runs as several instances and the memo is
+// standing in for a bus round-trip, so sharing it across them is what makes it worth having.
+builder.Services.AddScoped<IBotChannelVisibility, BotChannelVisibility>();
+
 // Ephemeral interaction responses are pushed straight to the invoking user rather than stored as
 // messages, so this service needs to reach the realtime hub the same way Guild and Messaging do -
 // same backplane, so the hub itself still lives only on the gateway.

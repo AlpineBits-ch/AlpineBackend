@@ -51,7 +51,27 @@ public  class HasUserPermissionsHandler
     
     
     
-       private static Permissions MapToInternal(ExternalPermission permission) =>
+       /// <summary>
+    /// Batched sibling of the handler above, used by fan-out paths (Gateway dispatch, realtime
+    /// audience resolution) so that filtering N recipients costs one bus round-trip instead of N.
+    /// </summary>
+    public static async Task<FilterUsersWithChannelPermissionResponse> Handle(
+        FilterUsersWithChannelPermissionRequest request,
+        GuildPermissionService guildPermissionService)
+    {
+        var allowed = await guildPermissionService.FilterUsersWithChannelPermissionAsync(
+            request.ChannelId,
+            request.UserIds,
+            MapToInternal(request.Permission));
+
+        return new FilterUsersWithChannelPermissionResponse
+        {
+            ChannelId = request.ChannelId,
+            AllowedUserIds = allowed,
+        };
+    }
+
+    internal static Permissions MapToInternal(ExternalPermission permission) =>
         permission switch
         {
             ExternalPermission.ViewChannel        => Permissions.ViewChannel,

@@ -1,4 +1,4 @@
-using Bots.Contracts.Gateway.Payloads;
+﻿using Bots.Contracts.Gateway.Payloads;
 using Bots.Infrastructure.Persistence;
 using Guild.Contracts.Bus.Events;
 using Guild.Contracts.Bus.Request;

@@ -57,9 +57,18 @@ public class UserVerificationEndpoint
         }
         if(user.EmailConfirmed) return Results.BadRequest("User already verified");
 
-        var expectedCode = await cache.GetStringAsync($"verification_code:{user.Email}");
-        if(expectedCode == null) return Results.BadRequest("Verification code not found");
-        if(expectedCode != code) return Results.BadRequest("Invalid verification code");
+        // Counts the attempt and destroys the code after too many wrong guesses - see
+        // OneTimeCodeService.
+        var codeResult = await VerificationCodeService.ValidateAsync(cache, user.Email!, code);
+        if (codeResult != OneTimeCodeResult.Valid)
+        {
+            return codeResult switch
+            {
+                OneTimeCodeResult.Expired => Results.BadRequest("Verification code not found"),
+                OneTimeCodeResult.TooManyAttempts => Results.BadRequest("Too many incorrect attempts - request a new code."),
+                _ => Results.BadRequest("Invalid verification code"),
+            };
+        }
 
         user.EmailConfirmed = true;
         user.EmailVerifiedAt = DateTime.UtcNow;

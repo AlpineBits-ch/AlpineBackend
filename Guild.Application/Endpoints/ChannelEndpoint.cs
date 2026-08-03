@@ -148,7 +148,13 @@ public class ChannelEndpoint
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return Results.NotFound();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, channel.GuildId, Permissions.ManageChannel);
+        // Channel-scoped, not guild-scoped. The guild-scoped overload reads BasePermissions only,
+        // which is computed before channel/category overwrites are applied - so a per-channel
+        // ManageChannel (or ViewChannel) denial on this exact channel was invisible to it, and a
+        // moderator explicitly denied the channel could still delete it. ForumTagEndpoint,
+        // ThreadEndpoint and ForumPostEndpoint all use the channel-scoped form for the same
+        // permission on the same channels.
+        var canManage = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 
         ctx.Channels.Remove(channel);
@@ -180,7 +186,8 @@ public class ChannelEndpoint
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return Results.NotFound();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, channel.GuildId, Permissions.ManageChannel);
+        // Channel-scoped - see DeleteChannelAsync.
+        var canManage = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 
         try

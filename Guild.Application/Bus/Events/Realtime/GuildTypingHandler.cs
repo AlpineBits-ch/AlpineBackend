@@ -1,5 +1,6 @@
 using Echo.Realtime;
 using Guild.Application.Services;
+using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,9 @@ public class GuildTypingHandler
         IHubContext<EchoRealtimeHub> hub,
         GuildHydrateService service,
         MicroserviceContext microserviceContext,
-        IDistributedCache cache)
+        IDistributedCache cache,
+        GuildPermissionService permissionService,
+        ChannelAudienceService audience)
     {
         var cacheId = $"channel_map:{message.ChannelId}";
 
@@ -29,9 +32,18 @@ public class GuildTypingHandler
             await cache.SetStringAsync(cacheId, cachedGuildId);
         }
 
-        var presence = await service.GetGuildPresenceAsync(cachedGuildId);
+        // The channel id arrives from the client over the hub, and this was the only hub-forwarded
+        // guild command with no authorization of any kind: any authenticated user could name a
+        // channel in a guild they had never joined and have their own user id rendered as "typing"
+        // inside it. Someone shown as typing must at least be able to post there.
+        if (!await permissionService.CanUserPerformActionAsync(message.UserId, message.ChannelId, Permissions.SendMessages))
+            return;
 
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.UserTyping",
+        // Channel-scoped audience - see ChannelAudienceService.
+        var presence = await service.GetGuildPresenceAsync(cachedGuildId);
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
+
+        await hub.Clients.Users(viewerIds).SendAsync("guild.UserTyping",
             new { channelId = message.ChannelId, userId = message.UserId });
     }
 }

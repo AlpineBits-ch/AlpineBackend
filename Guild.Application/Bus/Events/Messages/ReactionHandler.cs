@@ -38,12 +38,18 @@ public class ReactionHandler
         return $"channel:{channelId}:guild";
     }
     public async Task Handle(ReactionCreatedEvent reactionCreatedEvent, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger, IMessageBus bus)
+        MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger, IMessageBus bus,
+        ChannelAudienceService audience)
     {
         var (presence, guildId) = await GetPresenceByChannel(reactionCreatedEvent.ChannelId, cache, context, logger, service);
         if (string.IsNullOrEmpty(guildId)) return;
 
-        var users = presence.Select(p => p.UserId).Where(u => u != reactionCreatedEvent.UserId);
+        // Channel-scoped audience - see ChannelAudienceService. Reactions leak which messages exist
+        // in a channel and who is active in it, so they follow the same rule as the messages.
+        var users = await audience.FilterToViewersAsync(
+            reactionCreatedEvent.ChannelId,
+            presence.Select(p => p.UserId).Where(u => u != reactionCreatedEvent.UserId));
+
         await hub.Clients.Users(users).SendAsync("guild.ReactionCreated", reactionCreatedEvent);
 
         await bus.PublishAsync(new ReactionCreatedForBots
@@ -58,12 +64,17 @@ public class ReactionHandler
     }
 
     public async Task Handle(ReactionRemovedEvent reactionRemovedEvent, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger, IMessageBus bus)
+        MicroserviceContext context, IDistributedCache cache, ILogger<MessageCreatedHandler> logger, IMessageBus bus,
+        ChannelAudienceService audience)
     {
         var (presence, guildId) = await GetPresenceByChannel(reactionRemovedEvent.ChannelId, cache, context, logger, service);
         if (string.IsNullOrEmpty(guildId)) return;
 
-        var users = presence.Select(p => p.UserId).Where(u => u != reactionRemovedEvent.UserId);
+        // Channel-scoped audience - see ChannelAudienceService.
+        var users = await audience.FilterToViewersAsync(
+            reactionRemovedEvent.ChannelId,
+            presence.Select(p => p.UserId).Where(u => u != reactionRemovedEvent.UserId));
+
         await hub.Clients.Users(users).SendAsync("guild.ReactionRemoved", reactionRemovedEvent);
 
         await bus.PublishAsync(new ReactionRemovedForBots

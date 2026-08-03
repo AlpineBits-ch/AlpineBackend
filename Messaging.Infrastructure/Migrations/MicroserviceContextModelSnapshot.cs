@@ -88,6 +88,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("content_type");
 
+                    b.Property<string>("ContextId")
+                        .HasColumnType("text")
+                        .HasColumnName("context_id");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");

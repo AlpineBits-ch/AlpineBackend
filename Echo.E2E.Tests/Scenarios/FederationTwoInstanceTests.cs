@@ -1,8 +1,10 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
 using Echo.E2E.Tests.Support;
+using Npgsql;
 
 namespace Echo.E2E.Tests.Scenarios;
 
@@ -29,6 +31,41 @@ public class FederationTwoInstanceTests
     {
         if (_pair is not null)
             await _pair.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Registers a user and promotes them to <c>UserType.Admin</c> directly in Identity's database.
+    /// The federation admin surface requires a platform administrator (see
+    /// Federation.Application's InstanceAdmin policy), and there is no in-product API to grant
+    /// that - an instance operator sets it out of band. Registration always yields
+    /// <c>UserType.Default</c>, so without this the handshake below would correctly 403.
+    /// </summary>
+    private static async Task<string> RegisterAdminAndGetTokenAsync(
+        EchoInfraSet infra, SpawnedServiceProcess identity, string username)
+    {
+        var token = await RegisterAndGetTokenAsync(identity, username);
+
+        var connectionString = new NpgsqlConnectionStringBuilder
+        {
+            Host = infra.PostgresHost,
+            Port = infra.PostgresPort,
+            Database = "identity_e2e",
+            Username = "postgres",
+            Password = "postgres",
+        }.ConnectionString;
+
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(
+            "UPDATE asp_net_users SET user_type = 'admin'::user_type WHERE user_name = @u", connection);
+        command.Parameters.AddWithValue("u", username);
+
+        var affected = await command.ExecuteNonQueryAsync();
+        Assert.That(affected, Is.EqualTo(1), $"Failed to promote '{username}' to admin for the federation admin routes.");
+
+        // The admin check is resolved from the database per request (not from a token claim), so
+        // the token minted before the promotion is still fine.
+        return token;
     }
 
     private static async Task<string> RegisterAndGetTokenAsync(SpawnedServiceProcess identity, string username)
@@ -61,7 +98,7 @@ public class FederationTwoInstanceTests
     [Test]
     public async Task Handshake_BothInstancesLandActive()
     {
-        var tokenA = await RegisterAndGetTokenAsync(_pair.A.Identity, "admin_a");
+        var tokenA = await RegisterAdminAndGetTokenAsync(_pair.InfraA, _pair.A.Identity, "admin_a");
         _pair.A.Federation.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenA);
 
         var initiateResponse = await _pair.A.Federation.Client.PostAsJsonAsync(

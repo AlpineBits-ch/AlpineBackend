@@ -72,6 +72,11 @@ public class SocialMaterializationHandlers
     /// turns back into outbound federation messages - i.e. it would echo the remote instance's own
     /// change straight back at it. Skips when the row is already in the target state so a
     /// redelivered federation message doesn't push twice.
+    ///
+    /// The transition is validated against the row's current status rather than assigned
+    /// unconditionally: an "accepted" is only meaningful for a request the local user actually
+    /// sent, so without this a remote instance could move a row the local user had explicitly
+    /// rejected (None) straight to Friends and re-open DMs and calls the local user refused.
     /// </summary>
     private static async Task ApplyRemoteTransitionAsync(
         MicroserviceContext db, IHubContext<EchoRealtimeHub> hub, string senderId,
@@ -82,12 +87,30 @@ public class SocialMaterializationHandlers
 
         var (relationship, remoteProfile) = found.Value;
         if (relationship.Status == status) return;
+        if (!IsLegalRemoteTransition(relationship.Status, status)) return;
 
         relationship.Status = status;
         await db.SaveChangesAsync(ct);
 
         await PushAsync(hub, relationship, relationship.Owner, remoteProfile, eventName);
     }
+
+    /// <summary>Which status changes a remote instance is allowed to drive on a local row.</summary>
+    private static bool IsLegalRemoteTransition(RelationshipStatus current, RelationshipStatus target) =>
+        target switch
+        {
+            // The remote accepted a request this user sent. Only meaningful from PendingOutgoing -
+            // never from None (already rejected/removed) and never from Blocked.
+            RelationshipStatus.Friends => current == RelationshipStatus.PendingOutgoing,
+
+            // The remote rejected a pending request or unfriended. Legal from any live state
+            // except Blocked, which is the local user's decision and not the remote's to clear.
+            RelationshipStatus.None => current is RelationshipStatus.PendingOutgoing
+                or RelationshipStatus.PendingIncoming
+                or RelationshipStatus.Friends,
+
+            _ => false,
+        };
 
     private static Task PushAsync(
         IHubContext<EchoRealtimeHub> hub, Relationship relationship, Profile localProfile,

@@ -62,7 +62,7 @@ public class BotCommandEndpointTests
     [Test]
     public async Task GetCommands_NoBotsInstalled_ReturnsEmptyArray()
     {
-        var result = await _endpoint.GetCommandsForGuildAsync("gld_1", _context);
+        var result = await _endpoint.GetCommandsForGuildAsync("gld_1", _context, MakeUser("usr_member"), _bus);
 
         var json = AsJson(result);
         Assert.That(json.GetArrayLength(), Is.EqualTo(0));
@@ -76,7 +76,7 @@ public class BotCommandEndpointTests
         AddCommand(app, "guild-only", guildId: "gld_1");
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.GetCommandsForGuildAsync("gld_1", _context);
+        var result = await _endpoint.GetCommandsForGuildAsync("gld_1", _context, MakeUser("usr_member"), _bus);
 
         var json = AsJson(result);
         Assert.That(json.GetArrayLength(), Is.EqualTo(2));
@@ -91,7 +91,7 @@ public class BotCommandEndpointTests
         AddCommand(app, "other-guild-only", guildId: "gld_2");
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.GetCommandsForGuildAsync("gld_1", _context);
+        var result = await _endpoint.GetCommandsForGuildAsync("gld_1", _context, MakeUser("usr_member"), _bus);
 
         var json = AsJson(result);
         Assert.That(json.GetArrayLength(), Is.EqualTo(0));

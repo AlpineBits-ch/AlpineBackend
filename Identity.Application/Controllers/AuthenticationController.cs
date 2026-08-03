@@ -67,20 +67,34 @@ public class AuthenticationController(
             });
         }
 
-        await manager.UpdateSecurityStampAsync(user);
-
-        if ((await passwords.CheckAsync(user, request.Password)).IsOk())
+        // The security stamp is NOT rotated here. This route is anonymous, and rotating before the
+        // password is verified let anyone mutate any account's row by submitting a username - and
+        // would invalidate that user's derived state on demand. Nothing about a failed login should
+        // write to the account.
+        if (!(await passwords.CheckAsync(user, request.Password)).IsOk())
         {
-            var principal = await signInManager.CreateUserPrincipalAsync(user);
-            return SignIn(principal: principal,
-                authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+            return Ok(new LoginWithEmailAndPasswordResponse()
+            {
+                Failures = new List<ValidationFailure>
+                    { new ValidationFailure("Email", "Email or password is incorrect") }
+            });
         }
 
-        return Ok(new LoginWithEmailAndPasswordResponse()
+        // Same gates /connect/token applies. This path currently cannot complete (OpenIddict
+        // rejects a SignIn outside a registered endpoint), but it must not read as a supported
+        // login that skips account status, email verification and the second factor.
+        if (!user.IsSigninAllowed() || user.EmailVerifiedAt is null || user.TwoFactorEnabled)
         {
-            Failures = new List<ValidationFailure>
-                { new ValidationFailure("Email", "Email or password is incorrect") }
-        });
+            return Ok(new LoginWithEmailAndPasswordResponse()
+            {
+                Failures = new List<ValidationFailure>
+                    { new ValidationFailure("Email", "Use /connect/token to sign in to this account.") }
+            });
+        }
+
+        var principal = await signInManager.CreateUserPrincipalAsync(user);
+        return SignIn(principal: principal,
+            authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
     [HttpPost("register")]

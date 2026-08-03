@@ -32,6 +32,11 @@ public static class IdentityAuditActions
 
     public const string MasterKeyRewrapped = "master-key.rewrapped";
 
+    /// <summary>Existing sessions were revoked wholesale, currently only by a password reset. Worth
+    /// recording because the reset is what a compromised user reaches for, and "did my other
+    /// sessions actually get cut" is the question they need answered afterwards.</summary>
+    public const string SessionsRevoked = "sessions.revoked";
+
     /// <summary>A session was bound to a device it did not log in from, which is only possible with
     /// the account password. Audited because it is the one operation that changes <i>which device a
     /// session is</i>, and therefore which device's backup it may read - the exact decision C2 was

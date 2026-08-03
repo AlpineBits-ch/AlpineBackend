@@ -41,7 +41,7 @@ public class KingOfTheHillEndpointsTests
     [Test]
     public async Task ActiveMatch_NoMatchRunning_ReturnsNull()
     {
-        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, CancellationToken.None);
+        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, _context, CancellationToken.None);
 
         Assert.That(result, Is.Null);
     }
@@ -53,14 +53,40 @@ public class KingOfTheHillEndpointsTests
         await _stateStore.WriteAsync(new KothMatchState("def-1", "instance-1", startedAt, ["steam_1"]));
         await _ledger.ApplyPresenceAsync("instance-1", ["steam_1"]);
 
-        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, CancellationToken.None);
+        var player = Player.Create(new CreatePlayerArgs { SteamId = "steam_1" });
+        player.InGameName = "Rexy";
+        _context.Players.Add(player);
+        await _context.SaveChangesAsync();
+
+        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, _context, CancellationToken.None);
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.InstanceId, Is.EqualTo("instance-1"));
         Assert.That(result.StartedAt, Is.EqualTo(startedAt));
         Assert.That(result.Standings, Has.Count.EqualTo(1));
-        Assert.That(result.Standings[0].SteamId, Is.EqualTo("steam_1"));
+        Assert.That(result.Standings[0].PlayerName, Is.EqualTo("Rexy"));
         Assert.That(result.Standings[0].Ticks, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task ActiveMatch_DoesNotExposeSteamIds()
+    {
+        // This endpoint is anonymous, and a Steam ID resolves to a public Steam profile - returning
+        // the standings by Steam ID made it an unauthenticated "who is online right now" feed. The
+        // player-facing !koth command shows in-game names; Steam IDs are admin-gated behind
+        // !kothadmin status.
+        await _stateStore.WriteAsync(new KothMatchState("def-1", "instance-1", DateTime.UtcNow, ["steam_secret"]));
+        await _ledger.ApplyPresenceAsync("instance-1", ["steam_secret"]);
+
+        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, _context, CancellationToken.None);
+
+        var serialized = System.Text.Json.JsonSerializer.Serialize(result);
+        Assert.Multiple(() =>
+        {
+            Assert.That(serialized, Does.Not.Contain("steam_secret"));
+            // Unresolvable players still appear in the standings, just anonymously.
+            Assert.That(result!.Standings[0].PlayerName, Is.EqualTo("Unknown player"));
+        });
     }
 
     [Test]
@@ -68,7 +94,7 @@ public class KingOfTheHillEndpointsTests
     {
         await _stateStore.WriteAsync(new KothMatchState("def-1", "instance-2", DateTime.UtcNow, []));
 
-        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, CancellationToken.None);
+        var result = await KingOfTheHillEndpoints.ActiveMatch(_stateStore, _ledger, _context, CancellationToken.None);
 
         Assert.That(result, Is.Not.Null);
         Assert.That(result!.Standings, Is.Empty);

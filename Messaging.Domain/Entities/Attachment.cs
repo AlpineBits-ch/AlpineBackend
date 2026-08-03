@@ -30,7 +30,19 @@ public class Attachment : BaseEntity<Attachment>, IPrefixedEntity
     public string? ThumbnailId { get; set; }
     
     public string CreatorId { get; set; }
-    
+
+    /// <summary>
+    /// The channel or conversation of the message this attachment was sent in, stamped when that
+    /// message is created (see CreateMessageCommand). Null while the upload is still unattached, and
+    /// on rows that predate this field.
+    ///
+    /// Exists so a download can be authorized the same way the message itself is. Attachments are
+    /// embedded on the message as MinimalAttachment with no reverse index, so without this there is
+    /// no way to ask "who is allowed to see this file" - which is why the download routes could only
+    /// ever check that the id existed.
+    /// </summary>
+    public string? ContextId { get; set; }
+
     public AttachmentState State { get; set; } = AttachmentState.Pending;
     
     public static Attachment Create(CreateAttachmentParams createAttachmentParams)

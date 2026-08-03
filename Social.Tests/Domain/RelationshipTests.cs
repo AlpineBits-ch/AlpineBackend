@@ -102,10 +102,10 @@ public class RelationshipTests
     }
 
     [Test]
-    public void Accept_FromNonPendingIncomingStatus_SetsFriendsWithoutRaisingEvent()
+    public void AcceptCounterpart_FromPendingOutgoing_SetsFriendsWithoutRaisingEvent()
     {
-        // Covers Related.Accept() being invoked from FriendshipEndpoints.AcceptAsync on the
-        // PendingOutgoing side - it should still flip to Friends but not double-raise the event.
+        // Covers Related.AcceptCounterpart() being invoked from FriendshipEndpoints.AcceptAsync on
+        // the PendingOutgoing side - it should flip to Friends but not double-raise the event.
         var relationship = new Relationship
         {
             Id = "rlsp_2",
@@ -114,10 +114,51 @@ public class RelationshipTests
             Status = RelationshipStatus.PendingOutgoing,
         };
 
-        relationship.Accept();
+        relationship.AcceptCounterpart();
 
         Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.Friends));
         Assert.That(relationship.GetDomainEvents(), Is.Empty);
+    }
+
+    [Test]
+    public void Accept_FromPendingOutgoing_IsRefused()
+    {
+        // The initiator owns the PendingOutgoing row, so allowing Accept() here let them accept
+        // their own friend request and manufacture a friendship without the recipient's consent -
+        // which in turn unlocked DMs and voice calls to any user by username. Only the recipient's
+        // PendingIncoming row is acceptable; the mirror moves via AcceptCounterpart.
+        var relationship = new Relationship
+        {
+            Id = "rlsp_self",
+            OwnerId = "profile-a",
+            TargetId = "profile-b",
+            Status = RelationshipStatus.PendingOutgoing,
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Accept(), Is.False);
+            Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.PendingOutgoing));
+            Assert.That(relationship.GetDomainEvents(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public void AcceptCounterpart_FromPendingIncoming_IsRefused()
+    {
+        var relationship = new Relationship
+        {
+            Id = "rlsp_in_only",
+            OwnerId = "profile-b",
+            TargetId = "profile-a",
+            Status = RelationshipStatus.PendingIncoming,
+        };
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.AcceptCounterpart(), Is.False);
+            Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.PendingIncoming));
+        });
     }
 
     [Test]

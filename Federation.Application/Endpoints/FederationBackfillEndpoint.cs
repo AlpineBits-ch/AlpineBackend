@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Federation.Application.Dtos.Events;
+using Federation.Application.Security;
 using Federation.Domain.Events;
 using Federation.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -17,27 +18,41 @@ namespace Federation.Application.Endpoints;
 /// long, go pull scopeKey from its origin host" is a real follow-up) - this is the serving side
 /// of that recovery path.
 ///
-/// Access is limited to registered Active instances (via the same X-Federated-Host convention
-/// the main events endpoint's caller would recognize), not a full signature challenge like event
-/// delivery - a backfill response only contains events that instance already received and
-/// verified once, so replaying them again doesn't need re-proving authenticity, only that the
-/// caller is a real federation partner and not an open scrape target.
+/// Access is limited to registered Active instances, proven by an Ed25519 signature over
+/// "host|scopeKey|timestamp" (see FederationRequestSignature) verified against the public key
+/// already registered for that host.
+///
+/// The header alone is NOT sufficient and never was: X-Federated-Host is written by the caller, so
+/// before the signature check any unauthenticated client could name an active peer and read that
+/// peer's full applied history - message content, sender ids, and guild/conversation membership.
+/// This endpoint is publicly routed by the gateway, so it must authenticate the caller itself.
 /// </summary>
 public class FederationBackfillEndpoint
 {
     [WolverineGet("api/v1/federation/events/{scopeKey}/backfill")]
     public static async Task<IResult> BackfillAsync(
         string scopeKey,
-        [FromHeader(Name = "X-Federated-Host")] string? callerHost,
+        [FromHeader(Name = FederationRequestSignature.HostHeader)] string? callerHost,
+        [FromHeader(Name = FederationRequestSignature.TimestampHeader)] string? timestamp,
+        [FromHeader(Name = FederationRequestSignature.SignatureHeader)] string? signature,
         MicroserviceContext db,
+        ILogger<FederationBackfillEndpoint> logger,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(callerHost))
-            return Results.BadRequest("X-Federated-Host header is required.");
+            return Results.BadRequest($"{FederationRequestSignature.HostHeader} header is required.");
 
         var caller = await db.FederationInstances.FirstOrDefaultAsync(i => i.Host == callerHost, cancellationToken);
         if (caller is null || caller.Status != FederationStatus.Active)
             return Results.Forbid();
+
+        if (!FederationRequestSignature.Verify(caller, scopeKey, timestamp, signature))
+        {
+            logger.LogWarning(
+                "Rejected backfill for scope {ScopeKey}: bad or missing signature for claimed host {Host}.",
+                scopeKey, callerHost);
+            return Results.Forbid();
+        }
 
         var records = await db.FederatedEvents
             .Where(e => e.ScopeKey == scopeKey && e.Applied)

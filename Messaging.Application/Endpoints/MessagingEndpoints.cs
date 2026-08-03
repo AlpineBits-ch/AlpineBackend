@@ -37,6 +37,15 @@ public class MessagingEndpoints
 
         if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
 
+        // The two ids are mutually exclusive, and that has to be enforced rather than assumed.
+        // Authorization below branches on ChannelId first, but Message.Create derives the storage
+        // partition as `ConversationId ?? ChannelId` - so a request carrying both was authorized
+        // against a channel the caller could post in while the message landed in an arbitrary
+        // conversation's partition, was served by that conversation's history endpoint, and was
+        // pushed to its members over SignalR and FCM.
+        if (!string.IsNullOrWhiteSpace(dto.ConversationId) && !string.IsNullOrWhiteSpace(dto.ChannelId))
+            return (Results.BadRequest("Specify either channelId or conversationId, not both."), null);
+
         // Authoritative copies of the client's mention flags. In a guild channel these are
         // downgraded to false unless the author actually holds MentionEveryone; in a DM/group
         // conversation there is no such permission concept, so whatever the client asked for stands.

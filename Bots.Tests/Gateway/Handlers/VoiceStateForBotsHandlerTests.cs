@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -8,6 +8,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class VoiceStateForBotsHandlerTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
 
     [SetUp]
@@ -34,7 +35,7 @@ public class VoiceStateForBotsHandlerTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await VoiceStateForBotsHandler.Handle(
-            new VoiceStateForBots { GuildId = "gld_unlinked", UserId = "usr_1", ChannelId = "ch_voice" }, _context, registry);
+            new VoiceStateForBots { GuildId = "gld_unlinked", UserId = "usr_1", ChannelId = "ch_voice" }, _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Is.Empty);
     }
@@ -47,7 +48,7 @@ public class VoiceStateForBotsHandlerTests
 
         await VoiceStateForBotsHandler.Handle(
             new VoiceStateForBots { GuildId = "gld_1", UserId = "usr_1", ChannelId = "ch_voice", SelfMute = true, SelfVideo = true },
-            _context, registry);
+            _context, registry, _visibility);
 
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.Multiple(() =>
@@ -68,7 +69,7 @@ public class VoiceStateForBotsHandlerTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await VoiceStateForBotsHandler.Handle(
-            new VoiceStateForBots { GuildId = "gld_1", UserId = "usr_1", ChannelId = null }, _context, registry);
+            new VoiceStateForBots { GuildId = "gld_1", UserId = "usr_1", ChannelId = null }, _context, registry, _visibility);
 
         var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.Multiple(() =>
@@ -86,7 +87,7 @@ public class VoiceStateForBotsHandlerTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await VoiceStateForBotsHandler.Handle(
-            new VoiceStateForBots { GuildId = "gld_1", UserId = "usr_1", ChannelId = "ch_voice" }, _context, registry);
+            new VoiceStateForBots { GuildId = "gld_1", UserId = "usr_1", ChannelId = "ch_voice" }, _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Has.Count.EqualTo(2));
     }

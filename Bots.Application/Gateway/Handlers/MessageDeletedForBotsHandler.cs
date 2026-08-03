@@ -1,4 +1,4 @@
-using Bots.Contracts.Gateway.Payloads;
+﻿using Bots.Contracts.Gateway.Payloads;
 using Bots.Infrastructure.Persistence;
 using Guild.Contracts.Bus.Events;
 
@@ -6,9 +6,10 @@ namespace Bots.Application.Gateway.Handlers;
 
 public class MessageDeletedForBotsHandler
 {
-    public static async Task Handle(MessageDeletedForBots message, MicroserviceContext ctx, GatewayConnectionRegistry registry)
+    public static async Task Handle(MessageDeletedForBots message, MicroserviceContext ctx, GatewayConnectionRegistry registry,
+        IBotChannelVisibility visibility)
     {
-        var botUserIds = await InstalledBotsLookup.GetBotUserIdsInGuildAsync(ctx, message.GuildId);
+        var botUserIds = await InstalledBotsLookup.GetBotUserIdsForChannelAsync(ctx, visibility, message.GuildId, message.ChannelId);
         if (botUserIds.Count == 0) return;
 
         var payload = new MessageDeletePayload

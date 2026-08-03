@@ -99,8 +99,10 @@ public static class FriendshipEndpoints
                 : Results.BadRequest("Relationship is not a pending friend request.");
 
         // Null for a federation-materialized relationship - only the local half of those is
-        // persisted, so there is no mirrored row to flip.
-        friendship.Related?.Accept();
+        // persisted, so there is no mirrored row to flip. AcceptCounterpart rather than Accept:
+        // the mirrored row is PendingOutgoing, and moving it to Friends is only legitimate as a
+        // consequence of the accept above (see Relationship.Accept).
+        friendship.Related?.AcceptCounterpart();
 
         var firstUserCache = $"integration_profile:user_id:{friendship.Target.UserId}";
         var secondUserCache = $"integration_profile:user_id:{friendship.Owner.UserId}";
@@ -114,13 +116,24 @@ public static class FriendshipEndpoints
     [WolverinePost("/api/v1/relationships/{id}/reject")]
     public static async Task<IResult> RejectAsync(
         string id,
-        [NotBody]MicroserviceContext ctx)
+        [NotBody]MicroserviceContext ctx,
+        ClaimsPrincipal user)
     {
         var friendship = await ctx.Relationships
             .Include(r => r.Related)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (friendship == null) return Results.NotFound();
+
+        // Same ownership gate as AcceptAsync. Without it, knowing a relationship id was enough to
+        // reject anybody's pending request - the row was only checked for existence, never for
+        // whose it was.
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var currentProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (friendship.OwnerId != currentProfile?.Id)
+            return Results.Forbid();
 
         // Already cleared - stay idempotent rather than raising a second FriendRequestRejected
         // and pushing social.FriendRequestRejected twice.
@@ -137,19 +150,40 @@ public static class FriendshipEndpoints
     [WolverinePost("/api/v1/relationships/{id}/revoke")]
     public static async Task<IResult> RevokeAsync(
         string id,
-        [NotBody]MicroserviceContext ctx)
+        [NotBody]MicroserviceContext ctx,
+        [NotBody] IDistributedCache cache,
+        ClaimsPrincipal user)
     {
         var friendship = await ctx.Relationships
             .Include(r => r.Related)
+            .Include(r => r.Owner)
+            .Include(r => r.Target)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (friendship == null) return Results.NotFound();
+
+        // Same ownership gate as AcceptAsync. This endpoint covers both "revoke my pending
+        // request" and "unfriend", so without the check a relationship id was enough to tear down
+        // any two users' friendship - which also silently revoked their ability to DM and call
+        // each other, since both are gated on friendship.
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var currentProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (friendship.OwnerId != currentProfile?.Id)
+            return Results.Forbid();
 
         // Same idempotency guard as Accept/Reject - a repeated revoke must not re-raise
         // FriendRemoved and push social.FriendRemoved a second time.
         if (!friendship.Remove()) return Results.Ok();
 
         friendship.Related?.Remove();
+
+        // Mirrors AcceptAsync: the integration profile (which carries the friend list Messaging
+        // reads to gate DMs and calls) is cached for 10 minutes, so without busting it here an
+        // unfriend stayed ineffective for up to 10 minutes.
+        await cache.RemoveAsync($"integration_profile:user_id:{friendship.Target.UserId}");
+        await cache.RemoveAsync($"integration_profile:user_id:{friendship.Owner.UserId}");
 
         return Results.Ok();
     }

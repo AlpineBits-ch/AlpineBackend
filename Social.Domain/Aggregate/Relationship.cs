@@ -75,28 +75,50 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
 
 
     /// <summary>
-    /// Transitions this side of the pair to Friends. Idempotent: a relationship that is already
-    /// Friends is left alone and raises nothing, so a client that fires the accept endpoint twice
-    /// (double tap, retry, two devices) can't emit a second FriendRequestAccepted - which would
-    /// otherwise fan out a duplicate social.FriendRequestAccepted push and have the client append
-    /// the same friend to its list twice. Also refuses to resurrect a dead (None) relationship
-    /// into a friendship without a fresh request.
+    /// Accepts an inbound friend request. Only the recipient's own (PendingIncoming) row may be
+    /// accepted - accepting is the recipient's consent, so the initiator must not be able to
+    /// transition their own PendingOutgoing row and manufacture a friendship the other party never
+    /// agreed to. The mirrored outgoing row is flipped separately via
+    /// <see cref="AcceptCounterpart"/>, which is the only sanctioned way to move a PendingOutgoing
+    /// row to Friends.
+    ///
+    /// Idempotent: a relationship that is already Friends is left alone and raises nothing, so a
+    /// client that fires the accept endpoint twice (double tap, retry, two devices) can't emit a
+    /// second FriendRequestAccepted - which would otherwise fan out a duplicate
+    /// social.FriendRequestAccepted push and have the client append the same friend to its list
+    /// twice. Also refuses to resurrect a dead (None) relationship into a friendship without a
+    /// fresh request.
     /// </summary>
     /// <returns>True if this call actually changed the status.</returns>
     public bool Accept()
     {
-        if (this.Status is not (RelationshipStatus.PendingIncoming or RelationshipStatus.PendingOutgoing))
+        if (this.Status != RelationshipStatus.PendingIncoming)
             return false;
 
-        if (this.Status == RelationshipStatus.PendingIncoming)
+        this.AddDomainEvent(new FriendRequestAccepted()
         {
-            this.AddDomainEvent(new FriendRequestAccepted()
-            {
-                TargetProfileId = this.OwnerId,
-                InitiatorProfileId = this.TargetId,
-                RelationshipId = this.Id
-            });
-        }
+            TargetProfileId = this.OwnerId,
+            InitiatorProfileId = this.TargetId,
+            RelationshipId = this.Id
+        });
+
+        this.Status = RelationshipStatus.Friends;
+        return true;
+    }
+
+    /// <summary>
+    /// Flips the initiator's mirrored PendingOutgoing row once the recipient has accepted via
+    /// <see cref="Accept"/>. Raises no event - the accepted event is raised once, on the
+    /// recipient's row, so the pair produces exactly one social.FriendRequestAccepted push.
+    /// Separate from <see cref="Accept"/> so that reaching Friends from PendingOutgoing is only
+    /// possible as a consequence of a real acceptance, never as a directly-callable transition.
+    /// </summary>
+    /// <returns>True if this call actually changed the status.</returns>
+    public bool AcceptCounterpart()
+    {
+        if (this.Status != RelationshipStatus.PendingOutgoing)
+            return false;
+
         this.Status = RelationshipStatus.Friends;
         return true;
     }

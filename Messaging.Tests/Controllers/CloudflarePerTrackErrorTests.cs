@@ -1,11 +1,14 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Controllers;
+using Messaging.Domain.Entities;
+using Messaging.Domain.Enums;
 using Messaging.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -49,6 +52,7 @@ public class CloudflarePerTrackErrorTests
 
     private CountingCloudflareHandler _handler = null!;
     private CloudflareController _controller = null!;
+    private FakeDistributedCache _cache = null!;
 
     [SetUp]
     public void SetUp()
@@ -56,7 +60,7 @@ public class CloudflarePerTrackErrorTests
         _handler = new CountingCloudflareHandler(TrackNotFoundBody);
         var cfService = new CloudflareService(
             new SingleHandlerFactory(_handler), NullLogger<CloudflareService>.Instance);
-        var cache = new FakeDistributedCache();
+        var cache = _cache = new FakeDistributedCache();
 
         var bus = new FakeMessageBus(msg => msg switch
         {
@@ -86,9 +90,29 @@ public class CloudflarePerTrackErrorTests
         new CfSessionDescription("offer", "v=0"),
         [new CfTrackNew("remote", SessionId: "cf-remote-session", TrackName: "audio")]);
 
+    /// <summary>
+    /// TracksNew requires the caller to be a connected participant of the call and to own the
+    /// session it acts as - subscribing is media access, and previously took no authorization at
+    /// all. These tests are about the retry loop, so they set that up and move on.
+    /// </summary>
+    private async Task SeedAuthorizedCallerAsync()
+    {
+        var call = new Call
+        {
+            Id = CallId, ConversationId = "conv-1", CreatorId = UserId,
+            Participants = [new CallParticipant { UserId = UserId, Status = CallStatus.Connected }],
+        };
+        await _cache.SetAsync(
+            Call.GetCacheId(CallId), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
+
+        await _cache.SetAsync("cf-session-owner:cf-local-session", Encoding.UTF8.GetBytes(UserId), new());
+    }
+
     [Test]
     public async Task SubscribeWithAPerTrackError_RetriesLikeAnyOtherTransientCloudflareFailure()
     {
+        await SeedAuthorizedCallerAsync();
+
         await _controller.TracksNew(CallId, SubscribeBody(), CancellationToken.None);
 
         Assert.That(_handler.TracksNewCount, Is.GreaterThan(1),
@@ -99,6 +123,8 @@ public class CloudflarePerTrackErrorTests
     [Test]
     public async Task SubscribeWithAPerTrackError_DoesNotReturnPlain200ToTheClient()
     {
+        await SeedAuthorizedCallerAsync();
+
         var result = await _controller.TracksNew(CallId, SubscribeBody(), CancellationToken.None);
 
         Assert.That(result, Is.Not.InstanceOf<OkObjectResult>(),

@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
 using Bots.Application.Middleware;
 using Microsoft.Extensions.Caching.Distributed;
@@ -24,18 +26,34 @@ public class BotTokenTranslator(IHttpClientFactory httpClientFactory, IDistribut
     private static readonly string IdentityBaseUrl =
         Environment.GetEnvironmentVariable("Services__Identity") ?? "http://identity.default.svc.cluster.local:8080";
 
+    private const int MaxCacheTtlSeconds = 600;
+
     public async Task<BotAuthResult> AuthenticateAsync(string discordToken)
     {
         if (!DiscordCompatToken.TryUnpack(discordToken, out var clientId, out var clientSecret))
+            return BotAuthResult.Failed;
+
+        // An empty secret can never be valid, and must not be allowed to probe the cache.
+        if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(clientSecret))
             return BotAuthResult.Failed;
 
         var jwt = await GetOrExchangeJwtAsync(clientId, clientSecret);
         return jwt is null ? BotAuthResult.Failed : new BotAuthResult(true, clientId, jwt);
     }
 
+    /// <summary>
+    /// The cache key binds the client id AND the presented secret. Keying on the client id alone
+    /// was an authentication bypass: a bot's client id is its BotUserId, which is public (it is the
+    /// author id on every message the bot posts), so once any cache entry existed for a bot,
+    /// anyone could present that id with an arbitrary secret and receive the bot's real JWT
+    /// without the secret ever being checked. With the secret in the key a wrong secret cannot
+    /// hit a cached entry and always falls through to /connect/token, which rejects it.
+    ///
+    /// The secret is hashed rather than embedded so the plaintext never lands in Redis keyspace.
+    /// </summary>
     private async Task<string?> GetOrExchangeJwtAsync(string clientId, string clientSecret)
     {
-        var cacheKey = $"bot-jwt:{clientId}";
+        var cacheKey = BuildCacheKey(clientId, clientSecret);
         var jwt = await cache.GetStringAsync(cacheKey);
         if (jwt is not null) return jwt;
 
@@ -53,10 +71,21 @@ public class BotTokenTranslator(IHttpClientFactory httpClientFactory, IDistribut
         if (payload?.AccessToken is null) return null;
 
         jwt = payload.AccessToken;
-        var ttl = TimeSpan.FromSeconds(Math.Max(payload.ExpiresIn - 60, 30));
+
+        // Capped well below the token's own lifetime so that revocation - a secret reset or a
+        // disabled bot account - takes effect in minutes rather than at the end of the full token
+        // lifetime. The cost is one /connect/token call per bot per cap interval, which is
+        // negligible next to the per-request traffic this cache serves.
+        var ttl = TimeSpan.FromSeconds(Math.Clamp(payload.ExpiresIn - 60, 30, MaxCacheTtlSeconds));
         await cache.SetStringAsync(cacheKey, jwt, new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl });
 
         return jwt;
+    }
+
+    internal static string BuildCacheKey(string clientId, string clientSecret)
+    {
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(clientSecret));
+        return $"bot-jwt:{clientId}:{Convert.ToHexStringLower(digest)}";
     }
 
     private class TokenResponse

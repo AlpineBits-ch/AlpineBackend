@@ -208,9 +208,7 @@ public class GuildPermissionService(
         var (isOwner, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return true;
 
-        var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
-        var channelPermission = userPermissions.Permissions
-            .FirstOrDefault(p => p.ChannelId == channelId);
+        var channelPermission = await ResolveChannelPermissionAsync(userId, guildId, channelId);
 
         if (channelPermission == null)
         {
@@ -220,7 +218,7 @@ public class GuildPermissionService(
                 userId, channelId, guildId);
             return false;
         }
-        
+
         logger.LogDebug("User {UserId} has permissions {Permissions} on channel {ChannelId} in guild {GuildId}", userId, channelPermission.Permissions, channelId, guildId);
 
         // Threads inherit their parent's resolved permission set (see ComputePermissionsForUserAsync),
@@ -233,6 +231,104 @@ public class GuildPermissionService(
         }
 
         return (channelPermission.Permissions & requiredPermission) == requiredPermission;
+    }
+
+    /// <summary>
+    /// Batched form of <see cref="CanUserPerformActionAsync"/> for fan-out paths that need to know
+    /// which of many users may see a channel (Gateway dispatch to installed bots, realtime
+    /// audience resolution).
+    ///
+    /// Deliberately does NOT loop <see cref="CanUserPerformActionAsync"/>: that would repeat the
+    /// channel lookup, the feature gate and - worse - <see cref="GetMembershipAsync"/>'s three
+    /// uncached queries for every user. Here the channel, its type and the guild owner are
+    /// resolved once for the whole batch, and each user then costs a single Redis read of the
+    /// permission set that is cached anyway.
+    /// </summary>
+    public async Task<List<string>> FilterUsersWithChannelPermissionAsync(
+        string channelId,
+        IReadOnlyCollection<string> userIds,
+        Permissions requiredPermission)
+    {
+        var allowed = new List<string>(userIds.Count);
+        if (userIds.Count == 0) return allowed;
+
+        var channel = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.Id == channelId)
+            .Select(c => new { c.GuildId, c.Type })
+            .FirstOrDefaultAsync();
+
+        if (channel?.GuildId is null)
+        {
+            logger.LogWarning("Batched permission check failed: channel {ChannelId} not found.", channelId);
+            return allowed;
+        }
+
+        // Feature gate first, exactly as the single-user path does - a disabled module is off for
+        // everybody, owner included.
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(channel.GuildId), requiredPermission))
+            return allowed;
+
+        // Threads govern posting via SendMessagesInThreads; resolved once rather than per user.
+        if (requiredPermission == Permissions.SendMessages && channel.Type == ChannelType.Thread)
+            requiredPermission = Permissions.SendMessagesInThreads;
+
+        var ownerId = await ctx.Guilds
+            .AsNoTracking()
+            .Where(g => g.Id == channel.GuildId)
+            .Select(g => g.OwnerId)
+            .FirstOrDefaultAsync();
+
+        foreach (var userId in userIds.Distinct())
+        {
+            if (string.IsNullOrWhiteSpace(userId)) continue;
+
+            if (userId == ownerId)
+            {
+                allowed.Add(userId);
+                continue;
+            }
+
+            var channelPermission = await ResolveChannelPermissionAsync(userId, channel.GuildId, channelId);
+
+            if (channelPermission is not null &&
+                (channelPermission.Permissions & requiredPermission) == requiredPermission)
+            {
+                allowed.Add(userId);
+            }
+        }
+
+        return allowed;
+    }
+
+    /// <summary>
+    /// The user's resolved permissions for one channel, self-healing against a stale cache.
+    ///
+    /// The per-user permission set is cached for 15 minutes and enumerates the guild's channels as
+    /// they were at compute time. Creating a channel does not invalidate it (doing so would mean
+    /// one eviction per member), so a channel created inside that window is simply absent from
+    /// every cached set - and an absent channel used to read as "denied". That silently locked
+    /// everyone out of a newly created channel until their entry expired. When the channel is
+    /// missing but demonstrably exists, treat the entry as stale, drop it, and recompute once.
+    /// </summary>
+    private async Task<GuildChannelPermission?> ResolveChannelPermissionAsync(
+        string userId, string guildId, string channelId)
+    {
+        var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
+        var channelPermission = userPermissions.Permissions.FirstOrDefault(p => p.ChannelId == channelId);
+        if (channelPermission is not null) return channelPermission;
+
+        // A non-member resolves to an empty set by design (see ComputePermissionsForUserAsync), not
+        // to a stale one - recomputing would deny again at the cost of a second pass on what is
+        // also the hot path for rejecting outsiders.
+        if (userPermissions.Permissions.Count == 0 && userPermissions.BasePermissions == Permissions.None)
+            return null;
+
+        // Only pay for the recompute when the caller's own entry predates the channel.
+        await InvalidateUserPermissionsCacheAsync(guildId, userId);
+        userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
+
+        return userPermissions.Permissions.FirstOrDefault(p => p.ChannelId == channelId);
     }
 
     internal async Task<GuildPermissionsForUser> ComputePermissionsForUserAsync(
@@ -250,6 +346,33 @@ public class GuildPermissionService(
         }
 
         var (isOwner, userRoleIds, memberId, memberAllow, memberDeny, mutedUntil, onboardingPending) = await GetMembershipAsync(userId, guildId);
+
+        // Fail closed for a non-member. Without this, a user who never joined - or who was just
+        // kicked or banned, both of which delete the GuildMember row - still had every @everyone
+        // channel/category overwrite applied to them, because those overwrites are selected by the
+        // overwrite's own role type rather than by anything the caller holds. Their base
+        // permissions were empty, but ApplyOverwrites then OR'd the @everyone *Allow* mask straight
+        // onto that empty set, and ExpandImpliedPermissions widened it - so on any channel that
+        // re-opens itself with an @everyone allow (the standard way to expose one channel inside a
+        // denied category, and what every Discord import materializes) a banned user still resolved
+        // ViewChannel, and SendMessages if it was allowed too.
+        //
+        // Guild-scoped checks were never affected: a non-member has no roles, so BasePermissions
+        // was already None. This only ever manifested on the channel-scoped path - which is the one
+        // Messaging consults to gate reading message history.
+        if (!isOwner && memberId is null)
+        {
+            var nonMemberResult = new GuildPermissionsForUser
+            {
+                GuildId = guildId,
+                UserId = userId,
+                BasePermissions = Permissions.None,
+                Permissions = [],
+            };
+
+            await CachePermissionsAsync(cacheKey, nonMemberResult);
+            return nonMemberResult;
+        }
 
         if (isOwner)
         {
@@ -279,9 +402,13 @@ public class GuildPermissionService(
             return ownerResult;
         }
 
+        // Guild-scoped on purpose. RoleMember rows are selected by member id alone, so a row
+        // pointing at another guild's role would otherwise contribute that role's permission bits
+        // here. AddMemberToRoleAsync now refuses to create such a row, and this is the single
+        // choke point that makes any future path unable to reintroduce the escalation.
         var rolePerms = await ctx.Roles
             .AsNoTracking()
-            .Where(r => userRoleIds.Contains(r.Id))
+            .Where(r => userRoleIds.Contains(r.Id) && r.GuildId == guildId)
             .Select(r => r.Permissions)
             .ToListAsync();
 
@@ -606,10 +733,16 @@ public class GuildPermissionService(
 
         if (roleIds.Count == 0) return int.MinValue;
 
-        return await ctx.Roles
+        // Guild-scoped for the same reason as ComputePermissionsForUserAsync: a foreign role's
+        // Position must not be able to inflate the actor's rank and defeat CanManageRoleAsync /
+        // CanModerateTargetAsync. MaxAsync throws on an empty sequence, so this filters first.
+        var positions = await ctx.Roles
             .AsNoTracking()
-            .Where(r => roleIds.Contains(r.Id))
-            .MaxAsync(r => r.Position);
+            .Where(r => roleIds.Contains(r.Id) && r.GuildId == guildId)
+            .Select(r => r.Position)
+            .ToListAsync();
+
+        return positions.Count == 0 ? int.MinValue : positions.Max();
     }
 
     /// <summary>

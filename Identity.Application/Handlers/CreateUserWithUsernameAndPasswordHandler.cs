@@ -26,7 +26,11 @@ public class CreateUserWithUsernameAndPasswordHandler
                 };
                
             }
-            logger.LogInformation("register user in with email {email} and password {password}", request.Email, request.Password);
+            // The password is deliberately NOT logged. This previously logged it in cleartext at
+            // Information on every signup, and with Sentry wired up (AddErrorReporting in
+            // Program.cs, whose default breadcrumb level is Information) that put every new user's
+            // reusable password into a third-party system.
+            logger.LogInformation("Registering user with email {email}", request.Email);
 
             
             var user = await messageBus.InvokeAsync<CreateUserResponse>(new CreateUserCommand()

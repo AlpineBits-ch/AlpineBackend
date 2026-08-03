@@ -166,7 +166,7 @@ public sealed class SessionDeviceResolver(MicroserviceContext ctx)
     /// real handset's, which is the question being asked; ignoring them would re-open every row whose
     /// owner had merely signed out.</para>
     /// </summary>
-    private async Task<bool> IsAdoptableAsync(UserDevice device)
+    public async Task<bool> IsAdoptableAsync(UserDevice device)
     {
         // Created by the request that is asking. Nothing can reference it yet, and the queries below
         // would say so - this is here because the first-launch case is the one a reader looks for.

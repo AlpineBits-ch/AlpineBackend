@@ -40,6 +40,30 @@ public class GuildCloudflareController(
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
     /// <summary>
+    /// Binds a minted Cloudflare session to the user who minted it.
+    ///
+    /// Cloudflare Calls has no room concept and every service here shares a single CF app, so a
+    /// session id is a bearer capability over the whole app - publish on it, renegotiate it,
+    /// subscribe through it, tear its tracks down. Session ids are handed to co-participants over
+    /// SignalR by design (guild.voice.ParticipantJoined and TrackPublished both carry one, so peers
+    /// can subscribe), which means "somebody else's session id" is a value any participant
+    /// legitimately holds. Ownership therefore has to be verified on every action that acts *as* a
+    /// session.
+    ///
+    /// Kept in the cache rather than on the participant entry because secondary screen-share
+    /// sessions are deliberately not recorded there (see CreateSession's `primary` remarks).
+    /// </summary>
+    private static string SessionOwnerKey(string cfSessionId) => $"guild-cf-session-owner:{cfSessionId}";
+
+    private async Task<bool> OwnsSessionAsync(string? cfSessionId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(cfSessionId)) return false;
+
+        var owner = await cache.GetStringAsync(SessionOwnerKey(cfSessionId), ct);
+        return owner is not null && string.Equals(owner, UserId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Creates a Cloudflare session for this participant.
     /// </summary>
     /// <param name="primary">
@@ -64,6 +88,10 @@ public class GuildCloudflareController(
         if (!canConnect) return Forbid();
 
         var cfSessionId = await cfService.CreateSessionAsync(ct);
+
+        // Recorded before the session is usable, so every later action can verify the caller
+        // actually minted it.
+        await cache.SetStringAsync(SessionOwnerKey(cfSessionId), UserId, CacheOptions, ct);
 
         if (primary)
         {
@@ -92,6 +120,18 @@ public class GuildCloudflareController(
         [FromBody] GuildTracksNewBody body,
         CancellationToken ct)
     {
+        // Connect gates the whole handler, before the per-track checks below. Those only fired for
+        // tracks with Location == "local", so a body consisting entirely of "remote" tracks - which
+        // is a *subscribe*, i.e. pulling other participants' live media - reached Cloudflare with no
+        // authorization at all. Anyone who had ever been in the channel (and so had been handed
+        // other participants' session ids over SignalR) could keep listening after being kicked,
+        // banned, or denied Connect, from outside the channel, indefinitely.
+        var canConnect = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect);
+        if (!canConnect) return Forbid();
+
+        // And the session being acted as must be the caller's own.
+        if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
+
         var audioTrack = body.Tracks.FirstOrDefault(t => t is { Location: "local", TrackName: "audio" });
         if (audioTrack is not null)
         {
@@ -145,6 +185,9 @@ public class GuildCloudflareController(
         [FromBody] GuildRenegotiateBody body,
         CancellationToken ct)
     {
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect)) return Forbid();
+        if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
+
         var result = await cfService.RenegotiateAsync(body.CfSessionId,
             new CfRenegotiateRequest(body.SessionDescription), ct);
         return Ok(result);
@@ -156,6 +199,14 @@ public class GuildCloudflareController(
         [FromBody] GuildCloseTracksBody body,
         CancellationToken ct)
     {
+        // Ownership is the load-bearing check: CloseTracks is a hard teardown (force: true), so
+        // without it any co-participant - who is handed everyone's session ids by design - could
+        // silence a specific victim on demand. Worse, the cache mutation and TrackClosed broadcast
+        // below only ever name the *caller*, so the victim stayed listed as connected and simply
+        // went inaudible with no signal to reconcile against.
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect)) return Forbid();
+        if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
+
         await cfService.CloseTracksAsync(body.CfSessionId, body.TrackNames, ct);
 
         // Locked: same class of race as CreateSession/ExchangeParticipantJoined above.

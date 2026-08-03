@@ -115,6 +115,17 @@ public class MemberEndpoint
         var ban = await ctx.Set<GuildBan>().FirstOrDefaultAsync(b => b.GuildId == guildId && b.BannedUserId == bannedUserId);
         if (ban is null) return Results.NotFound();
 
+        // Hierarchy applies to lifting a ban as well as issuing one - see UnmuteMemberAsync. The
+        // banned user has no member row left to rank, so this ranks the moderator against whoever
+        // issued the ban: you may not undo the decision of someone who outranks you. Lifting your
+        // own ban is always allowed - CanModerateTargetAsync compares positions strictly, so it
+        // would otherwise refuse a moderator their own action.
+        if (ban.BannedByUserId != userId &&
+            !await permissionService.CanModerateTargetAsync(userId, ban.BannedByUserId, guildId))
+        {
+            return Results.Forbid();
+        }
+
         ctx.Set<GuildBan>().Remove(ban);
 
         auditLog.Log(guildId, userId, AuditActionType.MemberUnbanned, bannedUserId);
@@ -228,6 +239,13 @@ public class MemberEndpoint
 
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
         if (member is null) return Results.NotFound();
+
+        // Same hierarchy rule as mute/kick/ban/nickname, which this method was alone in omitting.
+        // Lifting a timeout is a moderation decision about a specific member, so a moderator who is
+        // not allowed to time that member out must not be able to undo a senior's timeout of them
+        // either.
+        if (!await permissionService.CanModerateTargetAsync(userId, member.UserId, guildId))
+            return Results.Forbid();
 
         member.MutedUntil = null;
 

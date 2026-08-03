@@ -62,12 +62,17 @@ public class GuildVoiceStateHandler
             }, ChannelCacheOptions);
         if (voiceState is null) return;
 
+        // The mutation above silently no-ops for someone who is not in this channel, but the
+        // broadcast did not - so any authenticated user with a voice channel id could spam
+        // fabricated mute events at that channel's roster, including in guilds they are not in.
         var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null) return;
+
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.MuteChanged",
             new { userId, isMuted = message.IsMuted, channelId = message.ChannelId, serverForced = false });
 
-        if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me));
+        await bus.PublishAsync(ToVoiceStateForBots(me));
     }
 
     public async Task Handle(GuildVoiceDeafenCommand message, LockedJsonCacheStore voiceStore, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
@@ -84,12 +89,15 @@ public class GuildVoiceStateHandler
             }, ChannelCacheOptions);
         if (voiceState is null) return;
 
+        // Only an actual participant may emit this - see GuildVoiceMuteCommand above.
         var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null) return;
+
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.DeafenChanged",
             new { userId, isDeafened = message.IsDeafened, channelId = message.ChannelId, serverForced = false });
 
-        if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me));
+        await bus.PublishAsync(ToVoiceStateForBots(me));
     }
 
     public async Task Handle(GuildVoiceCameraCommand message, IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
@@ -99,14 +107,18 @@ public class GuildVoiceStateHandler
         if (raw is null) return;
 
         var voiceState = JsonSerializer.Deserialize<ChannelVoiceState>(raw)!;
+
+        // Only an actual participant may emit this - see GuildVoiceMuteCommand above.
+        var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null) return;
+
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.CameraChanged",
             new { userId, isCameraOn = message.IsCameraOn, channelId = message.ChannelId });
 
         // Camera on/off isn't persisted on VoiceState (pre-existing - it's just relayed), so this
         // is the one field ToVoiceStateForBots can't derive from stored state; pass it through directly.
-        var me = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
-        if (me is not null) await bus.PublishAsync(ToVoiceStateForBots(me, selfVideo: message.IsCameraOn));
+        await bus.PublishAsync(ToVoiceStateForBots(me, selfVideo: message.IsCameraOn));
     }
 
     public async Task Handle(GuildVoiceScreenShareStartCommand message, LockedJsonCacheStore voiceStore,
@@ -149,12 +161,15 @@ public class GuildVoiceStateHandler
             }, ChannelCacheOptions);
         if (voiceState is null) return;
 
+        // Only an actual participant may emit this - see GuildVoiceMuteCommand above.
         var meAfter = voiceState.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (meAfter is null) return;
+
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.ScreenShareStopped",
             new { shareId = message.ShareId, channelId = message.ChannelId });
 
-        if (meAfter is not null) await bus.PublishAsync(ToVoiceStateForBots(meAfter));
+        await bus.PublishAsync(ToVoiceStateForBots(meAfter));
     }
 
     public async Task Handle(GuildVoiceServerMuteCommand message, LockedJsonCacheStore voiceStore,
@@ -213,6 +228,19 @@ public class GuildVoiceStateHandler
         var userId = message.UserId;
         var canMove = await permissionService.CanUserPerformActionAsync(userId, message.ChannelId, Permissions.MoveMembers);
         if (!canMove) return;
+
+        // The destination has to be authorized too, and it was not. MoveMembers was checked on the
+        // SOURCE channel only, while the participant was then written into the target channel's
+        // roster with no check there at all - so a moderator holding MoveMembers on a public channel
+        // could move themselves into a voice channel that denies them Connect, which the normal join
+        // path (GuildVoiceController.Join) refuses. From inside the roster the SFU track exchange
+        // then hands them the other participants' sessions.
+        var canMoveIntoTarget = await permissionService.CanUserPerformActionAsync(userId, message.TargetChannelId, Permissions.MoveMembers);
+        if (!canMoveIntoTarget) return;
+
+        // And the person being moved must themselves be allowed into the destination.
+        var targetCanConnect = await permissionService.CanUserPerformActionAsync(message.TargetUserId, message.TargetChannelId, Permissions.Connect);
+        if (!targetCanConnect) return;
 
         var sourceKey = ChannelVoiceState.GetCacheKey(message.ChannelId);
         var targetKey = ChannelVoiceState.GetCacheKey(message.TargetChannelId);

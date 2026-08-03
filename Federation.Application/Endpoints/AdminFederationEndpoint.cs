@@ -2,6 +2,7 @@ using Facet.Extensions.EFCore;
 using Federation.Application.Dtos.Requests;
 using Federation.Application.Dtos.Response;
 using Federation.Application.Messages;
+using Federation.Application.Security;
 using Federation.Application.Services;
 using Federation.Domain.Aggregates;
 using Federation.Domain.Events;
@@ -12,7 +13,13 @@ using Wolverine.Http;
 
 namespace Federation.Application.Endpoints;
 
-[Authorize]
+/// <summary>
+/// Instance-administration surface for federation. Requires a platform administrator, not merely
+/// an authenticated user: approving/initiating a peer marks it Active, and Active is the only gate
+/// on inbound federation event injection (see FederationEndpoint), so a bare [Authorize] here let
+/// any registered account admit itself as a trusted peer or defederate every legitimate one.
+/// </summary>
+[Authorize(Policy = FederationPolicies.InstanceAdmin)]
 public class AdminFederationEndpoint
 {
     [WolverineGet("/api/v1/admin/federation/instances")]
@@ -128,7 +135,28 @@ public class AdminFederationEndpoint
     {
         logger.LogInformation("Initiating handshake with {TargetHost}", request.TargetHost);
 
-        var response = await handshakeService.InitiateHandshakeAsync(request.TargetHost, cancellationToken);
+        HandshakeResponse response;
+        try
+        {
+            response = await handshakeService.InitiateHandshakeAsync(request.TargetHost, cancellationToken);
+        }
+        catch (FederationHandshakeService.InvalidTargetException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
+        // The remote controls its own response body, so it must not be able to name a *different*
+        // host than the one we dialled and have that written in as Active - that would let one
+        // peer register itself under another instance's identity.
+        if (!FederationTargetGuard.TryNormalizeTarget(request.TargetHost, allowPrivateTargets: true, out var dialled, out _)
+            || !FederationTargetGuard.TryNormalizeTarget(response.Host, allowPrivateTargets: true, out var claimed, out _)
+            || !string.Equals(dialled!.Host, claimed!.Host, StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogWarning(
+                "Handshake with {TargetHost} returned a mismatched host {ClaimedHost}; refusing to register.",
+                request.TargetHost, response.Host);
+            return Results.BadRequest("Remote returned a host that does not match the handshake target.");
+        }
 
         var existing = await db.FederationInstances
             .FirstOrDefaultAsync(i => i.Host == response.Host, cancellationToken);

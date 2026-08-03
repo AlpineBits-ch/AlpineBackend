@@ -47,6 +47,43 @@ public class CloudflareController(
         devices.ResolveAsync(Request, UserId, ct);
 
     /// <summary>
+    /// Binds a minted Cloudflare session to the user who minted it.
+    ///
+    /// Cloudflare Calls has no room concept and every service in the deployment shares one CF app,
+    /// so a session id is a bearer capability over the whole app: whoever presents it can publish
+    /// on it, renegotiate it, subscribe through it, or tear its tracks down. The id is handed to
+    /// co-participants over SignalR (call.ParticipantJoined carries it, by design, so peers can
+    /// subscribe), which means "somebody else's session id" is a value an attacker legitimately
+    /// holds. Ownership therefore has to be checked server-side on every action that acts *as* a
+    /// session.
+    ///
+    /// Kept in the cache rather than on CallParticipant because secondary screen-share sessions are
+    /// deliberately not recorded there (see CreateSession's `primary` remarks) and would otherwise
+    /// be refused.
+    /// </summary>
+    private static string SessionOwnerKey(string cfSessionId) => $"cf-session-owner:{cfSessionId}";
+
+    private async Task<bool> OwnsSessionAsync(string? cfSessionId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(cfSessionId)) return false;
+
+        var owner = await cache.GetStringAsync(SessionOwnerKey(cfSessionId), ct);
+        return owner is not null && string.Equals(owner, UserId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The caller must be a connected participant of this call. Without it every CF action was
+    /// reachable by any authenticated user who knew a call id - including a user who had been
+    /// invited and declined, who could re-enter the media path and subscribe to the live audio of a
+    /// call they were not in.
+    /// </summary>
+    private async Task<bool> IsConnectedParticipantAsync(string callId)
+    {
+        var call = await LoadCall(callId);
+        return call is not null && call.Participants.Any(p => p.UserId == UserId && p.Status == CallStatus.Connected);
+    }
+
+    /// <summary>
     /// Creates a Cloudflare session for this call participant.
     /// </summary>
     /// <param name="primary">
@@ -70,7 +107,15 @@ public class CloudflareController(
         if (device.IsUnknown)
             return BadRequest($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
 
+        // Only a participant of this call may open a session against it.
+        var call0 = await LoadCall(callId);
+        if (call0 is null || !call0.IsParticipant(UserId)) return NotFound();
+
         var cfSessionId = await cfService.CreateSessionAsync(ct);
+
+        // Record ownership before the session is usable, so every later action can verify the
+        // caller actually minted it.
+        await cache.SetStringAsync(SessionOwnerKey(cfSessionId), UserId, CacheOptions, token: ct);
 
         if (!primary) return Ok(new { cfSessionId });
 
@@ -108,6 +153,12 @@ public class CloudflareController(
     [HttpPost("cf/tracks/new")]
     public async Task<IActionResult> TracksNew(string callId, [FromBody] TracksNewBody body, CancellationToken ct)
     {
+        // Both halves matter. Participation is what entitles the caller to this call's media at all
+        // (an all-"remote" body is a *subscribe*, and previously took no authorization whatsoever);
+        // session ownership is what stops them acting as somebody else's session.
+        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
+        if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
+
         var request = new CfTracksNewRequest(body.SessionDescription, body.Tracks);
         CfTracksNewResponse result;
         try
@@ -142,6 +193,9 @@ public class CloudflareController(
     [HttpPut("cf/renegotiate")]
     public async Task<IActionResult> Renegotiate(string callId, [FromBody] RenegotiateBody body, CancellationToken ct)
     {
+        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
+        if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
+
         var result = await cfService.RenegotiateAsync(body.CfSessionId,
             new CfRenegotiateRequest(body.SessionDescription), ct);
         return Ok(result);
@@ -150,8 +204,15 @@ public class CloudflareController(
     [HttpPut("cf/tracks/close")]
     public async Task<IActionResult> CloseTracks(string callId, [FromBody] CloseTracksBody body, CancellationToken ct)
     {
+        // Ownership is the load-bearing check here: closing tracks is a hard teardown (force: true),
+        // so without it a co-participant could silence any other participant on demand, and the
+        // broadcast below would name the attacker rather than the victim - leaving the victim shown
+        // as connected and simply inaudible.
+        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
+        if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
+
         await cfService.CloseTracksAsync(body.CfSessionId, body.TrackNames, ct);
-        
+
         var call = await LoadCall(callId);
         if (call is not null)
         {
@@ -195,6 +256,12 @@ public class CloudflareController(
                 }
             }, CacheOptions, ct);
         if (call is null) return;
+
+        // The mutation above no-ops for a non-participant, but LockedJsonCacheStore returns the
+        // loaded entity regardless of what the mutation did - so execution used to fall through to
+        // the disclosure loop below and hand a non-participant every connected participant's
+        // CfSessionId. That is exactly the value needed to subscribe to their audio.
+        if (call.Participants.All(p => p.UserId != UserId)) return;
 
         var connectedOthers = call.Participants
             .Where(p => p.UserId != UserId && p.Status == CallStatus.Connected)

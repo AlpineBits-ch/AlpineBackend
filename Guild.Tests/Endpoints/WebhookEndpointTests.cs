@@ -62,6 +62,30 @@ public class WebhookEndpointTests
         _context.Roles.Add(new Role { Id = RoleId, GuildId = GuildId, Name = "manager", Permissions = Permissions.ManageWebhooks, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         _context.RoleMembers.Add(new RoleMember { Id = "rm-1", RoleId = RoleId, MemberId = MemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+
+        // A webhook's target channel must exist in the same guild - see WebhookEndpoint.
+        _context.Channels.Add(new Channel
+        {
+            Id = "chan-1", GuildId = GuildId, Name = "general", Description = "d", Type = ChannelType.Text,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await _context.SaveChangesAsync();
+    }
+
+    /// <summary>A channel in a guild the caller has nothing to do with.</summary>
+    private async Task SeedForeignChannel()
+    {
+        _context.Guilds.Add(new Guild.Domain.Aggregates.Guild
+        {
+            Id = "gld-other", Name = "Other", OwnerId = "usr-other",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        _context.Channels.Add(new Channel
+        {
+            Id = "chan-foreign", GuildId = "gld-other", Name = "private", Description = "d", Type = ChannelType.Text,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
         await _context.SaveChangesAsync();
     }
 
@@ -129,6 +153,49 @@ public class WebhookEndpointTests
             Assert.That(created.CreatedBy, Is.EqualTo(UserId));
             Assert.That(created.Token, Is.Not.Empty, "a webhook created without a token would be unusable");
             Assert.That(ok.Value!.Token, Is.EqualTo(created.Token));
+        });
+    }
+
+    [Test]
+    public async Task CreateWebhook_ChannelInAnotherGuild_IsRejected()
+    {
+        // The permission check runs against the route guild while the channel comes from the body.
+        // Without tying them together, someone who owns any guild could point a webhook at a private
+        // channel in a guild they have no access to - and webhook execution is anonymous, so that is
+        // a permanent unauthenticated write into that channel which the victim guild cannot even see.
+        await SeedManagerMember();
+        await SeedForeignChannel();
+
+        var result = await _endpoint.CreateWebhookAsync(
+            GuildId, new CreateWebhookDto { Name = "Hook", ChannelId = "chan-foreign" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(_context.WebhookConfigs.Any(), Is.False, "no webhook may be persisted for a foreign channel");
+        });
+    }
+
+    [Test]
+    public async Task UpdateWebhook_RepointedAtAnotherGuildsChannel_IsRejected()
+    {
+        await SeedManagerMember();
+        await SeedForeignChannel();
+        _context.WebhookConfigs.Add(new WebhookConfig { Id = "wh-1", GuildId = GuildId, ChannelId = "chan-1", CreatedBy = UserId, Token = Token, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.UpdateWebhookAsync(
+            GuildId, "wh-1", new UpdateWebhookDto { ChannelId = "chan-foreign" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(_context.WebhookConfigs.AsNoTracking().Single().ChannelId, Is.EqualTo("chan-1"),
+                "re-pointing is the same cross-guild write primitive as creating");
         });
     }
 

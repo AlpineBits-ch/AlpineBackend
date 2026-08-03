@@ -89,9 +89,13 @@ public class InboundEventDispatcherTests
     [Test]
     public async Task DispatchAsync_GuildMemberJoined_UserIdComesFromSender()
     {
+        // The joining user is a user *of the origin instance*, so their federated id is qualified
+        // with the origin host - matching the convention every other event here uses. (This
+        // previously read "usr_joiner:home.example.com", qualifying the sender with the receiving
+        // instance, which the sender-binding check below now correctly rejects.)
         var @event = new GuildMemberJoined
         {
-            Host = _origin.Host, EventId = "evt_3", SenderId = "usr_joiner:home.example.com",
+            Host = _origin.Host, EventId = "evt_3", SenderId = "usr_joiner:origin.example.com",
             GuildId = "gld_1:home.example.com",
         };
 
@@ -100,6 +104,39 @@ public class InboundEventDispatcherTests
         var command = (FederatedGuildMemberJoinedReceived)_bus.Published.Single();
         Assert.That(command.UserId, Is.EqualTo("usr_joiner"));
         Assert.That(command.GuildId, Is.EqualTo("gld_1"));
+    }
+
+    [Test]
+    public async Task DispatchAsync_SenderFromDifferentInstanceThanSigner_PublishesNothing()
+    {
+        // The envelope signature only proves which instance sent the event, not whose id the
+        // payload names. Without binding the two, any Active peer could act as a user belonging to
+        // a different instance - e.g. severing friendships it has no relationship to.
+        var @event = new SocialFriendRemoved
+        {
+            Host = _origin.Host, EventId = "evt_spoof",
+            SenderId = "usr_victim:other-instance.example.com",
+            TargetUserId = "usr_local:home.example.com",
+        };
+
+        await InboundEventDispatcher.DispatchAsync(@event, _db, _bus, default);
+
+        Assert.That(_bus.Published, Is.Empty);
+    }
+
+    [Test]
+    public async Task DispatchAsync_UnqualifiedSenderId_PublishesNothing()
+    {
+        // An unqualified sender is indistinguishable from a local user id, so it fails closed.
+        var @event = new SocialFriendRemoved
+        {
+            Host = _origin.Host, EventId = "evt_bare",
+            SenderId = "usr_local", TargetUserId = "usr_other:home.example.com",
+        };
+
+        await InboundEventDispatcher.DispatchAsync(@event, _db, _bus, default);
+
+        Assert.That(_bus.Published, Is.Empty);
     }
 
     [Test]

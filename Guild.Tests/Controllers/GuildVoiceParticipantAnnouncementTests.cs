@@ -112,6 +112,11 @@ public class GuildVoiceParticipantAnnouncementTests
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
         await _context.SaveChangesAsync();
+
+        // Every CF action must act as a session the caller minted - CreateSession records this, and
+        // these tests call TracksNew directly. Without it a co-participant could act as anyone
+        // else's session, since session ids are handed to peers over SignalR by design.
+        _cache.SetEntry("guild-cf-session-owner:cf-publisher", PublisherId);
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -8,6 +8,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class ReactionForBotsHandlersTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
 
     [SetUp]
@@ -35,13 +36,13 @@ public class ReactionForBotsHandlersTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await ReactionCreatedForBotsHandler.Handle(
-            new ReactionCreatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1", Emoji = "👍" },
-            _context, registry);
+            new ReactionCreatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1", Emoji = "ðŸ‘" },
+            _context, registry, _visibility);
 
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(botUserId, Is.EqualTo("usr_bot1"));
         Assert.That(eventName, Is.EqualTo("MESSAGE_REACTION_ADD"));
-        Assert.That(data.GetProperty("emoji").GetProperty("name").GetString(), Is.EqualTo("👍"));
+        Assert.That(data.GetProperty("emoji").GetProperty("name").GetString(), Is.EqualTo("ðŸ‘"));
     }
 
     [Test]
@@ -51,8 +52,8 @@ public class ReactionForBotsHandlersTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await ReactionRemovedForBotsHandler.Handle(
-            new ReactionRemovedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1", Emoji = "👍" },
-            _context, registry);
+            new ReactionRemovedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1", Emoji = "ðŸ‘" },
+            _context, registry, _visibility);
 
         var (_, eventName, _) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(eventName, Is.EqualTo("MESSAGE_REACTION_REMOVE"));
@@ -64,8 +65,8 @@ public class ReactionForBotsHandlersTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await ReactionCreatedForBotsHandler.Handle(
-            new ReactionCreatedForBots { GuildId = "gld_unlinked", ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1", Emoji = "👍" },
-            _context, registry);
+            new ReactionCreatedForBots { GuildId = "gld_unlinked", ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1", Emoji = "ðŸ‘" },
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Is.Empty);
     }

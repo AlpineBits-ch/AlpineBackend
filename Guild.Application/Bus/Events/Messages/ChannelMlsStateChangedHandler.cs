@@ -30,7 +30,8 @@ public class ChannelMlsStateChangedHandler
         GuildHydrateService service,
         MicroserviceContext context,
         IDistributedCache cache,
-        ILogger<ChannelMlsStateChangedHandler> logger)
+        ILogger<ChannelMlsStateChangedHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -52,12 +53,14 @@ public class ChannelMlsStateChangedHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - see ChannelAudienceService.
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
 
         // Including the user who flipped the switch: their other devices did not make the request
         // and still need to hear about it.
         await hub.Clients
-            .Users(presence.Select(p => p.UserId))
+            .Users(viewerIds)
             .SendAsync("guild.ChannelMlsStateChanged", new
             {
                 channelId = message.ChannelId,

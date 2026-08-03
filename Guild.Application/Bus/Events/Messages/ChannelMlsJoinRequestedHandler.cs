@@ -27,7 +27,8 @@ public class ChannelMlsJoinRequestedHandler
         GuildHydrateService service,
         MicroserviceContext context,
         IDistributedCache cache,
-        ILogger<ChannelMlsJoinRequestedHandler> logger)
+        ILogger<ChannelMlsJoinRequestedHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -49,10 +50,13 @@ public class ChannelMlsJoinRequestedHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - see ChannelAudienceService.
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
+        var viewerIds = await audience.FilterToViewersAsync(
+            message.ChannelId, presence.Select(p => p.UserId).Except([message.RequesterUserId]));
 
         await hub.Clients
-            .Users(presence.Select(p => p.UserId).Except([message.RequesterUserId]))
+            .Users(viewerIds)
             .SendAsync("guild.ChannelMlsJoinRequested", new
             {
                 channelId = message.ChannelId,

@@ -55,13 +55,26 @@ public class PermissionOverwriteEndpointTests
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
     };
 
-    private async Task<Channel> SeedManagerAndChannel(Permissions managerPermissions = Permissions.ManagePermissions)
+    /// <param name="managerPermissions">
+    /// Includes SendMessages by default because an overwrite may only allow *or deny* bits the actor
+    /// holds itself - denying a permission you do not have is refused, same rule Discord applies.
+    /// </param>
+    private async Task<Channel> SeedManagerAndChannel(
+        Permissions managerPermissions = Permissions.ManagePermissions | Permissions.SendMessages)
     {
         _context.Guilds.Add(MakeGuild());
-        _context.Roles.Add(new Role { Id = ManagerRoleId, GuildId = GuildId, Name = "manager", Permissions = managerPermissions, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+
+        // Positions matter: writing an overwrite for a role/member now requires the actor to
+        // outrank it (CanManageRoleAsync / CanModerateTargetAsync), so the manager sits above the
+        // target rather than both defaulting to 0.
+        _context.Roles.Add(new Role { Id = ManagerRoleId, GuildId = GuildId, Name = "manager", Permissions = managerPermissions, Position = 10, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
         _context.GuildMembers.Add(new GuildMember { Id = ManagerMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         _context.RoleMembers.Add(new RoleMember { Id = "rm-manager", RoleId = ManagerRoleId, MemberId = ManagerMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
-        _context.Roles.Add(new Role { Id = TargetRoleId, GuildId = GuildId, Name = "target", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Roles.Add(new Role { Id = TargetRoleId, GuildId = GuildId, Name = "target", Position = 1, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+
+        // The overwrite target must be a real member of this guild - an overwrite may not reference
+        // a member (or role) from somewhere else.
+        _context.GuildMembers.Add(new GuildMember { Id = TargetMemberId, GuildId = GuildId, UserId = "user-target", JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"user-target#{GuildId}" });
 
         var channel = Channel.Create(new CreateChannelParams { Name = "general", Type = ChannelType.Text, GuildId = GuildId, Description = "d" });
         _context.Channels.Add(channel);
@@ -120,6 +133,49 @@ public class PermissionOverwriteEndpointTests
         var created = await _context.Set<ChannelPermission>().AsNoTracking().FirstAsync(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId);
         Assert.That(created.AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
         Assert.That(created.DenyPermissions, Is.EqualTo(Permissions.SendMessages));
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_DenyingAPermissionTheActorLacks_IsForbidden()
+    {
+        // Only AllowPermissions used to be clamped. A deny is just as much an exercise of a
+        // permission as a grant: with it unchecked, a junior holding nothing but ManagePermissions
+        // could write an overwrite denying ViewChannel/SendMessages to roles far above their own,
+        // hiding channels from and silencing senior staff.
+        var channel = await SeedManagerAndChannel(Permissions.ManagePermissions);
+        var dto = new SetPermissionOverwriteDto { DenyPermissions = Permissions.SendMessages };
+
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(evt, Is.Null);
+            Assert.That(_context.Set<ChannelPermission>().Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task SetChannelRoleOverwrite_TargetRoleOutranksActor_IsForbidden()
+    {
+        // No rank check existed at all, so a low-positioned ManagePermissions holder could rewrite
+        // the overwrites of roles above their own.
+        var channel = await SeedManagerAndChannel();
+
+        var senior = await _context.Roles.FirstAsync(r => r.Id == TargetRoleId);
+        senior.Position = 99;
+        await _context.SaveChangesAsync();
+
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(
+            channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(evt, Is.Null);
+        });
     }
 
     [Test]

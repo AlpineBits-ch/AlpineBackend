@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using AppEnvironment;
+using Echo.Docs;
 using Echo.Persistence;
 using Echo.Persistence.Persistance;
 using Echo.Proxy;
@@ -148,6 +149,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddHttpClient();
+builder.Services.AddVentaDocs();
 
 builder.Services.AddScoped<IGitHubClient>(s =>
 {
@@ -180,6 +182,12 @@ app.UseAuthorization();
 // the reverse proxy so YARP's catch-all routes don't swallow the hub path.
 app.MapHub<EchoRealtimeHub>("/api/v1/ws/hub");
 app.MapControllers();
+
+// Documentation site. Mapped before the reverse proxy for the same reason the hub is: YARP's
+// catch-all routes would otherwise swallow it. Reachable only on the docs host - there is no
+// docs surface on the API host.
+app.MapVentaDocs();
+
 app.MapReverseProxy();
 app.UseGracefulShutdownHealthCheck();
 

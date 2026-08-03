@@ -1,4 +1,4 @@
-﻿
+
 using AppEnvironment;
 using Federation.Application;
 using Federation.Application.Security;
@@ -158,10 +158,10 @@ app.MapControllers();
 
 app.MapHealthChecks("/federation/health");
 app.MapWolverineEndpoints();
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+// The gateway's docs aggregator fetches this to build the public reference, so it can no longer be
+// Development-only. Not publicly reachable: the proxy only forwards /api/v1/{service}/**, so
+// nothing routes to /internal from outside.
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 
 app.UseHttpsRedirection();
 

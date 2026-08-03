@@ -141,6 +141,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Federation.Contracts", "Fed
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Ids", "Ids\Ids.csproj", "{8EE7ABAA-B003-40D8-93CD-DCF1AC9F86E4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Docs.Generator", "Docs.Generator\Docs.Generator.csproj", "{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -811,6 +813,18 @@ Global
 		{8EE7ABAA-B003-40D8-93CD-DCF1AC9F86E4}.Release|x64.Build.0 = Release|Any CPU
 		{8EE7ABAA-B003-40D8-93CD-DCF1AC9F86E4}.Release|x86.ActiveCfg = Release|Any CPU
 		{8EE7ABAA-B003-40D8-93CD-DCF1AC9F86E4}.Release|x86.Build.0 = Release|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Debug|x64.Build.0 = Debug|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Debug|x86.Build.0 = Debug|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Release|x64.ActiveCfg = Release|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Release|x64.Build.0 = Release|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Release|x86.ActiveCfg = Release|Any CPU
+		{1DAF0EAA-287D-40FB-AC65-EB8F687BEA82}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

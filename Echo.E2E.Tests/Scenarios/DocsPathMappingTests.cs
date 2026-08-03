@@ -118,6 +118,68 @@ public class DocsPathMappingTests
         });
     }
 
+    // ── The docs hostname ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The docs site is a sibling of the API, not a child of it.
+    ///
+    /// <para>venta.gg runs its gateway on <c>api.venta.gg</c>. Prefixing <c>docs.</c> produced
+    /// <c>docs.api.venta.gg</c> - a hostname with no DNS - so every request to the real
+    /// <c>docs.venta.gg</c> reached the gateway and fell through to an empty 404.</para>
+    /// </summary>
+    [TestCase("https://api.venta.gg", "docs.venta.gg")]
+    [TestCase("https://chat.example.com", "docs.example.com")]
+    [TestCase("https://venta.gg", "docs.venta.gg")]
+    [TestCase("https://example.com", "docs.example.com")]
+    [TestCase("http://localhost:8080", "docs.localhost")]
+    [TestCase("https://docs.venta.gg", "docs.venta.gg")]
+    public void The_docs_host_is_derived_as_a_sibling_of_the_instance(string instanceUrl, string expected)
+    {
+        Assert.That(DocsEndpoints.DeriveFrom(instanceUrl), Is.EqualTo(expected));
+    }
+
+    /// <summary>An IP-addressed instance has no domain to derive a sibling from.</summary>
+    [TestCase("http://192.168.1.10:8080", "docs.192.168.1.10")]
+    public void An_ip_instance_gets_a_prefix_rather_than_a_mangled_label(string instanceUrl, string expected)
+    {
+        Assert.That(DocsEndpoints.DeriveFrom(instanceUrl), Is.EqualTo(expected));
+    }
+
+    /// <summary>
+    /// DOCS_DOMAIN is compared against <c>Request.Host.Host</c>, which carries no scheme, port or
+    /// path - so a value written as a URL has to be reduced rather than matched literally, or it
+    /// 404s exactly like leaving it unset.
+    /// </summary>
+    [TestCase("docs.venta.gg", "docs.venta.gg")]
+    [TestCase("https://docs.venta.gg", "docs.venta.gg")]
+    [TestCase("https://docs.venta.gg/", "docs.venta.gg")]
+    [TestCase("http://docs.venta.gg:8080", "docs.venta.gg")]
+    [TestCase("docs.venta.gg/", "docs.venta.gg")]
+    [TestCase("docs.venta.gg:8080", "docs.venta.gg")]
+    [TestCase("  Docs.Venta.GG  ", "docs.venta.gg")]
+    public void A_docs_domain_written_as_a_url_is_reduced_to_its_hostname(string configured, string expected)
+    {
+        Assert.That(DocsEndpoints.Normalise(configured), Is.EqualTo(expected));
+    }
+
+    /// <summary>An unset or blank value must fall through to the derivation, not bind to "".</summary>
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("   ")]
+    public void A_blank_docs_domain_falls_through_to_the_derivation(string? configured)
+    {
+        Assert.That(DocsEndpoints.Normalise(configured), Is.Null);
+    }
+
+    /// <summary>A broken INSTANCE_URL must not stop the gateway from starting.</summary>
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("not-a-url")]
+    public void A_malformed_instance_url_falls_back_instead_of_throwing(string? instanceUrl)
+    {
+        Assert.That(DocsEndpoints.DeriveFrom(instanceUrl), Is.EqualTo("docs.localhost"));
+    }
+
     /// <summary>Each rewriting service must actually have the proxy route the mapping assumes.</summary>
     [Test]
     public void Every_rewrite_prefix_has_a_matching_proxy_route()

@@ -88,7 +88,7 @@ public sealed class SessionDeviceResolver(MicroserviceContext ctx)
     }
 
     /// <summary>Whether a row is one nobody has ever been.</summary>
-    private async Task<bool> IsAdoptableAsync(UserDevice device)
+    public async Task<bool> IsAdoptableAsync(UserDevice device)
     {
         // Created by the request that is asking.
         if (ctx.Entry(device).State == EntityState.Added) return true;

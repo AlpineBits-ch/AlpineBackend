@@ -2,27 +2,19 @@ using Microsoft.Extensions.Caching.Distributed;
 
 namespace Identity.Application.Services;
 
-/// <summary>Mirrors VerificationCodeService's "reuse an existing still-valid code" pattern -
-/// same reasoning applies here: a resend click or a redelivered request must not invalidate a
-/// code the user already has open in their inbox (see project memory on the verification-code
-/// overwrite race this codebase hit previously).</summary>
+/// <summary>Password-reset codes.</summary>
 public static class PasswordResetCodeService
 {
-    public static async Task<string> GetOrCreateCodeAsync(IDistributedCache cache, string email)
-    {
-        var key = $"password_reset_code:{email}";
+    public static readonly TimeSpan Ttl = TimeSpan.FromMinutes(15);
 
-        var existingCode = await cache.GetStringAsync(key);
-        if (existingCode != null) return existingCode;
+    private static string Key(string email) => $"password_reset_code:{email}";
 
-        var code = Guid.NewGuid().ToString("N").Substring(0, 6);
-        await cache.SetStringAsync(key, code, new DistributedCacheEntryOptions
-        {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15)
-        });
-        return code;
-    }
+    public static Task<string> GetOrCreateCodeAsync(IDistributedCache cache, string email) =>
+        OneTimeCodeService.GetOrCreateCodeAsync(cache, Key(email), Ttl);
+
+    public static Task<OneTimeCodeResult> ValidateAsync(IDistributedCache cache, string email, string? submittedCode) =>
+        OneTimeCodeService.ValidateAsync(cache, Key(email), submittedCode, Ttl);
 
     public static Task RemoveAsync(IDistributedCache cache, string email) =>
-        cache.RemoveAsync($"password_reset_code:{email}");
+        OneTimeCodeService.RemoveAsync(cache, Key(email));
 }

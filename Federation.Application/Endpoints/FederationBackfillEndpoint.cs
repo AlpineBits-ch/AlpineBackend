@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Federation.Application.Dtos.Events;
+using Federation.Application.Security;
 using Federation.Domain.Events;
 using Federation.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
@@ -19,16 +20,27 @@ public class FederationBackfillEndpoint
     [WolverineGet("api/v1/federation/events/{scopeKey}/backfill")]
     public static async Task<IResult> BackfillAsync(
         string scopeKey,
-        [FromHeader(Name = "X-Federated-Host")] string? callerHost,
+        [FromHeader(Name = FederationRequestSignature.HostHeader)] string? callerHost,
+        [FromHeader(Name = FederationRequestSignature.TimestampHeader)] string? timestamp,
+        [FromHeader(Name = FederationRequestSignature.SignatureHeader)] string? signature,
         MicroserviceContext db,
+        ILogger<FederationBackfillEndpoint> logger,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(callerHost))
-            return Results.BadRequest("X-Federated-Host header is required.");
+            return Results.BadRequest($"{FederationRequestSignature.HostHeader} header is required.");
 
         var caller = await db.FederationInstances.FirstOrDefaultAsync(i => i.Host == callerHost, cancellationToken);
         if (caller is null || caller.Status != FederationStatus.Active)
             return Results.Forbid();
+
+        if (!FederationRequestSignature.Verify(caller, scopeKey, timestamp, signature))
+        {
+            logger.LogWarning(
+                "Rejected backfill for scope {ScopeKey}: bad or missing signature for claimed host {Host}.",
+                scopeKey, callerHost);
+            return Results.Forbid();
+        }
 
         var records = await db.FederatedEvents
             .Where(e => e.ScopeKey == scopeKey && e.Applied)

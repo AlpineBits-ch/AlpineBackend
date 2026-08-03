@@ -115,6 +115,13 @@ public class MemberEndpoint
         var ban = await ctx.Set<GuildBan>().FirstOrDefaultAsync(b => b.GuildId == guildId && b.BannedUserId == bannedUserId);
         if (ban is null) return Results.NotFound();
 
+        // Hierarchy applies to lifting a ban as well as issuing one - see UnmuteMemberAsync.
+        if (ban.BannedByUserId != userId &&
+            !await permissionService.CanModerateTargetAsync(userId, ban.BannedByUserId, guildId))
+        {
+            return Results.Forbid();
+        }
+
         ctx.Set<GuildBan>().Remove(ban);
 
         auditLog.Log(guildId, userId, AuditActionType.MemberUnbanned, bannedUserId);
@@ -228,6 +235,10 @@ public class MemberEndpoint
 
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
         if (member is null) return Results.NotFound();
+
+        // Same hierarchy rule as mute/kick/ban/nickname, which this method was alone in omitting.
+        if (!await permissionService.CanModerateTargetAsync(userId, member.UserId, guildId))
+            return Results.Forbid();
 
         member.MutedUntil = null;
 

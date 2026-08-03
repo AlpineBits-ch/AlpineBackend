@@ -1,3 +1,4 @@
+using Guild.Application.Services;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Guild.Domain.Enums;
@@ -8,7 +9,10 @@ namespace Guild.Application.Bus.Consumers;
 
 public class GetGuildSnapshotForBotHandler
 {
-    public static async Task<GetGuildSnapshotForBotResponse> Handle(GetGuildSnapshotForBotRequest request, MicroserviceContext ctx)
+    public static async Task<GetGuildSnapshotForBotResponse> Handle(
+        GetGuildSnapshotForBotRequest request,
+        MicroserviceContext ctx,
+        GuildPermissionService permissionService)
     {
         var guild = await ctx.Guilds
             .AsNoTracking()
@@ -30,6 +34,9 @@ public class GetGuildSnapshotForBotHandler
                 CategoryId = c.CategoryId,
             })
             .ToListAsync();
+
+        // This snapshot is the bot's GUILD_CREATE hydration burst.
+        channels = await FilterVisibleChannelsAsync(permissionService, request.BotUserId, channels);
 
         var roles = await ctx.Roles
             .AsNoTracking()
@@ -71,5 +78,23 @@ public class GetGuildSnapshotForBotHandler
                 Self = self,
             },
         };
+    }
+
+    /// <summary>Keeps only the channels the bot holds ViewChannel on.</summary>
+    private static async Task<List<ChannelSnapshot>> FilterVisibleChannelsAsync(
+        GuildPermissionService permissionService,
+        string botUserId,
+        List<ChannelSnapshot> channels)
+    {
+        if (channels.Count == 0 || string.IsNullOrWhiteSpace(botUserId)) return channels;
+
+        var visible = new List<ChannelSnapshot>(channels.Count);
+        foreach (var channel in channels)
+        {
+            if (await permissionService.CanUserPerformActionAsync(botUserId, channel.Id, Permissions.ViewChannel))
+                visible.Add(channel);
+        }
+
+        return visible;
     }
 }

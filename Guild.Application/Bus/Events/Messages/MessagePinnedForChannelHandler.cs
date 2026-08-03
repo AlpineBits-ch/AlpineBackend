@@ -18,7 +18,8 @@ public class MessagePinnedForChannelHandler
     private string GetChannelKey(string channelId) => $"channel:{channelId}:guild";
 
     public async Task Handle(MessagePinnedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, AuditLogService auditLog, ILogger<MessagePinnedForChannelHandler> logger)
+        MicroserviceContext context, IDistributedCache cache, AuditLogService auditLog, ILogger<MessagePinnedForChannelHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var guildId = await cache.GetStringAsync(channelKey);
@@ -34,8 +35,10 @@ public class MessagePinnedForChannelHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - see ChannelAudienceService.
         var presence = await service.GetGuildPresenceAsync(guildId);
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.MessagePinned", message);
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
+        await hub.Clients.Users(viewerIds).SendAsync("guild.MessagePinned", message);
 
         auditLog.Log(guildId, message.PinnedById, AuditActionType.MessagePinned, message.MessageId,
             new { message.ChannelId });
@@ -47,7 +50,8 @@ public class MessageUnpinnedForChannelHandler
     private string GetChannelKey(string channelId) => $"channel:{channelId}:guild";
 
     public async Task Handle(MessageUnpinnedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, AuditLogService auditLog, ILogger<MessageUnpinnedForChannelHandler> logger)
+        MicroserviceContext context, IDistributedCache cache, AuditLogService auditLog, ILogger<MessageUnpinnedForChannelHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var guildId = await cache.GetStringAsync(channelKey);
@@ -63,8 +67,10 @@ public class MessageUnpinnedForChannelHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - see ChannelAudienceService.
         var presence = await service.GetGuildPresenceAsync(guildId);
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.MessageUnpinned", message);
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
+        await hub.Clients.Users(viewerIds).SendAsync("guild.MessageUnpinned", message);
 
         auditLog.Log(guildId, message.UnpinnedById, AuditActionType.MessageUnpinned, message.MessageId,
             new { message.ChannelId });

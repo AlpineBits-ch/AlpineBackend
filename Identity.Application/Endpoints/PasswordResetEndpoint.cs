@@ -8,6 +8,7 @@ using Identity.Infrastructure.Persistence;
 using Messaging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Wolverine.Http;
@@ -65,8 +66,16 @@ public class PasswordResetEndpoint
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
         if (user?.Email is null) return Results.BadRequest("Invalid code");
 
-        var expectedCode = await cache.GetStringAsync($"password_reset_code:{user.Email}");
-        if (expectedCode is null || expectedCode != dto.Code) return Results.BadRequest("Invalid or expired code");
+        // Counts the attempt and destroys the code after too many wrong guesses - a wrong answer
+        // used to leave the code intact for its whole 15-minute life, so it could be guessed
+        // indefinitely.
+        var codeResult = await PasswordResetCodeService.ValidateAsync(cache, user.Email, dto.Code);
+        if (codeResult != OneTimeCodeResult.Valid)
+        {
+            return codeResult == OneTimeCodeResult.TooManyAttempts
+                ? Results.BadRequest("Too many incorrect attempts - request a new code.")
+                : Results.BadRequest("Invalid or expired code");
+        }
 
         // Our short code is the client-facing secret; Identity's own reset token is generated and
         // consumed entirely server-side in the same request so we still go through UserManager's
@@ -82,7 +91,28 @@ public class PasswordResetEndpoint
             });
         }
 
+        // ValidateAsync already consumed the code on success; this is belt-and-braces for the
+        // case where the reset itself failed validation above and the caller retries.
         await PasswordResetCodeService.RemoveAsync(cache, user.Email);
+
+        // Evict every existing session.
+        var activeSessions = await ctx.LoginSessions
+            .Where(s => s.UserId == user.Id && s.RevokedAt == null)
+            .ToListAsync();
+
+        foreach (var session in activeSessions) session.Revoke();
+
+        if (activeSessions.Count > 0)
+        {
+            ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
+            {
+                UserId = user.Id,
+                Action = IdentityAuditActions.SessionsRevoked,
+                Detail = $"password reset revoked {activeSessions.Count} active session(s)",
+            }));
+        }
+
+        await ctx.SaveChangesAsync();
 
         // The reset just made the password wrapping of the master key undecryptable: it is sealed
         // under Argon2(old password), and a reset is by definition the case where the user no

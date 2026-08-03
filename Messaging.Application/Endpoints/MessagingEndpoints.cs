@@ -37,6 +37,10 @@ public class MessagingEndpoints
 
         if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
 
+        // The two ids are mutually exclusive, and that has to be enforced rather than assumed.
+        if (!string.IsNullOrWhiteSpace(dto.ConversationId) && !string.IsNullOrWhiteSpace(dto.ChannelId))
+            return (Results.BadRequest("Specify either channelId or conversationId, not both."), null);
+
         // Authoritative copies of the client's mention flags.
         var mentionsEveryone = dto.MentionsEveryone;
         var mentionsHere = dto.MentionsHere;

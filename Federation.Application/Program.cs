@@ -1,6 +1,8 @@
 ﻿
 using AppEnvironment;
 using Federation.Application;
+using Federation.Application.Security;
+using Microsoft.AspNetCore.Authorization;
 using Federation.Application.Dtos.Events;
 using Federation.Application.Messages;
 using Federation.Application.Providers;
@@ -63,7 +65,24 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = false,
         };
     });
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(FederationPolicies.InstanceAdmin, policy =>
+        policy.RequireAuthenticatedUser().AddRequirements(new InstanceAdminRequirement()));
+});
+builder.Services.AddScoped<IAuthorizationHandler, InstanceAdminHandler>();
+
 builder.Services.AddHttpClient();
+
+// The handshake target is caller-supplied, so this client refuses redirects and IP-checks every
+// connection (see FederationTargetGuard).
+var allowPrivateFederationTargets = !builder.Environment.IsProduction();
+builder.Services.AddHttpClient(FederationHttpClients.Handshake)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        AllowAutoRedirect = false,
+        ConnectCallback = FederationTargetGuard.CreateConnectCallback(allowPrivateFederationTargets),
+    });
 
 
 
@@ -125,6 +144,12 @@ app.UseGracefulShutdownHealthCheck();
 app.UseInfrastructure();
 
 app.UseCors("AlpinePolicy");
+
+// Explicit rather than relying on WebApplication's auto-insertion: the federation admin surface
+// now depends on an authorization policy, and that dependency should not rest on inferred wiring.
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapControllers();
 
 app.MapHealthChecks("/federation/health");

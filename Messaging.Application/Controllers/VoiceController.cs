@@ -236,6 +236,12 @@ public class VoiceController(
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if(string.IsNullOrWhiteSpace(userId)) return BadRequest();
 
+        // Call.End() is unconditional, and unlike Accept/Decline/Leave - which each resolve the
+        // caller's own participant row and no-op for a stranger - nothing here tied the caller to
+        // the call.
+        var existing = await callStore.LoadAsync<Call>(Call.GetCacheId(callId));
+        if (existing is null || !existing.IsParticipant(userId)) return NotFound();
+
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
             c => c.End(CallEndReason.UserEnded), CacheOptions);

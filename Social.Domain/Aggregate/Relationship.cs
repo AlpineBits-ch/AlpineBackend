@@ -65,22 +65,34 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
     }
 
 
-    /// <summary>Transitions this side of the pair to Friends.</summary>
+    /// <summary>Accepts an inbound friend request.</summary>
     /// <returns>True if this call actually changed the status.</returns>
     public bool Accept()
     {
-        if (this.Status is not (RelationshipStatus.PendingIncoming or RelationshipStatus.PendingOutgoing))
+        if (this.Status != RelationshipStatus.PendingIncoming)
             return false;
 
-        if (this.Status == RelationshipStatus.PendingIncoming)
+        this.AddDomainEvent(new FriendRequestAccepted()
         {
-            this.AddDomainEvent(new FriendRequestAccepted()
-            {
-                TargetProfileId = this.OwnerId,
-                InitiatorProfileId = this.TargetId,
-                RelationshipId = this.Id
-            });
-        }
+            TargetProfileId = this.OwnerId,
+            InitiatorProfileId = this.TargetId,
+            RelationshipId = this.Id
+        });
+
+        this.Status = RelationshipStatus.Friends;
+        return true;
+    }
+
+    /// <summary>
+    /// Flips the initiator's mirrored PendingOutgoing row once the recipient has accepted via <see
+    /// cref="Accept"/>.
+    /// </summary>
+    /// <returns>True if this call actually changed the status.</returns>
+    public bool AcceptCounterpart()
+    {
+        if (this.Status != RelationshipStatus.PendingOutgoing)
+            return false;
+
         this.Status = RelationshipStatus.Friends;
         return true;
     }

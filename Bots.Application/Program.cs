@@ -36,6 +36,9 @@ builder.Services.AddSingleton<GatewayConnectionRegistry>();
 builder.Services.AddScoped<GatewayHandshakeService>();
 builder.Services.AddSingleton<PendingInteractionStore>();
 
+// Keeps the gateway's per-channel permission filtering off the per-message hot path.
+builder.Services.AddScoped<IBotChannelVisibility, BotChannelVisibility>();
+
 // Ephemeral interaction responses are pushed straight to the invoking user rather than stored as
 // messages, so this service needs to reach the realtime hub the same way Guild and Messaging do -
 // same backplane, so the hub itself still lives only on the gateway.

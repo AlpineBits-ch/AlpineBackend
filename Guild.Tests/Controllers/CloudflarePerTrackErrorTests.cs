@@ -4,6 +4,9 @@ using Echo.Realtime.Caching;
 using Echo.Realtime.Sfu;
 using Guild.Application.Controllers;
 using Guild.Application.Services;
+using Guild.Domain.Aggregates;
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
 using Guild.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -175,17 +178,51 @@ public class CloudflarePerTrackErrorTests
 
     // ── Fixture plumbing ──────────────────────────────────────────────────────
 
-    /// <summary>Subscribe-only body: all tracks remote, so it takes the retry path and touches no
-    /// permission check or cached voice state.</summary>
+    /// <summary>Subscribe-only body: all tracks remote, so it takes the retry path.</summary>
     private static GuildTracksNewBody SubscribeBody() => new(
         "cf-local-session",
         new CfSessionDescription("offer", "v=0"),
         [new CfTrackNew("remote", SessionId: "cf-remote-session", TrackName: "audio")]);
 
+    /// <summary>
+    /// A subscribe is media access, so TracksNew now requires Connect on the channel and requires
+    /// the acting session to be one the caller minted.
+    /// </summary>
     private GuildCloudflareController BuildController(CloudflareService? cfService = null)
     {
         var context = new TestGuildContext(Guid.NewGuid().ToString());
         var cache = new FakeDistributedCache();
+
+        context.Guilds.Add(new Guild.Domain.Aggregates.Guild
+        {
+            Id = GuildId, OwnerId = "owner-1", Name = "Test Guild",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        context.Channels.Add(new Channel
+        {
+            Id = ChannelId, GuildId = GuildId, Name = "voice", Description = "d", Type = ChannelType.Voice,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        context.Roles.Add(new Role
+        {
+            Id = "role-connect", GuildId = GuildId, Name = "connect", Permissions = Permissions.Connect,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        context.GuildMembers.Add(new GuildMember
+        {
+            Id = "member-1", GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}",
+        });
+        context.RoleMembers.Add(new RoleMember
+        {
+            Id = "rm-1", RoleId = "role-connect", MemberId = "member-1",
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        context.SaveChanges();
+
+        // The session the body acts as has to belong to this caller.
+        cache.SetEntry("guild-cf-session-owner:cf-local-session", UserId);
+
         return new GuildCloudflareController(
             cfService ?? _cfService,
             new GuildPermissionService(cache, context, NullLogger<GuildPermissionService>.Instance),

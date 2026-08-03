@@ -128,6 +128,11 @@ builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddScoped<GuildHydrateService>();
 builder.Services.AddScoped<GuildPermissionService>();
+
+// Backs ChannelAudienceService's per-(channel,user) memo, which keeps the realtime handlers'
+// new ViewChannel filtering off the per-message hot path.
+builder.Services.AddMemoryCache();
+builder.Services.AddScoped<ChannelAudienceService>();
 builder.Services.AddScoped<GuildThumbnailService>();
 builder.Services.AddScoped<GuildEmojiService>();
 builder.Services.AddScoped<AuditLogService>();

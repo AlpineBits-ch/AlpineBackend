@@ -150,6 +150,15 @@ public class RoleEndpoint()
         var canManageRole = await permissionService.CanManageRoleAsync(userId, role.GuildId, roleId);
         if (!canManageRole) return (Results.Forbid(), null);
 
+        // The member must belong to the same guild as the role.
+        var memberGuildId = await ctx.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.Id == memberId)
+            .Select(m => m.GuildId)
+            .FirstOrDefaultAsync();
+
+        if (memberGuildId is null || memberGuildId != role.GuildId) return (Results.NotFound(), null);
+
         auditLog.Log(role.GuildId, userId, AuditActionType.RoleUpdated, roleId, new { Action = "MemberAdded", MemberId = memberId });
 
         var created = DateTime.UtcNow;

@@ -35,9 +35,22 @@ public class InvokeCommandDto
 [Authorize]
 public class BotCommandEndpoint
 {
+    /// <summary>Requires the caller to be able to see the guild.</summary>
     [WolverineGet("/api/v1/guilds/{guildId}/commands")]
-    public async Task<IResult> GetCommandsForGuildAsync(string guildId, [NotBody] MicroserviceContext ctx)
+    public async Task<IResult> GetCommandsForGuildAsync(string guildId, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)
     {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var permission = await bus.InvokeAsync<HasUserPermissionToGuildResponse>(new HasUserPermissionToGuildRequest
+        {
+            GuildId = guildId,
+            UserId = userId,
+            Permission = ExternalPermission.ViewChannel,
+        });
+        if (!permission.IsAllowed) return Results.Forbid();
+
         var appIds = await ctx.BotInstallations.AsNoTracking()
             .Where(i => i.GuildId == guildId)
             .Select(i => i.BotApplicationId)

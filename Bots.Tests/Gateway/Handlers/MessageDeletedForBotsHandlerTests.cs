@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -8,6 +8,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class MessageDeletedForBotsHandlerTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
 
     [SetUp]
@@ -34,7 +35,7 @@ public class MessageDeletedForBotsHandlerTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await MessageDeletedForBotsHandler.Handle(
-            new MessageDeletedForBots { GuildId = "gld_unlinked", ChannelId = "ch_1", MessageId = "m1" }, _context, registry);
+            new MessageDeletedForBots { GuildId = "gld_unlinked", ChannelId = "ch_1", MessageId = "m1" }, _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Is.Empty);
     }
@@ -46,7 +47,7 @@ public class MessageDeletedForBotsHandlerTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await MessageDeletedForBotsHandler.Handle(
-            new MessageDeletedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1" }, _context, registry);
+            new MessageDeletedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1" }, _context, registry, _visibility);
 
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.Multiple(() =>
@@ -67,7 +68,7 @@ public class MessageDeletedForBotsHandlerTests
         var (registry, subscriber) = GatewayRegistryTestFactory.Create();
 
         await MessageDeletedForBotsHandler.Handle(
-            new MessageDeletedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1" }, _context, registry);
+            new MessageDeletedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1" }, _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Has.Count.EqualTo(2));
     }

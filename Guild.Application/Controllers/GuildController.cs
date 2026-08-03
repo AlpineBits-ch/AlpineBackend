@@ -47,6 +47,12 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         {
             return Unauthorized();
         }
+        // Membership is required.
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, id, Permissions.ViewChannel))
+        {
+            return Forbid();
+        }
+
         var guild = await ctx.Guilds
             .Include(g => g.Channels.OrderBy(c => c.CreatedAt))
             .Include(g => g.Roles.OrderBy(r => r.Position))
@@ -103,6 +109,12 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         if (userId == null)
         {
             return Unauthorized();
+        }
+
+        // Same gate its sibling .../members/search already applies.
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, id, Permissions.ViewChannel))
+        {
+            return Forbid();
         }
 
         var members = await ctx.GuildMembers
@@ -222,6 +234,12 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             return Unauthorized();
         }
 
+        // Same membership requirement as GetGuild - this is the same private channel list.
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewChannel))
+        {
+            return Forbid();
+        }
+
         var guild = await ctx.Guilds
             .Include(g => g.Channels.OrderBy(c => c.CreatedAt))
             .Include(g => g.Roles.OrderBy(r => r.Position))
@@ -231,7 +249,7 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         {
             return NotFound();
         }
-        var guildDto = guild.ToFacet<Domain.Aggregates.Guild, GuildDto>();        
+        var guildDto = guild.ToFacet<Domain.Aggregates.Guild, GuildDto>();
         return Ok(guildDto.Channels);
 
     }

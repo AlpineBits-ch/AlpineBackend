@@ -16,7 +16,8 @@ public class MessagesBulkDeletedForChannelHandler
 
     public async Task Handle(MessagesBulkDeletedForChannel message, MicroserviceContext context,
         IDistributedCache cache, IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrateService,
-        IMessageBus bus, ILogger<MessagesBulkDeletedForChannelHandler> logger)
+        IMessageBus bus, ILogger<MessagesBulkDeletedForChannelHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var guildId = await cache.GetStringAsync(channelKey);
@@ -37,8 +38,11 @@ public class MessagesBulkDeletedForChannelHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - see ChannelAudienceService.
         var presence = await hydrateService.GetGuildPresenceAsync(guildId);
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.MessagesBulkDeleted", new
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
+
+        await hub.Clients.Users(viewerIds).SendAsync("guild.MessagesBulkDeleted", new
         {
             GuildId = guildId,
             message.ChannelId,

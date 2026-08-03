@@ -39,6 +39,10 @@ public class VoiceCloudflareEndpointsTests
         _handler = new QueuedHttpMessageHandler();
         _cf = new CloudflareService(new FakeHttpClientFactory(_handler), NullLogger<CloudflareService>.Instance);
         _endpoint = new VoiceCloudflareEndpoints();
+
+        // Every CF action must act as a session the caller minted; CreateSession records this, and
+        // these tests call the other endpoints directly.
+        _tracks.RegisterSession(UserId, "cf-session");
     }
 
     [TearDown]
@@ -47,12 +51,23 @@ public class VoiceCloudflareEndpointsTests
     private static CfTrackNew LocalAudioTrack => new("local", Mid: "0", TrackName: "audio");
     private static CfSessionDescription Sdp => new("answer", "v=0 sdp-body");
 
+    /// <summary>
+    /// Makes <paramref name="sessionId"/> a pullable peer of the caller: registers its owner and
+    /// places both players in the same voice cell.
+    /// </summary>
+    private void SeedAudiblePeer(string peerId, string sessionId)
+    {
+        _tracks.RegisterSession(peerId, sessionId);
+        _cluster.MovePlayer(UserId, 0, 0, 0);
+        _cluster.MovePlayer(peerId, 1, 1, 0);
+    }
+
     // ── CreateSession ─────────────────────────────────────────────────────
 
     [Test]
     public async Task CreateSession_NoUserId_ReturnsUnauthorized()
     {
-        var result = await _endpoint.CreateSession(TestPrincipal.CreateAnonymous(), _cf, _registry, CancellationToken.None);
+        var result = await _endpoint.CreateSession(TestPrincipal.CreateAnonymous(), _cf, _registry, _tracks, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
@@ -60,7 +75,7 @@ public class VoiceCloudflareEndpointsTests
     [Test]
     public async Task CreateSession_NotYetJoinedVoice_ReturnsBadRequest()
     {
-        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, CancellationToken.None);
+        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, _tracks, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -71,7 +86,7 @@ public class VoiceCloudflareEndpointsTests
         await _registry.RegisterAsync(UserId, "steam-1");
         _handler.EnqueueJson(System.Net.HttpStatusCode.OK, """{"sessionId":"cf-session-123"}""");
 
-        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, CancellationToken.None);
+        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, _tracks, CancellationToken.None);
 
         var value = ((IValueHttpResult)result).Value!;
         Assert.That(GetProp<string>(value, "cfSessionId"), Is.EqualTo("cf-session-123"));
@@ -91,9 +106,52 @@ public class VoiceCloudflareEndpointsTests
     }
 
     [Test]
+    public async Task TracksNew_ActingAsSomeoneElsesSession_IsForbidden()
+    {
+        // A Cloudflare session id is a bearer capability over the whole CF app, and proximity voice
+        // hands peers each other's ids on first earshot - so ownership has to be checked server-side.
+        _tracks.RegisterSession("someone-else", "victim-session");
+        var body = new IsleTracksNewBody("victim-session", Sdp, [LocalAudioTrack]);
+
+        var result = await _endpoint.TracksNew(
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(_handler.Requests, Is.Empty, "nothing may reach Cloudflare on a foreign session");
+        });
+    }
+
+    [Test]
+    public async Task TracksNew_SubscribingToAPeerWhoIsNoLongerAudible_IsForbidden()
+    {
+        // Proximity is the entire access-control boundary of positional voice, and it used to be
+        // enforced only by the client honouring isle.PeerLeft: the peer's session id is disclosed on
+        // first earshot and never rotated, so one encounter bought the ability to keep listening
+        // from anywhere on the map, indefinitely.
+        _tracks.RegisterSession("far-away-peer", "far-session");
+        _cluster.MovePlayer(UserId, 0, 0, 0);
+        _cluster.MovePlayer("far-away-peer", 100_000, 100_000, 0);
+
+        var body = new IsleTracksNewBody(
+            "cf-session", Sdp, [new CfTrackNew("remote", SessionId: "far-session", TrackName: "audio")]);
+
+        var result = await _endpoint.TracksNew(
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(_handler.Requests, Is.Empty, "an out-of-earshot pull must never reach Cloudflare");
+        });
+    }
+
+    [Test]
     public async Task TracksNew_NoLocalAudioTrack_DoesNotPublishOrSubscribeButStillReturnsCloudflareResult()
     {
         var remoteTrack = new CfTrackNew("remote", SessionId: "peer-session", TrackName: "audio");
+        SeedAudiblePeer("peer-1", "peer-session");
         QueueTracksNewResponse();
         var body = new IsleTracksNewBody("cf-session", Sdp, [remoteTrack]);
 
@@ -188,6 +246,7 @@ public class VoiceCloudflareEndpointsTests
         // The point of the retry: VoiceSubscriptionReconcileService marks a pair as pushed once it
         // has sent SubscribeMutual, regardless of what the client made of it, so a subscribe that
         // fails here is not re-driven while both peers stay in earshot.
+        SeedAudiblePeer("peer-1", "cf-peer-session");
         _handler.EnqueueJson(System.Net.HttpStatusCode.OK, PerTrackErrorBody);
         _handler.EnqueueJson(System.Net.HttpStatusCode.OK, HealthySubscribeBody);
         var body = new IsleTracksNewBody("cf-session", Sdp, [RemoteAudioTrack]);
@@ -206,6 +265,7 @@ public class VoiceCloudflareEndpointsTests
     [Test]
     public void TracksNew_SubscribeThatKeepsFailing_GivesUpAndThrowsRatherThanReportingSuccess()
     {
+        SeedAudiblePeer("peer-1", "cf-peer-session");
         _handler.EnqueueJson(System.Net.HttpStatusCode.OK, PerTrackErrorBody);
         var body = new IsleTracksNewBody("cf-session", Sdp, [RemoteAudioTrack]);
 
@@ -245,7 +305,7 @@ public class VoiceCloudflareEndpointsTests
         _handler.EnqueueJson(System.Net.HttpStatusCode.OK, """{"sessionDescription":{"type":"answer","sdp":"v=0 renegotiated"}}""");
         var body = new IsleRenegotiateBody("cf-session", Sdp);
 
-        var result = await _endpoint.Renegotiate(body, _cf, CancellationToken.None);
+        var result = await _endpoint.Renegotiate(body, TestPrincipal.Create(UserId), _cf, _tracks, CancellationToken.None);
 
         var value = (CfRenegotiateResponse)((IValueHttpResult)result).Value!;
         Assert.That(value.SessionDescription.Sdp, Is.EqualTo("v=0 renegotiated"));

@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using Bots.Contracts.Gateway.Payloads;
 using Bots.Infrastructure.Persistence;
@@ -17,9 +17,9 @@ namespace Bots.Application.Gateway.Handlers;
 public class MessageUpdatedForBotsHandler
 {
     public static async Task Handle(MessageUpdatedForBots message, MicroserviceContext ctx, GatewayConnectionRegistry registry,
-        IMessageBus bus)
+        IMessageBus bus, IBotChannelVisibility visibility)
     {
-        var botUserIds = await InstalledBotsLookup.GetBotUserIdsInGuildAsync(ctx, message.GuildId);
+        var botUserIds = await InstalledBotsLookup.GetBotUserIdsForChannelAsync(ctx, visibility, message.GuildId, message.ChannelId);
         if (botUserIds.Count == 0) return;
 
         var authorResponse = await bus.InvokeAsync<GetUserByIdResponse>(new GetUserByIdRequest { UserId = message.AuthorId });

@@ -16,6 +16,7 @@ namespace Guild.Application.Controllers;
 
 // MVC-style controller (matches GuildIconController) rather than Wolverine-HTTP, since emoji
 // creation needs a multipart form upload (name + animated flag + image file) in one request.
+[Authorize]
 [ApiController]
 [Route("api/v1/guilds/{guildId}/emojis")]
 public class GuildEmojiController(

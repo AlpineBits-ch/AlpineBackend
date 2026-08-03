@@ -67,20 +67,29 @@ public class AuthenticationController(
             });
         }
 
-        await manager.UpdateSecurityStampAsync(user);
-
-        if ((await passwords.CheckAsync(user, request.Password)).IsOk())
+        // The security stamp is NOT rotated here.
+        if (!(await passwords.CheckAsync(user, request.Password)).IsOk())
         {
-            var principal = await signInManager.CreateUserPrincipalAsync(user);
-            return SignIn(principal: principal,
-                authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+            return Ok(new LoginWithEmailAndPasswordResponse()
+            {
+                Failures = new List<ValidationFailure>
+                    { new ValidationFailure("Email", "Email or password is incorrect") }
+            });
         }
 
-        return Ok(new LoginWithEmailAndPasswordResponse()
+        // Same gates /connect/token applies.
+        if (!user.IsSigninAllowed() || user.EmailVerifiedAt is null || user.TwoFactorEnabled)
         {
-            Failures = new List<ValidationFailure>
-                { new ValidationFailure("Email", "Email or password is incorrect") }
-        });
+            return Ok(new LoginWithEmailAndPasswordResponse()
+            {
+                Failures = new List<ValidationFailure>
+                    { new ValidationFailure("Email", "Use /connect/token to sign in to this account.") }
+            });
+        }
+
+        var principal = await signInManager.CreateUserPrincipalAsync(user);
+        return SignIn(principal: principal,
+            authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
     [HttpPost("register")]

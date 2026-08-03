@@ -12,4 +12,20 @@ public static class InstalledBotsLookup
             .Where(i => i.GuildId == guildId)
             .Join(ctx.BotApplications.AsNoTracking(), i => i.BotApplicationId, a => a.Id, (_, a) => a.BotUserId)
             .ToListAsync();
+
+    /// <summary>
+    /// Installed bots, narrowed to those that may actually see <paramref name="channelId"/>.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>> GetBotUserIdsForChannelAsync(
+        MicroserviceContext ctx,
+        IBotChannelVisibility visibility,
+        string guildId,
+        string? channelId)
+    {
+        var installed = await GetBotUserIdsInGuildAsync(ctx, guildId);
+        if (installed.Count == 0) return Array.Empty<string>();
+        if (string.IsNullOrWhiteSpace(channelId)) return installed;
+
+        return await visibility.FilterToVisibleAsync(channelId, installed);
+    }
 }

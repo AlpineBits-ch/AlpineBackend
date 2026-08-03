@@ -175,6 +175,10 @@ public class ComponentInteractionEndpoint
         var app = await ctx.BotApplications.FirstOrDefaultAsync(a => a.BotUserId == dto.BotUserId && a.IsEnabled);
         if (app is null) return Results.NotFound("Bot not found.");
 
+        // Same bot-scope boundary the invoke, modal-submit and component-dispatch paths enforce.
+        var installed = await ctx.BotInstallations.AnyAsync(i => i.BotApplicationId == app.Id && i.GuildId == guildId);
+        if (!installed) return Results.NotFound("Bot is not installed in this guild.");
+
         var command = await ctx.BotCommands.FirstOrDefaultAsync(c =>
             c.BotApplicationId == app.Id && c.Name == dto.CommandName && (c.GuildId == null || c.GuildId == guildId));
         if (command is null) return Results.NotFound("Command not found.");

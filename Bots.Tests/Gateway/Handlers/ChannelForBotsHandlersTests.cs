@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -8,6 +8,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class ChannelForBotsHandlersTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
 
     [SetUp]
@@ -36,7 +37,7 @@ public class ChannelForBotsHandlersTests
 
         await ChannelCreatedForBotsHandler.Handle(
             new ChannelCreatedForBots { ChannelId = "chan_1", GuildId = "gld_1", Name = "general", Type = "Text", Position = 0 },
-            _context, registry);
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Has.Count.EqualTo(1));
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages[0]);
@@ -52,7 +53,7 @@ public class ChannelForBotsHandlersTests
 
         await ChannelCreatedForBotsHandler.Handle(
             new ChannelCreatedForBots { ChannelId = "chan_1", GuildId = "gld_unlinked", Name = "general", Type = "Text" },
-            _context, registry);
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Is.Empty);
     }
@@ -65,7 +66,7 @@ public class ChannelForBotsHandlersTests
 
         await ChannelUpdatedForBotsHandler.Handle(
             new ChannelUpdatedForBots { ChannelId = "chan_1", GuildId = "gld_1", Name = "renamed", Type = "Text", Position = 1 },
-            _context, registry);
+            _context, registry, _visibility);
 
         var (_, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(eventName, Is.EqualTo("CHANNEL_UPDATE"));
@@ -80,7 +81,7 @@ public class ChannelForBotsHandlersTests
 
         await ChannelDeletedForBotsHandler.Handle(
             new ChannelDeletedForBots { ChannelId = "chan_1", GuildId = "gld_1" },
-            _context, registry);
+            _context, registry, _visibility);
 
         var (_, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(eventName, Is.EqualTo("CHANNEL_DELETE"));
@@ -96,7 +97,7 @@ public class ChannelForBotsHandlersTests
 
         await ChannelCreatedForBotsHandler.Handle(
             new ChannelCreatedForBots { ChannelId = "chan_1", GuildId = "gld_1", Name = "general", Type = "Text" },
-            _context, registry);
+            _context, registry, _visibility);
 
         Assert.That(subscriber.Messages, Has.Count.EqualTo(2));
         var botIds = subscriber.Messages.Select(m => DispatchAssertions.Parse(m).BotUserId);

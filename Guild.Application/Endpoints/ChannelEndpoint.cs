@@ -139,7 +139,8 @@ public class ChannelEndpoint
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return Results.NotFound();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, channel.GuildId, Permissions.ManageChannel);
+        // Channel-scoped, not guild-scoped.
+        var canManage = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 
         ctx.Channels.Remove(channel);
@@ -171,7 +172,8 @@ public class ChannelEndpoint
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return Results.NotFound();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, channel.GuildId, Permissions.ManageChannel);
+        // Channel-scoped - see DeleteChannelAsync.
+        var canManage = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 
         try

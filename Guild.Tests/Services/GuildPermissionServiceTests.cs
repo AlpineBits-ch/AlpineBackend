@@ -134,6 +134,59 @@ public class GuildPermissionServiceTests
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow
     };
 
+    // ── Non-membership ────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task CanUserPerformAction_NonMember_IsDeniedDespiteAnEveryoneAllowOverwrite()
+    {
+        // @everyone overwrites are selected by the *overwrite's* role type, not by anything the
+        // caller holds, so they were applied to a caller who is not in the guild at all. Their base
+        // permissions were empty, but the @everyone Allow mask was OR'd straight onto that empty
+        // set and then widened by ExpandImpliedPermissions - so on any channel that re-opens itself
+        // with an @everyone allow (the standard way to expose one channel inside a denied category,
+        // and what every Discord import produces) a stranger, or someone just banned or kicked,
+        // still resolved ViewChannel. Messaging consults exactly this call to gate message history.
+        _context.Guilds.Add(MakeGuild());
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(id: "role-everyone", type: RoleType.Everyone));
+        _context.Set<ChannelPermission>().Add(MakePermission(
+            "perm-everyone", channelId: ChannelId, roleId: "role-everyone",
+            allow: Permissions.ViewChannel | Permissions.SendMessages));
+        await _context.SaveChangesAsync();
+
+        // "outsider" has no GuildMember row - never joined, or was kicked/banned (both delete it).
+        var canView = await _service.CanUserPerformActionAsync("outsider", ChannelId, Permissions.ViewChannel);
+        var canSend = await _service.CanUserPerformActionAsync("outsider", ChannelId, Permissions.SendMessages);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(canView, Is.False, "a non-member must not inherit an @everyone allow");
+            Assert.That(canSend, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task ComputePermissions_RoleFromAnotherGuild_ContributesNothing()
+    {
+        // Role bits are resolved from role_members, which is keyed by member id alone.
+        _context.Guilds.Add(MakeGuild());
+        _context.Guilds.Add(MakeGuild(ownerId: "other-owner", id: "guild-other"));
+        _context.Channels.Add(MakeChannel());
+        _context.Roles.Add(MakeRole(id: "role-foreign", guildId: "guild-other", permissions: Permissions.Superadmin));
+        _context.GuildMembers.Add(MakeGuildMember());
+        _context.RoleMembers.Add(MakeRoleMember("rm-foreign", "role-foreign", MemberId));
+        await _context.SaveChangesAsync();
+
+        var canView = await _service.CanUserPerformActionAsync(UserId, ChannelId, Permissions.ViewChannel);
+        var isAdmin = await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.ManageGuild);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(canView, Is.False, "a foreign guild's role must not grant anything here");
+            Assert.That(isAdmin, Is.False);
+        });
+    }
+
     // Seeds a guild, one channel, one role (with the supplied permissions), and the user
     // in that role.  Returns when SaveChanges is done.
     private async Task SeedWithRolePermission(Permissions allow)

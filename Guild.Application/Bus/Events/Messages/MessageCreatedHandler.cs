@@ -20,7 +20,7 @@ public class MessageCreatedHandler
     }
     public async Task Handle(MessageCreatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
         MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger,
-        NotificationResolutionService notificationService)
+        NotificationResolutionService notificationService, ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -40,7 +40,12 @@ public class MessageCreatedHandler
 
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
 
-        await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("guild.MessageCreated", message);
+        // Guild presence is guild-wide; this event is channel-scoped and carries the message
+        // content, so the audience has to be narrowed to members who can actually see the channel.
+        var viewerIds = await audience.FilterToViewersAsync(
+            message.ChannelId, presence.Select(p => p.UserId).Except([message.AuthorId]));
+
+        await hub.Clients.Users(viewerIds).SendAsync("guild.MessageCreated", message);
 
         await TouchThreadActivityAsync(message.ChannelId, context);
 

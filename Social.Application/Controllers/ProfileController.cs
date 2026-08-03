@@ -116,7 +116,8 @@ public partial class ProfileController(MicroserviceContext ctx, ILogger<ProfileC
             return NotFound("Current profile not found");
         }
         
-        var profile = await ctx.Profiles.Include(profile => profile.Relationships).FirstOrDefaultAsync(p => p.Id == id);
+        // Deliberately does NOT Include Relationships.
+        var profile = await ctx.Profiles.FirstOrDefaultAsync(p => p.Id == id);
         if (profile is null)
         {
             logger.LogInformation("profile not found for id {id}", id);
@@ -146,7 +147,8 @@ public partial class ProfileController(MicroserviceContext ctx, ILogger<ProfileC
             return NotFound("Current profile not found");
         }
         
-        var profile = await ctx.Profiles.Include(profile => profile.Relationships).FirstOrDefaultAsync(p => p.UserId == id);
+        // See GetAsync - no Relationships Include on an arbitrary target's profile.
+        var profile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == id);
         if (profile is null)
         {
             logger.LogInformation("profile not found for user id {id}", id);

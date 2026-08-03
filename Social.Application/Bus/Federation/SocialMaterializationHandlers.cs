@@ -66,12 +66,28 @@ public class SocialMaterializationHandlers
 
         var (relationship, remoteProfile) = found.Value;
         if (relationship.Status == status) return;
+        if (!IsLegalRemoteTransition(relationship.Status, status)) return;
 
         relationship.Status = status;
         await db.SaveChangesAsync(ct);
 
         await PushAsync(hub, relationship, relationship.Owner, remoteProfile, eventName);
     }
+
+    /// <summary>Which status changes a remote instance is allowed to drive on a local row.</summary>
+    private static bool IsLegalRemoteTransition(RelationshipStatus current, RelationshipStatus target) =>
+        target switch
+        {
+            // The remote accepted a request this user sent.
+            RelationshipStatus.Friends => current == RelationshipStatus.PendingOutgoing,
+
+            // The remote rejected a pending request or unfriended.
+            RelationshipStatus.None => current is RelationshipStatus.PendingOutgoing
+                or RelationshipStatus.PendingIncoming
+                or RelationshipStatus.Friends,
+
+            _ => false,
+        };
 
     private static Task PushAsync(
         IHubContext<EchoRealtimeHub> hub, Relationship relationship, Profile localProfile,

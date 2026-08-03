@@ -1,5 +1,7 @@
 using System.Net;
 using System.Security.Claims;
+using Guild.Contracts;
+using Guild.Contracts.Bus.Response;
 using Import.Application.Commands;
 using Import.Application.Discord;
 using Import.Application.Endpoints;
@@ -147,7 +149,7 @@ public class DiscordImportEndpointTests
         });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.GetLinks("gld_1", _context);
+        var result = await _endpoint.GetLinks("gld_1", _context, _bus, MakeUser("usr_admin"));
 
         var ok = (Ok<GuildLinkDto[]>)result;
         Assert.That(ok.Value!.Single().DiscordGuildId, Is.EqualTo("d1"));
@@ -156,7 +158,7 @@ public class DiscordImportEndpointTests
     [Test]
     public async Task GetLinks_UnlinkedGuild_ReturnsEmptyArray()
     {
-        var result = await _endpoint.GetLinks("gld_unlinked", _context);
+        var result = await _endpoint.GetLinks("gld_unlinked", _context, _bus, MakeUser("usr_admin"));
 
         var ok = (Ok<GuildLinkDto[]>)result;
         Assert.That(ok.Value, Is.Empty);
@@ -171,7 +173,7 @@ public class DiscordImportEndpointTests
         _context.GuildLinks.Add(link);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "Paused" }, _context);
+        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "Paused" }, _context, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(link.Status, Is.EqualTo(GuildLinkStatus.Paused));
@@ -184,7 +186,7 @@ public class DiscordImportEndpointTests
         _context.GuildLinks.Add(link);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "Revoked" }, _context);
+        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "Revoked" }, _context, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
         Assert.That(link.Status, Is.EqualTo(GuildLinkStatus.Active), "Rejected transition must not mutate the link");
@@ -197,7 +199,7 @@ public class DiscordImportEndpointTests
         _context.GuildLinks.Add(link);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "NotARealStatus" }, _context);
+        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "NotARealStatus" }, _context, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -205,7 +207,7 @@ public class DiscordImportEndpointTests
     [Test]
     public async Task SetLinkStatus_UnknownLinkId_ReturnsNotFound()
     {
-        var result = await _endpoint.SetLinkStatus("glnk_missing", new SetLinkStatusDto { Status = "Paused" }, _context);
+        var result = await _endpoint.SetLinkStatus("glnk_missing", new SetLinkStatusDto { Status = "Paused" }, _context, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -220,7 +222,7 @@ public class DiscordImportEndpointTests
         await _context.SaveChangesAsync();
         _handler.Enqueue(() => new HttpResponseMessage(HttpStatusCode.NoContent));
 
-        var result = await _endpoint.Unlink(link.Id, _context, _discordApi);
+        var result = await _endpoint.Unlink(link.Id, _context, _discordApi, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(link.Status, Is.EqualTo(GuildLinkStatus.Revoked));
@@ -235,7 +237,7 @@ public class DiscordImportEndpointTests
         await _context.SaveChangesAsync();
         _handler.Enqueue(() => new HttpResponseMessage(HttpStatusCode.InternalServerError));
 
-        var result = await _endpoint.Unlink(link.Id, _context, _discordApi);
+        var result = await _endpoint.Unlink(link.Id, _context, _discordApi, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<NoContent>(), "Discord API failure must be swallowed - the guild admin may have already removed the bot");
         Assert.That(link.Status, Is.EqualTo(GuildLinkStatus.Revoked));
@@ -244,8 +246,58 @@ public class DiscordImportEndpointTests
     [Test]
     public async Task Unlink_UnknownLinkId_ReturnsNotFound()
     {
-        var result = await _endpoint.Unlink("glnk_missing", _context, _discordApi);
+        var result = await _endpoint.Unlink("glnk_missing", _context, _discordApi, _bus, MakeUser("usr_admin"));
 
         Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    // ── Authorization on the link routes ───────────────────────────────────── These three used to
+    // take no caller identity at all, relying on a gateway check that does not exist (no YARP route
+    // in this repo sets an AuthorizationPolicy).
+
+    [Test]
+    public async Task Unlink_CallerLacksManageGuild_IsForbiddenAndLeavesTheLinkIntact()
+    {
+        var link = new GuildLink { Id = GuildLink.GenerateId(), EchoGuildId = "gld_1", DiscordGuildId = "d1", SyncDirection = SyncDirection.DiscordToVenta, Status = GuildLinkStatus.Active };
+        _context.GuildLinks.Add(link);
+        await _context.SaveChangesAsync();
+        _bus.GuildPermissionResponse = new HasUserPermissionToGuildResponse { IsAllowed = false, Permission = ExternalPermission.ManageGuild };
+
+        var result = await _endpoint.Unlink(link.Id, _context, _discordApi, _bus, MakeUser("usr_outsider"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(link.Status, Is.EqualTo(GuildLinkStatus.Active));
+            Assert.That(_handler.Requests, Is.Empty, "the bot must not be made to leave the Discord server");
+        });
+    }
+
+    [Test]
+    public async Task SetLinkStatus_CallerLacksManageGuild_IsForbidden()
+    {
+        var link = new GuildLink { Id = GuildLink.GenerateId(), EchoGuildId = "gld_1", DiscordGuildId = "d1", SyncDirection = SyncDirection.DiscordToVenta, Status = GuildLinkStatus.Active };
+        _context.GuildLinks.Add(link);
+        await _context.SaveChangesAsync();
+        _bus.GuildPermissionResponse = new HasUserPermissionToGuildResponse { IsAllowed = false, Permission = ExternalPermission.ManageGuild };
+
+        var result = await _endpoint.SetLinkStatus(link.Id, new SetLinkStatusDto { Status = "Paused" }, _context, _bus, MakeUser("usr_outsider"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(link.Status, Is.EqualTo(GuildLinkStatus.Active));
+        });
+    }
+
+    [Test]
+    public async Task GetLinks_CallerLacksManageGuild_IsForbidden()
+    {
+        // Also the id oracle for the two routes above.
+        _bus.GuildPermissionResponse = new HasUserPermissionToGuildResponse { IsAllowed = false, Permission = ExternalPermission.ManageGuild };
+
+        var result = await _endpoint.GetLinks("gld_1", _context, _bus, MakeUser("usr_outsider"));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 }

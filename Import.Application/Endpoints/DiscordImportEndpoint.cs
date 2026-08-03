@@ -1,5 +1,8 @@
 using System.Security.Claims;
 using AppEnvironment;
+using Guild.Contracts;
+using Guild.Contracts.Bus.Request;
+using Guild.Contracts.Bus.Response;
 using Import.Application.Commands;
 using Import.Application.Discord;
 using Import.Application.Redis;
@@ -40,7 +43,7 @@ public class GuildLinkDto
 /// bots-route/guild-route.
 /// </summary>
 [Authorize]
-public class DiscordImportEndpoint
+public partial class DiscordImportEndpoint
 {
     /// <summary>Kicks off the OAuth "add bot to server" flow - the browser is sent to Discord's
     /// own consent screen, requesting only View Channels (bit 0x400). No privileged intents/
@@ -119,9 +122,16 @@ public class DiscordImportEndpoint
         });
     }
 
+    /// <summary>Requires ManageGuild on the Echo guild whose link is being read.</summary>
     [WolverineGet("/api/v1/links")]
-    public async Task<IResult> GetLinks(string guildId, [NotBody] MicroserviceContext ctx)
+    public async Task<IResult> GetLinks(
+        string guildId,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] IMessageBus bus,
+        [NotBody] ClaimsPrincipal user)
     {
+        if (!await HasManageGuildAsync(bus, user, guildId)) return Results.Forbid();
+
         var link = await ctx.GuildLinks.FirstOrDefaultAsync(l => l.EchoGuildId == guildId);
         if (link is null) return Results.Ok(Array.Empty<GuildLinkDto>());
 
@@ -139,10 +149,17 @@ public class DiscordImportEndpoint
 
     /// <summary>Body is just the target status - "Paused" or "Active".</summary>
     [WolverinePatch("/api/v1/links/{id}")]
-    public async Task<IResult> SetLinkStatus(string id, SetLinkStatusDto dto, [NotBody] MicroserviceContext ctx)
+    public async Task<IResult> SetLinkStatus(
+        string id,
+        SetLinkStatusDto dto,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] IMessageBus bus,
+        [NotBody] ClaimsPrincipal user)
     {
         var link = await ctx.GuildLinks.FirstOrDefaultAsync(l => l.Id == id);
         if (link is null) return Results.NotFound();
+        if (!await HasManageGuildAsync(bus, user, link.EchoGuildId)) return Results.Forbid();
+
         if (!Enum.TryParse<GuildLinkStatus>(dto.Status, out var status) || status == GuildLinkStatus.Revoked)
         {
             return Results.BadRequest("Status must be Active or Paused - use DELETE to revoke a link.");
@@ -153,11 +170,19 @@ public class DiscordImportEndpoint
         return Results.NoContent();
     }
 
+    /// <summary>Revokes the link and removes the import bot from the Discord server - an
+    /// externally-visible, hard-to-undo action, so it requires ManageGuild on the Echo guild.</summary>
     [WolverineDelete("/api/v1/links/{id}")]
-    public async Task<IResult> Unlink(string id, [NotBody] MicroserviceContext ctx, [NotBody] DiscordApiClient discordApi)
+    public async Task<IResult> Unlink(
+        string id,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] DiscordApiClient discordApi,
+        [NotBody] IMessageBus bus,
+        [NotBody] ClaimsPrincipal user)
     {
         var link = await ctx.GuildLinks.FirstOrDefaultAsync(l => l.Id == id);
         if (link is null) return Results.NotFound();
+        if (!await HasManageGuildAsync(bus, user, link.EchoGuildId)) return Results.Forbid();
 
         link.Status = GuildLinkStatus.Revoked;
         await ctx.SaveChangesAsync();
@@ -178,4 +203,26 @@ public class DiscordImportEndpoint
 public class SetLinkStatusDto
 {
     public string Status { get; set; } = "";
+}
+
+public partial class DiscordImportEndpoint
+{
+    /// <summary>
+    /// Asks Guild whether the caller holds ManageGuild on <paramref name="echoGuildId"/>.
+    /// </summary>
+    private static async Task<bool> HasManageGuildAsync(IMessageBus bus, ClaimsPrincipal user, string? echoGuildId)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(echoGuildId)) return false;
+
+        var response = await bus.InvokeAsync<HasUserPermissionToGuildResponse>(
+            new HasUserPermissionToGuildRequest
+            {
+                UserId = userId,
+                GuildId = echoGuildId,
+                Permission = ExternalPermission.ManageGuild,
+            });
+
+        return response.IsAllowed;
+    }
 }

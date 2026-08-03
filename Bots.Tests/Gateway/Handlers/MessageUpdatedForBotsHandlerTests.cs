@@ -1,4 +1,4 @@
-using Bots.Application.Gateway.Handlers;
+﻿using Bots.Application.Gateway.Handlers;
 using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts.Bus.Events;
@@ -10,6 +10,7 @@ namespace Bots.Tests.Gateway.Handlers;
 [TestFixture]
 public class MessageUpdatedForBotsHandlerTests
 {
+    private readonly FakeBotChannelVisibility _visibility = new();
     private TestBotsContext _context = null!;
     private FakeGatewayMessageBus _bus = null!;
 
@@ -42,7 +43,7 @@ public class MessageUpdatedForBotsHandlerTests
 
         await MessageUpdatedForBotsHandler.Handle(
             new MessageUpdatedForBots { GuildId = "gld_unlinked", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_1", Content = "hi"u8.ToArray() },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         Assert.That(_bus.Invoked, Is.Empty);
         Assert.That(subscriber.Messages, Is.Empty);
@@ -57,7 +58,7 @@ public class MessageUpdatedForBotsHandlerTests
 
         await MessageUpdatedForBotsHandler.Handle(
             new MessageUpdatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_author", Content = "edited content"u8.ToArray() },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (botUserId, eventName, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.Multiple(() =>
@@ -78,7 +79,7 @@ public class MessageUpdatedForBotsHandlerTests
 
         await MessageUpdatedForBotsHandler.Handle(
             new MessageUpdatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_ghost", Content = "hi"u8.ToArray() },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(data.GetProperty("author").GetProperty("username").GetString(), Is.EqualTo("usr_ghost"));
@@ -97,7 +98,7 @@ public class MessageUpdatedForBotsHandlerTests
                 GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_author",
                 Content = "hi"u8.ToArray(), EmbedsJson = """[{"title":"An Embed"}]""",
             },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(data.GetProperty("embeds").GetArrayLength(), Is.EqualTo(1));
@@ -113,7 +114,7 @@ public class MessageUpdatedForBotsHandlerTests
 
         await MessageUpdatedForBotsHandler.Handle(
             new MessageUpdatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_author", Content = "hi"u8.ToArray(), EmbedsJson = null },
-            _context, registry, _bus);
+            _context, registry, _bus, _visibility);
 
         var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
         Assert.That(data.GetProperty("embeds").GetArrayLength(), Is.EqualTo(0));

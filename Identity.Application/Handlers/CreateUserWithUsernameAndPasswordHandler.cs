@@ -26,7 +26,8 @@ public class CreateUserWithUsernameAndPasswordHandler
                 };
                
             }
-            logger.LogInformation("register user in with email {email} and password {password}", request.Email, request.Password);
+            // The password is deliberately NOT logged.
+            logger.LogInformation("Registering user with email {email}", request.Email);
 
             
             var user = await messageBus.InvokeAsync<CreateUserResponse>(new CreateUserCommand()

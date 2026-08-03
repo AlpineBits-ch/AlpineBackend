@@ -3,6 +3,9 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using AppEnvironment;
 using Facet.Extensions;
+using Guild.Contracts;
+using Guild.Contracts.Bus.Request;
+using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Services;
@@ -17,11 +20,44 @@ using Wolverine;
 
 namespace Messaging.Application.Controllers;
 
+/// <summary>[Authorize] is on the class, not on individual actions.</summary>
+[Authorize]
 [ApiController]
 [Route("api/v1/attachments")]
-public class AttachmentController(FileService fileService, IMessageBus messageBus, IAmazonS3 s3Client, MicroserviceContext context, IDistributedCache cache) : ControllerBase
+public class AttachmentController(
+    FileService fileService,
+    IMessageBus messageBus,
+    IAmazonS3 s3Client,
+    MicroserviceContext context,
+    IDistributedCache cache,
+    ConversationPermissionService conversationPermissions) : ControllerBase
 {
-    [Authorize]
+    /// <summary>Whether the caller may read this attachment.</summary>
+    private async Task<bool> CanReadAsync(Attachment attachment)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return false;
+
+        if (string.Equals(attachment.CreatorId, userId, StringComparison.Ordinal)) return true;
+
+        // No context recorded: either an upload not yet attached to a message, or a row created
+        // before ContextId existed.
+        if (string.IsNullOrWhiteSpace(attachment.ContextId)) return true;
+
+        // A context id is either a channel id or a conversation id; ask Guild first and fall back
+        // to conversation membership.
+        var permission = await messageBus.InvokeAsync<HasUserPermissionToChannelResponse>(
+            new HasUserPermissionToChannelRequest
+            {
+                ChannelId = attachment.ContextId,
+                UserId = userId,
+                Permission = ExternalPermission.ViewChannel,
+            });
+
+        if (permission.IsAllowed) return true;
+
+        return await conversationPermissions.HasPermission(userId, attachment.ContextId);
+    }
 
     [HttpPost]
     public async Task<IActionResult> UploadFileAsync([FromForm] ICollection<IFormFile> files)
@@ -83,6 +119,8 @@ public class AttachmentController(FileService fileService, IMessageBus messageBu
     {
         var attachment = context.Attachments.FirstOrDefault(a => a.Id == id);
         if (attachment is null) return NotFound();
+        if (!await CanReadAsync(attachment)) return NotFound();
+
         var dto = attachment.ToFacet<Attachment, AttachmentDto>();
         dto.Url = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/{id}/download";
         dto.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/{id}/thumbnail";
@@ -94,6 +132,7 @@ public async Task<IActionResult> DownloadAttachmentAsync(string id)
 {
     var attachment = await context.Attachments.FindAsync(id);
     if (attachment is null) return NotFound();
+    if (!await CanReadAsync(attachment)) return NotFound();
 
     var data = await cache.GetAsync(Attachment.GetCacheId(id));
     if (data is not null) 
@@ -135,7 +174,8 @@ public async Task<IActionResult> GetThumbnailAsync(string id)
 {
     var attachment = await context.Attachments.FindAsync(id);
     if (attachment is null || string.IsNullOrEmpty(attachment.ThumbnailId)) return NotFound();
-    
+    if (!await CanReadAsync(attachment)) return NotFound();
+
     var data = await cache.GetAsync(MinimalAttachment.GetCacheId(id));
     if (data is not null) return File(data, "image/jpeg");
 

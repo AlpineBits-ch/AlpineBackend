@@ -126,6 +126,9 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
             SecurityStamp = Guid.NewGuid().ToString(),
+            // Users are persisted with ctx.Users.Add rather than UserManager.CreateAsync, and
+            // UserManager.CreateAsync is the only place the framework would set this.
+            LockoutEnabled = true,
             AgeVerification = AgeVerification.CreateInitial(createUserParams.BirthDate),
             Status = UserStatus.Active,
             UserPreferences = new UserPreferences()
@@ -168,6 +171,9 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             UpdatedAt = date,
             SecurityStamp = Guid.NewGuid().ToString(),
             Status = UserStatus.Active,
+            // See ApplicationUser.Create - lockout has to be enabled explicitly because these rows
+            // never go through UserManager.CreateAsync.
+            LockoutEnabled = true,
             AgeVerification = new AgeVerification
             {
                 Level = AgeVertificationLevel.None,

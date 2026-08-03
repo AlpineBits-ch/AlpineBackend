@@ -271,7 +271,7 @@ public class FriendshipEndpointsTests
         var initiator = await AddProfile("user-a", "initiator");
         var target = await AddProfile("user-b", "target");
         await SeedPendingPair(initiator, target);
-        await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
+        await FriendshipEndpoints.RejectAsync("rlsp_in", _context, MakeUser("user-b"));
 
         var result = await FriendshipEndpoints.AcceptAsync("rlsp_in", _context, _cache, MakeUser("user-b"));
 
@@ -288,7 +288,7 @@ public class FriendshipEndpointsTests
     [Test]
     public async Task RejectAsync_UnknownId_ReturnsNotFound()
     {
-        var result = await FriendshipEndpoints.RejectAsync("does-not-exist", _context);
+        var result = await FriendshipEndpoints.RejectAsync("does-not-exist", _context, MakeUser("user-a"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.NotFound>());
     }
@@ -300,7 +300,7 @@ public class FriendshipEndpointsTests
         var target = await AddProfile("user-b", "target");
         await SeedPendingPair(initiator, target);
 
-        var result = await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
+        var result = await FriendshipEndpoints.RejectAsync("rlsp_in", _context, MakeUser("user-b"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.Accepted>());
 
@@ -319,7 +319,7 @@ public class FriendshipEndpointsTests
     [Test]
     public async Task RevokeAsync_UnknownId_ReturnsNotFound()
     {
-        var result = await FriendshipEndpoints.RevokeAsync("does-not-exist", _context);
+        var result = await FriendshipEndpoints.RevokeAsync("does-not-exist", _context, _cache, MakeUser("user-a"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.NotFound>());
     }
@@ -342,7 +342,7 @@ public class FriendshipEndpointsTests
         _context.Relationships.AddRange(outgoing, incoming);
         await _context.SaveChangesAsync();
 
-        var result = await FriendshipEndpoints.RevokeAsync("rlsp_out", _context);
+        var result = await FriendshipEndpoints.RevokeAsync("rlsp_out", _context, _cache, MakeUser("user-a"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.Ok>());
 
@@ -361,8 +361,8 @@ public class FriendshipEndpointsTests
         var target = await AddProfile("user-b", "target");
         var (incoming, _) = await SeedPendingPair(initiator, target);
 
-        await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
-        await FriendshipEndpoints.RejectAsync("rlsp_in", _context);
+        await FriendshipEndpoints.RejectAsync("rlsp_in", _context, MakeUser("user-b"));
+        await FriendshipEndpoints.RejectAsync("rlsp_in", _context, MakeUser("user-b"));
 
         Assert.That(incoming.GetDomainEvents().OfType<FriendRequestRejected>().Count(), Is.EqualTo(1));
     }
@@ -374,8 +374,8 @@ public class FriendshipEndpointsTests
         var target = await AddProfile("user-b", "target");
         var (incoming, outgoing) = await SeedPendingPair(initiator, target);
 
-        await FriendshipEndpoints.RevokeAsync("rlsp_out", _context);
-        await FriendshipEndpoints.RevokeAsync("rlsp_out", _context);
+        await FriendshipEndpoints.RevokeAsync("rlsp_out", _context, _cache, MakeUser("user-a"));
+        await FriendshipEndpoints.RevokeAsync("rlsp_out", _context, _cache, MakeUser("user-a"));
 
         Assert.Multiple(() =>
         {

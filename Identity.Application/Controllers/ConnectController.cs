@@ -23,6 +23,7 @@ namespace Identity.Application.Controllers;
 public class ConnectController(SignInManager<ApplicationUser> signInManager,
     UserManager<ApplicationUser> manager, IDistributedCache cache, MicroserviceContext ctx,
     Identity.Application.Services.IAccountPasswordVerifier passwords,
+    SessionDeviceResolver deviceResolver,
     ILogger<ConnectController> logger) : ControllerBase
 {
     [HttpPost("token")]
@@ -72,30 +73,10 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
 
-            if (user.TwoFactorEnabled)
-            {
-                var mfaCode = (string?)request.GetParameter("mfa_code");
-                if (string.IsNullOrWhiteSpace(mfaCode))
-                {
-                    logger.LogInformation("User {username} has MFA enabled but supplied no code", request.Username);
-                    return StatusCode(StatusCodes.Status401Unauthorized, "mfa_required");
-                }
+            var mfaFailure = await CheckSecondFactorAsync(user, request);
+            if (mfaFailure is not null) return mfaFailure;
 
-                var isValidTotp = await manager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, mfaCode);
-                if (!isValidTotp)
-                {
-                    // Fall back to a recovery code - distinct format (8-char, one-time-use), so
-                    // trying it only after a failed TOTP check costs nothing on the common path.
-                    var recoveryResult = await manager.RedeemTwoFactorRecoveryCodeAsync(user, mfaCode);
-                    if (!recoveryResult.Succeeded)
-                    {
-                        logger.LogInformation("Invalid MFA code for user {username}", request.Username);
-                        return StatusCode(StatusCodes.Status401Unauthorized, "mfa_invalid");
-                    }
-                }
-            }
-
-            session = await CreateSession(user, request);
+            session = await CreateSession(user, request, passwordProven: true);
         }
         else if (request.IsRefreshTokenGrantType())
         {
@@ -153,6 +134,16 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
 
+            // Applied to every interactive grant, not just the password one.
+            if (user.EmailVerifiedAt == null)
+            {
+                logger.LogInformation("User {userId} is not verified", userId);
+                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
+            }
+
+            var steamMfaFailure = await CheckSecondFactorAsync(user, request);
+            if (steamMfaFailure is not null) return steamMfaFailure;
+
             session = await CreateSession(user, request);
         }
         else if (request.GrantType == QrLoginService.QrGrantType)
@@ -184,6 +175,15 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
                 return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
             }
 
+            if (user.EmailVerifiedAt == null)
+            {
+                logger.LogInformation("User {userId} is not verified", state.UserId);
+                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
+            }
+
+            // No second-factor prompt here, unlike the password and Steam grants: reaching an
+            // Approved pairing state already required an authenticated session on an existing
+            // device to scan and approve it, and that session passed MFA when it was established.
             session = await CreateSession(user, request, deviceName: state.DeviceName, deviceType: state.DeviceType,
                 clientDeviceId: state.ClientDeviceId);
         }
@@ -231,8 +231,34 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
     /// <summary>
     /// Builds (and stages, via <c>ctx.LoginSessions.Add</c>) a new LoginSession for a fresh login.
     /// </summary>
+    /// <param name="passwordProven">Whether this grant verified the account password.</param>
+    /// <summary>Enforces the account's second factor.</summary>
+    private async Task<IActionResult?> CheckSecondFactorAsync(ApplicationUser user, OpenIddictRequest request)
+    {
+        if (!user.TwoFactorEnabled) return null;
+
+        var mfaCode = (string?)request.GetParameter("mfa_code");
+        if (string.IsNullOrWhiteSpace(mfaCode))
+        {
+            logger.LogInformation("User {userId} has MFA enabled but supplied no code", user.Id);
+            return StatusCode(StatusCodes.Status401Unauthorized, "mfa_required");
+        }
+
+        var isValidTotp = await manager.VerifyTwoFactorTokenAsync(user, TokenOptions.DefaultAuthenticatorProvider, mfaCode);
+        if (isValidTotp) return null;
+
+        // Fall back to a recovery code - distinct format (8-char, one-time-use), so trying it only
+        // after a failed TOTP check costs nothing on the common path.
+        var recoveryResult = await manager.RedeemTwoFactorRecoveryCodeAsync(user, mfaCode);
+        if (recoveryResult.Succeeded) return null;
+
+        logger.LogInformation("Invalid MFA code for user {userId}", user.Id);
+        return StatusCode(StatusCodes.Status401Unauthorized, "mfa_invalid");
+    }
+
     private async Task<LoginSession> CreateSession(ApplicationUser user, OpenIddictRequest request,
-        string? deviceName = null, DeviceType? deviceType = null, string? clientDeviceId = null)
+        string? deviceName = null, DeviceType? deviceType = null, string? clientDeviceId = null,
+        bool passwordProven = false)
     {
         var name = deviceName;
         if (string.IsNullOrWhiteSpace(name))
@@ -267,10 +293,25 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
         string? deviceRowId = null;
         if (!string.IsNullOrWhiteSpace(deviceId))
         {
-            deviceRowId = await ctx.UserDevices
-                .Where(d => d.UserId == user.Id && d.ClientDeviceId == deviceId)
-                .Select(d => d.Id)
-                .FirstOrDefaultAsync();
+            var device = await ctx.UserDevices
+                .FirstOrDefaultAsync(d => d.UserId == user.Id && d.ClientDeviceId == deviceId);
+
+            if (device is not null)
+            {
+                // See the passwordProven remarks: without a password, only a row nobody has ever
+                // been may be bound.
+                if (passwordProven || await deviceResolver.IsAdoptableAsync(device))
+                {
+                    deviceRowId = device.Id;
+                }
+                else
+                {
+                    logger.LogInformation(
+                        "Refusing to bind a session to established device {DeviceId} for user {UserId}: " +
+                        "this grant proved no password.",
+                        device.Id, user.Id);
+                }
+            }
         }
 
         var session = LoginSession.Create(new CreateLoginSessionParams

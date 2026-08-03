@@ -21,6 +21,16 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class WebhookEndpoint
 {
+    /// <summary>A webhook may only ever target a channel in its own guild.</summary>
+    private static async Task<bool> ChannelBelongsToGuildAsync(MicroserviceContext ctx, string? channelId, string guildId)
+    {
+        if (string.IsNullOrWhiteSpace(channelId)) return false;
+
+        return await ctx.Channels
+            .AsNoTracking()
+            .AnyAsync(c => c.Id == channelId && c.GuildId == guildId);
+    }
+
     [HttpGet("/api/v1/guilds/{guildId}/webhooks")]
     public async Task<IResult> GetWebhooksByGuildAsync(string guildId, [NotBody] GuildPermissionService permissionService, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
@@ -52,6 +62,10 @@ public class WebhookEndpoint
         if (! await permissionService.CanUserPerformActionOnGuildAsync(user, guildId, Permissions.ManageWebhooks))
             return Results.Forbid();
 
+        // The permission above is checked against the ROUTE guild; the channel comes from the body.
+        if (!await ChannelBelongsToGuildAsync(ctx, dto.ChannelId, guildId))
+            return Results.BadRequest("Channel must belong to this guild.");
+
         var webhook = WebhookConfig.Create(
             guildId, dto.ChannelId, user.FindFirstValue(ClaimTypes.NameIdentifier)!, dto.Name, dto.AvatarUrl);
 
@@ -71,7 +85,17 @@ public class WebhookEndpoint
 
         if (!string.IsNullOrWhiteSpace(dto.Name)) webhook.Name = dto.Name;
         if (dto.AvatarUrl is not null) webhook.AvatarUrl = string.IsNullOrWhiteSpace(dto.AvatarUrl) ? null : dto.AvatarUrl;
-        if (!string.IsNullOrWhiteSpace(dto.ChannelId)) webhook.ChannelId = dto.ChannelId;
+
+        // Re-pointing an existing webhook is the same cross-guild write primitive as creating one -
+        // see CreateWebhookAsync.
+        if (!string.IsNullOrWhiteSpace(dto.ChannelId))
+        {
+            if (!await ChannelBelongsToGuildAsync(ctx, dto.ChannelId, guildId))
+                return Results.BadRequest("Channel must belong to this guild.");
+
+            webhook.ChannelId = dto.ChannelId;
+        }
+
         webhook.UpdatedAt = DateTimeOffset.UtcNow;
 
         return Results.Ok(WebhookWithTokenDto.From(webhook, Env.GeneralConfiguration.InstanceUrl));

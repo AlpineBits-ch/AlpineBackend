@@ -30,7 +30,13 @@ public class Attachment : BaseEntity<Attachment>, IPrefixedEntity
     public string? ThumbnailId { get; set; }
     
     public string CreatorId { get; set; }
-    
+
+    /// <summary>
+    /// The channel or conversation of the message this attachment was sent in, stamped when that
+    /// message is created (see CreateMessageCommand).
+    /// </summary>
+    public string? ContextId { get; set; }
+
     public AttachmentState State { get; set; } = AttachmentState.Pending;
     
     public static Attachment Create(CreateAttachmentParams createAttachmentParams)

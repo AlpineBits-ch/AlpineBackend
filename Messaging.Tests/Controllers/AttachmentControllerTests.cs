@@ -29,9 +29,11 @@ public class AttachmentControllerTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
-    private AttachmentController MakeController(ClaimsPrincipal? user = null)
+    private AttachmentController MakeController(ClaimsPrincipal? user = null, FakeMessageBus? bus = null)
     {
-        var controller = new AttachmentController(new FileService(null!), new FakeMessageBus(), null!, _context, _cache);
+        var controller = new AttachmentController(
+            new FileService(null!), bus ?? new FakeMessageBus(), null!, _context, _cache,
+            new ConversationPermissionService(_context, _cache));
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = user ?? TestPrincipal.ForUser("user-1") },

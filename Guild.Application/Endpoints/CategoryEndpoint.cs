@@ -9,6 +9,7 @@ using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
@@ -16,6 +17,8 @@ using Wolverine.Http;
 
 namespace Guild.Application.Endpoints;
 
+/// <summary>Class-level [Authorize] as defence in depth.</summary>
+[Authorize]
 public class CategoryEndpoint
 {
     // Discord's gateway protocol has no separate "category" entity - a category is just a channel

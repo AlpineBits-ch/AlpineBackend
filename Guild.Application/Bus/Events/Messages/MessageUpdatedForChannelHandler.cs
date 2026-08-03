@@ -20,7 +20,8 @@ public class MessageUpdatedForChannelHandler
     private string GetChannelKey(string channelId) => $"channel:{channelId}:guild";
 
     public async Task Handle(MessageUpdatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
-        MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageUpdatedForChannelHandler> logger)
+        MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageUpdatedForChannelHandler> logger,
+        ChannelAudienceService audience)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var guildId = await cache.GetStringAsync(channelKey);
@@ -36,8 +37,12 @@ public class MessageUpdatedForChannelHandler
             await cache.SetStringAsync(channelKey, guildId);
         }
 
+        // Channel-scoped audience - this payload carries the message content.
         var presence = await service.GetGuildPresenceAsync(guildId);
-        await hub.Clients.Users(presence.Select(p => p.UserId).Except([message.AuthorId])).SendAsync("guild.MessageUpdated", message);
+        var viewerIds = await audience.FilterToViewersAsync(
+            message.ChannelId, presence.Select(p => p.UserId).Except([message.AuthorId]));
+
+        await hub.Clients.Users(viewerIds).SendAsync("guild.MessageUpdated", message);
 
         await bus.PublishAsync(new MessageUpdatedForBots
         {

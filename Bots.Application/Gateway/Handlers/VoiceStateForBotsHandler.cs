@@ -1,4 +1,4 @@
-using Bots.Contracts.Gateway.Payloads;
+﻿using Bots.Contracts.Gateway.Payloads;
 using Bots.Infrastructure.Persistence;
 using Guild.Contracts.Bus.Events;
 
@@ -6,9 +6,12 @@ namespace Bots.Application.Gateway.Handlers;
 
 public class VoiceStateForBotsHandler
 {
-    public static async Task Handle(VoiceStateForBots evt, MicroserviceContext ctx, GatewayConnectionRegistry registry)
+    public static async Task Handle(VoiceStateForBots evt, MicroserviceContext ctx, GatewayConnectionRegistry registry,
+        IBotChannelVisibility visibility)
     {
-        var botUserIds = await InstalledBotsLookup.GetBotUserIdsInGuildAsync(ctx, evt.GuildId);
+        // A null ChannelId is a disconnect, which is genuinely guild-scoped and carries no channel
+        // detail - the helper passes those through unfiltered.
+        var botUserIds = await InstalledBotsLookup.GetBotUserIdsForChannelAsync(ctx, visibility, evt.GuildId, evt.ChannelId);
         if (botUserIds.Count == 0) return;
 
         var payload = new VoiceStatePayload

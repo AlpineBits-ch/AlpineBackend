@@ -96,7 +96,7 @@ public static class FriendshipEndpoints
 
         // Null for a federation-materialized relationship - only the local half of those is
         // persisted, so there is no mirrored row to flip.
-        friendship.Related?.Accept();
+        friendship.Related?.AcceptCounterpart();
 
         var firstUserCache = $"integration_profile:user_id:{friendship.Target.UserId}";
         var secondUserCache = $"integration_profile:user_id:{friendship.Owner.UserId}";
@@ -110,13 +110,22 @@ public static class FriendshipEndpoints
     [WolverinePost("/api/v1/relationships/{id}/reject")]
     public static async Task<IResult> RejectAsync(
         string id,
-        [NotBody]MicroserviceContext ctx)
+        [NotBody]MicroserviceContext ctx,
+        ClaimsPrincipal user)
     {
         var friendship = await ctx.Relationships
             .Include(r => r.Related)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (friendship == null) return Results.NotFound();
+
+        // Same ownership gate as AcceptAsync.
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var currentProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (friendship.OwnerId != currentProfile?.Id)
+            return Results.Forbid();
 
         // Already cleared - stay idempotent rather than raising a second FriendRequestRejected
         // and pushing social.FriendRequestRejected twice.
@@ -133,19 +142,37 @@ public static class FriendshipEndpoints
     [WolverinePost("/api/v1/relationships/{id}/revoke")]
     public static async Task<IResult> RevokeAsync(
         string id,
-        [NotBody]MicroserviceContext ctx)
+        [NotBody]MicroserviceContext ctx,
+        [NotBody] IDistributedCache cache,
+        ClaimsPrincipal user)
     {
         var friendship = await ctx.Relationships
             .Include(r => r.Related)
+            .Include(r => r.Owner)
+            .Include(r => r.Target)
             .FirstOrDefaultAsync(r => r.Id == id);
 
         if (friendship == null) return Results.NotFound();
+
+        // Same ownership gate as AcceptAsync.
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var currentProfile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == userId);
+        if (friendship.OwnerId != currentProfile?.Id)
+            return Results.Forbid();
 
         // Same idempotency guard as Accept/Reject - a repeated revoke must not re-raise
         // FriendRemoved and push social.FriendRemoved a second time.
         if (!friendship.Remove()) return Results.Ok();
 
         friendship.Related?.Remove();
+
+        // Mirrors AcceptAsync: the integration profile (which carries the friend list Messaging
+        // reads to gate DMs and calls) is cached for 10 minutes, so without busting it here an
+        // unfriend stayed ineffective for up to 10 minutes.
+        await cache.RemoveAsync($"integration_profile:user_id:{friendship.Target.UserId}");
+        await cache.RemoveAsync($"integration_profile:user_id:{friendship.Owner.UserId}");
 
         return Results.Ok();
     }

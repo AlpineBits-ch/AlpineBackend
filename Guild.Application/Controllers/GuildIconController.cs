@@ -1,4 +1,6 @@
-﻿using Guild.Application.Services;
+﻿using System.Security.Claims;
+using Guild.Application.Services;
+using Guild.Domain.Enums;
 using Messaging.Domain.Events;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -7,8 +9,20 @@ using Wolverine;
 namespace Guild.Application.Controllers;
 [ApiController]
 [Route("api/v1/guilds/{guildId}")]
-public class GuildIconController(GuildThumbnailService thumbnailService, IMessageBus bus, ILogger<GuildIconController> logger) : ControllerBase
+public class GuildIconController(
+    GuildThumbnailService thumbnailService,
+    GuildPermissionService permissionService,
+    IMessageBus bus,
+    ILogger<GuildIconController> logger) : ControllerBase
 {
+    /// <summary>Image types accepted for a guild icon.</summary>
+    private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/png", "image/jpeg", "image/webp", "image/gif"
+    };
+
+    private const long MaxIconBytes = 8 * 1024 * 1024;
+
     [HttpGet("icon")]
     public async Task<IActionResult> GetGuildIcon(string guildId)
     {
@@ -30,6 +44,19 @@ public class GuildIconController(GuildThumbnailService thumbnailService, IMessag
     [HttpPost("icon")]
     public async Task<IActionResult> UploadGuildIcon(string guildId, [FromForm] IFormFile file)
     {
+        // This controller previously never resolved the caller at all: [Authorize] alone meant any
+        // authenticated user could replace the icon of any guild on the instance by putting its id
+        // in the route.
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageGuild))
+            return Forbid();
+
+        if (file is null || file.Length == 0) return BadRequest("A file is required.");
+        if (file.Length > MaxIconBytes) return BadRequest($"File exceeds the {MaxIconBytes / (1024 * 1024)}MB limit.");
+        if (!AllowedContentTypes.Contains(file.ContentType)) return BadRequest("Unsupported image type.");
+
         await thumbnailService.UploadIconAsync(file, guildId);
         await bus.SendAsync(new ProcessAttachment()
         {

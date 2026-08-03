@@ -39,7 +39,12 @@ builder.Services.AddSingleton(new JsonSerializerOptions
 builder.Services.AddOpenApi();
 builder.Services.AddIdentityCore<ApplicationUser>(options =>
 {
-    
+    // Stated explicitly rather than left to the framework defaults, because every password gate in
+    // this service (sign-in, device binding, key-material operations) relies on
+    // AccountPasswordVerifier reporting LockedOut.
+    options.Lockout.AllowedForNewUsers = true;
+    options.Lockout.MaxFailedAccessAttempts = 10;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
 }).AddSignInManager()
 .AddEntityFrameworkStores<MicroserviceContext>()
 .AddDefaultTokenProviders();

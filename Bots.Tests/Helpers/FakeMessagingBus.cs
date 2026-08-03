@@ -21,6 +21,9 @@ internal sealed class FakeMessagingBus : IMessageBus
     public HasUserPermissionToChannelResponse PermissionResponse { get; set; } =
         new() { IsAllowed = true, Permission = ExternalPermission.SendMessages };
 
+    public HasUserPermissionToGuildResponse GuildPermissionResponse { get; set; } =
+        new() { IsAllowed = true, Permission = ExternalPermission.ViewChannel };
+
     public Message MessageResponse { get; set; } = Message.Create(new CreateMessageParams
     {
         Content = "hi"u8.ToArray(), ChannelId = "ch_1", AuthorId = "usr_bot1", AuthorIdType = AuthorIdType.Bot,
@@ -38,6 +41,7 @@ internal sealed class FakeMessagingBus : IMessageBus
         object response = message switch
         {
             _ when typeof(T) == typeof(HasUserPermissionToChannelResponse) => PermissionResponse,
+            _ when typeof(T) == typeof(HasUserPermissionToGuildResponse) => GuildPermissionResponse,
             _ when typeof(T) == typeof(Message) => MessageResponse,
             _ when typeof(T) == typeof(UpdateMessageResponse) => UpdateResponse,
             _ when typeof(T) == typeof(GetChannelResponse) => ChannelResponse,

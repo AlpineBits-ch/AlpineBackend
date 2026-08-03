@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Bots.Application.Endpoints.Discord;
 using Bots.Tests.Helpers;
+using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Microsoft.AspNetCore.Http;
@@ -66,11 +67,33 @@ public class DiscordGuildMemberEndpointTests
     }
 
     [Test]
+    public async Task ListMembers_CallerCannotViewTheGuild_IsForbiddenAndNeverQueriesMembers()
+    {
+        // The caller's identity used to be read and then discarded, so this returned the full
+        // roster of any guild on the instance - and these routes accept an ordinary user JWT, not
+        // just a bot token, so every registered account could enumerate every guild's membership.
+        _bus.GuildPermissionResponse = new HasUserPermissionToGuildResponse
+        {
+            IsAllowed = false, Permission = ExternalPermission.ViewChannel,
+        };
+
+        var result = await _endpoint.ListMembersAsync("gld_someone_elses", null, MakeUser("usr_outsider"), _bus);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.ForbidHttpResult>());
+            Assert.That(_bus.Invoked.OfType<ListGuildMembersRequest>(), Is.Empty,
+                "the roster must never be fetched for a caller who cannot view the guild");
+        });
+    }
+
+    [Test]
     public async Task ListMembers_NoLimitProvided_DefaultsTo100()
     {
         await _endpoint.ListMembersAsync("gld_1", null, MakeUser("usr_bot1"), _bus);
 
-        var request = (ListGuildMembersRequest)_bus.Invoked.Single();
+        // OfType rather than Single: the endpoint now also issues a guild permission check first.
+        var request = _bus.Invoked.OfType<ListGuildMembersRequest>().Single();
         Assert.That(request.Limit, Is.EqualTo(100));
     }
 
@@ -79,7 +102,8 @@ public class DiscordGuildMemberEndpointTests
     {
         await _endpoint.ListMembersAsync("gld_1", 25, MakeUser("usr_bot1"), _bus);
 
-        var request = (ListGuildMembersRequest)_bus.Invoked.Single();
+        // OfType rather than Single: the endpoint now also issues a guild permission check first.
+        var request = _bus.Invoked.OfType<ListGuildMembersRequest>().Single();
         Assert.That(request.Limit, Is.EqualTo(25));
     }
 }

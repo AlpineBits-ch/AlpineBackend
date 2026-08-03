@@ -25,6 +25,10 @@ public static class InboundEventDispatcher
         var originInstance = await db.FederationInstances.FirstOrDefaultAsync(i => i.Host == @event.Host, ct);
         if (originInstance is null) return; // Shouldn't happen: the inbound endpoint already validated the host is registered.
 
+        // The signature on the envelope proves the event came from @event.Host - it says nothing
+        // about whose id the payload names.
+        if (!IsSenderFromOrigin(@event.SenderId, @event.Host)) return;
+
         var originInstanceId = originInstance.Id;
         var senderId = @event.SenderId;
 
@@ -69,5 +73,40 @@ public static class InboundEventDispatcher
     {
         var colonIndex = federatedOrPlainId.IndexOf(':');
         return colonIndex < 0 ? federatedOrPlainId : federatedOrPlainId[..colonIndex];
+    }
+
+    /// <summary>
+    /// A sender id is <c>&lt;userId&gt;:&lt;originHost&gt;</c> (see
+    /// UserService.GetFederatedUserId).
+    /// </summary>
+    private static bool IsSenderFromOrigin(string? senderId, string? originHost)
+    {
+        if (string.IsNullOrWhiteSpace(senderId)) return false;
+
+        var colonIndex = senderId.IndexOf(':');
+        if (colonIndex < 0) return false;
+
+        var qualifier = NormalizeAuthority(senderId[(colonIndex + 1)..]);
+        var origin = NormalizeAuthority(originHost);
+
+        return qualifier.Length > 0
+               && origin.Length > 0
+               && string.Equals(qualifier, origin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Reduces a host value - with or without scheme, port, path or trailing slash - to a
+    /// bare comparable authority.</summary>
+    private static string NormalizeAuthority(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+
+        var trimmed = value.Trim().TrimEnd('/');
+
+        if (Uri.TryCreate(trimmed, UriKind.Absolute, out var absolute))
+            return absolute.Authority;
+
+        // Scheme-less ("origin.example.com" or "origin.example.com/x") - take the first segment.
+        var slashIndex = trimmed.IndexOf('/');
+        return slashIndex < 0 ? trimmed : trimmed[..slashIndex];
     }
 }

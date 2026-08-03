@@ -27,9 +27,52 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
-        
-        return Ok(ctx.Users.Where(u => u.Id == userId).FirstOrDefault()?
-            .ToFacet<ApplicationUser, ApplicationUserDto>());
+
+        var user = ctx.Users.FirstOrDefault(u => u.Id == userId);
+        if (user is null) return Ok(null);
+
+        var dto = user.ToFacet<ApplicationUser, ApplicationUserDto>();
+        // Reshaped rather than copied: the facet excludes the flags enum so it can go out as a
+        // name array. See ApplicationUserDto.Interests.
+        dto.Interests = user.Interests.ToWire();
+        return Ok(dto);
+    }
+
+    /// <summary>
+    /// Records which halves of the product this account came for.
+    ///
+    /// <para>Answered once by the onboarding picker, and re-runnable from settings afterwards -
+    /// which is why this is a PUT and why <see cref="ApplicationUser.OnboardedAt"/> is stamped
+    /// only on the first successful write. An account that picked Isle alone and later takes up
+    /// messaging comes back through here to say so, and re-stamping would quietly rewrite when it
+    /// joined.</para>
+    ///
+    /// <para><b>The empty set is refused.</b> An account that wants neither half is a state the
+    /// client's launch sequence has no answer for: it cannot decide whether a master key is owed,
+    /// so it would either ask forever or never. Refusing here keeps that state unreachable rather
+    /// than leaving every reader to invent a fallback.</para>
+    /// </summary>
+    [HttpPut("self/onboarding")]
+    public async Task<IActionResult> UpdateOnboardingAsync(UpdateOnboardingDto dto)
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+
+        if (!UserInterestsExtensions.TryParseWire(dto.Interests, out var interests))
+            return BadRequest("interests must be a non-empty array of known names (\"isle\", \"social\").");
+
+        var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null) return NotFound();
+
+        user.Interests = interests;
+        user.OnboardedAt ??= DateTimeOffset.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        return Ok(new
+        {
+            onboardedAt = user.OnboardedAt,
+            interests = user.Interests.ToWire(),
+        });
     }
 
 

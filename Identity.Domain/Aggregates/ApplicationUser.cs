@@ -148,6 +148,25 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     
     public string? SteamId { get; set; }
 
+    /// <summary>
+    /// When this account answered the onboarding picker, or null if it never has.
+    ///
+    /// <para>Null is the whole trigger: the client shows the picker on exactly this condition, and
+    /// the rest of its launch sequence waits on the answer. Stamped once and never re-stamped, so
+    /// re-running the picker from settings changes <see cref="Interests"/> without falsifying when
+    /// the account was first onboarded.</para>
+    /// </summary>
+    public DateTimeOffset? OnboardedAt { get; set; }
+
+    /// <summary>
+    /// Which halves of the product this account signed up for.
+    ///
+    /// <para>Decides whether the client runs master-key setup at launch or defers it until the
+    /// account first reaches for something social. Meaningless while <see cref="OnboardedAt"/> is
+    /// null, which is why the two are always written together.</para>
+    /// </summary>
+    public UserInterests Interests { get; set; } = UserInterests.None;
+
     public UserType UserType { get; set; } = UserType.Default;
 
     public DateTimeOffset? DeletionRequestedAt { get; set; }
@@ -228,6 +247,11 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             UserType = UserType.Bot,
             CreatedAt = date,
             UpdatedAt = date,
+            // Stamped so a bot never trips the onboarding picker. Nothing signs into a bot account
+            // interactively, so a null here would be a gate with nobody on the far side of it -
+            // and the bot half of the client would sit behind a screen it can never answer.
+            OnboardedAt = date,
+            Interests = UserInterests.Social,
             SecurityStamp = Guid.NewGuid().ToString(),
             Status = UserStatus.Active,
             // See ApplicationUser.Create - lockout has to be enabled explicitly because these rows

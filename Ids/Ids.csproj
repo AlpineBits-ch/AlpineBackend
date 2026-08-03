@@ -14,11 +14,12 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\Ids\Ids.csproj" />
+      <!--
+        PrivateAssets="compile" keeps Ulid.dll shipping at runtime while stopping the reference
+        assembly from flowing to consumers, so the type is not nameable outside this project. That is
+        what forces every caller through Identifier. Do not remove it.
+      -->
+      <PackageReference Include="Ulid" Version="1.4.1" PrivateAssets="compile" />
     </ItemGroup>
 
 </Project>

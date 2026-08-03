@@ -8,8 +8,8 @@ using Facet.Extensions;
 using Facet.Extensions.EFCore;
 using Identity.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
+using Ids;
 using Microsoft.EntityFrameworkCore;
-using Persistence;
 using Wolverine;
 using Wolverine.Http;
 
@@ -28,9 +28,9 @@ public class BotApplicationEndpoint
         var ownerUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(ownerUserId)) return Results.Unauthorized();
 
-        // Minted here (not by Identity) so the whole create-application flow is idempotent
-        // under retry - see CreateBotAccountCommandHandler.
-        var botUserId = Ksuid.Generate("user_");
+        // Minted here (not by Identity) so the whole create-application flow is idempotent under
+        // retry - see CreateBotAccountCommandHandler.
+        var botUserId = Identifier.New("user");
 
         var account = await bus.InvokeAsync<CreateBotAccountResponse>(new CreateBotAccountCommand
         {

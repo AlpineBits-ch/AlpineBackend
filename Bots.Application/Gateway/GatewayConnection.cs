@@ -4,7 +4,7 @@ using System.Text.Json;
 using Bots.Contracts.Gateway;
 using Bots.Contracts.Gateway.Payloads;
 using Bots.Domain.Entity;
-using Persistence;
+using Ids;
 
 namespace Bots.Application.Gateway;
 
@@ -117,7 +117,7 @@ public class GatewayConnection
 
         _session = new GatewaySession
         {
-            SessionId = Ksuid.Generate("gwss_"),
+            SessionId = Identifier.New("gwss"),
             BotUserId = auth.BotUserId,
             Intents = identify.Intents,
         };

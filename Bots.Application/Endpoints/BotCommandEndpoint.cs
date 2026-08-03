@@ -6,9 +6,9 @@ using Bots.Infrastructure.Persistence;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
+using Ids;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using Persistence;
 using Wolverine;
 using Wolverine.Http;
 
@@ -105,7 +105,7 @@ public class BotCommandEndpoint
         var memberResponse = await bus.InvokeAsync<GetGuildMemberResponse>(
             new GetGuildMemberRequest { GuildId = guildId, UserId = userId });
 
-        var interactionId = Ksuid.Generate("intr_");
+        var interactionId = Identifier.New("intr");
         var token = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
 
         var interaction = new InteractionPayload

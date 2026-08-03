@@ -4,6 +4,7 @@ using Identity.Domain.Entities;
 using Identity.Domain.Enums;
 using Identity.Domain.Events.User;
 using Identity.Domain.ValueObjects;
+using Ids;
 using Microsoft.AspNetCore.Identity;
 using Persistence;
 
@@ -269,14 +270,15 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
         Status = UserStatus.Deleted;
         UpdatedAt = DateTimeOffset.UtcNow;
     }
-    [NotMapped] public static string Prefix { get; } = "user_"; // Explicitly handled here to not do as many allocs.
+    [NotMapped] public static string Prefix { get; } = "user";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
+    /// <summary>Derives from IdentityUser rather than BaseEntity, so the generator has to be
+    /// forwarded to by hand rather than inherited.</summary>
     private static string GenerateId()
     {
-        
-        return Ksuid.Generate(Prefix);
+        return Identifier.New(Prefix);
     }
 
     public IReadOnlyCollection<DomainEvent> GetDomainEvents()

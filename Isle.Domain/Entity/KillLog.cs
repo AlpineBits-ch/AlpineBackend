@@ -10,5 +10,5 @@ public class KillLog : BaseEntity<KillLog>, IPrefixedEntity
     public string? VictimId { get; set; }
     public virtual Player? Victim { get; set; }
     public double VictimWeightKg { get; set; }
-    public static string Prefix { get; } = "Kill_log";
+    public static string Prefix { get; } = "kill_log";
 }

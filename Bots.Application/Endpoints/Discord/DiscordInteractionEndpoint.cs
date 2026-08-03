@@ -3,11 +3,11 @@ using System.Text.Json;
 using Bots.Application.Gateway;
 using Bots.Contracts.Gateway.Payloads;
 using Echo.Realtime;
+using Ids;
 using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Entities;
 using Microsoft.AspNetCore.SignalR;
-using Persistence;
 using Wolverine;
 using Wolverine.Http;
 
@@ -93,7 +93,7 @@ public class DiscordInteractionEndpoint
     {
         var embeds = data.Embeds;
         var content = !string.IsNullOrEmpty(data.Content) ? data.Content : EmbedFlattener.Flatten(null, embeds);
-        var ephemeralId = Ksuid.Generate("ephm_");
+        var ephemeralId = Identifier.New("ephm");
 
         var customIds = data.Components.SelectMany(c => c.CollectCustomIds()).ToList();
         if (customIds.Count > 0)

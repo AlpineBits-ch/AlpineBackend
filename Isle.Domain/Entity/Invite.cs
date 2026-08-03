@@ -12,7 +12,9 @@ public class CreateInviteParams
 
 public class Invite : BaseEntity<Invite>, IPrefixedEntity
 {
-    public static string Prefix { get; } = "invite";
+    /// <summary>Server-scoped, unlike <see cref="Aggregates.PlayerInvite"/> which owns the plain
+    /// "invite" tag.</summary>
+    public static string Prefix { get; } = "server_invite";
     public virtual IsleServer Server { get; set; }
     public string ServerId { get; set; }
     public virtual Player SenderPlayer { get; set; }

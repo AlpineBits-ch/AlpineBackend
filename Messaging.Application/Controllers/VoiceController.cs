@@ -41,6 +41,17 @@ public class VoiceController(
     };
 
     /// <summary>
+    /// Reverse index answering "is a call ringing for this user right now", written when the call
+    /// is placed and read by <see cref="GetPendingCall"/>.
+    /// </summary>
+    private static readonly DistributedCacheEntryOptions PendingCallOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2)
+    };
+
+    private static string PendingCallKey(string userId) => $"user-ringing:{userId}";
+
+    /// <summary>
     /// Resolves X-Device-Id and checks it really is one of this user's registered devices.
     /// </summary>
     private async Task<DeviceIdResult> ResolveDeviceAsync(string userId, CancellationToken ct = default) =>
@@ -110,13 +121,21 @@ public class VoiceController(
 
         await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
 
+        // Neither of the two ways a callee hears about this is guaranteed.
+        await Task.WhenAll(request.Participants.Select(p =>
+            cache.SetStringAsync(PendingCallKey(p), call.Id, PendingCallOptions)));
+
         var pushTokens = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
             new GetPushTokensForUsersRequest { UserIds = request.Participants });
         await CallPushService.SendIncomingCallAsync(pushTokens.Of(PushTokenKind.Fcm), pushTokens.Of(PushTokenKind.ApnsVoip), new CallPushPayload
         {
             CallId = call.Id,
             ConversationId = call.ConversationId,
-            CallerName = response.Profile.UserName,
+            CallerId = userId,
+            // The one string the native call screen has to show.
+            CallerName = string.IsNullOrWhiteSpace(response.Profile.UserName)
+                ? "Incoming call"
+                : response.Profile.UserName,
             CallerAvatarUrl = response.Profile.AvatarUrl,
         });
 
@@ -135,6 +154,31 @@ public class VoiceController(
 
         var call = await callStore.LoadAsync<Call>(Call.GetCacheId(callId));
         if (call == null || !call.IsParticipant(userId)) return NotFound();
+
+        return Ok(call);
+    }
+
+    /// <summary>
+    /// The call ringing for the caller right now, or <c>204</c> when there is none.
+    /// </summary>
+    [HttpGet("call/pending")]
+    public async Task<IActionResult> GetPendingCall()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var callId = await cache.GetStringAsync(PendingCallKey(userId));
+        if (string.IsNullOrWhiteSpace(callId)) return NoContent();
+
+        // The index is a hint; the call is the authority.
+        var call = await callStore.LoadAsync<Call>(Call.GetCacheId(callId));
+        if (call is null || call.Status is not (CallStatus.Pending or CallStatus.Connected)) return NoContent();
+
+        // Still Pending for *this* user specifically: a group call others have already joined is
+        // Connected overall while it goes on ringing here, and a call this user already answered or
+        // declined on another device must not ring again.
+        var me = call.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null || me.Status != CallStatus.Pending) return NoContent();
 
         return Ok(call);
     }

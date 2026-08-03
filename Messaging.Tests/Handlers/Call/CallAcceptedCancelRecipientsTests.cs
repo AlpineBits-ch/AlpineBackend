@@ -25,17 +25,7 @@ public class CallAcceptedCancelRecipientsTests
     public void AcceptingDevice_IsNeverToldToCancel()
     {
         var recipients = CallAcceptedHandler.CancelRecipients(
-            [Token(Accepter, "desktop-token", AcceptingDevice)], Accepter, AcceptingDevice);
-
-        Assert.That(recipients, Is.Empty);
-    }
-
-    [Test]
-    public void AccepterUnattributedToken_IsNotToldToCancel()
-    {
-        // The state of every token immediately after the consolidation migration.
-        var recipients = CallAcceptedHandler.CancelRecipients(
-            [Token(Accepter, "legacy-token", null)], Accepter, AcceptingDevice);
+            [Token(Accepter, "desktop-token", AcceptingDevice)], AcceptingDevice);
 
         Assert.That(recipients, Is.Empty);
     }
@@ -44,9 +34,19 @@ public class CallAcceptedCancelRecipientsTests
     public void AccepterOtherDevice_IsToldToCancel()
     {
         var recipients = CallAcceptedHandler.CancelRecipients(
-            [Token(Accepter, "phone-token", "phone-1")], Accepter, AcceptingDevice);
+            [Token(Accepter, "phone-token", "phone-1")], AcceptingDevice);
 
         Assert.That(recipients.Select(t => t.Token), Is.EquivalentTo(new[] { "phone-token" }));
+    }
+
+    [Test]
+    public void AccepterUnattributedToken_IsToldToCancel()
+    {
+        // The state of every token registered before the device-identity consolidation.
+        var recipients = CallAcceptedHandler.CancelRecipients(
+            [Token(Accepter, "legacy-token", null)], AcceptingDevice);
+
+        Assert.That(recipients.Select(t => t.Token), Is.EquivalentTo(new[] { "legacy-token" }));
     }
 
     [Test]
@@ -56,20 +56,19 @@ public class CallAcceptedCancelRecipientsTests
         [
             Token("user-2", "their-legacy", null),
             Token("user-2", "their-phone", "phone-9"),
-        ], Accepter, AcceptingDevice);
+        ], AcceptingDevice);
 
         Assert.That(recipients.Select(t => t.Token), Is.EquivalentTo(new[] { "their-legacy", "their-phone" }));
     }
 
     [Test]
-    public void NoAcceptingDeviceId_StillSpares_TheAccepterEntirely()
+    public void NoAcceptingDeviceId_CancelsEverywhere()
     {
-        // A pre-update client sends no device id, so the handler passes null and never adds the
-        // accepter to the recipient list - but if it ever did, unattributed tokens must not slip
-        // through here either.
+        // A client that sent no device id (or an unregistered one) can't be identified here, so
+        // nothing is held back - every ringing device hears about it.
         var recipients = CallAcceptedHandler.CancelRecipients(
-            [Token(Accepter, "legacy-token", null)], Accepter, null);
+            [Token(Accepter, "legacy-token", null), Token(Accepter, "phone-token", "phone-1")], null);
 
-        Assert.That(recipients, Is.Empty);
+        Assert.That(recipients.Select(t => t.Token), Is.EquivalentTo(new[] { "legacy-token", "phone-token" }));
     }
 }

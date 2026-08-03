@@ -20,6 +20,7 @@ namespace Echo.Docs;
 public sealed class OpenApiAggregator(
     IHttpClientFactory httpClientFactory,
     IProxyConfigProvider proxyConfig,
+    IWebHostEnvironment environment,
     ILogger<OpenApiAggregator> logger)
 {
     private static readonly TimeSpan RefreshAfter = TimeSpan.FromMinutes(5);
@@ -27,6 +28,11 @@ public sealed class OpenApiAggregator(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _cached;
     private DateTimeOffset _cachedAt;
+    private ResponseOverlay? _overlay;
+
+    /// <summary>Loaded once. Baked into the image next to the docs shell.</summary>
+    private ResponseOverlay Overlay => _overlay ??= ResponseOverlay.Load(
+        Path.Combine(environment.WebRootPath ?? "wwwroot", "docs", "openapi-responses.json"), logger);
 
     public async Task<string> GetDocumentAsync(CancellationToken ct = default)
     {
@@ -74,7 +80,7 @@ public sealed class OpenApiAggregator(
                 ["description"] = $"Served by the {service.Name} service.",
             });
 
-            var skipped = Merge(service, source, paths, schemas);
+            var skipped = Merge(service, source, paths, schemas, Overlay);
 
             // A declared route the gateway does not expose is a genuine gap - either a missing proxy
             // route or a service-only endpoint. Logged rather than silently dropped.
@@ -155,7 +161,8 @@ public sealed class OpenApiAggregator(
     /// </summary>
     /// <returns>Declared paths the gateway does not expose, so the caller can report them.</returns>
     private static List<string> Merge(
-        DocsService service, JsonObject source, JsonObject paths, JsonObject schemas)
+        DocsService service, JsonObject source, JsonObject paths, JsonObject schemas,
+        ResponseOverlay overlay)
     {
         var prefix = $"{service.DisplayName}.";
         var skipped = new List<string>();
@@ -165,6 +172,11 @@ public sealed class OpenApiAggregator(
             foreach (var (name, schema) in sourceSchemas.ToList())
             {
                 sourceSchemas.Remove(name);
+
+                // Reflected from the declared IResult return type; it describes the framework
+                // interface, not a payload, and the overlay supplies the real schema instead.
+                if (name == "IResult") continue;
+
                 schemas[prefix + name] = Requalify(schema, prefix);
             }
         }
@@ -183,11 +195,19 @@ public sealed class OpenApiAggregator(
                 continue;
             }
 
-            foreach (var (_, operation) in operations)
+            foreach (var (verb, operation) in operations)
             {
                 if (operation is not JsonObject op) continue;
                 // One tag per service so the sidebar groups by service rather than by controller.
                 op["tags"] = new JsonArray(service.DisplayName);
+
+                // Matched on the *declared* path - the overlay was generated from source, before
+                // the gateway prefix is applied below.
+                overlay.Apply(service, path, verb, op);
+
+                // Anything still carrying Wolverine's route-derived filler gets a readable label,
+                // using the public path so the navigation matches the URLs being documented.
+                ResponseOverlay.EnsureReadableSummary(op, verb, publicPath);
             }
 
             paths[publicPath] = Requalify(operations, prefix);

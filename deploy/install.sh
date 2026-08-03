@@ -53,6 +53,7 @@ UNINSTALL=false
 
 ARG_DOMAIN=""
 ARG_STORAGE_DOMAIN=""
+ARG_DOCS_DOMAIN=""
 ARG_INSTANCE_NAME=""
 ARG_ACME_EMAIL=""
 ARG_TLS_MODE=""              # letsencrypt | local | external-proxy
@@ -71,6 +72,7 @@ Venta self-hosted installer (Linux)
 
   --domain <host>              public hostname for the API (e.g. chat.example.com)
   --storage-domain <host>      public hostname for attachments (default: storage.<domain>)
+  --docs-domain <host>         public hostname for the API reference (default: docs.<domain>)
   --instance-name <name>       federation display name for this instance
   --acme-email <email>         contact address for Let's Encrypt
   --tls <mode>                 letsencrypt (default) | local | external-proxy
@@ -96,6 +98,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --domain)             ARG_DOMAIN="$2"; shift 2 ;;
         --storage-domain)     ARG_STORAGE_DOMAIN="$2"; shift 2 ;;
+        --docs-domain)        ARG_DOCS_DOMAIN="$2"; shift 2 ;;
         --instance-name)      ARG_INSTANCE_NAME="$2"; shift 2 ;;
         --acme-email)         ARG_ACME_EMAIL="$2"; shift 2 ;;
         --tls)                ARG_TLS_MODE="$2"; shift 2 ;;
@@ -287,6 +290,7 @@ if [[ "$REUSE_ENV" == false ]]; then
         letsencrypt|external-proxy)
             [[ -n "$INSTANCE_DOMAIN" ]] || die "--domain is required for TLS mode '$TLS_MODE'"
             STORAGE_DOMAIN="$(sanitize "${ARG_STORAGE_DOMAIN:-$(ask 'Public hostname for attachments/avatars' "storage.$INSTANCE_DOMAIN")}")"
+            DOCS_DOMAIN="$(sanitize "${ARG_DOCS_DOMAIN:-$(ask 'Public hostname for the API reference' "docs.$INSTANCE_DOMAIN")}")"
             INSTANCE_URL="https://$INSTANCE_DOMAIN"
             STORAGE_PUBLIC_URL="https://$STORAGE_DOMAIN"
             ;;
@@ -390,6 +394,9 @@ fi
 : "${TLS_MODE:=local}"
 : "${ACME_EMAIL:=}"
 : "${STORAGE_DOMAIN:=$INSTANCE_DOMAIN}"
+# The gateway derives this itself when unset; setting it explicitly keeps the Caddyfile and the
+# gateway in agreement when the instance is not on a bare domain.
+: "${DOCS_DOMAIN:=${INSTANCE_DOMAIN:+docs.$INSTANCE_DOMAIN}}"
 : "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
 : "${USE_EXTERNAL_DB:=no}"
 : "${DATABASE_HOSTNAME:=postgres}"
@@ -522,6 +529,7 @@ INSTANCE_VERSION="1.0.0"
 TLS_MODE="$TLS_MODE"
 ACME_EMAIL="${ACME_EMAIL:-}"
 STORAGE_DOMAIN="${STORAGE_DOMAIN:-}"
+DOCS_DOMAIN="${DOCS_DOMAIN:-}"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # ── Images ───────────────────────────────────────────────────────────────────────────
@@ -671,6 +679,17 @@ $STORAGE_DOMAIN {
 
 	# Attachment URLs are path-style: {STORAGE_PUBLIC_URL}/{bucket}/{key}
 	reverse_proxy minio:9000
+}
+
+# The API reference. Served by the gateway itself, which decides what to serve from the Host
+# header - the docs exist only on this hostname, not under a path on the API domain - so this
+# block must preserve the Host and point at the same container as the API.
+$DOCS_DOMAIN {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+	}
 }
 CADDY
     ok "wrote $GENERATED_DIR/Caddyfile (Let's Encrypt, HTTP-01 on :80)"

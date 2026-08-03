@@ -4,7 +4,9 @@ namespace Domain.Tests;
 
 class MockUser : Aggregate<MockUser>, IPrefixedEntity
 {
-    public static string Prefix { get; } = "user";
+    // "mock", not "user": IdGenerationArchitectureTests asserts prefixes are unique across the
+    // solution, and this test double would otherwise collide with ApplicationUser's real one.
+    public static string Prefix { get; } = "mock";
 }
 
 public class Tests
@@ -17,7 +19,7 @@ public class Tests
     {
        
         var id = MockUser.GenerateId();
-        Assert.That(id.StartsWith("user_"));
+        Assert.That(id.StartsWith("mock_"));
         Assert.Pass();
     }
 }

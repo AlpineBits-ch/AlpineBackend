@@ -8,8 +8,8 @@ using Facet.Extensions;
 using Facet.Extensions.EFCore;
 using Identity.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
+using Ids;
 using Microsoft.EntityFrameworkCore;
-using Persistence;
 using Wolverine;
 using Wolverine.Http;
 
@@ -30,7 +30,9 @@ public class BotApplicationEndpoint
 
         // Minted here (not by Identity) so the whole create-application flow is idempotent
         // under retry - see CreateBotAccountCommandHandler.
-        var botUserId = Ksuid.Generate("user_");
+        // Prefix matches Identity's ApplicationUser.Prefix - this mints an id for a row that service
+        // owns. Spelled as a literal because Bots references Identity.Contracts, not Identity.Domain.
+        var botUserId = Identifier.New("user");
 
         var account = await bus.InvokeAsync<CreateBotAccountResponse>(new CreateBotAccountCommand
         {

@@ -7,11 +7,11 @@ using Bots.Infrastructure.Persistence;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
+using Ids;
 using Messaging.Contracts.Bus.Request;
 using Messaging.Contracts.Bus.Response;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using Persistence;
 using Wolverine;
 using Wolverine.Http;
 
@@ -250,7 +250,7 @@ public class ComponentInteractionEndpoint
     private static readonly JsonElement EmptyStringElement = JsonDocument.Parse("\"\"").RootElement.Clone();
 
     private static (string InteractionId, string Token) NewInteractionIdentity() =>
-        (Ksuid.Generate("intr_"), Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
+        (Identifier.New("intr"), Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"));
 
     /// <summary>The fields every interaction type shares. Mirrors what InvokeCommandAsync builds,
     /// including the several properties discord.js dereferences unconditionally - see the remarks

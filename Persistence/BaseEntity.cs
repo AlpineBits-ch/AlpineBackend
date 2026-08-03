@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel.DataAnnotations.Schema;
+using Ids;
 
 namespace Persistence;
 
@@ -24,8 +25,7 @@ public abstract class BaseEntity<T> :IBaseEntity where T : BaseEntity<T>, IPrefi
 
     public static string GenerateId()
     {
-        return T.Prefix + "_" + Ksuid.Generate().ToString().ToUpperInvariant();
-        
+        return Identifier.New(T.Prefix);
     }
   
 }

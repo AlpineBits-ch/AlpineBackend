@@ -31,6 +31,14 @@ public sealed class EchoTestStack : IAsyncDisposable
 
     public string InstanceName { get; }
 
+    /// <summary>
+    /// This stack's Identity database. Exposed because a test occasionally has to assert or arrange
+    /// state the product deliberately offers no API for - promoting a user to administrator, for
+    /// instance, which an operator does out of band. Derived from the same suffix the service
+    /// processes are given, so it cannot drift from what they actually connect to.
+    /// </summary>
+    public string IdentityDatabaseName { get; private set; } = null!;
+
     private EchoTestStack(string instanceName) => InstanceName = instanceName;
 
     /// <param name="infra">
@@ -75,7 +83,9 @@ public sealed class EchoTestStack : IAsyncDisposable
         var identityPort = SpawnedServiceProcess.ReserveFreeTcpPort();
         var identityUrl = $"http://127.0.0.1:{identityPort}";
 
-        var identityEnv = Common($"identity_{databaseSuffix}");
+        stack.IdentityDatabaseName = $"identity_{databaseSuffix}";
+
+        var identityEnv = Common(stack.IdentityDatabaseName);
         identityEnv["INSTANCE_URL"] = identityUrl;
         // Real 30-day default grace period/sweep interval (AppEnvironment.AccountDeletionConfiguration)
         // would make AccountDeletionFlowTests wait days for the real scheduled-purge path to fire -

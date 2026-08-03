@@ -67,12 +67,17 @@ public class MessagingEndpointsTests
         new(_context, new FakeMessagingHubContext(), bus, new MlsJoinRequestService(_context),
             Helpers.TestMlsServices.Coverage(bus));
 
+    /// <summary>Stands in for CreateMessageCommandHandler.</summary>
     private static Message FakeHandlerReturnFor(CreateMessageCommand cmd) => Message.Create(new CreateMessageParams
     {
         Content = cmd.Content,
         ChannelId = cmd.ChannelId,
         ConversationId = cmd.ConversationId,
         AuthorId = cmd.AuthorId,
+        Mentions = cmd.Mentions,
+        RoleMentions = cmd.RoleMentions,
+        MentionsEveryone = cmd.MentionsEveryone,
+        MentionsHere = cmd.MentionsHere,
     });
 
     // ══════════════════════════════════════════════════════════════════════════ CreateMessage
@@ -209,6 +214,37 @@ public class MessagingEndpointsTests
         await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
 
         return bus.Invoked.OfType<CreateMessageCommand>().Single();
+    }
+
+    /// <summary>
+    /// The cascaded event has to carry the stored timestamp and every mention flag.
+    /// </summary>
+    [Test]
+    public async Task CreateMessage_CascadedEvent_CarriesTheStoredTimestampAndAllMentionFlags()
+    {
+        var endpoint = new MessagingEndpoints();
+        var bus = MentionBus();
+        var dto = new CreateMessageDto
+        {
+            Content = "hi",
+            ChannelId = "chan-1",
+            Mentions = ["user-2"],
+            RoleMentions = ["role-1"],
+            MentionsEveryone = true,
+            MentionsHere = true,
+        };
+
+        var (_, evt) = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+
+        Assert.That(evt, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt!.CreatedAt, Is.Not.EqualTo(default(DateTimeOffset)), "an unset CreatedAt reaches Guild as year 1");
+            Assert.That(evt.CreatedAt, Is.EqualTo(FakeHandlerReturnFor(bus.Invoked.OfType<CreateMessageCommand>().Single()).CreatedAt).Within(TimeSpan.FromSeconds(5)));
+            Assert.That(evt.RoleMentions, Is.EqualTo(new[] { "role-1" }).AsCollection);
+            Assert.That(evt.MentionsEveryone, Is.True);
+            Assert.That(evt.MentionsHere, Is.True);
+        });
     }
 
     [Test]

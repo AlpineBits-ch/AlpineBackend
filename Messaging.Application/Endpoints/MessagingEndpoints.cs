@@ -223,6 +223,8 @@ public class MessagingEndpoints
                 ChannelId = dto.ChannelId,
                 ConversationId = dto.ConversationId,
                 ContextId = message.ContextId,
+                // Off the stored entity.
+                CreatedAt = message.CreatedAt,
                 Content = message.Content,
                 CorrelationId = message.ContextId,
                 AuthorId = userId,
@@ -230,6 +232,10 @@ public class MessagingEndpoints
                 InReplyTo = message.InReplyTo,
                 EncryptionState = message.EncryptionState,
                 Mentions = message.Mentions,
+                // Carried for the same reason Mentions is.
+                RoleMentions = message.RoleMentions,
+                MentionsEveryone = message.MentionsEveryone,
+                MentionsHere = message.MentionsHere,
                 MlsSequenceNumber = message.MlsSequenceNumber,
                 SenderDeviceId = message.SenderDeviceId,
                 MlsEpoch = message.MlsEpoch,

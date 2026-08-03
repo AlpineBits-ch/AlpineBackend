@@ -25,6 +25,10 @@
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+        <!-- Runs the behavioural suites a second time against a real Postgres. The InMemory
+             provider cannot translate LINQ to SQL, so it cannot catch an untranslatable query -
+             see PostgresTestDatabase. -->
+        <PackageReference Include="Testcontainers.PostgreSql" Version="4.2.0" />
     </ItemGroup>
 
     <ItemGroup>

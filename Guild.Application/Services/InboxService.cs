@@ -57,8 +57,10 @@ public class InboxService(
 
     public static string GuildIconThumbnailUrl(string guildId) => $"{GuildIconUrl(guildId)}/thumbnail";
 
-    /// <summary>One row of the unread query, before muting and permissions have had their say.</summary>
-    private sealed record UnreadRow(
+    /// <summary>One row of the unread query, before muting and permissions have had their say.
+    /// Internal rather than private so the translation tests can assert the query this projects
+    /// into actually compiles to SQL - see InboxQueryTranslationTests.</summary>
+    internal sealed record UnreadRow(
         string MemberId,
         string GuildId,
         string GuildName,
@@ -170,6 +172,36 @@ public class InboxService(
     /// </summary>
     private async Task<List<UnreadRow>> QueryUnreadAsync(string userId, int take, string? cursor)
     {
+        var rows = await BuildUnreadQuery(ctx, userId, cursor)
+            .Take(take)
+            .ToListAsync();
+
+        // Household modules keep no message history, so "unread" is meaningless for them. Filtered
+        // here rather than in SQL because the check is an extension method over the enum.
+        return rows.Where(r => !r.ChannelType.IsHouseholdModule()).ToList();
+    }
+
+    /// <summary>
+    /// The unread query itself, ordered but not yet paged.
+    ///
+    /// <para>Split out from <see cref="QueryUnreadAsync"/> so it can be handed to
+    /// <c>ToQueryString()</c> in a test without a database. This query has already shipped one
+    /// production outage - an untranslatable shape 500s both <c>/inbox/unread</c> and
+    /// <c>/inbox/summary</c>, and the InMemory provider used by the behavioural tests evaluates
+    /// LINQ in-process, so it can never catch that. Every change here must keep
+    /// InboxQueryTranslationTests green.</para>
+    ///
+    /// <para><b>Why the ordering and the cursor filter sit before the projection.</b> They used to
+    /// come after it, composed onto an <c>IQueryable&lt;UnreadRow&gt;</c>. EF Core cannot bind a
+    /// member of a <em>positional record</em> projection back to the column that produced it, so
+    /// <c>OrderByDescending(r =&gt; r.LastActivityAt)</c> over the constructed row was
+    /// untranslatable - that was the outage. Filtering and ordering on the source columns, and
+    /// projecting last, is both translatable and better SQL: the ORDER BY lands on real indexable
+    /// columns instead of on a computed select list.</para>
+    /// </summary>
+    internal static IQueryable<UnreadRow> BuildUnreadQuery(
+        MicroserviceContext ctx, string userId, string? cursor)
+    {
         var query =
             from member in ctx.GuildMembers.AsNoTracking()
             where member.UserId == userId
@@ -182,41 +214,37 @@ public class InboxService(
                   && (readState == null
                         ? channel.LastActivityAt > member.JoinedAt
                         : channel.LastActivityAt > readState.LastReadAt)
-            select new UnreadRow(
-                member.Id,
-                channel.GuildId,
-                channel.Guild.Name,
-                channel.Id,
-                channel.Name,
-                channel.Type,
-                channel.CategoryId,
-                channel.Category != null ? channel.Category.Name : null,
-                channel.ParentChannelId,
-                channel.ParentChannel != null ? channel.ParentChannel.Name : null,
-                channel.LastActivityAt!.Value,
-                channel.LastMessageId,
-                channel.MessageCount,
-                readState != null ? readState.LastReadMessageId : null,
-                readState != null ? readState.MessageCountAtRead : 0,
-                readState != null ? readState.LastReadAt : null,
-                member.JoinedAt);
+            select new { member, channel, readState };
 
         if (cursor is not null && TryDecodeCursor(cursor, out var afterActivity, out var afterChannelId))
         {
             query = query.Where(r =>
-                r.LastActivityAt < afterActivity
-                || (r.LastActivityAt == afterActivity && string.Compare(r.ChannelId, afterChannelId) > 0));
+                r.channel.LastActivityAt < afterActivity
+                || (r.channel.LastActivityAt == afterActivity
+                    && string.Compare(r.channel.Id, afterChannelId) > 0));
         }
 
-        var rows = await query
-            .OrderByDescending(r => r.LastActivityAt)
-            .ThenBy(r => r.ChannelId)
-            .Take(take)
-            .ToListAsync();
-
-        // Household modules keep no message history, so "unread" is meaningless for them. Filtered
-        // here rather than in SQL because the check is an extension method over the enum.
-        return rows.Where(r => !r.ChannelType.IsHouseholdModule()).ToList();
+        return query
+            .OrderByDescending(r => r.channel.LastActivityAt)
+            .ThenBy(r => r.channel.Id)
+            .Select(r => new UnreadRow(
+                r.member.Id,
+                r.channel.GuildId,
+                r.channel.Guild.Name,
+                r.channel.Id,
+                r.channel.Name,
+                r.channel.Type,
+                r.channel.CategoryId,
+                r.channel.Category != null ? r.channel.Category.Name : null,
+                r.channel.ParentChannelId,
+                r.channel.ParentChannel != null ? r.channel.ParentChannel.Name : null,
+                r.channel.LastActivityAt!.Value,
+                r.channel.LastMessageId,
+                r.channel.MessageCount,
+                r.readState != null ? r.readState.LastReadMessageId : null,
+                r.readState != null ? r.readState.MessageCountAtRead : 0,
+                r.readState != null ? r.readState.LastReadAt : null,
+                r.member.JoinedAt));
     }
 
     /// <summary>Muted channels, categories and guilds drop out of Unread - the onboarding card

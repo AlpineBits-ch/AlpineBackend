@@ -15,6 +15,17 @@ namespace Messaging.Application.Commands;
 
 public class CreateMessageCommandHandler
 {
+    /// <summary>
+    /// Creates the message and cascades the one <see cref="MessageCreated"/> the rest of the system
+    /// reacts to - realtime fan-out, guild channel fan-out, and from there the phone push.
+    ///
+    /// <para>This is the *only* place that event may be raised for a newly created message. Every
+    /// producer (the HTTP endpoint, bot/webhook posts, thread creation, guild join messages) goes
+    /// through this command, and Wolverine publishes the second member of a returned tuple even when
+    /// the caller asked for the first via <c>InvokeAsync&lt;Message&gt;</c> - so a caller that also
+    /// returns its own MessageCreated does not replace this one, it adds a second. That is exactly
+    /// what POST /api/v1/messaging used to do, and every message it sent notified twice.</para>
+    /// </summary>
     public async Task<(Message, MessageCreated)> Handle(CreateMessageCommand command, IMessageRepository ctx, MicroserviceContext db)
     {
 
@@ -100,6 +111,11 @@ public class CreateMessageCommandHandler
             MessageId = message.Id,
             ChannelId = command.ChannelId,
             ConversationId = command.ConversationId,
+            // Derived by the entity as `ConversationId ?? ChannelId`, so it is taken off the stored
+            // message rather than recomputed. Both were previously only set on the duplicate event
+            // the HTTP endpoint raised, which is why they have to be here now that it does not.
+            ContextId = message.ContextId,
+            CorrelationId = message.ContextId,
             // From the entity, not the command: this is the timestamp the message was actually
             // stored under, which is what downstream cursor comparisons have to agree with.
             CreatedAt = message.CreatedAt,

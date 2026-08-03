@@ -27,11 +27,20 @@ namespace Messaging.Application.Endpoints;
 
 public class MessagingEndpoints
 {
+    /// <summary>
+    /// Deliberately returns a bare IResult and no cascaded event. The MessageCreated for this send
+    /// is raised by <see cref="CreateMessageCommandHandler"/>, which the InvokeAsync below runs -
+    /// and Wolverine publishes a handler's other tuple member even when the caller asked for the
+    /// first one, so returning a MessageCreated here too published a *second* copy of the same
+    /// event. Everything downstream then ran twice: the realtime fan-out (a duplicate message and
+    /// duplicate desktop notification) and, through Guild's channel path, a duplicate FCM/APNs push
+    /// on every phone.
+    /// </summary>
     [WolverinePost("/api/v1/messaging")]
-    public async Task<(IResult, MessageCreated?)> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls)
+    public async Task<IResult> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        if(userId is null) return (Results.Unauthorized(), null);
+        if(userId is null) return Results.Unauthorized();
 
         var authorIdType = user.FindFirstValue("user_type") == "Bot" ? AuthorIdType.Bot : AuthorIdType.User;
 
@@ -42,7 +51,7 @@ public class MessagingEndpoints
         var mentions = Truncate(dto.Mentions, MaxMentionsPerMessage);
         var roleMentions = Truncate(dto.RoleMentions, MaxMentionsPerMessage);
 
-        if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return (Results.BadRequest(), null);
+        if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return Results.BadRequest();
 
         // The two ids are mutually exclusive, and that has to be enforced rather than assumed.
         // Authorization below branches on ChannelId first, but Message.Create derives the storage
@@ -51,7 +60,7 @@ public class MessagingEndpoints
         // conversation's partition, was served by that conversation's history endpoint, and was
         // pushed to its members over SignalR and FCM.
         if (!string.IsNullOrWhiteSpace(dto.ConversationId) && !string.IsNullOrWhiteSpace(dto.ChannelId))
-            return (Results.BadRequest("Specify either channelId or conversationId, not both."), null);
+            return Results.BadRequest("Specify either channelId or conversationId, not both.");
 
         // Authoritative copies of the client's mention flags. In a guild channel these are
         // downgraded to false unless the author actually holds MentionEveryone; in a DM/group
@@ -69,7 +78,7 @@ public class MessagingEndpoints
                     Permission = ExternalPermission.SendMessages
                 });
 
-            if(!response.IsAllowed) return (Results.Forbid(), null);
+            if(!response.IsAllowed) return Results.Forbid();
 
             // @everyone/@here is a permission, not a client decision. Denial *strips the flags*
             // rather than rejecting the send: the flags are what turns the literal text into a
@@ -107,7 +116,7 @@ public class MessagingEndpoints
                         Reason = blockedReason,
                     });
 
-                    return (Results.Json(new { error = "automod_blocked", reason = blockedReason }, statusCode: StatusCodes.Status403Forbidden), null);
+                    return Results.Json(new { error = "automod_blocked", reason = blockedReason }, statusCode: StatusCodes.Status403Forbidden);
                 }
 
                 // Deliberately the last gate before the message is created: passing the check
@@ -122,9 +131,9 @@ public class MessagingEndpoints
                     var retryAfter = await SlowModeGuard.CheckAsync(dto.ChannelId, userId, response.SlowModeSeconds, cache);
                     if (retryAfter is not null)
                     {
-                        return (Results.Json(
+                        return Results.Json(
                             new { error = "slowmode", retry_after = retryAfter.Value, global = false },
-                            statusCode: StatusCodes.Status429TooManyRequests), null);
+                            statusCode: StatusCodes.Status429TooManyRequests);
                     }
                 }
             }
@@ -132,12 +141,12 @@ public class MessagingEndpoints
         else
         {
             var conversation = await context.Conversations.Include(c => c.Members).FirstOrDefaultAsync(c => c.Id == dto.ConversationId);
-            if(conversation is null) return (Results.NotFound(), null);
-        
+            if(conversation is null) return Results.NotFound();
+
             if(conversation.Members.All(m => m.UserId != userId))
             {
-                return (Results.Forbid(), null);
-            }   
+                return Results.Forbid();
+            }
             conversation.UpdatedAt = DateTime.UtcNow;
 
         }
@@ -173,13 +182,13 @@ public class MessagingEndpoints
         {
             if (encryptionState != MessageEncryptionState.Encrypted)
             {
-                return (Results.Conflict(new MlsSendConflictDto
+                return Results.Conflict(new MlsSendConflictDto
                 {
                     ContextId = mlsContextId!,
                     Encrypted = true,
                     ActiveGeneration = activeGeneration.Generation,
                     Reason = "This context is end-to-end encrypted; plaintext messages are not accepted.",
-                }), null);
+                });
             }
 
             // A client that predates generations sends none, and the only group it could have
@@ -188,26 +197,26 @@ public class MessagingEndpoints
             // since been replaced, and nobody in the context can read it.
             if (mlsGeneration is { } claimed && claimed != activeGeneration.Generation)
             {
-                return (Results.Conflict(new MlsSendConflictDto
+                return Results.Conflict(new MlsSendConflictDto
                 {
                     ContextId = mlsContextId!,
                     Encrypted = true,
                     ActiveGeneration = activeGeneration.Generation,
                     Reason = $"Message was encrypted under generation {claimed}; the context is on generation {activeGeneration.Generation}.",
-                }), null);
+                });
             }
 
             mlsGeneration = activeGeneration.Generation;
         }
         else if (encryptionState == MessageEncryptionState.Encrypted)
         {
-            return (Results.Conflict(new MlsSendConflictDto
+            return Results.Conflict(new MlsSendConflictDto
             {
                 ContextId = mlsContextId ?? string.Empty,
                 Encrypted = false,
                 ActiveGeneration = null,
                 Reason = "Encryption is not enabled for this context; nobody joining later could read this message.",
-            }), null);
+            });
         }
 
 
@@ -230,43 +239,11 @@ public class MessagingEndpoints
             MlsGeneration = mlsGeneration,
             SenderDeviceId = dto.SenderDeviceId
         });
-        
-       
-        
-        
 
-        return (Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>()),
-            new MessageCreated()
-            {
-                MessageId = message.Id,
-                ChannelId = dto.ChannelId,
-                ConversationId = dto.ConversationId,
-                ContextId = message.ContextId,
-                // Off the stored entity. Left unset this defaults to 0001-01-01, which Guild then
-                // denormalizes onto Channel.LastActivityAt - breaking the forum activity sort, the
-                // thread auto-archive deadline and the inbox unread predicate all at once.
-                CreatedAt = message.CreatedAt,
-                Content = message.Content,
-                CorrelationId = message.ContextId,
-                AuthorId = userId,
-                Attachments = message.Attachments,
-                InReplyTo = message.InReplyTo,
-                EncryptionState = message.EncryptionState,
-                Mentions = message.Mentions,
-                // Carried for the same reason Mentions is. Without these three the guild side never
-                // saw a role or @everyone ping sent over HTTP at all.
-                RoleMentions = message.RoleMentions,
-                MentionsEveryone = message.MentionsEveryone,
-                MentionsHere = message.MentionsHere,
-                MlsSequenceNumber = message.MlsSequenceNumber,
-                SenderDeviceId = message.SenderDeviceId,
-                MlsEpoch = message.MlsEpoch,
-                // Stamped by the block above from the context's active generation, so it is set
-                // even for clients that send none. Without it downstream (realtime, push) has to
-                // guess which group a ciphertext belongs to, and guesses wrong for any message
-                // that lands either side of an encryption toggle.
-                MlsGeneration = message.MlsGeneration,
-            });
+        // No cascaded event here - CreateMessageCommandHandler already raised the MessageCreated for
+        // this message (see the remarks on this method). The command carries everything the event
+        // needs, including the MlsGeneration stamped above from the context's active generation.
+        return Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>());
     }
 
     /// <summary>Hard cap on how many users or roles one message may mention, matching the limit

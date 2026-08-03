@@ -2,6 +2,7 @@ using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
+using Guild.Persistence.Persistence;
 using Guild.Tests.Helpers;
 using Messaging.Contracts.Bus.Request;
 using Messaging.Contracts.Bus.Response;
@@ -20,9 +21,16 @@ namespace Guild.Tests.Services;
 ///
 /// <para>The other half is what must <em>not</em> appear: muted channels, channels the caller can no
 /// longer see, and household modules that keep no message history at all.</para>
+///
+/// <para><b>Every assertion here runs twice</b> - once on the EF InMemory provider and once against
+/// a real Postgres in a container. That is not redundancy. This suite was already this thorough when
+/// <c>/inbox/unread</c> and <c>/inbox/summary</c> both 500'd in production on an untranslatable
+/// <c>ORDER BY</c>: InMemory evaluates LINQ in-process, so no scenario written against it can ever
+/// fail that way. Scenarios were never the gap; the provider was. See
+/// <see cref="GuildContextProviders"/>.</para>
 /// </summary>
-[TestFixture]
-public class InboxServiceTests
+[TestFixtureSource(typeof(GuildContextProviders))]
+public class InboxServiceTests(IGuildContextProvider provider)
 {
     private const string UserId = "user-1";
     private const string OwnerId = "user-owner";
@@ -32,15 +40,15 @@ public class InboxServiceTests
 
     private static readonly DateTimeOffset JoinedAt = new(2026, 8, 1, 0, 0, 0, TimeSpan.Zero);
 
-    private TestGuildContext _context = null!;
+    private MicroserviceContext _context = null!;
     private FakeDistributedCache _cache = null!;
     private FakeInvokingMessageBus _bus = null!;
     private InboxService _service = null!;
 
     [SetUp]
-    public void SetUp()
+    public async Task SetUp()
     {
-        _context = new TestGuildContext(Guid.NewGuid().ToString());
+        _context = await provider.CreateAsync();
         _cache = new FakeDistributedCache();
         _bus = new FakeInvokingMessageBus();
         _bus.SetResponse<GetChannelMessagePagesRequest>(new GetChannelMessagePagesResponse { Pages = [] });

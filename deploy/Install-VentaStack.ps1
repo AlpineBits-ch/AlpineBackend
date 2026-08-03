@@ -34,6 +34,7 @@
 param(
     [string]$Domain,
     [string]$StorageDomain,
+    [string]$DocsDomain,
     [string]$InstanceName,
     [string]$AcmeEmail,
     [ValidateSet('letsencrypt', 'local', 'external-proxy')]
@@ -271,6 +272,9 @@ if (-not $ReuseEnv) {
             $Config['STORAGE_DOMAIN'] = Format-EnvValue (
                 Get-Setting -Preset $StorageDomain -Prompt 'Public hostname for attachments/avatars' `
                             -Default "storage.$($Config['INSTANCE_DOMAIN'])")
+            $Config['DOCS_DOMAIN'] = Format-EnvValue (
+                Get-Setting -Preset $DocsDomain -Prompt 'Public hostname for the API reference' `
+                            -Default "docs.$($Config['INSTANCE_DOMAIN'])")
             $Config['INSTANCE_URL']       = "https://$($Config['INSTANCE_DOMAIN'])"
             $Config['STORAGE_PUBLIC_URL'] = "https://$($Config['STORAGE_DOMAIN'])"
         }
@@ -285,6 +289,7 @@ if (-not $ReuseEnv) {
             if (-not $lanIp) { $lanIp = '127.0.0.1' }
             $Config['INSTANCE_DOMAIN']    = Format-EnvValue (Read-Answer 'Address other machines reach this host on' $lanIp)
             $Config['STORAGE_DOMAIN']     = $Config['INSTANCE_DOMAIN']
+            $Config['DOCS_DOMAIN']        = ''
             $Config['INSTANCE_URL']       = "http://$($Config['INSTANCE_DOMAIN']):8080"
             $Config['STORAGE_PUBLIC_URL'] = "http://$($Config['INSTANCE_DOMAIN']):9000"
         }
@@ -362,6 +367,7 @@ if (-not $ReuseEnv) {
 $Defaults = @{
     INSTANCE_NAME = 'Venta'; INSTANCE_DOMAIN = ''; TLS_MODE = 'local'; ACME_EMAIL = ''
     INSTANCE_URL = 'http://127.0.0.1:8080'; STORAGE_DOMAIN = ''; STORAGE_PUBLIC_URL = 'http://127.0.0.1:9000'
+    DOCS_DOMAIN = ''
     USE_EXTERNAL_DB = 'no'; DATABASE_HOSTNAME = 'postgres'; DATABASE_PORT = '5432'
     DATABASE_USERNAME = 'postgres'; DATABASE_PASSWORD = (New-Secret 24)
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
@@ -512,6 +518,7 @@ INSTANCE_VERSION="1.0.0"
 TLS_MODE="$($Config['TLS_MODE'])"
 ACME_EMAIL="$($Config['ACME_EMAIL'])"
 STORAGE_DOMAIN="$($Config['STORAGE_DOMAIN'])"
+DOCS_DOMAIN="$($Config['DOCS_DOMAIN'])"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # -- Images ---------------------------------------------------------------------------
@@ -674,6 +681,17 @@ $($Config['STORAGE_DOMAIN']) {
 
 	# Attachment URLs are path-style: {STORAGE_PUBLIC_URL}/{bucket}/{key}
 	reverse_proxy minio:9000
+}
+
+# The API reference. Served by the gateway itself, which decides what to serve from the Host
+# header - the docs exist only on this hostname, not under a path on the API domain - so this
+# block must preserve the Host and point at the same container as the API.
+$($Config['DOCS_DOMAIN']) {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+	}
 }
 "@
     # LF line endings: Caddy is fine with CRLF, but the file is read inside a Linux container.

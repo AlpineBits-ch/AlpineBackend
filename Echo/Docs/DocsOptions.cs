@@ -10,6 +10,9 @@ public sealed record DocsService(
     string? RewriteAs,
     IReadOnlyList<string> PassThrough)
 {
+    /// <summary>The project Docs.Generator analysed, used to match the response overlay.</summary>
+    public string Project => $"{DisplayName}.Application";
+
     /// <summary>Where the service exposes its own document.</summary>
     public string DocumentPath { get; init; } = "/internal/openapi/v1.json";
 

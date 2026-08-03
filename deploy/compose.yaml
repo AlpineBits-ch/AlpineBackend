@@ -467,6 +467,10 @@ services:
       Services__Import: http://import:8080
       Services__Isle: http://isle:8080
       PERSONAL_ACCESS_TOKEN: "${PERSONAL_ACCESS_TOKEN:-}"
+      # The API reference is served by this container and is gated on the Host header, so the
+      # gateway and the Caddyfile must agree on the name. Left empty the gateway derives
+      # docs.<instance host> itself, which is what the installers configure Caddy for.
+      DOCS_DOMAIN: "${DOCS_DOMAIN:-}"
     ports:
       - "${GATEWAY_BIND:-127.0.0.1:8080}:8080"
     depends_on:

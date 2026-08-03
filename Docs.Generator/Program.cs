@@ -10,7 +10,12 @@ var solutionPath = args.FirstOrDefault(a => a.EndsWith(".sln", StringComparison.
                    ?? Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Echo.sln");
 
 var solutionRoot = Path.GetDirectoryName(Path.GetFullPath(solutionPath))!;
-var outputDirectory = ArgValue("--out") ?? Path.Combine(solutionRoot, "docs", "generated");
+
+// Default straight into the gateway's wwwroot: these artifacts are committed, so that the
+// published docs are reviewable in a diff and the Docker build does not need a full-solution
+// design-time build. --check verifies they are current instead of writing them.
+var outputDirectory = ArgValue("--out") ?? Path.Combine(solutionRoot, "Echo", "wwwroot", "docs");
+var checkOnly = args.Contains("--check");
 
 Console.WriteLine($"solution : {Path.GetFullPath(solutionPath)}");
 Console.WriteLine($"output   : {Path.GetFullPath(outputDirectory)}");
@@ -29,6 +34,7 @@ var solution = await workspace.OpenSolutionAsync(solutionPath);
 
 var schemas = new SchemaBuilder();
 var extractor = new RealtimeExtractor(schemas);
+var endpoints = new EndpointExtractor(schemas);
 
 var compilations = new List<Microsoft.CodeAnalysis.Compilation>();
 
@@ -43,6 +49,7 @@ foreach (var project in solution.Projects)
 
     compilations.Add(compilation);
     await extractor.ScanAsync(compilation);
+    await endpoints.ScanAsync(compilation, project.Name);
 }
 
 // Fan-out helpers take the event name as a parameter; their real names live at the call sites.
@@ -136,20 +143,72 @@ var inventory = new
         }),
 };
 
-var inventoryPath = Path.Combine(outputDirectory, "realtime-inventory.json");
-await File.WriteAllTextAsync(inventoryPath, JsonSerializer.Serialize(inventory, new JsonSerializerOptions
+var stale = new List<string>();
+
+await Emit("realtime-inventory.json", JsonSerializer.Serialize(inventory, new JsonSerializerOptions
 {
     WriteIndented = true,
     DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
 }));
 
-Console.WriteLine($"wrote {inventoryPath}");
+await Emit("asyncapi.json", AsyncApiWriter.Write(extractor.Outbound, extractor.Inbound));
 
-var asyncApiPath = Path.Combine(outputDirectory, "asyncapi.json");
-await File.WriteAllTextAsync(asyncApiPath, AsyncApiWriter.Write(extractor.Outbound, extractor.Inbound));
-Console.WriteLine($"wrote {asyncApiPath}");
+// ── HTTP response overlay ────────────────────────────────────────────────────
+Console.WriteLine();
+Console.WriteLine($"endpoints           : {endpoints.Endpoints.Count}");
+Console.WriteLine($"  with a 200 body   : {endpoints.Endpoints.Count(e => e.Responses.Any(r => r.Status == 200 && r.Body is not null))}");
+Console.WriteLine($"  with XML summary  : {endpoints.Endpoints.Count(e => !string.IsNullOrWhiteSpace(e.Summary))}");
+Console.WriteLine($"  unreadable        : {endpoints.Unresolved.Count}");
+
+if (endpoints.Unresolved.Count > 0)
+{
+    // Not noise: each one is an endpoint whose responses will stay undocumented.
+    foreach (var problem in endpoints.Unresolved.Take(15))
+        Console.WriteLine($"    {problem}");
+    if (endpoints.Unresolved.Count > 15)
+        Console.WriteLine($"    ... and {endpoints.Unresolved.Count - 15} more");
+}
+
+await Emit("openapi-responses.json", ResponseOverlayWriter.Write(endpoints.Endpoints));
+
+if (checkOnly && stale.Count > 0)
+{
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Generated documentation is out of date:");
+    foreach (var file in stale) Console.Error.WriteLine($"  {file}");
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Run: dotnet run --project Docs.Generator -- Echo.sln");
+    return 1;
+}
 
 return 0;
+
+// Writes an artifact, or under --check compares it against what is committed.
+async Task Emit(string fileName, string content)
+{
+    var path = Path.Combine(outputDirectory, fileName);
+
+    if (checkOnly)
+    {
+        var current = File.Exists(path) ? await File.ReadAllTextAsync(path) : null;
+        if (Normalise(current) == Normalise(content))
+        {
+            Console.WriteLine($"up to date  {fileName}");
+        }
+        else
+        {
+            Console.WriteLine($"STALE       {fileName}");
+            stale.Add(fileName);
+        }
+        return;
+    }
+
+    await File.WriteAllTextAsync(path, content);
+    Console.WriteLine($"wrote       {path}");
+}
+
+// Line endings differ between a Windows checkout and a Linux CI runner; the content does not.
+static string? Normalise(string? text) => text?.Replace("\r\n", "\n").TrimEnd();
 
 string? ArgValue(string flag)
 {

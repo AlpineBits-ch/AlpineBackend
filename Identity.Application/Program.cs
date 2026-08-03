@@ -1,4 +1,4 @@
-﻿using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AppEnvironment;
@@ -215,10 +215,7 @@ app.UseGracefulShutdownHealthCheck();
 app.MapHealthChecks("/identity/health");
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 app.UseAuthentication();
 app.UseAuthorization();
 //app.UseHttpsRedirection();

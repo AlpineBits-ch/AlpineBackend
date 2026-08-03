@@ -203,10 +203,7 @@ app.UseGracefulShutdownHealthCheck();
 app.MapHealthChecks("/guild/health");
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 
 app.UseHttpsRedirection();
 app.UseInfrastructure();

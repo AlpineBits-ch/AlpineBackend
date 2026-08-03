@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
@@ -149,10 +149,7 @@ var app = builder.Build();
 app.UseInfrastructure();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 
 
 app.UseHttpsRedirection();

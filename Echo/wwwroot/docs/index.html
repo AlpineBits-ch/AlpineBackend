@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>venta.gg — API Documentation</title>
+<style>
+  /* ── Tokens ────────────────────────────────────────────────────────────────
+     Light and dark are both first-class. Scalar (the HTTP tab) follows the OS
+     scheme on its own; the realtime tab below is ours, so it uses these. */
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --panel: #f7f8fa;
+    --surface: #ffffff;
+    --border: #e3e6eb;
+    --border-soft: #eef0f3;
+    --text: #14171d;
+    --muted: #626b78;
+    --faint: #8b94a1;
+    --accent: #4f5bd5;
+    --recv: #1a7f4b;
+    --recv-bg: #e6f4ec;
+    --send: #9a5b00;
+    --send-bg: #fdf0dc;
+    --warn: #b3261e;
+    --warn-bg: #fbeae9;
+    --code-bg: #f2f4f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --panel: #12151b;
+      --surface: #171a21;
+      --border: #272c36;
+      --border-soft: #1e222a;
+      --text: #e7eaee;
+      --muted: #98a1ae;
+      --faint: #6d7684;
+      --accent: #8b95f5;
+      --recv: #55d391;
+      --recv-bg: #12301f;
+      --send: #e0a458;
+      --send-bg: #2e2314;
+      --warn: #ff8a80;
+      --warn-bg: #33191a;
+      --code-bg: #10131a;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  code, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  /* ── Shell ──────────────────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 26px;
+    padding: 0 20px;
+    height: 54px;
+    flex: 0 0 54px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    z-index: 50;
+  }
+  .brand {
+    font-weight: 650; font-size: 15px; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 9px; white-space: nowrap;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  nav { display: flex; gap: 3px; }
+  nav button {
+    font: inherit; font-size: 14px; color: var(--muted);
+    background: none; border: 0; padding: 6px 13px; border-radius: 7px; cursor: pointer;
+    transition: background .12s, color .12s;
+  }
+  nav button:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
+  nav button[aria-current="page"] {
+    color: var(--accent); font-weight: 550;
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+  }
+  .spacer { flex: 1; }
+  .meta { font-size: 12.5px; color: var(--faint); white-space: nowrap; }
+
+  main { flex: 1; min-height: 0; }
+  .page { display: none; height: 100%; }
+  .page[data-active] { display: block; }
+  #ws-page[data-active] { display: flex; }
+
+  /* ── Realtime: sidebar ──────────────────────────────────────────────────── */
+  #ws-side {
+    flex: 0 0 268px;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .search-wrap { padding: 12px; border-bottom: 1px solid var(--border-soft); }
+  #search {
+    width: 100%; font: inherit; font-size: 13.5px;
+    padding: 7px 10px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  #search:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
+  #search::placeholder { color: var(--faint); }
+
+  #ws-nav { overflow-y: auto; padding: 8px 8px 40px; flex: 1; min-height: 0; }
+  .group-label {
+    font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--faint); padding: 14px 8px 5px;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 8px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .nav-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); color: var(--text); }
+  .nav-item[data-selected] {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent); font-weight: 550;
+  }
+  .nav-item .dirmark { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; }
+  .dirmark.r { background: var(--recv); }
+  .dirmark.s { background: var(--send); }
+
+  /* ── Realtime: content ──────────────────────────────────────────────────── */
+  #ws-main { flex: 1; overflow-y: auto; min-width: 0; }
+  .content-inner { max-width: 880px; padding: 34px 40px 100px; }
+
+  .intro h1 { font-size: 27px; letter-spacing: -0.02em; margin: 0 0 14px; font-weight: 650; }
+  .intro p { color: var(--muted); margin: 0 0 12px; }
+  .intro code, .ev code {
+    font-size: 12.5px; background: var(--code-bg); padding: 1.5px 5px; border-radius: 4px;
+    color: var(--text);
+  }
+  .intro .rule { height: 1px; background: var(--border); margin: 30px 0; }
+
+  .ev { scroll-margin-top: 12px; margin-bottom: 10px; }
+  .ev-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 11px 14px; cursor: pointer;
+    border: 1px solid var(--border); border-radius: 9px; background: var(--surface);
+  }
+  .ev-head:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .ev[data-open] .ev-head { border-radius: 9px 9px 0 0; border-bottom-color: transparent; }
+  .badge {
+    flex: 0 0 auto; font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+    padding: 3px 7px; border-radius: 5px; text-transform: uppercase;
+  }
+  .badge.r { color: var(--recv); background: var(--recv-bg); }
+  .badge.s { color: var(--send); background: var(--send-bg); }
+  .ev-name { font-size: 13.5px; font-weight: 550; }
+  .ev-sum { font-size: 12.5px; color: var(--faint); margin-left: auto; text-align: right;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%; }
+  .chev { flex: 0 0 auto; color: var(--faint); transition: transform .15s; font-size: 11px; }
+  .ev[data-open] .chev { transform: rotate(90deg); }
+
+  .ev-body {
+    display: none;
+    border: 1px solid var(--border); border-top: 0; border-radius: 0 0 9px 9px;
+    background: var(--surface); padding: 4px 14px 14px;
+  }
+  .ev[data-open] .ev-body { display: block; }
+  .ev-desc { font-size: 13px; color: var(--muted); margin: 8px 0 12px; }
+
+  .warn {
+    font-size: 12.5px; color: var(--warn); background: var(--warn-bg);
+    border-radius: 6px; padding: 8px 10px; margin: 0 0 12px;
+  }
+
+  .sec-label {
+    font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--faint); margin: 14px 0 7px;
+  }
+
+  /* Schema tree */
+  .row { display: flex; gap: 9px; align-items: baseline; padding: 3px 0; font-size: 13px; }
+  .row + .kids { margin-left: 14px; padding-left: 11px; border-left: 1px solid var(--border-soft); }
+  .k { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  .t { font-size: 11.5px; color: var(--accent); font-family: ui-monospace, Menlo, monospace; }
+  .opt { font-size: 11px; color: var(--faint); }
+  .note { font-size: 11.5px; color: var(--faint); font-style: italic; }
+
+  .sites { font-size: 12px; color: var(--faint); }
+  .sites div { padding: 1.5px 0; font-family: ui-monospace, Menlo, monospace; }
+
+  .empty { color: var(--faint); font-size: 13.5px; padding: 30px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand"><span class="dot"></span> venta.gg</span>
+  <nav>
+    <button id="tab-http" aria-current="page">HTTP API</button>
+    <button id="tab-ws">Realtime</button>
+  </nav>
+  <span class="spacer"></span>
+  <span class="meta" id="meta"></span>
+</header>
+
+<main>
+  <div class="page" id="http-page" data-active>
+    <script id="api-reference" data-url="/openapi.json"></script>
+  </div>
+
+  <div class="page" id="ws-page">
+    <aside id="ws-side">
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="Filter events…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div id="ws-nav"></div>
+    </aside>
+    <div id="ws-main">
+      <div class="content-inner" id="ws-content">
+        <div class="empty">Loading realtime contract…</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/vendor/scalar.standalone.js"></script>
+<script>
+/*
+ * The realtime reference is rendered here rather than with @asyncapi/react-component.
+ *
+ * That component was tried first and removed: its shipped stylesheet is a partial Tailwind build
+ * (349 rules) that omits the responsive variants its own markup depends on - `.md:flex` is absent,
+ * so the sidebar/content two-column layout can never engage and the sidebar collapses to a floating
+ * button. It also has no dark mode at all: zero `prefers-color-scheme` blocks and zero `.dark`
+ * selectors, so it renders as a white slab inside this shell. Between patching around both and
+ * rendering ~350 lines ourselves from a spec we already generate, this is the smaller and more
+ * predictable surface - and it drops a 2.6 MB dependency.
+ *
+ * The source of truth is still /asyncapi.json, which stays published for tooling and codegen.
+ */
+(function () {
+  var pages = { http: document.getElementById('http-page'), ws: document.getElementById('ws-page') };
+  var tabs  = { http: document.getElementById('tab-http'),  ws: document.getElementById('tab-ws') };
+  var loaded = false;
+  var events = [];
+
+  function show(name) {
+    Object.keys(pages).forEach(function (key) {
+      pages[key][(key === name ? 'set' : 'remove') + 'Attribute']('data-active', '');
+      tabs[key][(key === name ? 'set' : 'remove') + 'Attribute']('aria-current', 'page');
+    });
+    // Deliberately not in location.hash: Scalar owns the hash for its own deep links.
+    try { sessionStorage.setItem('venta-docs-tab', name); } catch (e) {}
+    if (name === 'ws') load();
+  }
+
+  // ── Load and normalise ───────────────────────────────────────────────────
+  function load() {
+    if (loaded) return;
+    loaded = true;
+
+    fetch('/asyncapi.json')
+      .then(function (r) {
+        if (!r.ok) throw new Error('asyncapi.json returned ' + r.status);
+        return r.json();
+      })
+      .then(function (doc) {
+        events = Object.keys(doc.operations || {}).map(function (opId) {
+          var op = doc.operations[opId];
+          var ref = (op.messages && op.messages[0] && op.messages[0].$ref) || '';
+          var id = ref.split('/').pop();
+          var msg = (doc.components && doc.components.messages && doc.components.messages[id]) || {};
+          return {
+            id: id,
+            name: msg.name || id,
+            // "receive" is server -> client. Named from the client's point of view, which is
+            // whose documentation this is.
+            dir: op.action === 'receive' ? 'r' : 's',
+            summary: msg.summary || '',
+            payload: msg.payload || null,
+            sites: msg['x-sites'] || (msg['x-source'] ? [msg['x-source']] : [])
+          };
+        }).sort(function (a, b) {
+          return a.dir === b.dir ? a.name.localeCompare(b.name) : (a.dir === 'r' ? -1 : 1);
+        });
+
+        document.getElementById('meta').textContent =
+          events.filter(function (e) { return e.dir === 'r'; }).length + ' server events · ' +
+          events.filter(function (e) { return e.dir === 's'; }).length + ' client methods';
+
+        renderIntro(doc.info || {});
+        renderNav('');
+        renderEvents('');
+      })
+      .catch(function (err) {
+        document.getElementById('ws-content').innerHTML =
+          '<div class="empty">Could not load the realtime contract: ' + esc(err.message) + '</div>';
+      });
+  }
+
+  // ── Rendering ────────────────────────────────────────────────────────────
+  function renderIntro(info) {
+    var html = '<div class="intro"><h1>' + esc(info.title || 'Realtime API') + '</h1>';
+    (info.description || '').split('\n\n').forEach(function (para) {
+      if (para.trim()) html += '<p>' + md(para.trim()) + '</p>';
+    });
+    html += '<div class="rule"></div></div><div id="ev-list"></div>';
+    document.getElementById('ws-content').innerHTML = html;
+  }
+
+  function groupOf(e) {
+    if (e.dir === 's') return 'Client methods';
+    var dot = e.name.indexOf('.');
+    return dot > 0 ? e.name.slice(0, dot) : 'other';
+  }
+
+  function renderNav(filter) {
+    var nav = document.getElementById('ws-nav');
+    var shown = events.filter(function (e) { return match(e, filter); });
+    var html = '';
+    var group = null;
+
+    shown.forEach(function (e) {
+      var g = groupOf(e);
+      if (g !== group) { group = g; html += '<div class="group-label">' + esc(g) + '</div>'; }
+      html += '<div class="nav-item" data-target="' + esc(e.id) + '" title="' + esc(e.name) + '">'
+            + '<span class="dirmark ' + e.dir + '"></span>' + esc(e.name) + '</div>';
+    });
+
+    nav.innerHTML = html || '<div class="empty" style="padding:20px 8px">No matches</div>';
+  }
+
+  function renderEvents(filter) {
+    var list = document.getElementById('ev-list');
+    if (!list) return;
+
+    var shown = events.filter(function (e) { return match(e, filter); });
+    if (!shown.length) { list.innerHTML = '<div class="empty">No events match that filter.</div>'; return; }
+
+    list.innerHTML = shown.map(function (e) {
+      var conflicted = /different payload shapes/.test(e.summary);
+      return ''
+        + '<div class="ev" id="ev-' + esc(e.id) + '">'
+        +   '<div class="ev-head">'
+        +     '<span class="chev">&#9656;</span>'
+        +     '<span class="badge ' + e.dir + '">' + (e.dir === 'r' ? 'receive' : 'send') + '</span>'
+        +     '<span class="ev-name mono">' + esc(e.name) + '</span>'
+        +     '<span class="ev-sum">' + esc(shortSummary(e)) + '</span>'
+        +   '</div>'
+        +   '<div class="ev-body">'
+        +     (conflicted ? '<div class="warn">' + esc(e.summary) + '</div>'
+                          : '<div class="ev-desc">' + esc(e.summary) + '</div>')
+        +     '<div class="sec-label">Payload</div>'
+        +     (e.payload ? schema(e.payload) : '<div class="note">none</div>')
+        +     (e.sites.length
+                 ? '<div class="sec-label">Sent from</div><div class="sites">'
+                   + e.sites.map(function (s) {
+                       return '<div>' + esc(s.file) + ':' + s.line + '</div>';
+                     }).join('') + '</div>'
+                 : '')
+        +   '</div>'
+        + '</div>';
+    }).join('');
+  }
+
+  function shortSummary(e) {
+    if (/different payload shapes/.test(e.summary)) return 'multiple shapes';
+    var m = /Payload: (.+)\.$/.exec(e.summary);
+    if (m) return m[1].split('.').pop();
+    if (/anonymous object/.test(e.summary)) return 'anonymous';
+    return '';
+  }
+
+  /* Renders our JSON-Schema subset. Objects recurse; everything else is a leaf row. */
+  function schema(node, name, depth) {
+    depth = depth || 0;
+    var type = Array.isArray(node.type) ? node.type.filter(function (t) { return t !== 'null'; })[0] : node.type;
+    var nullable = Array.isArray(node.type) && node.type.indexOf('null') >= 0;
+    var label = type + (node.format ? ' · ' + node.format : '');
+
+    if (type === 'array' && node.items) {
+      label = 'array';
+      var inner = node.items;
+      var innerType = Array.isArray(inner.type) ? inner.type[0] : inner.type;
+      if (innerType !== 'object') {
+        return row(name, innerType + '[]', nullable, node) ;
+      }
+      return row(name, 'object[]', nullable, node)
+           + '<div class="kids">' + props(inner, depth + 1) + '</div>';
+    }
+
+    if (type === 'object' && node.properties) {
+      return (name ? row(name, 'object', nullable, node) : '')
+           + '<div class="' + (name ? 'kids' : '') + '">' + props(node, depth + 1) + '</div>';
+    }
+
+    return row(name, label, nullable, node);
+  }
+
+  function props(node, depth) {
+    if (depth > 8) return '<div class="note">…</div>';
+    var keys = Object.keys(node.properties || {});
+    if (!keys.length) return '<div class="note">' + esc(node.description || 'object') + '</div>';
+    return keys.map(function (k) { return schema(node.properties[k], k, depth); }).join('');
+  }
+
+  function row(name, type, nullable, node) {
+    return '<div class="row">'
+         + (name ? '<span class="k">' + esc(name) + '</span>' : '')
+         + '<span class="t">' + esc(type) + '</span>'
+         + (nullable ? '<span class="opt">optional</span>' : '')
+         + (node.enum ? '<span class="opt">' + esc(node.enum.join(' | ')) + '</span>' : '')
+         + (node.description ? '<span class="note">' + esc(node.description) + '</span>' : '')
+         + '</div>';
+  }
+
+  // ── Interaction ──────────────────────────────────────────────────────────
+  function match(e, filter) {
+    return !filter || e.name.toLowerCase().indexOf(filter) >= 0;
+  }
+
+  document.addEventListener('click', function (ev) {
+    var head = ev.target.closest && ev.target.closest('.ev-head');
+    if (head) { head.parentElement.toggleAttribute('data-open'); return; }
+
+    var item = ev.target.closest && ev.target.closest('.nav-item');
+    if (item) {
+      document.querySelectorAll('.nav-item[data-selected]').forEach(function (n) {
+        n.removeAttribute('data-selected');
+      });
+      item.setAttribute('data-selected', '');
+
+      var target = document.getElementById('ev-' + item.getAttribute('data-target'));
+      if (target) {
+        target.setAttribute('data-open', '');
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  });
+
+  var searchBox = document.getElementById('search');
+  searchBox.addEventListener('input', function () {
+    var f = searchBox.value.trim().toLowerCase();
+    renderNav(f);
+    renderEvents(f);
+  });
+
+  // ── Utilities ────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  /* Just the two inline forms the generated description uses. */
+  function md(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  }
+
+  tabs.http.addEventListener('click', function () { show('http'); });
+  tabs.ws.addEventListener('click', function () { show('ws'); });
+
+  var saved = 'http';
+  try { saved = sessionStorage.getItem('venta-docs-tab') || 'http'; } catch (e) {}
+  show(saved === 'ws' ? 'ws' : 'http');
+})();
+</script>
+</body>
+</html>

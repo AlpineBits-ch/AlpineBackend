@@ -119,10 +119,7 @@ await app.SeedGameModeDefinitionsAsync();
 await app.SeedQuestsAsync();
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 
 app.UseGracefulShutdownHealthCheck();
 app.MapWolverineEndpoints();

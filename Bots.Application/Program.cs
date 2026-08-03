@@ -99,10 +99,9 @@ app.MapHealthChecks("/bots/health");
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+// The gateway's docs aggregator fetches this to build the public reference, so it can no longer be
+// Development-only.
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 
 app.UseWebSockets();
 

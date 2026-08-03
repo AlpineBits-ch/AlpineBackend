@@ -1,5 +1,6 @@
 using System.Threading.RateLimiting;
 using AppEnvironment;
+using Echo.Docs;
 using Echo.Persistence;
 using Echo.Persistence.Persistance;
 using Echo.Proxy;
@@ -141,6 +142,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddHttpClient();
+builder.Services.AddVentaDocs();
 
 builder.Services.AddScoped<IGitHubClient>(s =>
 {
@@ -172,6 +174,10 @@ app.UseAuthorization();
 // The single per-user realtime connection is terminated here on the gateway.
 app.MapHub<EchoRealtimeHub>("/api/v1/ws/hub");
 app.MapControllers();
+
+// Documentation site.
+app.MapVentaDocs();
+
 app.MapReverseProxy();
 app.UseGracefulShutdownHealthCheck();
 

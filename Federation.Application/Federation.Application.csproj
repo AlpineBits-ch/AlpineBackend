@@ -5,6 +5,11 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <!-- .NET 10's OpenAPI generator reads XML doc comments, but only if the doc file
+             exists. CS1591 is suppressed: these are services, not a published library, so
+             demanding a comment on every public member would be noise, not rigour. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
     </PropertyGroup>
     
     <ItemGroup>

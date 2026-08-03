@@ -91,10 +91,9 @@ app.UseGracefulShutdownHealthCheck();
 
 app.MapHealthChecks("/import/health");
 
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+// The gateway's docs aggregator fetches this to build the public reference, so it can no longer be
+// Development-only.
+app.MapOpenApi("/internal/openapi/{documentName}.json");
 
 app.UseAuthentication();
 app.UseAuthorization();

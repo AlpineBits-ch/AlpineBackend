@@ -99,6 +99,14 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     
     public string? SteamId { get; set; }
 
+    /// <summary>
+    /// When this account answered the onboarding picker, or null if it never has.
+    /// </summary>
+    public DateTimeOffset? OnboardedAt { get; set; }
+
+    /// <summary>Which halves of the product this account signed up for.</summary>
+    public UserInterests Interests { get; set; } = UserInterests.None;
+
     public UserType UserType { get; set; } = UserType.Default;
 
     public DateTimeOffset? DeletionRequestedAt { get; set; }
@@ -169,6 +177,9 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             UserType = UserType.Bot,
             CreatedAt = date,
             UpdatedAt = date,
+            // Stamped so a bot never trips the onboarding picker.
+            OnboardedAt = date,
+            Interests = UserInterests.Social,
             SecurityStamp = Guid.NewGuid().ToString(),
             Status = UserStatus.Active,
             // See ApplicationUser.Create - lockout has to be enabled explicitly because these rows

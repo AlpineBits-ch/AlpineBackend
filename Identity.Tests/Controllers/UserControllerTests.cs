@@ -337,6 +337,136 @@ public class UserControllerTests
         });
     }
 
+    // ── self/onboarding ─────────────────────────────────────────────────────
+
+    private static async Task<JsonElement> PutOnboardingAsync(string token, object body, HttpStatusCode expected)
+    {
+        var result = await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Put.Json(body).ToUrl("/api/v1/users/self/onboarding");
+            x.StatusCodeShouldBe(expected);
+        });
+        return expected == HttpStatusCode.OK ? await result.ReadAsJsonAsync<JsonElement>() : default;
+    }
+
+    private static string[] InterestNames(JsonElement body) =>
+        body.GetProperty("interests").EnumerateArray().Select(e => e.GetString()!).ToArray();
+
+    [Test]
+    public async Task UpdateOnboarding_FirstAnswer_StampsOnboardedAtAndInterests()
+    {
+        var username = $"onbfirst{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+
+        var body = await PutOnboardingAsync(token, new { interests = new[] { "isle" } }, HttpStatusCode.OK);
+        Assert.That(InterestNames(body), Is.EqualTo(new[] { "isle" }));
+
+        using var scope = Host.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+        var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+        Assert.That(user.OnboardedAt, Is.Not.Null);
+        Assert.That(user.Interests, Is.EqualTo(UserInterests.Isle));
+    }
+
+    /// <summary>Re-running the picker from settings has to be able to change the answer.</summary>
+    [Test]
+    public async Task UpdateOnboarding_SecondAnswer_ChangesInterestsButKeepsOriginalTimestamp()
+    {
+        var username = $"onbsecond{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+
+        await PutOnboardingAsync(token, new { interests = new[] { "isle" } }, HttpStatusCode.OK);
+
+        DateTimeOffset? firstStamp;
+        using (var scope = Host.Services.CreateScope())
+        {
+            var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+            firstStamp = (await ctx.Users.FirstAsync(u => u.UserName == username)).OnboardedAt;
+        }
+
+        var body = await PutOnboardingAsync(token, new { interests = new[] { "isle", "social" } }, HttpStatusCode.OK);
+        Assert.That(InterestNames(body), Is.EqualTo(new[] { "isle", "social" }));
+
+        using var verifyScope = Host.Services.CreateScope();
+        var verifyCtx = verifyScope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+        var user = await verifyCtx.Users.FirstAsync(u => u.UserName == username);
+        Assert.That(user.Interests, Is.EqualTo(UserInterests.Isle | UserInterests.Social));
+        Assert.That(user.OnboardedAt, Is.EqualTo(firstStamp),
+            "re-answering must not rewrite when the account was first onboarded");
+    }
+
+    /// <summary>
+    /// No interest at all is a state the client's launch sequence has no answer for - it cannot
+    /// decide whether a master key is owed - so it must be unreachable rather than merely unusual.
+    /// </summary>
+    [Test]
+    public async Task UpdateOnboarding_EmptyOrUnknownInterests_ReturnsBadRequest()
+    {
+        var username = $"onbempty{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+
+        await PutOnboardingAsync(token, new { interests = Array.Empty<string>() }, HttpStatusCode.BadRequest);
+        await PutOnboardingAsync(token, new { interests = (string[]?)null }, HttpStatusCode.BadRequest);
+        await PutOnboardingAsync(token, new { interests = new[] { "dinosaurs" } }, HttpStatusCode.BadRequest);
+        // A partly-known set is refused whole: storing the half we understood would leave the
+        // account believing it chose something it did not.
+        await PutOnboardingAsync(token, new { interests = new[] { "isle", "dinosaurs" } }, HttpStatusCode.BadRequest);
+
+        using var scope = Host.Services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+        var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+        Assert.That(user.OnboardedAt, Is.Null, "a refused write must not stamp the account");
+        Assert.That(user.Interests, Is.EqualTo(UserInterests.None));
+    }
+
+    /// <summary>
+    /// The client reads both fields off the self payload rather than a dedicated route, so they have
+    /// to survive the facet - Interests in particular is excluded from it and reshaped by hand into
+    /// a name array, which is exactly the kind of wiring that silently returns empty.
+    /// </summary>
+    [Test]
+    public async Task GetSelf_AfterOnboarding_ExposesOnboardedAtAndInterests()
+    {
+        var username = $"onbself{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+        await PutOnboardingAsync(token, new { interests = new[] { "isle", "social" } }, HttpStatusCode.OK);
+
+        var result = await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Get.Url("/api/v1/users/self");
+            x.StatusCodeShouldBe(HttpStatusCode.OK);
+        });
+
+        var body = await result.ReadAsJsonAsync<JsonElement>();
+        Assert.That(body.GetProperty("onboardedAt").GetString(), Is.Not.Null.And.Not.Empty);
+        Assert.That(InterestNames(body), Is.EqualTo(new[] { "isle", "social" }));
+    }
+
+    /// <summary>
+    /// A fresh account must report a null timestamp, because that null is the only thing telling
+    /// the client to show the picker at all.
+    /// </summary>
+    [Test]
+    public async Task GetSelf_BeforeOnboarding_ReportsNullOnboardedAtAndNoInterests()
+    {
+        var username = $"onbfresh{Guid.NewGuid():N}"[..15];
+        var token = await RegisterAndLoginAsync(username);
+
+        var result = await Host.Scenario(x =>
+        {
+            x.WithBearerToken(token);
+            x.Get.Url("/api/v1/users/self");
+            x.StatusCodeShouldBe(HttpStatusCode.OK);
+        });
+
+        var body = await result.ReadAsJsonAsync<JsonElement>();
+        Assert.That(body.TryGetProperty("onboardedAt", out var stamp), Is.True);
+        Assert.That(stamp.ValueKind, Is.EqualTo(JsonValueKind.Null));
+        Assert.That(InterestNames(body), Is.Empty);
+    }
+
     [TearDown]
     public async Task ClearDatabaseAfterTest()
     {

@@ -27,9 +27,39 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
-        
-        return Ok(ctx.Users.Where(u => u.Id == userId).FirstOrDefault()?
-            .ToFacet<ApplicationUser, ApplicationUserDto>());
+
+        var user = ctx.Users.FirstOrDefault(u => u.Id == userId);
+        if (user is null) return Ok(null);
+
+        var dto = user.ToFacet<ApplicationUser, ApplicationUserDto>();
+        // Reshaped rather than copied: the facet excludes the flags enum so it can go out as a
+        // name array. See ApplicationUserDto.Interests.
+        dto.Interests = user.Interests.ToWire();
+        return Ok(dto);
+    }
+
+    /// <summary>Records which halves of the product this account came for.</summary>
+    [HttpPut("self/onboarding")]
+    public async Task<IActionResult> UpdateOnboardingAsync(UpdateOnboardingDto dto)
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+
+        if (!UserInterestsExtensions.TryParseWire(dto.Interests, out var interests))
+            return BadRequest("interests must be a non-empty array of known names (\"isle\", \"social\").");
+
+        var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user is null) return NotFound();
+
+        user.Interests = interests;
+        user.OnboardedAt ??= DateTimeOffset.UtcNow;
+        await ctx.SaveChangesAsync();
+
+        return Ok(new
+        {
+            onboardedAt = user.OnboardedAt,
+            interests = user.Interests.ToWire(),
+        });
     }
 
 

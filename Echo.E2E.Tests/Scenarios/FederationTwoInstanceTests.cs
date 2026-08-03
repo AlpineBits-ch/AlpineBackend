@@ -35,15 +35,18 @@ public class FederationTwoInstanceTests
     /// Registers a user and promotes them to <c>UserType.Admin</c> directly in Identity's database.
     /// </summary>
     private static async Task<string> RegisterAdminAndGetTokenAsync(
-        EchoInfraSet infra, SpawnedServiceProcess identity, string username)
+        EchoInfraSet infra, EchoTestStack stack, string username)
     {
-        var token = await RegisterAndGetTokenAsync(identity, username);
+        var token = await RegisterAndGetTokenAsync(stack.Identity, username);
 
+        // stack.IdentityDatabaseName, not a literal: each federated instance runs its own databases
+        // (identity_a / identity_b), and EchoInfraFixture.DatabaseNames - which names the _e2e set
+        // - is not what these stacks connect to.
         var connectionString = new NpgsqlConnectionStringBuilder
         {
             Host = infra.PostgresHost,
             Port = infra.PostgresPort,
-            Database = "identity_e2e",
+            Database = stack.IdentityDatabaseName,
             Username = "postgres",
             Password = "postgres",
         }.ConnectionString;
@@ -55,7 +58,8 @@ public class FederationTwoInstanceTests
         command.Parameters.AddWithValue("u", username);
 
         var affected = await command.ExecuteNonQueryAsync();
-        Assert.That(affected, Is.EqualTo(1), $"Failed to promote '{username}' to admin for the federation admin routes.");
+        Assert.That(affected, Is.EqualTo(1),
+            $"Failed to promote '{username}' to admin in {stack.IdentityDatabaseName} for the federation admin routes.");
 
         // The admin check is resolved from the database per request (not from a token claim), so
         // the token minted before the promotion is still fine.
@@ -92,7 +96,7 @@ public class FederationTwoInstanceTests
     [Test]
     public async Task Handshake_BothInstancesLandActive()
     {
-        var tokenA = await RegisterAdminAndGetTokenAsync(_pair.InfraA, _pair.A.Identity, "admin_a");
+        var tokenA = await RegisterAdminAndGetTokenAsync(_pair.InfraA, _pair.A, "admin_a");
         _pair.A.Federation.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", tokenA);
 
         var initiateResponse = await _pair.A.Federation.Client.PostAsJsonAsync(

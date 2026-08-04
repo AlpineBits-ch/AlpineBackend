@@ -22,7 +22,7 @@ public class ExportUserDataSaga : Saga
     private const string SagaName = "data-export";
 
     /// <summary>Every service that holds data belonging to an account.</summary>
-    private static readonly string[] ParticipatingServices =
+    internal static readonly string[] ParticipatingServices =
         ["identity", "social", "guild", "messaging", "federation", "import", "bots", "isle"];
 
     /// <summary>The export id, so two exports for different accounts - or a second export for the

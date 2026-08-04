@@ -15,6 +15,13 @@ namespace Messaging;
 
 public static class Messaging
 {
+    /// <summary>Cooldowns for a saga write that lost the optimistic-concurrency race.</summary>
+    public static readonly TimeSpan[] SagaConcurrencyRetryDelays =
+    [
+        25.Milliseconds(), 50.Milliseconds(), 100.Milliseconds(), 250.Milliseconds(),
+        500.Milliseconds(), 1.Seconds(), 2.Seconds(), 4.Seconds(), 6.Seconds(), 8.Seconds(),
+    ];
+
    public static WolverineOptions ConfigureWolverine(this WolverineOptions opts, bool useEfCore = true)
 {
 
@@ -22,6 +29,14 @@ public static class Messaging
    opts.PersistMessagesWithPostgresql(Env.Database.ConnectionString(), "public");
    
     
+    // Saga writes are guarded by optimistic concurrency in the database: the lightweight saga
+    // storage updates with "set version = @version + 1 where id = @id and version = @version" and
+    // throws when that matches no row.
+    opts
+        .Policies.OnException<SagaConcurrencyException>()
+        .RetryWithCooldown(SagaConcurrencyRetryDelays)
+        .Then.MoveToErrorQueue();
+
     opts
         .Policies.OnException<TimeoutException>()
         .RetryWithCooldown(100.Milliseconds(), 1.Seconds(), 5.Seconds())

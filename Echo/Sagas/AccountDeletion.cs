@@ -29,7 +29,7 @@ public class AccountDeletionSaga : Saga
     private const string SagaName = "account-purge";
 
     /// <summary>Every service that owns data belonging to an account.</summary>
-    private static readonly string[] ParticipatingServices =
+    internal static readonly string[] ParticipatingServices =
         ["identity", "social", "guild", "messaging", "federation", "import", "bots", "isle"];
 
     public string Id { get; set; }

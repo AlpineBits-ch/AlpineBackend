@@ -19,11 +19,17 @@ public record FederationHandshakeReceived(
 // Cross-service request/response for the administrator check the federation admin routes are
 // gated on (see FederationPolicies.InstanceAdmin).
 //
-// These MUST be listed here. Program.cs installs only source-generated resolvers on Wolverine's
-// serializer - EventJsonContext and this context, with no reflection-based fallback - so a message
-// type absent from both cannot be serialized at all. The failure is not a compile error and not a
-// startup error: the send throws at runtime, the request times out, and the policy fails closed,
-// which would 403 every genuine administrator.
+// The warning that used to sit here - that any bus message type absent from this context could not
+// be serialized at all - was accurate, and the trap it described went off. ExportUserDataCommand
+// and PurgeUserDataCommand were both added to Federation's handlers without being added here, so
+// Federation silently answered neither: data exports resolved Partial naming it, and account
+// deletions hung outright. Nothing surfaced an error, because the envelope died in deserialization
+// before reaching a handler.
+//
+// Program.cs no longer installs these contexts as Wolverine's whole resolver chain, so that is no
+// longer possible: bus messages resolve reflectively, like every other service. This context is
+// retained for the HTTP surface, where ASP.NET keeps a reflection resolver in the chain and adding
+// a source-generated context only prioritises it.
 [JsonSerializable(typeof(Identity.Contracts.Bus.Request.IsUserAdministrativeRequest))]
 [JsonSerializable(typeof(Identity.Contracts.Bus.Response.IsUserAdministrativeResponse))]
 public partial class FederationMessageContext : JsonSerializerContext

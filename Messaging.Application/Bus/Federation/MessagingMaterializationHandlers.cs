@@ -50,6 +50,9 @@ public class MessagingMaterializationHandlers
 
         existing.Content = message.Content;
         existing.UpdatedAt = DateTime.UtcNow;
+        // A federated edit is the remote author editing their own text, so it moves EditedAt and
+        // clients should show "(edited)" - unlike a local preview attachment, which does not.
+        existing.EditedAt = existing.UpdatedAt;
         await repository.UpdateMessageAsync(existing);
 
         await bus.PublishAsync(new MessageUpdated
@@ -62,6 +65,12 @@ public class MessagingMaterializationHandlers
             // the update notification report no embeds on a message that still has them - the
             // clients that re-render from the payload would drop the card until a refetch.
             EmbedsJson = existing.EmbedsJson,
+            ComponentsJson = existing.ComponentsJson,
+            Flags = existing.Flags,
+            UpdatedAt = existing.UpdatedAt,
+            EditedAt = existing.EditedAt,
+            // True: the (remote) author changed the text.
+            IsAuthorEdit = true,
         });
     }
 

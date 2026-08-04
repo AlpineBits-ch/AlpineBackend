@@ -53,6 +53,16 @@ public class DiscordEditMessageDto
         set { _components = value; HasComponents = true; }
     }
 
+    private int? _flags;
+
+    /// <summary>Discord's message flags.</summary>
+    [JsonPropertyName("flags")]
+    public int? Flags
+    {
+        get => _flags;
+        set { _flags = value; HasFlags = true; }
+    }
+
     /// <summary>True when the body carried a `content` key at all - including `"content": null`.</summary>
     [JsonIgnore]
     public bool HasContent { get; private set; }
@@ -62,6 +72,9 @@ public class DiscordEditMessageDto
 
     [JsonIgnore]
     public bool HasComponents { get; private set; }
+
+    [JsonIgnore]
+    public bool HasFlags { get; private set; }
 }
 
 [Authorize]
@@ -122,6 +135,11 @@ public class DiscordMessageEndpoint
             Content = dto.HasContent ? Encoding.UTF8.GetBytes(dto.Content ?? "") : null,
             EmbedsJson = dto.HasEmbeds ? JsonSerializer.Serialize(dto.Embeds ?? []) : null,
             ComponentsJson = dto.HasComponents ? JsonSerializer.Serialize(dto.Components ?? []) : null,
+            Flags = dto.HasFlags ? dto.Flags : null,
+            // A flags-only edit is not an author edit: suppressing link previews should no more
+            // mark the message "(edited)" here than it does when a human does it through the
+            // ordinary API. Content changes still count, exactly as before.
+            IsAuthorEdit = dto.HasContent,
         });
 
         if (result.NotFound) return Results.NotFound();

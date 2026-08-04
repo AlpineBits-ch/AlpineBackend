@@ -73,6 +73,15 @@ public sealed class EchoTestStack : IAsyncDisposable
         // over the real broker instead of bypassing it with a test-only trigger endpoint.
         identityEnv["ACCOUNT_DELETION_GRACE_PERIOD_SECONDS"] = "3";
         identityEnv["ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS"] = "2";
+        // Identity is the only service that touches the export artifact bucket - it owns the
+        // DataExportRequest row, the upload in AssembleUserDataExportCommandHandler and the signed
+        // URL the download route redirects to.
+        identityEnv["BUCKET_NAME"] = EchoInfraSet.ObjectStorageBucket;
+        identityEnv["ACCESS_KEY_ID"] = EchoInfraSet.ObjectStorageAccessKey;
+        identityEnv["SECRET_ACCESS_KEY"] = EchoInfraSet.ObjectStorageSecretKey;
+        identityEnv["SERVICE_URL"] = infra.ObjectStorageUrl;
+        identityEnv["PUBLIC_URL"] = infra.ObjectStorageUrl;
+        identityEnv["USE_SERVICE_URL"] = "true";
         stack.Identity = await SpawnedServiceProcess.StartAsync(
             "Identity.Application", "/identity/health", identityEnv, identityPort);
 
@@ -92,6 +101,11 @@ public sealed class EchoTestStack : IAsyncDisposable
         importEnv["INSTANCE_URL"] = identityUrl;
         var gatewayEnv = Common($"echo_{databaseSuffix}");
         gatewayEnv["INSTANCE_URL"] = identityUrl;
+        // ExportUserDataSaga runs in the gateway process, and its deadline
+        // (Env.SagaDeadlines.DataExport, AppEnvironment/Env.cs) defaults to an hour - the point at
+        // which "still working" stops being a plausible explanation in production, and far longer
+        // than any test can wait.
+        gatewayEnv["DATA_EXPORT_SAGA_DEADLINE_SECONDS"] = "30";
 
         // Started sequentially (not in parallel) so a failure surfaces against the specific service
         // that failed, with that service's captured stdout/stderr, instead of an ambiguous

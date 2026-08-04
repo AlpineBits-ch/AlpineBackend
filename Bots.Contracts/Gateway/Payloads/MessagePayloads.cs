@@ -42,6 +42,14 @@ public class MessageCreatePayload
 
     [JsonPropertyName("type")]
     public int Type { get; set; } = 0;
+
+    /// <summary>Discord's message flag bitfield.</summary>
+    [JsonPropertyName("flags")]
+    public int Flags { get; set; }
+
+    /// <summary>When the author last edited the text, or null if they never did.</summary>
+    [JsonPropertyName("edited_timestamp")]
+    public DateTimeOffset? EditedTimestamp { get; set; }
 }
 
 public class MessageDeletePayload

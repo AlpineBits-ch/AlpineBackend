@@ -44,6 +44,17 @@ public class MessageUpdatedForBots
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public string? EmbedsJson { get; set; }
+
+    /// <summary>Interactive components - see <see cref="MessageUpdatedForChannel.ComponentsJson"/>.</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>
+    /// Discord-compatible message flags, surfaced on the bot gateway's MESSAGE_UPDATE.
+    /// </summary>
+    public int Flags { get; set; }
+
+    /// <summary>Discord's <c>edited_timestamp</c>.</summary>
+    public DateTimeOffset? EditedAt { get; set; }
 }
 
 /// <summary>

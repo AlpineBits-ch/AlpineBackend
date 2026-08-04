@@ -24,7 +24,14 @@ public class MessageUpdatedHandler
 
         if (!string.IsNullOrWhiteSpace(messageUpdated.ConversationId))
         {
-            var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageUpdated.ConversationId && m.UserId != messageUpdated.AuthorId).AsNoTracking().ToListAsync();
+            // The author is excluded from their own edits - their client already rendered the
+            // change it just made.
+            var conversationMembers = await ctx.Members
+                .Where(m => m.ConversationId == messageUpdated.ConversationId
+                            && (!messageUpdated.IsAuthorEdit || m.UserId != messageUpdated.AuthorId))
+                .AsNoTracking()
+                .ToListAsync();
+
             await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.MessageUpdated", messageUpdated);
         }
 
@@ -37,6 +44,10 @@ public class MessageUpdatedHandler
                 AuthorId = messageUpdated.AuthorId,
                 Content = messageUpdated.Content,
                 EmbedsJson = messageUpdated.EmbedsJson,
+                ComponentsJson = messageUpdated.ComponentsJson,
+                Flags = messageUpdated.Flags,
+                EditedAt = messageUpdated.EditedAt,
+                IsAuthorEdit = messageUpdated.IsAuthorEdit,
             });
         }
     }

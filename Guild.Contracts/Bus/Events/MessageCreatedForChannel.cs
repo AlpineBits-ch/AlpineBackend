@@ -62,6 +62,18 @@ public class MessageUpdatedForChannel
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public string? EmbedsJson { get; set; }
+
+    /// <summary>Interactive components.</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>Discord-compatible message flags.</summary>
+    public int Flags { get; set; }
+
+    /// <summary>When the author last edited the text, or null if never.</summary>
+    public DateTimeOffset? EditedAt { get; set; }
+
+    /// <summary>Whether the author caused this update.</summary>
+    public bool IsAuthorEdit { get; set; } = true;
 }
 
 

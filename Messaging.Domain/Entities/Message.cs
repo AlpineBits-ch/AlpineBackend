@@ -102,6 +102,17 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public DateTime? PinnedAt { get; set; }
     public string? PinnedById { get; set; }
 
+    /// <summary>
+    /// Discord-compatible message flag bitfield - see <see cref="MessageFlags"/>.
+    /// </summary>
+    public int Flags { get; set; }
+
+    /// <summary>
+    /// When the author last changed the text, as opposed to <c>UpdatedAt</c>, which is bumped by
+    /// anything that rewrites the row.
+    /// </summary>
+    public DateTimeOffset? EditedAt { get; set; }
+
     public Message()
     {
     }
@@ -114,7 +125,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
         "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id, " +
-        "author_display_name, author_avatar_url, components_json, mls_generation";
+        "author_display_name, author_avatar_url, components_json, mls_generation, flags, edited_at";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       

@@ -43,6 +43,11 @@ public class S3DataExportArtifactStore(IAmazonS3 s3, ILogger<S3DataExportArtifac
             Key = key,
             Expires = DateTime.UtcNow.Add(lifetime),
             Verb = HttpVerb.GET,
+            // Not inherited from ServiceURL - GetPreSignedUrlRequest.Protocol is its own setting
+            // and defaults to HTTPS, so a deployment whose bucket is plain HTTP (compose.yaml and
+            // the self-hosting installers both use SERVICE_URL=http://minio:9000) redirected the
+            // subject to https:// on a port that speaks http.
+            Protocol = Env.StorageConfiguration.ServiceUrlIsPlainHttp ? Protocol.HTTP : Protocol.HTTPS,
         });
 
         return Task.FromResult(url);

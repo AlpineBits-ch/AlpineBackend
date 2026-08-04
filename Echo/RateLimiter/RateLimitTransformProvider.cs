@@ -7,12 +7,23 @@ namespace Echo.RateLimiter;
 
 public class RateLimitConfigFilter : IProxyConfigFilter
 {
+    /// <summary>
+    /// Metadata key a route sets to opt out of <see cref="GatewayRateLimiting.PolicyName"/>.
+    /// </summary>
+    public const string ExemptMetadataKey = "RateLimitExempt";
+
     public ValueTask<ClusterConfig> ConfigureClusterAsync(ClusterConfig cluster, CancellationToken cancel)
         => ValueTask.FromResult(cluster);
 
     public ValueTask<RouteConfig> ConfigureRouteAsync(RouteConfig route, ClusterConfig? cluster, CancellationToken cancel)
     {
-        var updated = route with { RateLimiterPolicy = "PerUserPolicy" };
+        if (route.Metadata?.TryGetValue(ExemptMetadataKey, out var exempt) == true
+            && string.Equals(exempt, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return ValueTask.FromResult(route);
+        }
+
+        var updated = route with { RateLimiterPolicy = GatewayRateLimiting.PolicyName };
         return ValueTask.FromResult(updated);
     }
 }

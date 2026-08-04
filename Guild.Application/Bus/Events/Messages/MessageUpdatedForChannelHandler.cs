@@ -39,8 +39,14 @@ public class MessageUpdatedForChannelHandler
 
         // Channel-scoped audience - this payload carries the message content.
         var presence = await service.GetGuildPresenceAsync(guildId);
-        var viewerIds = await audience.FilterToViewersAsync(
-            message.ChannelId, presence.Select(p => p.UserId).Except([message.AuthorId]));
+
+        // The author is skipped for their own edits, since their client already rendered the change
+        // it made.
+        var candidates = message.IsAuthorEdit
+            ? presence.Select(p => p.UserId).Except([message.AuthorId])
+            : presence.Select(p => p.UserId);
+
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, candidates);
 
         await hub.Clients.Users(viewerIds).SendAsync("guild.MessageUpdated", message);
 
@@ -52,6 +58,9 @@ public class MessageUpdatedForChannelHandler
             Content = message.Content,
             AuthorId = message.AuthorId,
             EmbedsJson = message.EmbedsJson,
+            ComponentsJson = message.ComponentsJson,
+            Flags = message.Flags,
+            EditedAt = message.EditedAt,
         });
     }
 }

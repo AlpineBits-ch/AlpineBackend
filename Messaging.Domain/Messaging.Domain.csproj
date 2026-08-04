@@ -10,6 +10,12 @@
     <ItemGroup>
       <ProjectReference Include="..\Domain\Domain.csproj" />
       <ProjectReference Include="..\Persistence\Persistence.csproj" />
+      <!-- EmbedPayload lives in Bots.Contracts because the Discord-compat surface needed it first;
+           Message.EmbedsJson has always documented itself as storing that exact shape. Referencing
+           it here rather than redefining keeps one definition of an embed across the bot API, the
+           unfurler and the message store. Bots.Contracts references nothing, so this adds no
+           coupling beyond the payload types themselves. -->
+      <ProjectReference Include="..\Bots.Contracts\Bots.Contracts.csproj" />
     </ItemGroup>
 
     <ItemGroup>

@@ -1392,7 +1392,7 @@
       "sites": [
         {
           "file": "Messaging.Application/Handler/Messages/MessageUpdatedHandler.cs",
-          "line": 28,
+          "line": 37,
           "clrType": "Messaging.Domain.Events.Message.MessageUpdated",
           "anonymous": false,
           "schema": {
@@ -1433,6 +1433,33 @@
               "embedsJson": {
                 "Type": "string",
                 "Nullable": true,
+                "Properties": {}
+              },
+              "componentsJson": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "flags": {
+                "Type": "integer",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "updatedAt": {
+                "Type": "string",
+                "Nullable": false,
+                "Format": "date-time",
+                "Properties": {}
+              },
+              "editedAt": {
+                "Type": "string",
+                "Nullable": true,
+                "Format": "date-time",
+                "Properties": {}
+              },
+              "isAuthorEdit": {
+                "Type": "boolean",
+                "Nullable": false,
                 "Properties": {}
               },
               "correlationId": {
@@ -3544,6 +3571,11 @@
                   "Nullable": false,
                   "ClrType": "Bots.Contracts.Gateway.Payloads.EmbedPayload",
                   "Properties": {
+                    "type": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
                     "title": {
                       "Type": "string",
                       "Nullable": true,
@@ -3614,6 +3646,11 @@
                           "Properties": {}
                         }
                       }
+                    },
+                    "flags": {
+                      "Type": "integer",
+                      "Nullable": false,
+                      "Properties": {}
                     }
                   }
                 },
@@ -6724,7 +6761,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Messages/MessageUpdatedForChannelHandler.cs",
-          "line": 46,
+          "line": 54,
           "clrType": "Guild.Contracts.Bus.Events.MessageUpdatedForChannel",
           "anonymous": false,
           "schema": {
@@ -6760,6 +6797,27 @@
               "embedsJson": {
                 "Type": "string",
                 "Nullable": true,
+                "Properties": {}
+              },
+              "componentsJson": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "flags": {
+                "Type": "integer",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "editedAt": {
+                "Type": "string",
+                "Nullable": true,
+                "Format": "date-time",
+                "Properties": {}
+              },
+              "isAuthorEdit": {
+                "Type": "boolean",
+                "Nullable": false,
                 "Properties": {}
               }
             }

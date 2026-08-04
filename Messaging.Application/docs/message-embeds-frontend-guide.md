@@ -47,8 +47,18 @@ interface Embed {
 
 This is a subset of Discord's own embed object (same field names/meaning) — bots built against
 Discord SDKs (`EmbedBuilder`, discord.js, discord.py, etc.) already produce exactly this shape, no
-translation needed on the bot side. Colors, images/thumbnails, and timestamps aren't carried yet —
-if a bot sets them they're silently dropped server-side today.
+translation needed on the bot side.
+
+> **Updated:** colors, images, thumbnails, videos, providers and timestamps **are** carried now —
+> they used to be dropped server-side. The embed object gained `type`, `timestamp`, `image`,
+> `thumbnail`, `video`, `provider` and `flags`, plus `url`/`iconUrl` on `author` and `iconUrl` on
+> `footer`. Nothing below is invalidated (the change is purely additive), but a bot that always set
+> a colour will now have it rendered.
+>
+> The same shape carries **link previews**, which the server generates from URLs in ordinary user
+> messages. Those arrive asynchronously, after the message, and behave differently enough to be
+> worth their own document: see
+> [`docs/specs/message-previews-frontend-guide.md`](../../docs/specs/message-previews-frontend-guide.md).
 
 ## Rendering
 

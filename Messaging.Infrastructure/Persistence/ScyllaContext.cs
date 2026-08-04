@@ -128,7 +128,9 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.SystemMessageVariant, cm => cm.WithName("system_message_variant"))
                 .Column(m => m.IsPinned, cm => cm.WithName("is_pinned"))
                 .Column(m => m.PinnedAt, cm => cm.WithName("pinned_at"))
-                .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id")));
+                .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id"))
+                .Column(m => m.Flags, cm => cm.WithName("flags"))
+                .Column(m => m.EditedAt, cm => cm.WithName("edited_at")));
 
         config.Define(
             new Map<PinnedMessage>()
@@ -391,6 +393,25 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD components_json text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // Message previews (docs/specs/message-previews.md).
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD flags int;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD edited_at timestamp;"));
         }
         catch (InvalidQueryException)
         {

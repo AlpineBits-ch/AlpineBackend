@@ -39,6 +39,9 @@ public class MessageUpdatedForBotsHandler
             Author = author,
             Timestamp = DateTimeOffset.UtcNow,
             Embeds = DeserializeEmbeds(message.EmbedsJson),
+            Flags = message.Flags,
+            // Null when the author never edited the text.
+            EditedTimestamp = message.EditedAt,
         };
 
         foreach (var botUserId in botUserIds)

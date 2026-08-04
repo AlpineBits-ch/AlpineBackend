@@ -389,6 +389,9 @@ $Defaults = @{
     APNS_AUTH_KEY_BASE_64 = ''; APNS_USE_SANDBOX = 'true'
     STEAM_WEB_API_KEY = ''; DISCORD_IMPORT_BOT_TOKEN = ''; DISCORD_IMPORT_CLIENT_ID = ''
     SENTRY_URL = ''; PERSONAL_ACCESS_TOKEN = ''
+    # Link previews. UNFURL_ALLOW_PRIVATE_TARGETS stays 'false': true would let any posted link
+    # make this server fetch its own private network, including the cloud metadata endpoint.
+    UNFURL_ENABLED = 'true'; UNFURL_ALLOW_PRIVATE_TARGETS = 'false'
     FEDERATION_PRIVATE_KEY_BASE_64 = ''; FEDERATION_PUBLIC_KEY_BASE_64 = ''; IDENTITY_SIGNING_CERT = ''
     # Generated once and then carried forward by the loop below, which only fills keys that are
     # missing or empty: the value has to match what the generated Caddyfile sends, and rotating
@@ -646,6 +649,16 @@ ISLE_IP_ADDRESS="$($Config['ISLE_IP_ADDRESS'])"
 ISLE_BRIDGE_PORT="$($Config['ISLE_BRIDGE_PORT'])"
 ISLE_RCON_PORT="$($Config['ISLE_RCON_PORT'])"
 ISLE_RCON_PASSWORD="$($Config['ISLE_RCON_PASSWORD'])"
+
+# -- Link previews ----------------------------------------------------------------------
+# When someone posts a URL, the unfurl service fetches that page and builds a preview card.
+# Set UNFURL_ENABLED=false if this server should never make requests to third-party sites on
+# your users' behalf. Preview images are re-hosted under UNFURL_PUBLIC_BASE_URL so that those
+# sites never see a viewer's IP address; the URLs are stored in messages permanently, so
+# changing the base URL later leaves old previews pointing at the old address.
+UNFURL_ENABLED="$($Config['UNFURL_ENABLED'])"
+UNFURL_ALLOW_PRIVATE_TARGETS="$($Config['UNFURL_ALLOW_PRIVATE_TARGETS'])"
+UNFURL_PUBLIC_BASE_URL="$($Config['INSTANCE_URL'])"
 
 # -- Misc -----------------------------------------------------------------------------
 SENTRY_URL="$($Config['SENTRY_URL'])"

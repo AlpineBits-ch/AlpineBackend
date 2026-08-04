@@ -498,7 +498,7 @@
       "sites": [
         {
           "file": "Messaging.Application/Controllers/VoiceController.cs",
-          "line": 125,
+          "line": 122,
           "clrType": "Messaging.Domain.Entities.Call",
           "anonymous": false,
           "schema": {
@@ -1036,7 +1036,7 @@
       "sites": [
         {
           "file": "Messaging.Application/Handler/Messages/MessageCreatedHandler.cs",
-          "line": 36,
+          "line": 38,
           "clrType": "Messaging.Domain.Events.Message.MessageCreated",
           "anonymous": false,
           "schema": {
@@ -1877,12 +1877,46 @@
       ]
     },
     {
+      "name": "conversation.ReadReceipt",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Messaging.Application/Handler/Realtime/UpdateConversationReadHandler.cs",
+          "line": 60,
+          "clrType": "\u003Canonymous type: string conversationId, string userId, string messageId\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string conversationId, string userId, string messageId\u003E",
+            "Properties": {
+              "conversationId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "userId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "messageId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "conversation.UserTyping",
       "shapeCount": 1,
       "sites": [
         {
           "file": "Messaging.Application/Handler/Realtime/StartConversationTypingHandler.cs",
-          "line": 19,
+          "line": 54,
           "clrType": "\u003Canonymous type: string conversationId, string userId\u003E",
           "anonymous": true,
           "schema": {
@@ -6433,7 +6467,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Messages/MessageCreatedHandler.cs",
-          "line": 54,
+          "line": 55,
           "clrType": "Guild.Contracts.Bus.Events.MessageCreatedForChannel",
           "anonymous": false,
           "schema": {
@@ -7054,7 +7088,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 89,
+          "line": 116,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
           "anonymous": true,
           "schema": {
@@ -7082,7 +7116,35 @@
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 145,
+          "line": 122,
+          "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+            "Properties": {
+              "userId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "status": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        },
+        {
+          "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
+          "line": 194,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
           "anonymous": true,
           "schema": {
@@ -7521,7 +7583,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildTypingHandler.cs",
-          "line": 46,
+          "line": 76,
           "clrType": "\u003Canonymous type: string channelId, string userId\u003E",
           "anonymous": true,
           "schema": {
@@ -8336,7 +8398,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 200,
+          "line": 249,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -8702,7 +8764,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Messages/MessageCreatedHandler.cs",
-          "line": 245,
+          "line": 268,
           "clrType": "\u003Canonymous type: string MessageId, string ChannelId, string GuildId, string? ConversationId, string AuthorId, string Kind, System.DateTimeOffset CreatedAt\u003E",
           "anonymous": true,
           "schema": {
@@ -9196,7 +9258,7 @@
       "sites": [
         {
           "file": "Social.Application/Bus/Federation/SocialMaterializationHandlers.cs",
-          "line": 65,
+          "line": 70,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9243,7 +9305,7 @@
         },
         {
           "file": "Social.Application/Integration/Relationship/Events/RelationshipRealtimeHandlers.cs",
-          "line": 37,
+          "line": 38,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9296,7 +9358,7 @@
       "sites": [
         {
           "file": "Social.Application/Bus/Federation/SocialMaterializationHandlers.cs",
-          "line": 55,
+          "line": 60,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9343,7 +9405,7 @@
         },
         {
           "file": "Social.Application/Integration/Relationship/Events/RelationshipRealtimeHandlers.cs",
-          "line": 31,
+          "line": 32,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9396,7 +9458,7 @@
       "sites": [
         {
           "file": "Social.Application/Bus/Federation/SocialMaterializationHandlers.cs",
-          "line": 50,
+          "line": 55,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9443,7 +9505,7 @@
         },
         {
           "file": "Social.Application/Integration/Relationship/Events/RelationshipRealtimeHandlers.cs",
-          "line": 28,
+          "line": 29,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9496,7 +9558,7 @@
       "sites": [
         {
           "file": "Social.Application/Bus/Federation/SocialMaterializationHandlers.cs",
-          "line": 60,
+          "line": 65,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {
@@ -9543,7 +9605,7 @@
         },
         {
           "file": "Social.Application/Integration/Relationship/Events/RelationshipRealtimeHandlers.cs",
-          "line": 34,
+          "line": 35,
           "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
           "anonymous": false,
           "schema": {

@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Identity.Application.Dtos.Response;
 using ApplicationUserDto = Identity.Application.Dtos.Response.ApplicationUserDto;
 
 namespace Identity.Application.Controllers;
@@ -23,7 +24,7 @@ namespace Identity.Application.Controllers;
 public class UserController(MicroserviceContext ctx, ILogger<UserController> logger) : ControllerBase
 {
     [HttpGet("self")]
-    public async Task<IActionResult> GetSelfAsync()
+    public async Task<IActionResult> GetSelfAsync([FromServices] Services.ConsentService consents)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
@@ -35,6 +36,27 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
         // Reshaped rather than copied: the facet excludes the flags enum so it can go out as a
         // name array. See ApplicationUserDto.Interests.
         dto.Interests = user.Interests.ToWire();
+
+        // T0-1. Additive: the legacy userPreferences block above is untouched, and the enforced
+        // values arrive under a new key. Read separately rather than Included, because the facet
+        // excludes the navigation - and because an account that predates the table gets the
+        // all-defaults record here rather than a null the client would have to interpret.
+        var now = DateTimeOffset.UtcNow;
+        var privacy = await ctx.UserPrivacySettings.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == userId);
+
+        // Read through the T1-11 floors, same as GET /api/v1/privacy-settings - a minor's self
+        // payload must not report a wider policy than the one actually in force, or the client will
+        // render a control as "on" that every enforcement point treats as off.
+        var isMinor = user.IsMinorAt(now, Env.Privacy.AgeOfMajority);
+        dto.PrivacySettings = PrivacySettingsMapping.ToDto(MinorPrivacyFloors.Snapshot(
+            privacy ?? UserPrivacySettings.CreateDefault(userId, now), isMinor));
+
+        // T1-10. Additive, under its own key, and empty for an account that is up to date or for a
+        // deployment that has published no legal documents at all.
+        var outstanding = await consents.GetOutstandingAsync(userId, now);
+        dto.ConsentRequired = outstanding.Select(OutstandingConsentDto.From).ToArray();
+
         return Ok(dto);
     }
 
@@ -200,21 +222,95 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
         return Ok(jsonElement);
     }
     
+    /// <summary>
+    /// Stores an opaque blob of <b>client-owned UI state with no server semantics</b>.
+    ///
+    /// <para><b>Nothing privacy-relevant may live here.</b> The server never reads this document,
+    /// never validates its shape beyond the limits below, and never enforces anything in it - so a
+    /// control stored here is a control that does not exist. Anything that must be enforced belongs
+    /// on <c>UserPrivacySettings</c> and goes through <c>api/v1/privacy-settings</c>.</para>
+    ///
+    /// <para>The limits (T0-6) exist because this used to accept an arbitrary <c>JsonElement</c> of
+    /// any size, any shape and any depth, and store it forever on a row every self-payload read
+    /// loads: an unbounded blob per account is a storage-cost amplifier and a deserialization
+    /// hazard, a non-object root breaks every client that expects to merge keys into it, and a
+    /// deeply nested document is a stack-overflow shaped like a settings write.</para>
+    /// </summary>
     [HttpPut("self/settings")]
     public async Task<IActionResult> GetSettingsAsync([FromBody] JsonElement body)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if(userId is null) return BadRequest();
+
+        // Shape and size are checked before the row is even looked up: neither depends on the user,
+        // and a refused write should not cost a query.
+        if (body.ValueKind != JsonValueKind.Object)
+            return BadRequest("Settings must be a JSON object.");
+
+        string rawJson = body.GetRawText();
+
+        var byteCount = System.Text.Encoding.UTF8.GetByteCount(rawJson);
+        if (byteCount > MaxJsonSettingsBytes)
+        {
+            return StatusCode(StatusCodes.Status413PayloadTooLarge,
+                $"Settings must serialize to at most {MaxJsonSettingsBytes} bytes; this document is {byteCount}.");
+        }
+
+        if (JsonDepth(body) > MaxJsonSettingsDepth)
+            return BadRequest($"Settings must not nest more than {MaxJsonSettingsDepth} levels deep.");
+
         var user = ctx.Users.FirstOrDefault(u => u.Id == userId);
         if (user == null)
         {
             return NotFound();
         }
-        string rawJson = body.GetRawText();
 
         user.JsonSettings = rawJson;
         await ctx.SaveChangesAsync();
         return Ok(user.JsonSettings);
+    }
+
+    /// <summary>16 KB of client UI state. Generous for what this is for (panel sizes, collapsed
+    /// sections, last-opened ids) and small enough that a million accounts is megabytes.</summary>
+    public const int MaxJsonSettingsBytes = 16 * 1024;
+
+    /// <summary>Nesting cap. Well under System.Text.Json's own 64-level default, so the limit that
+    /// applies is this one - stated - rather than the serializer's, discovered.</summary>
+    public const int MaxJsonSettingsDepth = 16;
+
+    /// <summary>
+    /// Depth of a parsed document, counting the root object as level 1.
+    ///
+    /// <para>Iterative rather than recursive on purpose: a recursive walk over a document whose depth
+    /// is the thing being checked overflows the stack on exactly the input the check exists to
+    /// refuse. The parser's own <c>MaxDepth</c> has already bounded this to 64 by the time we get
+    /// here, but that is a property of the pipeline's configuration, not of this method.</para>
+    /// </summary>
+    public static int JsonDepth(JsonElement root)
+    {
+        var deepest = 0;
+        var pending = new Stack<(JsonElement Element, int Depth)>();
+        pending.Push((root, 1));
+
+        while (pending.Count > 0)
+        {
+            var (element, depth) = pending.Pop();
+            if (depth > deepest) deepest = depth;
+
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    foreach (var property in element.EnumerateObject())
+                        pending.Push((property.Value, depth + 1));
+                    break;
+                case JsonValueKind.Array:
+                    foreach (var item in element.EnumerateArray())
+                        pending.Push((item, depth + 1));
+                    break;
+            }
+        }
+
+        return deepest;
     }
 
     /// <summary>

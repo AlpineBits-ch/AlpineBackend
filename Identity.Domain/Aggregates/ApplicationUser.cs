@@ -22,6 +22,28 @@ public class CreateUserParams
 }
 
 
+/// <summary>
+/// The deployment-level choices <see cref="ApplicationUser.Tombstone"/> needs. Passed in rather than
+/// read from <c>AppEnvironment.Env</c> because Identity.Domain does not reference it - and should
+/// not: a domain aggregate that reads process environment variables cannot be tested at two
+/// different configurations in the same run.
+/// </summary>
+public class TombstoneOptions
+{
+    /// <summary>Age at which the account counted as an adult, for the retained boolean only.</summary>
+    public int AgeOfMajority { get; init; } = 18;
+
+    /// <summary>
+    /// Whether to keep <see cref="ApplicationUser.WasVerifiedAdult"/> after the purge.
+    ///
+    /// <para>True by default. A single boolean, unlinkable to a person on its own, is the minimum a
+    /// deployment needs to answer "was this account an adult" if that is ever contested - and the
+    /// alternative to keeping it is keeping the birth date, which is what T1-9 is removing. Set false
+    /// where even that is unwanted; nothing in this codebase reads it.</para>
+    /// </summary>
+    public bool RetainWasVerifiedAdult { get; init; } = true;
+}
+
 public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEntity, IBaseEntity
 {
     [NotMapped]
@@ -33,9 +55,36 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     public DateTimeOffset? EmailVerifiedAt { get; set; }
 
     public AgeVerification AgeVerification { get; set; } = null!;
-    
+
+    /// <summary>
+    /// The one non-identifying bit of the age record that survives a purge (T1-9): whether the
+    /// account had been verified as an adult at the moment it was tombstoned.
+    ///
+    /// <para>Null on every live account - it is written only by <see cref="Tombstone"/>, from the
+    /// birth date, immediately before that birth date is destroyed. It exists because "we deleted
+    /// everything, including any evidence that this account was ever confirmed to be an adult" is a
+    /// bad position to be in when the question later arises, and a single boolean cannot re-identify
+    /// anyone. A deployment that does not want even this can set
+    /// <c>PRIVACY_RETAIN_WAS_VERIFIED_ADULT=false</c> and it is left null.</para>
+    /// </summary>
+    public bool? WasVerifiedAdult { get; set; }
+
     public UserPreferences UserPreferences { get; set; } = new();
-    
+
+    /// <summary>
+    /// The account's privacy record - one row, own table, keyed the other way round from
+    /// <see cref="UserPreferences"/> (the FK lives on <see cref="Entities.UserPrivacySettings.UserId"/>,
+    /// not here).
+    ///
+    /// <para>Nullable on the navigation because rows created before the <c>AddUserPrivacySettings</c>
+    /// migration's backfill, or loaded without an Include, genuinely have nothing here - and a
+    /// non-null type would turn "not loaded" into a lie. Readers that need the settings resolve them
+    /// through the privacy-settings endpoint or the bus handler, both of which materialize defaults
+    /// for an account that somehow has no row.</para>
+    /// </summary>
+    public UserPrivacySettings? UserPrivacySettings { get; set; }
+
+
     public UserStatus Status { get; set; } = UserStatus.Active;
     
     public virtual ICollection<UserKey> UserKeys { get; set; } = new List<UserKey>();
@@ -205,6 +254,10 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             LockoutEnabled = true,
             AgeVerification = AgeVerification.CreateInitial(createUserParams.BirthDate),
             Status = UserStatus.Active,
+            // The legacy block. Still written because shipped clients read it off GET /users/self;
+            // nothing enforces it any more - see UserPrivacySettings below and UserPreferences'
+            // [Obsolete] members.
+#pragma warning disable CS0618
             UserPreferences = new UserPreferences()
             {
                 Id = UserPreferences.GenerateId(),
@@ -213,9 +266,15 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
                 Data = "{}",
                 DirectMessageSettings = DirectMessageSettings.FilterNonFriends,
                 PrivacySettings = PrivacySettings.None,
-            }
+            },
+#pragma warning restore CS0618
+            // Minted here rather than lazily on first read: a missing owned/related row is the
+            // failure mode User.Tests/ApplicationUserBotTests already exists to pin, and a privacy
+            // record that materializes on demand would mean the very first policy resolution for a
+            // new account races the write that creates it.
+            UserPrivacySettings = UserPrivacySettings.CreateDefault(id, DateTimeOffset.UtcNow),
         };
-        
+
         user.AddDomainEvent(new UserCreated()
         {
             UserId = id,
@@ -262,6 +321,7 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
             {
                 Level = AgeVertificationLevel.None,
             },
+#pragma warning disable CS0618
             UserPreferences = new UserPreferences
             {
                 Id = UserPreferences.GenerateId(),
@@ -271,6 +331,11 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
                 DirectMessageSettings = DirectMessageSettings.FilterNonFriends,
                 PrivacySettings = PrivacySettings.None,
             },
+#pragma warning restore CS0618
+            // A bot gets the same defaults a human does. It is a real account with real reachability
+            // - "who may DM this bot" is a question with an answer - and leaving the row absent would
+            // make every policy resolution against a bot fall through to the fail-closed path.
+            UserPrivacySettings = UserPrivacySettings.CreateDefault(botUserId, date),
         };
     }
 
@@ -313,6 +378,12 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
         Status = UserStatus.PurgeInProgress;
     }
 
+    /// <summary>Whether this account is below the age of majority right now, derived live from
+    /// <see cref="AgeVerification"/>'s birth date. See <see cref="AgeVerification.IsMinorAt"/> for
+    /// why nothing caches it.</summary>
+    public bool IsMinorAt(DateTimeOffset now, int ageOfMajority) =>
+        AgeVerification?.IsMinorAt(now, ageOfMajority) ?? false;
+
     /// <summary>
     /// Anonymizes the account in place rather than deleting the row: every other service
     /// (Guild.GuildMember, Messaging.Message.AuthorId, Guild.GuildAuditLogEntry.ActorUserId,
@@ -320,10 +391,22 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     /// its own copy, so scrubbing this one row is what makes "Deleted User" show up everywhere
     /// those references still exist - the same mechanism Discord uses. Idempotent so a
     /// redelivered PurgeUserDataCommand is safe.
+    ///
+    /// <para><b>The age data goes too (T1-9).</b> This used to leave <see cref="BirthDate"/> and the
+    /// whole <see cref="AgeVerification"/> value object standing - a date of birth plus the dates on
+    /// which self-declaration, AI estimation and government-ID verification were completed, all still
+    /// bound to the account id, on a row whose entire purpose is that it has been erased. A birth
+    /// date is one of the highest-value re-identification keys there is; leaving it made the
+    /// tombstone a rename rather than an erasure. What may survive is a single non-identifying
+    /// boolean, and only when the deployment asks for it.</para>
     /// </summary>
-    public void Tombstone()
+    /// <param name="options">Age-of-majority and retention choices for the one bit that may be kept.
+    /// Defaults erase everything except <see cref="WasVerifiedAdult"/>.</param>
+    public void Tombstone(TombstoneOptions? options = null)
     {
         if (Status == UserStatus.Deleted) return;
+
+        options ??= new TombstoneOptions();
 
         var suffix = Id.Length >= 6 ? Id[^6..] : Id;
         UserName = $"Deleted User {suffix}";
@@ -341,6 +424,19 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
         EncryptedMasterKey = null;
         DeletionRequestedAt = null;
         PurgeScheduledAt = null;
+
+        // Read before the erase, obviously - and only from a birth date that was actually recorded.
+        // An account with no birth date (a bot) yields null rather than false, because "we have no
+        // evidence either way" and "we have evidence they were a minor" are different claims and
+        // only one of them is true here.
+        var age = AgeVerification?.AgeInYearsAt(DateTimeOffset.UtcNow);
+        WasVerifiedAdult = options.RetainWasVerifiedAdult && age is not null
+            ? age >= options.AgeOfMajority
+            : null;
+
+        BirthDate = default;
+        AgeVerification?.Purge();
+
         Status = UserStatus.Deleted;
         UpdatedAt = DateTimeOffset.UtcNow;
     }

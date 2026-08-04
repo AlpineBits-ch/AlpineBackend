@@ -37,25 +37,27 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
 
         if (request.IsPasswordGrantType())
         {
-            user = await manager.FindByNameAsync(request.Username);
-            if (user == null)
-            {
-                logger.LogInformation("User not found by email: {username}", request.Username);
-            }
-            if(user == null)
-                return NotFound();
+            var candidate = await manager.FindByNameAsync(request.Username);
 
-            if (user.EmailVerifiedAt == null)
+            // An unknown username is refused exactly as a wrong password is - same 401, same empty
+            // body - and pays the same PBKDF2 cost on the way out.
+            //
+            // This was the worst account-enumeration oracle in the service, and it needed no email
+            // and no account of the attacker's own: an unknown name answered 404, a known one 401
+            // or 403, so an arbitrary list could be sorted into registered and not with one
+            // unauthenticated request each. Everything the discoverability rules in
+            // docs/specs/privacy.md protect was readable straight off the status code here.
+            if (candidate == null)
             {
-                logger.LogInformation("User {username} is not verified", request.Username);
-                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
-
+                await passwords.CheckDummyAsync(request.Password);
+                logger.LogInformation("Password grant refused: no account named {username}", request.Username);
+                return Unauthorized();
             }
 
             // Lockout-aware. Gating the *re-authentication* routes on a counting check while the
             // login itself did not count would have been theatre: an attacker would simply guess
             // here, unbounded, and carry the answer to whichever route they wanted.
-            var check = await passwords.CheckAsync(user, request.Password);
+            var check = await passwords.CheckAsync(candidate, request.Password);
             if (check == Services.PasswordCheckResult.LockedOut)
             {
                 logger.LogInformation("Account {username} is locked out after repeated failures", request.Username);
@@ -67,6 +69,23 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             {
                 logger.LogInformation("The username {username} or password is incorrect", request.Username);
                 return Unauthorized();
+            }
+
+            user = candidate;
+
+            // Deliberately *after* the password check, where it used to be before it.
+            //
+            // Both of these say something true about a named account - "this address is not
+            // verified", "this account is banned" - and saying it to a caller who has proven
+            // nothing is what made them oracles. Behind a correct password they are not: the
+            // caller already holds the credential, and telling them why they cannot sign in is
+            // exactly the message the client needs to route them to the verification screen.
+            // The cost is that a wrong password on an unverified account now reads as a wrong
+            // password, which is correct.
+            if (user.EmailVerifiedAt == null)
+            {
+                logger.LogInformation("User {username} is not verified", request.Username);
+                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
             }
 
             if (!user.IsSigninAllowed())

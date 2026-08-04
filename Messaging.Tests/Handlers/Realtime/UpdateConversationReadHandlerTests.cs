@@ -1,5 +1,7 @@
 using Echo.Realtime;
+using Identity.Contracts.Bus.Response;
 using Messaging.Application.Handler.Realtime;
+using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Tests.Helpers;
 
@@ -11,9 +13,18 @@ namespace Messaging.Tests.Handlers.Realtime;
 public class UpdateConversationReadHandlerTests
 {
     private TestMessagingContext _context = null!;
+    private FakeMessagingHubContext _hub = null!;
 
     [SetUp]
-    public void SetUp() => _context = new TestMessagingContext(Guid.NewGuid().ToString());
+    public void SetUp()
+    {
+        _context = new TestMessagingContext(Guid.NewGuid().ToString());
+        _hub = new FakeMessagingHubContext();
+    }
+
+    /// <summary>Everyone on the product defaults, which include <c>SendReadReceipts = true</c>.</summary>
+    private static PrivacySettingsCache Privacy(params UserPrivacySettingsSummary[] settings) =>
+        TestPrivacyServices.Build(new FakeMessageBus(), settings).Privacy;
 
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
@@ -36,7 +47,7 @@ public class UpdateConversationReadHandlerTests
         _context.Members.Add(MakeMember("m-1", "user-1", "conv-1"));
         await _context.SaveChangesAsync();
 
-        await UpdateConversationReadHandler.Handle(new UpdateConversationReadCommand("user-1", "conv-1", "msg-99"), _context);
+        await UpdateConversationReadHandler.Handle(new UpdateConversationReadCommand("user-1", "conv-1", "msg-99"), _context, Privacy(), _hub);
 
         var stored = await _context.Members.FindAsync("m-1");
         Assert.That(stored!.LastReadMessageId, Is.EqualTo("msg-99"));
@@ -46,7 +57,7 @@ public class UpdateConversationReadHandlerTests
     public async Task Handle_MemberDoesNotExist_IsNoOp()
     {
         Assert.DoesNotThrowAsync(() => UpdateConversationReadHandler.Handle(
-            new UpdateConversationReadCommand("ghost", "conv-1", "msg-99"), _context));
+            new UpdateConversationReadCommand("ghost", "conv-1", "msg-99"), _context, Privacy(), _hub));
     }
 
     [Test]
@@ -57,7 +68,7 @@ public class UpdateConversationReadHandlerTests
             MakeMember("m-2", "user-2", "conv-1"));
         await _context.SaveChangesAsync();
 
-        await UpdateConversationReadHandler.Handle(new UpdateConversationReadCommand("user-1", "conv-1", "msg-99"), _context);
+        await UpdateConversationReadHandler.Handle(new UpdateConversationReadCommand("user-1", "conv-1", "msg-99"), _context, Privacy(), _hub);
 
         var other = await _context.Members.FindAsync("m-2");
         Assert.That(other!.LastReadMessageId, Is.Null);

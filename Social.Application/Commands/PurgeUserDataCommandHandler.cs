@@ -14,6 +14,13 @@ namespace Social.Api.Commands;
 /// Identity.ApplicationUser.Tombstone. Relationship rows are removed outright (both directions)
 /// so the deleted user disappears from former friends' friend lists - matching Guild's
 /// GuildMember removal, which does the same for server membership.
+///
+/// <para>That sweep also carries the blocks required by privacy spec T0-3 ("blocks referencing a
+/// purged user are deleted"), in both directions: a block is a Relationship row with
+/// <c>Status = Blocked</c>, so the OwnerId/TargetId filter below catches blocks the purged user
+/// placed and blocks placed against them. Nothing extra is needed here, but the requirement is
+/// load-bearing and covered by its own test - a block surviving its subject would keep a dead
+/// account suppressing a live one's messages forever.</para>
 /// </summary>
 public class PurgeUserDataCommandHandler
 {

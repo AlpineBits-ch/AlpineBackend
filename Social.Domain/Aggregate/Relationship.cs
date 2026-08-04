@@ -124,11 +124,14 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
     }
 
     /// <summary>Idempotent for the same reason as <see cref="Accept"/> - an already-cleared
-    /// relationship is a no-op rather than a second FriendRequestRejected.</summary>
+    /// relationship is a no-op rather than a second FriendRequestRejected. Refuses on a
+    /// <see cref="RelationshipStatus.Blocked"/> row for the same reason as <see cref="Remove"/>:
+    /// a block is only lifted through <see cref="Unblock"/>, which is what publishes
+    /// <c>UserUnblockedEvent</c>.</summary>
     /// <returns>True if this call actually changed the status.</returns>
     public bool Reject()
     {
-        if (this.Status == RelationshipStatus.None) return false;
+        if (this.Status is RelationshipStatus.None or RelationshipStatus.Blocked) return false;
 
         if (this.Status == RelationshipStatus.PendingIncoming)
         {
@@ -146,11 +149,18 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
     /// <summary>Covers both "revoke my own pending outgoing request" and "unfriend an accepted
     /// friendship" - FriendEndpoint.RevokeAsync uses this for both, and federation only cares
     /// that the relationship no longer exists either way. Idempotent: removing an already-removed
-    /// relationship raises nothing.</summary>
+    /// relationship raises nothing.
+    ///
+    /// <para>Refuses on a <see cref="RelationshipStatus.Blocked"/> row. A block is only ever lifted
+    /// through <see cref="Unblock"/> behind <c>DELETE /api/v1/relationships/{userId}/block</c>,
+    /// which is also what publishes <c>UserUnblockedEvent</c> - so letting the ordinary unfriend
+    /// path clear one would silently drop a block while every other service's cache went on
+    /// believing it was in force. It also stops the person being blocked from clearing the block by
+    /// blocking back, which is how they would otherwise discover it.</para></summary>
     /// <returns>True if this call actually changed the status.</returns>
     public bool Remove()
     {
-        if (this.Status == RelationshipStatus.None) return false;
+        if (this.Status is RelationshipStatus.None or RelationshipStatus.Blocked) return false;
 
         this.AddDomainEvent(new FriendRemoved()
         {
@@ -161,6 +171,47 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
         this.Status = RelationshipStatus.None;
         return true;
     }
-    
-    
+
+    /// <summary>
+    /// Turns this row into the blocker's one-sided block record (privacy spec T0-3).
+    ///
+    /// <para>Blocking is deliberately <b>not</b> a mirrored pair like a friend request: A blocking B
+    /// is a fact about A's row only, and B must never gain a row that would let them tell "blocked"
+    /// apart from "not friends". <see cref="RelatedId"/> is therefore cleared - the block row stands
+    /// alone, and the counterpart row (if the pair had one) is torn down separately with
+    /// <see cref="Remove"/> so the other side sees an ordinary un-friending.</para>
+    ///
+    /// <para>Raises no domain event: the block itself is announced across services as a
+    /// <c>UserBlockedEvent</c> published by the endpoint, because the interesting identity is the
+    /// pair of <i>user</i> ids, not the profile ids a domain event carries.</para>
+    /// </summary>
+    /// <returns>True if this call actually changed the status - false when already blocked, which
+    /// keeps a repeated block idempotent.</returns>
+    public bool Block()
+    {
+        if (this.Status == RelationshipStatus.Blocked) return false;
+
+        this.Status = RelationshipStatus.Blocked;
+        this.RelatedId = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Lifts a block. Only a <see cref="RelationshipStatus.Blocked"/> row may be unblocked, so an
+    /// unblock can never quietly clear a live friendship or pending request.
+    ///
+    /// <para>The caller deletes the row afterwards rather than leaving it at
+    /// <see cref="RelationshipStatus.None"/>: a lingering row for the pair would make the
+    /// "relationship already exists" guard in the create endpoint refuse every future friend request
+    /// between the two, so the block would keep costing them a friendship after it was lifted.</para>
+    /// </summary>
+    /// <returns>True if this row was a block.</returns>
+    public bool Unblock()
+    {
+        if (this.Status != RelationshipStatus.Blocked) return false;
+
+        this.Status = RelationshipStatus.None;
+        this.RelatedId = null;
+        return true;
+    }
 }

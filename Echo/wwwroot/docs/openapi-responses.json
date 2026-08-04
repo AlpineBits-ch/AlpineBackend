@@ -390,7 +390,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Bots.Application\\Endpoints\\Discord\\DiscordMessageEndpoint.cs",
-        "line": 30
+        "line": 79
       }
     },
     {
@@ -528,10 +528,10 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Bots.Application\\Endpoints\\Discord\\DiscordMessageEndpoint.cs",
-        "line": 70
+        "line": 127
       },
       "summary": "Discord\u0027s \u0060message.edit(...)\u0060 - only the bot that authored the message may edit it\u2026",
-      "description": "Discord\u0027s \u0060message.edit(...)\u0060 - only the bot that authored the message may edit it (matches Discord\u0027s own real rule). Reuses UpdateMessageCommand the exact same way CreateMessageAsync above reuses CreateMessageCommand - no separate edit logic."
+      "description": "Discord\u0027s \u0060message.edit(...)\u0060 - only the bot that authored the message may edit it (matches Discord\u0027s own real rule). Reuses UpdateMessageCommand the exact same way CreateMessageAsync above reuses CreateMessageCommand - no separate edit logic. A field the body did not mention is left off the command entirely, which Messaging reads as \u0022leave the stored value alone\u0022; a field that is present but empty clears it. Note that an embeds-only edit therefore leaves \u0060content\u0060 as it stands rather than re-flattening the new embeds into it: overwriting the bot\u0027s own text is the worse of the two failures, and the structural embeds still travel on the update notification for clients that render them."
     },
     {
       "project": "Bots.Application",
@@ -822,7 +822,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Bots.Application\\Endpoints\\Discord\\DiscordInteractionEndpoint.cs",
-        "line": 156
+        "line": 165
       }
     },
     {
@@ -849,7 +849,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Bots.Application\\Endpoints\\Discord\\DiscordInteractionEndpoint.cs",
-        "line": 171
+        "line": 180
       },
       "summary": "Discord uses the literal path segment \u0022@original\u0022 for the deferred response\u0027s placeholder",
       "description": "Discord uses the literal path segment \u0022@original\u0022 for the deferred response\u0027s placeholder. We never post a placeholder for a deferred interaction (nothing to show until the bot actually responds), so editing \u0022@original\u0022 behaves the same as a followup: it posts the real message now, on whatever message id is passed."
@@ -22316,6 +22316,56 @@
     },
     {
       "project": "Guild.Application",
+      "verb": "put",
+      "path": "/api/v1/guilds/{guildId}/privacy",
+      "clrMethod": "GuildPrivacyEndpoint.UpdateAsync",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.GuildDirectMessagePreferenceDto",
+                "properties": {
+                  "allowDirectMessages": {
+                    "type": "boolean"
+                  },
+                  "guildId": {
+                    "type": "string"
+                  },
+                  "isOverride": {
+                    "type": "boolean"
+                  },
+                  "updatedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.GuildDirectMessagePreferenceDto"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\GuildPrivacyEndpoint.cs",
+        "line": 51
+      },
+      "summary": "Sets the caller\u0027s DM toggle for one guild",
+      "description": "Sets the caller\u0027s DM toggle for one guild.  404 when the caller is not a member - not 403. There is nothing to consent to in a server you are not in, and answering differently for \u0022guild exists, you are not in it\u0022 and \u0022no such guild\u0022 would turn this into a guild-enumeration oracle."
+    },
+    {
+      "project": "Guild.Application",
       "verb": "get",
       "path": "/api/v1/guilds/{guildId}/quiet-hours",
       "clrMethod": "HouseholdGuildEndpoint.GetQuietHoursAsync",
@@ -31374,6 +31424,56 @@
     {
       "project": "Guild.Application",
       "verb": "get",
+      "path": "/api/v1/users/me/guild-privacy",
+      "clrMethod": "GuildPrivacyEndpoint.GetAllForUserAsync",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "x-clr-type": "Guild.Application.Dtos.Response.GuildDirectMessagePreferenceDto",
+                  "properties": {
+                    "allowDirectMessages": {
+                      "type": "boolean"
+                    },
+                    "guildId": {
+                      "type": "string"
+                    },
+                    "isOverride": {
+                      "type": "boolean"
+                    },
+                    "updatedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "System.Collections.Generic.List\u003CGuild.Application.Dtos.Response.GuildDirectMessagePreferenceDto\u003E"
+        },
+        "401": {
+          "description": "Not authenticated"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\GuildPrivacyEndpoint.cs",
+        "line": 31
+      },
+      "summary": "Every DM override the caller has stored, across every guild",
+      "description": "Every DM override the caller has stored, across every guild.  Overrides only, not the effective value for every guild the caller is in: the client already knows the account-level policy from \u0060GET /api/v1/privacy-settings\u0060, and returning a synthesized row per guild would make an inherited value indistinguishable from an explicitly chosen one. \u003Csee cref=\u0022P:Guild.Application.Dtos.Response.GuildDirectMessagePreferenceDto.IsOverride\u0022/\u003E is therefore always true here."
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "get",
       "path": "/api/v1/users/me/notification-settings",
       "clrMethod": "NotificationSettingEndpoint.GetAllForUserAsync",
       "responses": {
@@ -32157,9 +32257,6 @@
       "path": "/api/v1/user/generate-verification-code",
       "clrMethod": "UserVerificationEndpoint.GenerateVerificationCode",
       "responses": {
-        "200": {
-          "description": "Success"
-        },
         "202": {
           "description": "Accepted"
         },
@@ -32169,8 +32266,10 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Identity.Application\\Endpoints\\UserVerificationEndpoint.cs",
-        "line": 14
-      }
+        "line": 51
+      },
+      "summary": "Requests a verification code by email",
+      "description": "Requests a verification code by email.  Always 202, with no body, for every caller. A code is minted and mailed only when the identifier resolves to an account that has an address and has not verified it yet; that work happens after the response (see \u003Csee cref=\u0022T:Identity.Application.Services.AccountEmailDispatcher\u0022/\u003E) so the two branches cannot be told apart by how long they take either.   Breaking for clients that read the old 200 / 400 \u0022User already verified\u0022 split. There is no authenticated equivalent to preserve the precise answer behind: \u0060/connect/token\u0060 refuses to issue tokens to an unverified account, so a caller on this journey is unauthenticated by definition and there is no session in which they could be told more. The honest client-side wording is \u0022if that address needs verifying, we have sent a code\u0022."
     },
     {
       "project": "Identity.Application",
@@ -32324,12 +32423,17 @@
       "responses": {
         "202": {
           "description": "Accepted"
+        },
+        "400": {
+          "description": "Invalid request"
         }
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Identity.Application\\Endpoints\\PasswordResetEndpoint.cs",
-        "line": 23
-      }
+        "line": 41
+      },
+      "summary": "Requests a reset code",
+      "description": "Requests a reset code. Always 202, whoever asks.  The status code was already uniform; the \u003Ci\u003Etime\u003C/i\u003E was not. Rendering the template and awaiting the Graph send only on the account-exists branch left a several-hundred-millisecond gap that answered the same question the response body refused to, so both now happen after the response - see \u003Csee cref=\u0022T:Identity.Application.Services.AccountEmailDispatcher\u0022/\u003E, which also absorbs the delivery faults the old inline try/catch was here to swallow."
     },
     {
       "project": "Identity.Application",
@@ -32369,7 +32473,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Identity.Application\\Endpoints\\PasswordResetEndpoint.cs",
-        "line": 61
+        "line": 60
       }
     },
     {
@@ -32381,17 +32485,16 @@
         "200": {
           "description": "Success"
         },
-        "202": {
-          "description": "Accepted"
-        },
         "400": {
           "description": "Invalid request"
         }
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Identity.Application\\Endpoints\\UserVerificationEndpoint.cs",
-        "line": 49
-      }
+        "line": 85
+      },
+      "summary": "Confirms an address with the emailed code",
+      "description": "Confirms an address with the emailed code.  Unlike the request route this one cannot answer uniformly - the caller genuinely needs to know whether their code was accepted. So the rule is narrower: an unknown identifier is answered exactly as a known account with an unusable code is, and every unusable-code reason shares one body (\u003Csee cref=\u0022F:Identity.Application.Endpoints.UserVerificationEndpoint.CodeRefused\u0022/\u003E). An unknown address used to short-circuit to 202 while a wrong code got a 400, which was the same oracle in a different shape.   Breaking: an unknown address now yields 400 rather than 202, and an already-verified account 400 rather than 400 \u0022User already verified\u0022."
     },
     {
       "project": "Identity.Application",
@@ -32887,7 +32990,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceCloudflareEndpoints.cs",
-        "line": 132
+        "line": 150
       }
     },
     {
@@ -32918,11 +33021,14 @@
         },
         "401": {
           "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
         }
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceCloudflareEndpoints.cs",
-        "line": 31
+        "line": 32
       }
     },
     {
@@ -32943,7 +33049,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceCloudflareEndpoints.cs",
-        "line": 152
+        "line": 170
       }
     },
     {
@@ -33032,7 +33138,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceCloudflareEndpoints.cs",
-        "line": 59
+        "line": 68
       }
     },
     {
@@ -33041,6 +33147,26 @@
       "path": "/api/v1/voice/join",
       "clrMethod": "VoiceMembershipEndpoints.Join",
       "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Isle.Api.Endpoints.VoiceRefusalDto",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Isle.Api.Endpoints.VoiceRefusalDto"
+        },
         "204": {
           "description": "Success, no content"
         },
@@ -33053,7 +33179,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceEndpoints.cs",
-        "line": 21
+        "line": 36
       }
     },
     {
@@ -33071,7 +33197,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceEndpoints.cs",
-        "line": 47
+        "line": 70
       }
     },
     {
@@ -33106,7 +33232,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Isle.Application\\Endpoints\\VoiceEndpoints.cs",
-        "line": 63
+        "line": 86
       }
     },
     {
@@ -33876,176 +34002,22 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "x-clr-type": "Messaging.Application.Dtos.Response.ConversationDto",
+                "x-clr-type": "Messaging.Application.Services.Privacy.DmRefusalDto",
                 "properties": {
-                  "createdAt": {
-                    "type": "string",
-                    "format": "date-time"
-                  },
-                  "encryptionState": {
-                    "type": "string",
-                    "enum": [
-                      "Plain",
-                      "Encrypted"
-                    ],
-                    "x-clr-type": "Messaging.Domain.Enums.ChannelEncryptionState",
-                    "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
-                  },
-                  "id": {
+                  "error": {
                     "type": "string"
                   },
-                  "members": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "x-clr-type": "Messaging.Application.Dtos.Response.ConversationMemberDto",
-                      "properties": {
-                        "cachedUserHash": {
-                          "type": "integer"
-                        },
-                        "cachedUserName": {
-                          "type": "string"
-                        },
-                        "conversationId": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        },
-                        "devices": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "x-clr-type": "Messaging.Application.Dtos.Response.ConversationMemberDeviceDto",
-                            "properties": {
-                              "conversationMemberId": {
-                                "type": "string"
-                              },
-                              "createdAt": {
-                                "type": "string",
-                                "format": "date-time"
-                              },
-                              "deviceId": {
-                                "type": "string"
-                              },
-                              "id": {
-                                "type": "string"
-                              },
-                              "mlsLeafIndex": {
-                                "type": "integer"
-                              },
-                              "updatedAt": {
-                                "type": "string",
-                                "format": "date-time"
-                              }
-                            }
-                          }
-                        },
-                        "federatedServerId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "lastReadMessageId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "mentionCount": {
-                          "type": "integer"
-                        },
-                        "mutedUntil": {
-                          "type": [
-                            "string",
-                            "null"
-                          ],
-                          "format": "date-time"
-                        },
-                        "publicKey": {
-                          "type": "array",
-                          "items": {
-                            "type": "integer"
-                          }
-                        },
-                        "updatedAt": {
-                          "type": "string",
-                          "format": "date-time"
-                        },
-                        "userId": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  },
-                  "mlsEpoch": {
-                    "type": [
-                      "integer",
-                      "null"
-                    ]
-                  },
-                  "mlsGroupId": {
-                    "type": [
-                      "array",
-                      "null"
-                    ],
-                    "items": {
-                      "type": "integer"
-                    }
-                  },
-                  "mlsGroupInfo": {
-                    "type": [
-                      "array",
-                      "null"
-                    ],
-                    "items": {
-                      "type": "integer"
-                    }
-                  },
-                  "name": {
+                  "userId": {
                     "type": [
                       "string",
                       "null"
                     ]
-                  },
-                  "originInstanceId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "unreachableDevices": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "x-clr-type": "Messaging.Application.Dtos.Response.UnreachableDeviceDto",
-                      "properties": {
-                        "deviceId": {
-                          "type": "string"
-                        },
-                        "deviceName": {
-                          "type": "string"
-                        },
-                        "userId": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  },
-                  "updatedAt": {
-                    "type": "string",
-                    "format": "date-time"
                   }
                 }
               }
             }
           },
-          "x-clr-type": "Messaging.Application.Dtos.Response.ConversationDto"
+          "x-clr-type": "Messaging.Application.Services.Privacy.DmRefusalDto"
         },
         "400": {
           "description": "Invalid request",
@@ -34088,7 +34060,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\ConversationEndpoints.cs",
-        "line": 217
+        "line": 221
       }
     },
     {
@@ -34103,74 +34075,22 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "x-clr-type": "Identity.Contracts.Bus.Response.ConsumeMlsDeviceTokensForUserResponse",
+                "x-clr-type": "Messaging.Application.Services.Privacy.DmRefusalDto",
                 "properties": {
-                  "deviceTokens": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "x-clr-type": "Identity.Contracts.Bus.Response.DeviceTokenResponse",
-                      "properties": {
-                        "certificate": {
-                          "type": [
-                            "array",
-                            "null"
-                          ],
-                          "items": {
-                            "type": "integer"
-                          }
-                        },
-                        "certificateExpiresAt": {
-                          "type": [
-                            "string",
-                            "null"
-                          ],
-                          "format": "date-time"
-                        },
-                        "certificateIdentityKeyVersion": {
-                          "type": "integer"
-                        },
-                        "deviceId": {
-                          "type": "string"
-                        },
-                        "isLastResort": {
-                          "type": "boolean"
-                        },
-                        "token": {
-                          "type": "array",
-                          "items": {
-                            "type": "integer"
-                          }
-                        },
-                        "userId": {
-                          "type": "string"
-                        }
-                      }
-                    }
+                  "error": {
+                    "type": "string"
                   },
-                  "unreachableDevices": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "x-clr-type": "Identity.Contracts.Bus.Response.UnreachableDeviceResponse",
-                      "properties": {
-                        "deviceId": {
-                          "type": "string"
-                        },
-                        "deviceName": {
-                          "type": "string"
-                        },
-                        "userId": {
-                          "type": "string"
-                        }
-                      }
-                    }
+                  "userId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 }
               }
             }
           },
-          "x-clr-type": "Identity.Contracts.Bus.Response.ConsumeMlsDeviceTokensForUserResponse"
+          "x-clr-type": "Messaging.Application.Services.Privacy.DmRefusalDto"
         },
         "400": {
           "description": "Invalid request"
@@ -34181,7 +34101,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\ConversationEndpoints.cs",
-        "line": 116
+        "line": 117
       }
     },
     {
@@ -35243,7 +35163,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\ConversationEndpoints.cs",
-        "line": 513
+        "line": 541
       }
     },
     {
@@ -35444,10 +35364,10 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\ConversationEndpoints.cs",
-        "line": 438
+        "line": 449
       },
       "summary": "Adds someone to a group conversation",
-      "description": "Adds someone to a group conversation.  Same friendship rule as creation: you may only pull in people you are actually friends with, so a group cannot be used to put a stranger in front of someone.   Refused on a two-person DM. Growing a 1:1 into a group silently changes what the other person thought they were in - that has to be an explicit new conversation, not a side effect of someone else\u0027s action.   For an encrypted conversation this only adds them to the roster; their devices still have to be admitted to the MLS group, which only a member\u0027s client can do. Until that commit lands they are a member who cannot read - visible to them, since they see the conversation but no history."
+      "description": "Adds someone to a group conversation.  Same T0-2 rule as creation, applied twice over: the person being pulled in has to admit the caller under their own \u0060DirectMessagePolicy\u0060, and must not be on either side of a block with anyone already in the room. The second half is what stops a group being used to route around a block - adding somebody\u0027s blocked ex to the group they are in puts exactly the person they blocked back in front of them.   Refused on a two-person DM. Growing a 1:1 into a group silently changes what the other person thought they were in - that has to be an explicit new conversation, not a side effect of someone else\u0027s action.   For an encrypted conversation this only adds them to the roster; their devices still have to be admitted to the MLS group, which only a member\u0027s client can do. Until that commit lands they are a member who cannot read - visible to them, since they see the conversation but no history."
     },
     {
       "project": "Messaging.Application",
@@ -35488,7 +35408,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\ConversationEndpoints.cs",
-        "line": 491
+        "line": 519
       },
       "summary": "Mute or unmute a DM/group conversation for the caller",
       "description": "Mute or unmute a DM/group conversation for the caller. Only a mute, no level - see ConversationMember.MutedUntil for why \u0022only mentions\u0022 has no meaning in a DM."
@@ -35624,7 +35544,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 39
+        "line": 40
       },
       "summary": "Deliberately returns a bare IResult and no cascaded event",
       "description": "Deliberately returns a bare IResult and no cascaded event. The MessageCreated for this send is raised by \u003Csee cref=\u0022T:Messaging.Application.Commands.CreateMessageCommandHandler\u0022/\u003E, which the InvokeAsync below runs - and Wolverine publishes a handler\u0027s other tuple member even when the caller asked for the first one, so returning a MessageCreated here too published a *second* copy of the same event. Everything downstream then ran twice: the realtime fan-out (a duplicate message and duplicate desktop notification) and, through Guild\u0027s channel path, a duplicate FCM/APNs push on every phone."
@@ -35670,7 +35590,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 274
+        "line": 317
       },
       "summary": "Moderator sweep of up to \u003Csee cref=\u0022F:Messaging.Application.Endpoints.MessagingEndpoints.\u2026",
       "description": "Moderator sweep of up to \u003Csee cref=\u0022F:Messaging.Application.Endpoints.MessagingEndpoints.MaxBulkDeleteMessages\u0022/\u003E messages in one channel. Fans out one MessageDeleted per removed message rather than a single bulk event: that reuses the whole existing per-delete pipeline unchanged (search-index cleanup, the MESSAGE_DELETE bot dispatch, the forum-post MessageCount decrement) instead of reimplementing each of those side effects in a bulk-shaped variant that could drift. Clients additionally get one aggregate realtime push so the UI can remove the whole range in a single update."
@@ -35705,7 +35625,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 480
+        "line": 523
       }
     },
     {
@@ -35762,7 +35682,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 341
+        "line": 384
       }
     },
     {
@@ -35803,7 +35723,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 379
+        "line": 422
       }
     },
     {
@@ -35875,7 +35795,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 439
+        "line": 482
       }
     },
     {
@@ -35947,7 +35867,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 398
+        "line": 441
       }
     },
     {
@@ -35998,7 +35918,21 @@
       "clrMethod": "FriendshipEndpoints.CreateAsync",
       "responses": {
         "200": {
-          "description": "Success"
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Social.Api.Dtos.Response.RefusalDto",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Social.Api.Dtos.Response.RefusalDto"
         },
         "400": {
           "description": "Invalid request"
@@ -36012,8 +35946,78 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\FriendEndpoint.cs",
-        "line": 18
-      }
+        "line": 38
+      },
+      "summary": "Creates a friend request, subject to blocking (T0-3), the target\u0027s discoverability\u2026",
+      "description": "Creates a friend request, subject to blocking (T0-3), the target\u0027s discoverability (T2-16) and the target\u0027s friend-request policy (T2-15).  Note the direction: every gate is read off the \u003Ci\u003Etarget\u0027s\u003C/i\u003E record, because the question is whether the target is willing to be reached, not whether the caller is willing to reach out."
+    },
+    {
+      "project": "Social.Application",
+      "verb": "get",
+      "path": "/api/v1/relationships/blocked",
+      "clrMethod": "BlockEndpoints.ListBlockedAsync",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Social.Api.Dtos.Response.BlockedUsersPageDto",
+                "properties": {
+                  "blocked": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Social.Api.Dtos.Response.BlockedUserDto",
+                      "properties": {
+                        "avatarUrl": {
+                          "type": "string"
+                        },
+                        "blockedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "profileId": {
+                          "type": "string"
+                        },
+                        "relationshipId": {
+                          "type": "string"
+                        },
+                        "userId": {
+                          "type": "string"
+                        },
+                        "userName": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Social.Api.Dtos.Response.BlockedUsersPageDto"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\BlockEndpoint.cs",
+        "line": 162
+      },
+      "summary": "The caller\u0027s own block list",
+      "description": "The caller\u0027s own block list. Scoped to rows the caller owns, which is also why there is no \u0022who blocked me\u0022 counterpart and never will be."
     },
     {
       "project": "Social.Application",
@@ -36036,7 +36040,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\FriendEndpoint.cs",
-        "line": 70
+        "line": 147
       }
     },
     {
@@ -36060,7 +36064,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\FriendEndpoint.cs",
-        "line": 116
+        "line": 193
       }
     },
     {
@@ -36084,8 +36088,57 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\FriendEndpoint.cs",
-        "line": 150
+        "line": 227
       }
+    },
+    {
+      "project": "Social.Application",
+      "verb": "delete",
+      "path": "/api/v1/relationships/{userId}/block",
+      "clrMethod": "BlockEndpoints.UnblockAsync",
+      "responses": {
+        "204": {
+          "description": "Success, no content"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\BlockEndpoint.cs",
+        "line": 116
+      },
+      "summary": "Lifts a block",
+      "description": "Lifts a block. Idempotent: unblocking someone who is not blocked is a 204.  The rows are deleted rather than parked at \u003Csee cref=\u0022F:Social.Domain.Enums.RelationshipStatus.None\u0022/\u003E. A lingering row for the pair would trip the \u0022relationship already exists\u0022 guard in \u0060POST /api/v1/relationships\u0060 forever, so an unblocked pair could never become friends - the block would go on costing them something after it was lifted."
+    },
+    {
+      "project": "Social.Application",
+      "verb": "post",
+      "path": "/api/v1/relationships/{userId}/block",
+      "clrMethod": "BlockEndpoints.BlockAsync",
+      "responses": {
+        "204": {
+          "description": "Success, no content"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\BlockEndpoint.cs",
+        "line": 44
+      },
+      "summary": "Blocks \u003Cparamref name=\u0022userId\u0022/\u003E",
+      "description": "Blocks \u003Cparamref name=\u0022userId\u0022/\u003E. Idempotent: blocking someone already blocked is a 204 that changes nothing and republishes nothing.  Tears down whatever relationship existed first - an accepted friendship, a pending request in either direction - because a block that left a live friendship in place would keep the DM and call paths (both gated on friendship) open to the person just blocked."
     }
   ]
 }

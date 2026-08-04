@@ -7,6 +7,7 @@ using Isle.Api.Services;
 using Isle.Api.Services.Hosted;
 using Isle.Api.Services.Ingestion;
 using Isle.Api.Services.KingOfTheHill;
+using Isle.Api.Services.Privacy;
 using Isle.Api.Services.Quests;
 using Isle.Api.Services.Rcon;
 using Isle.Api.Services.Rewards;
@@ -161,6 +162,19 @@ public static class IsleApplicationServiceCollectionExtensions
         // attenuation radius. Proximity voice range is 80 m, so 8000 UE units (cm).
         services.AddSingleton(new VoiceGridConfig { CellSize = 8000f });
         services.AddSingleton<VoiceCluster>();
+
+        // T2-19 (docs/specs/privacy.md). Scoped, not singleton: the cache takes the scoped
+        // IMessageBus, and the Redis entry behind it is what makes the decision consistent across
+        // pods rather than per-process like the two voice registries above.
+        //
+        // T2-19's other half, ShareActivity, has no enforcement point in this service and needs
+        // none: Isle publishes no "playing Isle" presence outward. The only in-world state that
+        // leaves here is isle.PlayerJoined/PlayerDisconnected and GET /voice/status, all three
+        // addressed to the player's own connection, and self-view is exempt from ShareActivity by
+        // definition. The third-party projection of "playing Isle" lives in Social's
+        // ProfileVisibility and Guild's member projection, where the gate already sits.
+        services.AddScoped<PrivacySettingsCache>();
+        services.AddScoped<PositionalVoiceConsent>();
 
         return services;
     }

@@ -160,14 +160,36 @@ public class MessageCreatedHandlerTests
         HeartbeatTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
     };
 
-    private Task RunAsync(MessageCreatedForChannel message, params MemberPresenceState[] presence)
+    private Task RunAsync(MessageCreatedForChannel message, params MemberPresenceState[] presence) =>
+        RunAsync(message, blocks: [], presence);
+
+    /// <summary>
+    /// The same run, with a block list. Split out rather than added to every call site because the
+    /// block filter is orthogonal to everything the rest of this suite asserts - see
+    /// MessageCreatedPrivacyTests for the cases that use it.
+    /// </summary>
+    private Task RunAsync(
+        MessageCreatedForChannel message,
+        (string Blocker, string Blocked)[] blocks,
+        params MemberPresenceState[] presence)
     {
         var hydrate = new GuildHydrateService(
             RedisTestFactory.CreateWithPresence(presence), NullLogger<GuildHydrateService>.Instance);
 
+        var privacyBus = new FakeInvokingMessageBus();
+        var privacyCache = new FakeDistributedCache();
+
+        var everyUserId = _context.GuildMembers.Select(m => m.UserId).ToList();
+
+        var privacy = PrivacyTestFactory.Privacy(privacyBus, privacyCache,
+            everyUserId.Select(PrivacyTestFactory.Permissive).ToArray());
+
+        var blockCache = PrivacyTestFactory.Blocks(privacyBus, privacyCache, blocks);
+
         return _handler.Handle(
             message, _hub, hydrate, _context, _cache, _bus,
-            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience);
+            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience,
+            blockCache, privacy);
     }
 
     /// <summary>Every recipient across the chunked index commands. Mentions are no longer a counter

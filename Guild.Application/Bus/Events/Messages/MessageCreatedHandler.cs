@@ -23,7 +23,8 @@ public class MessageCreatedHandler
     }
     public async Task Handle(MessageCreatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
         MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger,
-        NotificationResolutionService notificationService, ChannelAudienceService audience)
+        NotificationResolutionService notificationService, ChannelAudienceService audience,
+        BlockCache blocks, PrivacySettingsCache privacySettings)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -71,7 +72,13 @@ public class MessageCreatedHandler
             SystemMessageVariant = message.SystemMessageVariant,
         });
 
-        var mentioned = await ResolveMentionedMembersAsync(message, cachedGuildId, presence, viewerIds, context);
+        // One cache read decides every pair in this fan-out: the author's block state lists both
+        // directions, and every question below is "author versus one recipient". Resolved once
+        // here rather than inside each of the four fan-out steps, so a message costs at most one
+        // block lookup however many people it names (privacy spec T0-3).
+        var blockView = await blocks.GetAsync([message.AuthorId]);
+
+        var mentioned = await ResolveMentionedMembersAsync(message, cachedGuildId, presence, viewerIds, context, blockView);
 
         await RecordBroadcastMentionsAsync(message, context);
 
@@ -79,7 +86,8 @@ public class MessageCreatedHandler
 
         await PushMentionAddedAsync(message, cachedGuildId, mentioned, hub);
 
-        await PublishPushRecipientsAsync(message, cachedGuildId, presence, mentioned, context, notificationService, bus);
+        await PublishPushRecipientsAsync(message, cachedGuildId, presence, mentioned, context, notificationService, bus,
+            blockView, privacySettings);
     }
 
     /// <summary>A mentioned member. Both ids are needed: the badge and push paths key on the
@@ -110,37 +118,52 @@ public class MessageCreatedHandler
     ///
     /// The author is excluded throughout: @-ing yourself, or being swept up by your own @everyone,
     /// is not a mention. The realtime broadcast above has always excluded them.
+    ///
+    /// <para><b>Blocks are applied here, once</b> (privacy spec T0-3): a blocker receives no
+    /// mention or @here originating from the person they blocked. Filtering at this single point
+    /// rather than at each consumer is what makes the guarantee hold across all three downstream
+    /// paths - the cross-service mention index, the realtime badge, and the phone push - because
+    /// all three read this one result. The block filter runs in memory rather than in SQL: the
+    /// block list lives in Social, so there is nothing here to join against.</para>
     /// </summary>
     private static async Task<MentionedMembers> ResolveMentionedMembersAsync(
         MessageCreatedForChannel message,
         string guildId,
         IReadOnlyCollection<MemberPresenceState> presence,
         IReadOnlyCollection<string> viewerIds,
-        MicroserviceContext context)
+        MicroserviceContext context,
+        BlockView blockView)
     {
         var direct = new List<MentionedMember>();
         var byRole = new HashSet<string>(StringComparer.Ordinal);
         var here = new List<MentionedMember>();
 
+        bool Reaches(string userId) => !blockView.AreBlocked(message.AuthorId, userId);
+
         if (message.Mentions.Count > 0)
         {
-            direct.AddRange(await context.GuildMembers
-                .AsNoTracking()
-                .Where(m => m.GuildId == guildId
-                            && message.Mentions.Contains(m.UserId)
-                            && m.UserId != message.AuthorId)
-                .Select(m => new MentionedMember(m.Id, m.UserId))
-                .ToListAsync());
+            direct.AddRange((await context.GuildMembers
+                    .AsNoTracking()
+                    .Where(m => m.GuildId == guildId
+                                && message.Mentions.Contains(m.UserId)
+                                && m.UserId != message.AuthorId)
+                    .Select(m => new MentionedMember(m.Id, m.UserId))
+                    .ToListAsync())
+                .Where(m => Reaches(m.UserId)));
         }
 
         if (message.RoleMentions.Count > 0)
         {
-            byRole.UnionWith(await context.RoleMembers
-                .AsNoTracking()
-                .Where(rm => message.RoleMentions.Contains(rm.RoleId)
-                             && rm.Member.UserId != message.AuthorId)
-                .Select(rm => rm.MemberId)
-                .ToListAsync());
+            // The user id is projected alongside the member id purely so the block filter has
+            // something to test - everything downstream of byRole keys on the member.
+            byRole.UnionWith((await context.RoleMembers
+                    .AsNoTracking()
+                    .Where(rm => message.RoleMentions.Contains(rm.RoleId)
+                                 && rm.Member.UserId != message.AuthorId)
+                    .Select(rm => new MentionedMember(rm.MemberId, rm.Member.UserId))
+                    .ToListAsync())
+                .Where(m => Reaches(m.UserId))
+                .Select(m => m.MemberId));
         }
 
         // Deliberately no @everyone expansion. It is recorded as a single broadcast row instead
@@ -164,7 +187,7 @@ public class MessageCreatedHandler
             var viewers = viewerIds.ToHashSet(StringComparer.Ordinal);
 
             here.AddRange(presence
-                .Where(p => viewers.Contains(p.UserId) && IsOnline(p.Status))
+                .Where(p => viewers.Contains(p.UserId) && IsOnline(p.Status) && Reaches(p.UserId))
                 .Select(p => new MentionedMember(p.MemberId, p.UserId)));
         }
 
@@ -269,7 +292,9 @@ public class MessageCreatedHandler
         MentionedMembers mentioned,
         MicroserviceContext context,
         NotificationResolutionService notificationService,
-        IMessageBus bus)
+        IMessageBus bus,
+        BlockView blockView,
+        PrivacySettingsCache privacySettings)
     {
         // Everyone who could conceivably be notified: whoever the message named, plus whoever's
         // settings say "tell me about everything" - that case is precisely what the mention set
@@ -311,6 +336,11 @@ public class MessageCreatedHandler
             if (!resolved.TryGetValue(candidate.MemberId, out var settings)) continue;
             if (!settings.MobilePush) continue;
 
+            // The mention sets were already filtered, but the candidate set is wider than they are
+            // - at the AllMessages default it is the whole membership - so the blocker would still
+            // have been pushed an ordinary message from the person they blocked.
+            if (blockView.AreBlocked(message.AuthorId, candidate.UserId)) continue;
+
             var isDirectMention = directMemberIds.Contains(candidate.MemberId);
             var isRoleMention = mentioned.ByRole.Contains(candidate.MemberId);
 
@@ -324,17 +354,56 @@ public class MessageCreatedHandler
 
         if (recipients.Count == 0) return;
 
-        await bus.PublishAsync(new ChannelPushRequested
+        // Privacy spec T2-23. A recipient with HidePushContent gets routing ids and nothing else -
+        // no body, no author name, no channel name. Split into two events rather than one carrying
+        // a per-user flag, because the payloads genuinely differ and a consumer must not be able to
+        // leak by ignoring a flag: on the hidden event the content is simply not there.
+        var recipientSettings = await privacySettings.GetAsync(recipients);
+
+        var hidden = recipients
+            .Where(id => recipientSettings.TryGetValue(id, out var s) && s.HidePushContent)
+            .ToList();
+
+        var plain = recipients.Except(hidden, StringComparer.Ordinal).ToList();
+
+        var isEncrypted = message.EncryptionState != Guild.Contracts.Bus.Events.MessageEncryptionState.Plain;
+
+        if (plain.Count > 0)
         {
-            GuildId = guildId,
-            ChannelId = message.ChannelId,
-            MessageId = message.MessageId,
-            UserIds = recipients,
-            AuthorId = message.AuthorId,
-            Content = message.Content,
-            IsEncrypted = message.EncryptionState != Guild.Contracts.Bus.Events.MessageEncryptionState.Plain,
-            MlsGeneration = message.MlsGeneration,
-        });
+            await bus.PublishAsync(new ChannelPushRequested
+            {
+                GuildId = guildId,
+                ChannelId = message.ChannelId,
+                MessageId = message.MessageId,
+                UserIds = plain,
+                AuthorId = message.AuthorId,
+                Content = message.Content,
+                IsEncrypted = isEncrypted,
+                MlsGeneration = message.MlsGeneration,
+            });
+        }
+
+        if (hidden.Count > 0)
+        {
+            await bus.PublishAsync(new ChannelPushRequested
+            {
+                GuildId = guildId,
+                ChannelId = message.ChannelId,
+                MessageId = message.MessageId,
+                UserIds = hidden,
+                // Blank, not the real id: Messaging resolves the author's display name from it for
+                // the notification title, and the author's name is exactly what T2-23 forbids.
+                // An empty id resolves to no profile, which Messaging already renders as the
+                // generic "New message".
+                AuthorId = string.Empty,
+                Content = [],
+                IsEncrypted = isEncrypted,
+                // Withheld with the body: it is only useful for decrypting ciphertext that is not
+                // being sent.
+                MlsGeneration = null,
+                HideContent = true,
+            });
+        }
     }
 
     /// <summary>Denormalizes the head of the channel onto its row: when it last saw activity, which

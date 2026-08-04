@@ -1,5 +1,7 @@
 using Echo.Realtime;
+using Identity.Contracts.Bus.Response;
 using Messaging.Application.Handler.Realtime;
+using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
 using Messaging.Tests.Helpers;
@@ -25,6 +27,11 @@ public class StartConversationTypingHandlerTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
+    /// <summary>Everyone on the product defaults, which include
+    /// <c>SendTypingIndicators = true</c>.</summary>
+    private static PrivacySettingsCache Privacy(params UserPrivacySettingsSummary[] settings) =>
+        TestPrivacyServices.Build(new FakeMessageBus(), settings).Privacy;
+
     private static ConversationMember MakeMember(string id, string userId, string conversationId) => new()
     {
         Id = id,
@@ -41,7 +48,7 @@ public class StartConversationTypingHandlerTests
     public async Task Handle_ConversationDoesNotExist_IsNoOp()
     {
         Assert.DoesNotThrowAsync(() => StartConversationTypingHandler.Handle(
-            new StartConversationTypingCommand("user-1", "conv-missing"), _context, _hub));
+            new StartConversationTypingCommand("user-1", "conv-missing"), _context, Privacy(), _hub));
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Is.Empty);
@@ -63,7 +70,7 @@ public class StartConversationTypingHandlerTests
         });
         await _context.SaveChangesAsync();
 
-        await StartConversationTypingHandler.Handle(new StartConversationTypingCommand("user-1", "conv-1"), _context, _hub);
+        await StartConversationTypingHandler.Handle(new StartConversationTypingCommand("user-1", "conv-1"), _context, Privacy(), _hub);
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Has.Count.EqualTo(2));

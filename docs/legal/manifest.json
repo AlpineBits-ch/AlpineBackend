@@ -1,0 +1,31 @@
+{
+  "$comment": [
+    "The set of legal documents this build serves, and the only source of LegalDocument rows.",
+    "LegalDocumentCatalog reads this at startup, hashes each file's bytes into ContentHash and",
+    "upserts one row per (documentType, version). Adding a version means adding an entry here and",
+    "a file beside it - never editing a published file in place, which is exactly what ContentHash",
+    "exists to make detectable.",
+    "Versions are ordered by effectiveAt, not by string comparison: the 'current' document of a",
+    "type is the one with the latest effectiveAt that is not in the future."
+  ],
+  "documents": [
+    {
+      "documentType": "Terms",
+      "version": "0.1.0-placeholder",
+      "effectiveAt": "2026-08-04T00:00:00Z",
+      "file": "terms-0.1.0-placeholder.md"
+    },
+    {
+      "documentType": "Privacy",
+      "version": "0.1.0-placeholder",
+      "effectiveAt": "2026-08-04T00:00:00Z",
+      "file": "privacy-0.1.0-placeholder.md"
+    },
+    {
+      "documentType": "Cookies",
+      "version": "0.1.0-placeholder",
+      "effectiveAt": "2026-08-04T00:00:00Z",
+      "file": "cookies-0.1.0-placeholder.md"
+    }
+  ]
+}

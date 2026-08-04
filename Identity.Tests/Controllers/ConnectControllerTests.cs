@@ -43,7 +43,7 @@ public class ConnectControllerTests
         await Host.Scenario(x =>
         {
             x.Post.Json(request).ToUrl("/api/v1/authentication/register");
-            x.StatusCodeShouldBe(HttpStatusCode.OK);
+            x.StatusCodeShouldBe(HttpStatusCode.Accepted);
         });
     }
 
@@ -98,16 +98,98 @@ public class ConnectControllerTests
         }, HttpStatusCode.Unauthorized);
     }
 
-    [Test]
-    public async Task Exchange_PasswordGrant_UnknownUser_ReturnsNotFound()
-    {
-        await RequestTokenAsync(new Dictionary<string, string>
+    // ── Account enumeration ─────────────────────────────────────────────────────
+    //
+    // This endpoint was the worst enumeration oracle in the service, and the cheapest to work:
+    // an unknown username answered 404, a known one 401 (wrong password) or 403 (email not
+    // verified), so one unauthenticated POST per name sorted an arbitrary list into registered
+    // and not. No account, no email, no session needed. It also read out a second bit -
+    // verified or not - for free, which is exactly the kind of account state the discoverability
+    // rules in docs/specs/privacy.md exist to withhold.
+
+    private static Task<string> ProbeTokenAsync(Dictionary<string, string> form) =>
+        Host.Scenario(x =>
         {
-            ["grant_type"] = "password",
-            ["username"] = $"nosuchuser{Guid.NewGuid():N}",
-            ["password"] = Password,
-            ["client_id"] = "echo",
-        }, HttpStatusCode.NotFound);
+            x.Post.FormData(form).ToUrl("/connect/token");
+            x.IgnoreStatusCode();
+        }).ContinueWith(t => ResponseFingerprint.OfAsync(t.Result)).Unwrap();
+
+    private static Dictionary<string, string> PasswordGrant(string username, string password) => new()
+    {
+        ["grant_type"] = "password",
+        ["username"] = username,
+        ["password"] = password,
+        ["client_id"] = "echo",
+    };
+
+    /// <summary>Clears EmailVerifiedAt so the account is registered but unverified - registration
+    /// auto-verifies in this harness (AUTH_REQUIRE_USER_EMAIL_VERIFICATION=false).</summary>
+    private static Task<bool> MarkUnverifiedAsync(string username) => RunInScopeAsync(async sp =>
+    {
+        var ctx = sp.GetRequiredService<MicroserviceContext>();
+        var user = await ctx.Users.FirstAsync(u => u.UserName == username);
+        user.EmailVerifiedAt = null;
+        await ctx.SaveChangesAsync();
+        return true;
+    });
+
+    [Test]
+    public async Task Exchange_PasswordGrant_UnknownUser_IsIndistinguishableFromWrongPassword()
+    {
+        var username = $"connenum{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(username));
+
+        var wrongPassword = await ProbeTokenAsync(PasswordGrant(username, "TotallyWrongPassword!"));
+        var unknownUser = await ProbeTokenAsync(
+            PasswordGrant($"nosuchuser{Guid.NewGuid():N}"[..15], "TotallyWrongPassword!"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(unknownUser, Is.EqualTo(wrongPassword),
+                "an unknown username must be refused exactly as a known one with the wrong password - " +
+                "this used to be 404 vs 401.");
+            Assert.That(wrongPassword, Does.Contain("status: 401"));
+        });
+    }
+
+    [Test]
+    public async Task Exchange_PasswordGrant_UnverifiedAccountWithWrongPassword_LooksLikeAnyOtherWrongPassword()
+    {
+        var unverified = $"connunver{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(unverified));
+        await MarkUnverifiedAsync(unverified);
+
+        var verified = $"connver{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(verified));
+
+        // The email-verified check used to run *before* the password check, so it answered 403
+        // "Email not verified." to anyone who merely named the account.
+        var unverifiedProbe = await ProbeTokenAsync(PasswordGrant(unverified, "TotallyWrongPassword!"));
+        var verifiedProbe = await ProbeTokenAsync(PasswordGrant(verified, "TotallyWrongPassword!"));
+        var unknownProbe = await ProbeTokenAsync(
+            PasswordGrant($"nosuchuser{Guid.NewGuid():N}"[..15], "TotallyWrongPassword!"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(unverifiedProbe, Is.EqualTo(verifiedProbe),
+                "verification state must not be readable without the password.");
+            Assert.That(unknownProbe, Is.EqualTo(verifiedProbe));
+        });
+    }
+
+    [Test]
+    public async Task Exchange_PasswordGrant_UnverifiedAccountWithCorrectPassword_StillSaysEmailNotVerified()
+    {
+        // The precise answer is deliberately kept for a caller who has proven the password: the
+        // client needs it to route the user to the verification screen, and at that point they
+        // hold the credential, so it tells them nothing they could not already establish.
+        var username = $"connunverok{Guid.NewGuid():N}"[..15];
+        await RegisterAsync(ValidRequest(username));
+        await MarkUnverifiedAsync(username);
+
+        var result = await RequestTokenAsync(PasswordGrant(username, Password), HttpStatusCode.Forbidden);
+
+        Assert.That(await result.ReadAsTextAsync(), Does.Contain("Email not verified"));
     }
 
     /// <summary>Regression test for a bug found while writing these tests: ConnectController used

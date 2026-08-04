@@ -6,6 +6,7 @@ using Echo.Realtime.Devices;
 using Messaging.Application.Dtos.Request;
 
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -31,6 +32,7 @@ public class VoiceController(
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
     DeviceIdResolver devices,
+    DirectMessagePolicyService dmPolicy,
     IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
     // Call.GetCacheId(callId) doubles as the lock key -LockedJsonCacheStore namespaces it
@@ -82,17 +84,12 @@ public class VoiceController(
         });
         if(response.Profile is null) return BadRequest();
         
-        // verify that the user is allowed to make this call
-
-
-        foreach (var participant in request.Participants)
-        {
-            if (!response.Profile.Relationships.Any(r => r.UserId == participant && r.Status == RelationshipStatus.Accepted))
-            {
-                return BadRequest("You are not allowed to make this call");
-            }
-
-        }
+        // T0-2, call-token path. Ringing somebody's phone is the loudest thing one account can do
+        // to another, so it is gated by the same rule as opening a conversation with them: their
+        // DirectMessagePolicy, with a block in either direction refusing first. This replaces a
+        // check against the *caller's* friend list, which a callee who blocked them had no say in.
+        var refusal = await dmPolicy.EvaluateAsync(userId, request.Participants.ToList());
+        if (refusal is not null) return DmRefusalResults.ToActionResult(refusal);
 
 
         var call = new Call()

@@ -1,4 +1,5 @@
-using Isle.Api.Endpoints;
+﻿using Isle.Api.Endpoints;
+using Isle.Api.Services.Privacy;
 using Isle.Api.Services.State;
 using Isle.Contracts.Commands;
 using Isle.Domain.Entity.Voice;
@@ -27,6 +28,7 @@ public class VoiceEndpointsTests
     private VoiceTrackRegistry _tracks = null!;
     private PlayerPresenceManager _presence = null!;
     private IMessageBus _bus = null!;
+    private PositionalVoiceConsent _consent = null!;
 
     [SetUp]
     public void SetUp()
@@ -36,6 +38,10 @@ public class VoiceEndpointsTests
         _tracks = new VoiceTrackRegistry();
         _presence = new PlayerPresenceManager(RedisTestFactory.Create(), NullLogger<PlayerPresenceManager>.Instance);
         _bus = Substitute.For<IMessageBus>();
+
+        // T2-19: Join now refuses anyone who has not consented to positional capture, so every
+        // pre-existing Join test needs a consenting account rather than the fail-closed default.
+        _consent = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice("user-1", true)]).Consent;
     }
 
     [TearDown]
@@ -47,7 +53,7 @@ public class VoiceEndpointsTests
     public async Task Join_NoUserId_ReturnsUnauthorized()
     {
         var result = await VoiceMembershipEndpoints.Join(
-            TestPrincipal.CreateAnonymous(), _context, _registry, CancellationToken.None);
+            TestPrincipal.CreateAnonymous(), _context, _registry, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
@@ -56,7 +62,7 @@ public class VoiceEndpointsTests
     public async Task Join_NoLinkedPlayer_ReturnsBadRequest()
     {
         var result = await VoiceMembershipEndpoints.Join(
-            TestPrincipal.Create("user-1"), _context, _registry, CancellationToken.None);
+            TestPrincipal.Create("user-1"), _context, _registry, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -70,7 +76,7 @@ public class VoiceEndpointsTests
         await _context.SaveChangesAsync();
 
         var result = await VoiceMembershipEndpoints.Join(
-            TestPrincipal.Create("user-1"), _context, _registry, CancellationToken.None);
+            TestPrincipal.Create("user-1"), _context, _registry, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -84,11 +90,73 @@ public class VoiceEndpointsTests
         await _context.SaveChangesAsync();
 
         var result = await VoiceMembershipEndpoints.Join(
-            TestPrincipal.Create("user-1"), _context, _registry, CancellationToken.None);
+            TestPrincipal.Create("user-1"), _context, _registry, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(_registry.TryGetPlayerId("steam-1", out var playerId), Is.True);
         Assert.That(playerId, Is.EqualTo("user-1"));
+    }
+
+    // ── Join and positional voice consent (T2-19) ─────────────────────────
+
+    [Test]
+    public async Task Join_ConsentWithheld_RefusesAndRegistersNothing()
+    {
+        // The registry entry is the entire trigger for positional capture: without it
+        // StatsStreamIngestionService ignores the player's position snapshots, so there is no
+        // cluster membership, no audibility and nothing for a peer to pull.
+        var player = TestData.Player("steam-1");
+        player.UserId = "user-1";
+        _context.Players.Add(player);
+        await _context.SaveChangesAsync();
+        var consent = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice("user-1", false)]).Consent;
+
+        var result = await VoiceMembershipEndpoints.Join(
+            TestPrincipal.Create("user-1"), _context, _registry, consent, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<JsonHttpResult<VoiceRefusalDto>>());
+            Assert.That(((JsonHttpResult<VoiceRefusalDto>)result).StatusCode,
+                Is.EqualTo(StatusCodes.Status403Forbidden));
+            Assert.That(((JsonHttpResult<VoiceRefusalDto>)result).Value!.Code,
+                Is.EqualTo(VoiceMembershipEndpoints.PositionalVoiceRefusalCode));
+            Assert.That(_registry.TryGetPlayerId("steam-1", out _), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Join_ConsentCannotBeResolved_RefusesRatherThanRegistering()
+    {
+        // Fail closed. A stored consent flag that stops applying the moment Identity hiccups is not
+        // a consent control.
+        var player = TestData.Player("steam-1");
+        player.UserId = "user-1";
+        _context.Players.Add(player);
+        await _context.SaveChangesAsync();
+        var consent = PrivacyTestFactory.Build(lookupFails: true).Consent;
+
+        var result = await VoiceMembershipEndpoints.Join(
+            TestPrincipal.Create("user-1"), _context, _registry, consent, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<JsonHttpResult<VoiceRefusalDto>>());
+            Assert.That(_registry.TryGetPlayerId("steam-1", out _), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Join_UnlinkedPlayer_IsRefusedBeforeConsentIsEvenConsulted()
+    {
+        // Ordering edge: the linkage failure is the more specific answer, and consulting Identity
+        // for someone who cannot join anyway is a round trip for nothing.
+        var consent = PrivacyTestFactory.Build(lookupFails: true).Consent;
+
+        var result = await VoiceMembershipEndpoints.Join(
+            TestPrincipal.Create("user-1"), _context, _registry, consent, CancellationToken.None);
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
     // ── Leave ─────────────────────────────────────────────────────────────

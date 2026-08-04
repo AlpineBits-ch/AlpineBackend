@@ -134,10 +134,19 @@ public class DiscordInteractionEndpoint
         });
     }
 
+    /// <summary>
+    /// UPDATE_MESSAGE is a patch of the message the component lives on, so only the fields the bot
+    /// actually sent are written - a response carrying just `components` (by far the most common
+    /// one: disable the buttons now that the flow is done) must not blank the text and embeds that
+    /// are already on the message.
+    /// </summary>
     private static async Task UpdateOriginalMessageAsync(PendingInteraction pending, InteractionResponseDataPayload? data, IMessageBus bus)
     {
-        var embeds = data?.Embeds ?? [];
-        var content = !string.IsNullOrEmpty(data?.Content) ? data.Content : EmbedFlattener.Flatten(null, embeds);
+        // Content is only rewritten when the bot said something about it. Deliberately not
+        // re-flattened from the new embeds when it is absent: that would overwrite whatever text
+        // the bot originally posted, which is the same class of silent loss this method is fixing.
+        byte[]? content = null;
+        if (data?.HasContent == true) content = Encoding.UTF8.GetBytes(data.Content ?? "");
 
         await bus.InvokeAsync<UpdateMessageResponse>(new UpdateMessageCommand
         {
@@ -145,8 +154,8 @@ public class DiscordInteractionEndpoint
             // The bot owns the message it is updating; the human who clicked is not its author.
             RequestingAuthorId = pending.BotUserId,
             AllowBotAuthorEdit = true,
-            Content = Encoding.UTF8.GetBytes(content),
-            EmbedsJson = embeds.Count > 0 ? JsonSerializer.Serialize(embeds) : null,
+            Content = content,
+            EmbedsJson = data?.HasEmbeds == true ? JsonSerializer.Serialize(data.Embeds) : null,
             // Always written on an update, including as an empty array - "disable the buttons now
             // that this flow is done" is the single most common thing an UPDATE_MESSAGE does.
             ComponentsJson = JsonSerializer.Serialize(data?.Components ?? []),

@@ -241,6 +241,47 @@ namespace Messaging.Persistence.Migrations
                     b.ToTable("member_devices", (string)null);
                 });
 
+            modelBuilder.Entity("Messaging.Domain.Entities.DmRetentionCursor", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("LagWarningIssued")
+                        .HasColumnType("boolean")
+                        .HasColumnName("lag_warning_issued");
+
+                    b.Property<string>("LastUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("last_user_id");
+
+                    b.Property<DateTimeOffset>("RotationStartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("rotation_started_at");
+
+                    b.Property<long>("RotationsCompleted")
+                        .HasColumnType("bigint")
+                        .HasColumnName("rotations_completed");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int>("UsersSeenThisRotation")
+                        .HasColumnType("integer")
+                        .HasColumnName("users_seen_this_rotation");
+
+                    b.HasKey("Id")
+                        .HasName("pk_dm_retention_cursors");
+
+                    b.ToTable("dm_retention_cursors", (string)null);
+                });
+
             modelBuilder.Entity("Messaging.Domain.Entities.Message", b =>
                 {
                     b.Property<string>("Id")

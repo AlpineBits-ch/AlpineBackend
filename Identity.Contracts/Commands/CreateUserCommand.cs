@@ -12,10 +12,25 @@ public class CreateUserCommand
     public DateOnly BirthDate { get; set; }
     public string Username { get; set; }
     public string Password { get; set; }
+
+    /// <summary>Address the registration came from, recorded on the Terms/Privacy consents this
+    /// command writes (T1-10). See <c>CreateUserWithEmailAndPasswordRequest.IpAddress</c>.</summary>
+    public string? IpAddress { get; set; }
 }
 
 public class CreateUserResponse
 {
     public string? UserId { get; set; }
+
+    /// <summary>
+    /// The address already belongs to an account, so nothing was created.
+    ///
+    /// <para>A flag rather than a <see cref="ValidationFailure"/> in <see cref="Errors"/> because the
+    /// caller must not turn this into a refusal the HTTP client can see - it is the branch that has
+    /// to be indistinguishable from success. The handler above this one reads it, sends the account
+    /// holder a notice, and answers exactly as it answers a new account.</para>
+    /// </summary>
+    public bool EmailAlreadyExists { get; set; }
+
     public ICollection<ValidationFailure> Errors { get; set; } = new List<ValidationFailure>();
 }

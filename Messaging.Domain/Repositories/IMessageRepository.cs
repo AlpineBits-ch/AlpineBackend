@@ -23,6 +23,28 @@ public interface IMessageRepository
     public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagePageByCursorAsync(
         MessagePageQuery query);
 
+    /// <summary>
+    /// One page of a context's messages older than <paramref name="olderThan"/>, oldest first,
+    /// starting strictly after the supplied cursor. Backs the user-set DM retention sweep (T2-22).
+    ///
+    /// <para><b>Every author, not just one.</b> The sweep only ever deletes the messages one
+    /// particular user sent, but filtering by author in the query is not available on the Scylla
+    /// side - <c>author_id</c> is not part of the messages primary key, so restricting on it would
+    /// need <c>ALLOW FILTERING</c> and a partition scan. Returning the page and letting the caller
+    /// pick its own rows out of it is what makes the sweep affordable; the cursor is what stops it
+    /// stalling forever behind a run of messages belonging to the other side of the conversation,
+    /// which a plain "oldest N" read would do the moment those N were not the sweeper's.</para>
+    ///
+    /// <para>A non-positive <paramref name="limit"/> returns nothing rather than being passed
+    /// through: Scylla treats <c>LIMIT 0</c> as an error, not as an empty result.</para>
+    /// </summary>
+    public Task<IReadOnlyList<Message>> GetContextMessagesOlderThanAsync(
+        string contextId,
+        DateTimeOffset olderThan,
+        DateTimeOffset afterCreatedAt,
+        string afterMessageId,
+        int limit);
+
     public Task<Message> UpdateMessageAsync(Message message);
 
     public Task DeleteMessageAsync(Message message);

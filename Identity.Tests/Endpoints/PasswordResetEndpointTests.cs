@@ -30,7 +30,7 @@ public class PasswordResetEndpointTests
                 Username = username,
                 BirthDate = DateTime.UtcNow.AddYears(-20),
             }).ToUrl("/api/v1/authentication/register");
-            x.StatusCodeShouldBe(HttpStatusCode.OK);
+            x.StatusCodeShouldBe(HttpStatusCode.Accepted);
         });
         return email;
     }
@@ -206,6 +206,84 @@ public class PasswordResetEndpointTests
             x.Post.Json(new ResetPasswordDto { Email = email, Code = code, NewPassword = "SecondNewPass456!" })
                 .ToUrl("/api/v1/user/reset-password");
             x.StatusCodeShouldBe(HttpStatusCode.BadRequest);
+        });
+    }
+
+    // ── Account enumeration ─────────────────────────────────────────────────────
+
+    private static Task<string> ProbeAsync(Action<Alba.Scenario> configure) =>
+        Host.Scenario(x =>
+        {
+            configure(x);
+            x.IgnoreStatusCode();
+        }).ContinueWith(t => Helpers.ResponseFingerprint.OfAsync(t.Result)).Unwrap();
+
+    [Test]
+    public async Task RequestPasswordReset_KnownAndUnknownEmailsAreByteIdentical()
+    {
+        var email = await RegisterAsync($"pwenum{Guid.NewGuid():N}"[..15]);
+
+        var known = await ProbeAsync(x =>
+            x.Get.Url($"/api/v1/user/request-password-reset?email={Uri.EscapeDataString(email)}"));
+        var unknown = await ProbeAsync(x =>
+            x.Get.Url($"/api/v1/user/request-password-reset?email={Uri.EscapeDataString($"nobody-{Guid.NewGuid():N}@example.com")}"));
+
+        Assert.That(unknown, Is.EqualTo(known));
+    }
+
+    /// <summary>
+    /// The request route always answered 202, but reset-password gave the game away on the way back:
+    /// an unknown address got "Invalid code" where a live account with nothing cached got "Invalid
+    /// or expired code" and one that had burned its attempts got "Too many incorrect attempts".
+    /// Three different strings, two of which differ precisely on whether the account exists - and
+    /// reachable by anyone, since the attacker chooses when a code is requested.
+    /// </summary>
+    [Test]
+    public async Task ResetPassword_EveryFailingCodeAnswersIdenticallyWhoeverTheAddressBelongsTo()
+    {
+        var liveEmail = await RegisterAsync($"pwenumlive{Guid.NewGuid():N}"[..15]);
+        await SeedResetCodeAsync(liveEmail, "correct1");
+
+        var noCodeEmail = await RegisterAsync($"pwenumnone{Guid.NewGuid():N}"[..15]);
+
+        var exhaustedEmail = await RegisterAsync($"pwenumex{Guid.NewGuid():N}"[..15]);
+        await SeedResetCodeAsync(exhaustedEmail, "correct1");
+        for (var attempt = 0; attempt < OneTimeCodeService.MaxAttempts; attempt++)
+        {
+            await ProbeAsync(x => x.Post
+                .Json(new ResetPasswordDto { Email = exhaustedEmail, Code = "wrongone", NewPassword = "SomeNewPass789!" })
+                .ToUrl("/api/v1/user/reset-password"));
+        }
+
+        var wrongCode = await ProbeAsync(x => x.Post
+            .Json(new ResetPasswordDto { Email = liveEmail, Code = "wrongone", NewPassword = "SomeNewPass789!" })
+            .ToUrl("/api/v1/user/reset-password"));
+
+        var unknownAddress = await ProbeAsync(x => x.Post
+            .Json(new ResetPasswordDto
+            {
+                Email = $"nobody-{Guid.NewGuid():N}@example.com",
+                Code = "wrongone",
+                NewPassword = "SomeNewPass789!",
+            }).ToUrl("/api/v1/user/reset-password"));
+
+        var noCode = await ProbeAsync(x => x.Post
+            .Json(new ResetPasswordDto { Email = noCodeEmail, Code = "wrongone", NewPassword = "SomeNewPass789!" })
+            .ToUrl("/api/v1/user/reset-password"));
+
+        var exhausted = await ProbeAsync(x => x.Post
+            .Json(new ResetPasswordDto { Email = exhaustedEmail, Code = "wrongone", NewPassword = "SomeNewPass789!" })
+            .ToUrl("/api/v1/user/reset-password"));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(unknownAddress, Is.EqualTo(wrongCode),
+                "an unregistered address must be refused exactly as a real account guessing wrong is.");
+            Assert.That(noCode, Is.EqualTo(wrongCode),
+                "\"no code outstanding\" must not be distinguishable from \"wrong code\".");
+            Assert.That(exhausted, Is.EqualTo(wrongCode),
+                "a burned-out attempt counter must not announce that a code ever existed.");
+            Assert.That(wrongCode, Does.Contain("status: 400"));
         });
     }
 

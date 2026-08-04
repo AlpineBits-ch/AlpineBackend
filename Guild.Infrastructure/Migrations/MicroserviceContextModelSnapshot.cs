@@ -1099,6 +1099,50 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("guild_channel_follows", (string)null);
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.GuildDirectMessagePreference", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllowDirectMessages")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_direct_messages");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_guild_direct_message_preferences");
+
+                    b.HasIndex("GuildId")
+                        .HasDatabaseName("ix_guild_direct_message_preferences_guild_id");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_guild_direct_message_preferences_user_id");
+
+                    b.HasIndex("UserId", "GuildId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_guild_direct_message_preferences_user_id_guild_id");
+
+                    b.ToTable("guild_direct_message_preferences", (string)null);
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.GuildEmoji", b =>
                 {
                     b.Property<string>("Id")
@@ -2733,6 +2777,18 @@ namespace Guild.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_guild_bans_guilds_guild_id");
+
+                    b.Navigation("Guild");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.GuildDirectMessagePreference", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_guild_direct_message_preferences_guilds_guild_id");
 
                     b.Navigation("Guild");
                 });

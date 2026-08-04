@@ -29,6 +29,11 @@ public class SocialMaterializationHandlers
         var localProfile = await db.Profiles.FirstOrDefaultAsync(p => p.UserId == message.TargetUserId, ct);
         if (localProfile is null) return;
 
+        // Also the block guard (privacy spec T0-3, "Federated inbound: drop at the inbox
+        // boundary"): a block is a Relationship row owned by the local user and targeting the
+        // remote shadow profile, so an inbound request from someone they blocked matches here and
+        // is dropped - and dropped silently, which is what keeps the block invisible across the
+        // federation boundary too.
         var alreadyExists = await db.Relationships.AnyAsync(
             r => r.OwnerId == localProfile.Id && r.TargetId == remoteProfile.Id, ct);
         if (alreadyExists) return;

@@ -1,6 +1,7 @@
 ﻿using System.Security.Claims;
 using FluentValidation.Results;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Dtos.Response;
 using Identity.Application.Services;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
@@ -60,6 +61,12 @@ public class AuthenticationController(
         var user = await FindUserByUsernameOrEmail(request.Email);
         if (user is null)
         {
+            // The response body already refused to distinguish "no such account" from "wrong
+            // password"; the clock did not. Returning here without hashing anything made the
+            // unknown-account reply arrive in a fraction of the time, which is the same oracle
+            // measured differently.
+            await passwords.CheckDummyAsync(request.Password);
+
             return Ok(new LoginWithEmailAndPasswordResponse()
             {
                 Failures = new List<ValidationFailure>
@@ -97,7 +104,22 @@ public class AuthenticationController(
             authenticationScheme: OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
     }
 
+    /// <summary>
+    /// Creates an account, or pretends to.
+    ///
+    /// <para><b>Breaking, deliberately.</b> This used to answer <c>200 {"userId": "..."}</c> for a
+    /// free address and <c>400 "Email already exists"</c> for a taken one. It now answers
+    /// <c>202 Accepted</c> with <see cref="RegistrationAcceptedDto"/> in both cases, and there is no
+    /// user id in the response at all - the client gets the account's id after it verifies the
+    /// address and signs in. See <c>docs/specs/registration-contract-change.md</c>.</para>
+    ///
+    /// <para>Still 400: a birth date under the age floor, a taken username, a malformed or missing
+    /// address, and an outright failure to create the account. None of those depend on whether the
+    /// address is registered, which is what makes them safe to keep.</para>
+    /// </summary>
     [HttpPost("register")]
+    [ProducesResponseType(typeof(RegistrationAcceptedDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(IEnumerable<ValidationFailure>), StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> Register(CreateUserRequest request)
     {
         var response = await bus.InvokeAsync<CreateUserWithEmailAndPasswordResponse>(
@@ -107,13 +129,21 @@ public class AuthenticationController(
                 Password = request.Password,
                 BirthDate = DateOnly.FromDateTime(request.BirthDate),
                 Username = request.Username,
+                // Captured here because this is the only place in the registration path that has an
+                // HTTP context. It ends up on the Terms/Privacy consent rows the create handler
+                // writes (T1-10) - a consent record without an origin is materially weaker evidence.
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
             }, timeout: TimeSpan.FromSeconds(15));
         if (response.Failures.Any())
         {
             return BadRequest(response.Failures);
         }
 
-        return Ok(response);
+        // StatusCode rather than Accepted(): the Accepted overloads can stamp a Location header, and
+        // a header that is present on one branch and absent on the other is exactly the kind of
+        // difference the body was cleaned up to remove. A single shared constant instance, so there
+        // is nothing per-request to vary.
+        return StatusCode(StatusCodes.Status202Accepted, RegistrationAcceptedDto.Instance);
     }
 }
     

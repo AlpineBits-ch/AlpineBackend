@@ -184,4 +184,58 @@ public class RelationshipRealtimeHandlersTests
 
         Assert.That(_hub.Sent, Is.Empty);
     }
+
+    // ── T0-3: no social.* traffic between a blocked pair ─────────────────────
+
+    private async Task SeedBlock(Profile blocker, Profile blocked)
+    {
+        _context.Relationships.Add(new Relationship
+        {
+            Id = Relationship.GenerateId(),
+            OwnerId = blocker.Id,
+            TargetId = blocked.Id,
+            Status = RelationshipStatus.Blocked,
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    [TestCase("social.FriendRequestCreated")]
+    [TestCase("social.FriendRequestAccepted")]
+    [TestCase("social.FriendRequestRejected")]
+    public async Task Push_BlockedPair_SuppressesEverythingButRemoval(string eventName)
+    {
+        await SeedPair(RelationshipStatus.PendingOutgoing, RelationshipStatus.PendingIncoming);
+        await SeedBlock(_target, _initiator);
+
+        await RelationshipRealtimeHandlers.PushBothSidesAsync(_context, _hub, "rlsp_out", eventName);
+
+        Assert.That(_hub.Sent, Is.Empty);
+    }
+
+    [Test]
+    public async Task Push_BlockedPair_StillDeliversFriendRemoved()
+    {
+        // The blocked party has to learn the friendship ended - that is exactly the "same as not
+        // friends" view they are entitled to, and suppressing it would strand their client on a
+        // friend they no longer have.
+        await SeedPair(RelationshipStatus.None, RelationshipStatus.None);
+        await SeedBlock(_initiator, _target);
+
+        await RelationshipRealtimeHandlers.PushBothSidesAsync(_context, _hub, "rlsp_out", "social.FriendRemoved");
+
+        Assert.That(_hub.Sent, Has.Count.EqualTo(2));
+    }
+
+    [Test]
+    public async Task Push_BlockInEitherDirection_Suppresses()
+    {
+        // Direction does not matter: once either side has blocked, neither gets the other's events.
+        await SeedPair(RelationshipStatus.PendingOutgoing, RelationshipStatus.PendingIncoming);
+        await SeedBlock(_initiator, _target);
+
+        await RelationshipRealtimeHandlers.PushBothSidesAsync(
+            _context, _hub, "rlsp_in", "social.FriendRequestCreated");
+
+        Assert.That(_hub.Sent, Is.Empty);
+    }
 }

@@ -18,6 +18,24 @@ namespace Echo.E2E.Tests.Hosts;
 /// API directly rather than through the gateway's proxy routes, since exercising YARP routing
 /// itself isn't this harness's concern - only running the gateway process so its non-proxy
 /// responsibilities (sagas, the realtime hub) are present.
+///
+/// <para><b>Bots and Isle are still not spawned here, and that is now a known gap rather than a
+/// design choice.</b> T1-9 of docs/specs/privacy.md added both to
+/// <c>AccountDeletionSaga.ParticipatingServices</c> and gave each a real
+/// <c>PurgeUserDataCommandHandler</c>, so a purge started in this harness now fans out to two
+/// services that are not running: every other participant still does its real Postgres write and
+/// every assertion in AccountDeletionFlowTests still holds, but the saga itself never reaches
+/// <c>MarkCompleted</c> and no <c>AccountDeletionCompletedEvent</c> is published.</para>
+///
+/// <para>They are not spawned because they cannot be, yet. <see cref="SpawnedServiceProcess"/> runs
+/// each service as a raw <c>dotnet &lt;dll&gt;</c> over local build output, which never runs the
+/// ahead-of-time <c>codegen write</c> step the published images do - so every service it starts
+/// depends on the dynamic-codegen fallback its <c>Program.cs</c> enables under
+/// <c>IsDevelopment()</c>. Guild, Messaging, Social, Federation, Import and Identity all have that
+/// fallback; Bots.Application and Isle.Application do not, and inherit
+/// <c>TypeLoadMode.Static</c> from the shared <c>ConfigureWolverine</c>. Adding the fallback to
+/// those two Program.cs files is the prerequisite, and is the first step of wiring them in
+/// here.</para>
 /// </summary>
 public sealed class EchoTestStack : IAsyncDisposable
 {

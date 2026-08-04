@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -37,9 +38,10 @@ public static class E2EUsers
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        await E2EAssert.SucceededAsync(register, identity, "Register failed");
-        var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
-        var userId = registerBody.GetProperty("userId").GetString()!;
+        // 202 with a fixed body, and no user id in it - registration answers a taken address exactly
+        // as it answers a free one, so there is nothing account-specific left to return. The id now
+        // comes off the token below, which is where a real client gets it too.
+        await E2EAssert.HasStatusAsync(register, HttpStatusCode.Accepted, identity, "Register failed");
 
         var tokenResponse = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
             new Dictionary<string, string>
@@ -52,10 +54,36 @@ public static class E2EUsers
         await E2EAssert.SucceededAsync(tokenResponse, identity, "Token request failed");
         var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<JsonElement>();
         var token = tokenBody.GetProperty("access_token").GetString()!;
+        var userId = UserIdFromAccessToken(token);
 
         await WaitForSocialProfileAsync(stack, userId, token);
 
         return (userId, token);
+    }
+
+    /// <summary>
+    /// Reads the account id out of an access token's <c>sub</c> claim.
+    ///
+    /// <para>Registration used to hand the id back in its response body. It no longer can - the
+    /// answer has to be identical for an address that already has an account, and an id is the one
+    /// thing that cannot be - so this is the post-change way to find out who you just became, and
+    /// it is what the real clients do (see docs/specs/registration-contract-change.md).</para>
+    ///
+    /// <para>Decoded by hand rather than with a JWT library: the token has just been issued by the
+    /// Identity process under test and is about to be sent straight back to it, so nothing here
+    /// needs to validate a signature - and adding a JWT package to this project to read one claim
+    /// would be the only reason it was there.</para>
+    /// </summary>
+    public static string UserIdFromAccessToken(string accessToken)
+    {
+        var segments = accessToken.Split('.');
+        Assert.That(segments, Has.Length.GreaterThanOrEqualTo(2), "access token is not a JWT");
+
+        var payload = segments[1].Replace('-', '+').Replace('_', '/');
+        payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+
+        using var document = JsonDocument.Parse(Convert.FromBase64String(payload));
+        return document.RootElement.GetProperty("sub").GetString()!;
     }
 
     /// <summary>

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Social.Api.Controllers;
 using Social.Api.Dtos.Request;
 using Social.Api.Dtos.Response;
+using Social.Api.Services;
 using Social.Contracts.Bus.Integration.Events;
 using Social.Domain.Aggregate;
 using Social.Domain.Enums;
@@ -18,6 +19,8 @@ public class ProfileControllerTests
     private string _dbName = null!;
     private TestSocialContext _context = null!;
     private FakeMessageBus _bus = null!;
+    private FakeDistributedCache _cache = null!;
+    private ProfileProjectionService _projection = null!;
 
     [SetUp]
     public void SetUp()
@@ -25,6 +28,15 @@ public class ProfileControllerTests
         _dbName = Guid.NewGuid().ToString();
         _context = new TestSocialContext(_dbName);
         _bus = new FakeMessageBus();
+        _cache = new FakeDistributedCache();
+        // Shipped defaults for the users these tests seed; the privacy-specific behaviour lives in
+        // ProfileControllerPrivacyTests, which registers its own settings.
+        _projection = new ProfileProjectionService(
+            _context,
+            PrivacyTestHelpers.CacheReturning(_cache, _bus,
+                PrivacyTestHelpers.Defaults("user-1"), PrivacyTestHelpers.Defaults("user-2")),
+            new NoSharedGuildResolver(),
+            new NoIdentityProfileFactsResolver());
     }
 
     [TearDown]
@@ -32,7 +44,7 @@ public class ProfileControllerTests
 
     private ProfileController MakeController(string? userId)
     {
-        var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus);
+        var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus, _projection);
         var principal = userId is null
             ? new ClaimsPrincipal(new ClaimsIdentity())
             : new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId)], "test"));

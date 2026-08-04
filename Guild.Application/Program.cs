@@ -148,8 +148,29 @@ builder.Services.AddScoped<ChoreRotationService>();
 builder.Services.AddScoped<LedgerService>();
 builder.Services.AddScoped<HomeStatusService>();
 builder.Services.AddScoped<NotificationResolutionService>();
+// Scoped, not singleton: both take IMessageBus, which Wolverine registers per scope. Both are
+// Redis-backed (IDistributedCache above) rather than in-process - a stale per-pod copy of a
+// privacy setting or a block is the one thing these caches must not produce. See their remarks.
+builder.Services.AddScoped<PrivacySettingsCache>();
+builder.Services.AddScoped<BlockCache>();
+builder.Services.AddScoped<GuildDirectMessagePreferenceService>();
 builder.Services.AddScoped<InboxService>();
 builder.Services.AddScoped<InboxMentionService>();
+
+// T0-4: telemetry consent. Sentry stays on - it is service-operational - but an event may only
+// carry an account identifier if that account set AllowDataCollection. Identity answers this from
+// its own table; Guild has no table, so the answer comes from the same fail-closed
+// PrivacySettingsCache registered above, resolved ahead of time on a background loop because
+// SentryPrivacy.HasDataCollectionConsent is called synchronously from inside the SDK's BeforeSend.
+// Anything unresolved - a cache miss, a bus failure, an id nobody has asked about yet - is a "no",
+// and pseudonymization is what happens on a "no".
+builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
+{
+    var cache = services.GetRequiredService<PrivacySettingsCache>();
+    var settings = await cache.GetAsync(userIds, ct);
+    return settings.ToDictionary(pair => pair.Key, pair => pair.Value.AllowDataCollection);
+});
+
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();

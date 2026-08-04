@@ -44,7 +44,9 @@ public class PasswordResetFlowTests
             await _stack.DisposeAsync();
     }
 
-    private static async Task<string> RegisterAsync(SpawnedServiceProcess identity, string username, string email, string password)
+    /// <summary>Registration answers 202 with a fixed body and no user id - see
+    /// docs/specs/registration-contract-change.md. Nothing here needed the id.</summary>
+    private static async Task RegisterAsync(SpawnedServiceProcess identity, string username, string email, string password)
     {
         var register = await identity.Client.PostAsJsonAsync("/api/v1/authentication/register", new
         {
@@ -53,9 +55,7 @@ public class PasswordResetFlowTests
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        await E2EAssert.SucceededAsync(register, identity, "Register failed");
-        var registerBody = await register.Content.ReadFromJsonAsync<JsonElement>();
-        return registerBody.GetProperty("userId").GetString()!;
+        await E2EAssert.HasStatusAsync(register, HttpStatusCode.Accepted, identity, "Register failed");
     }
 
     private static async Task<bool> TryLoginAsync(SpawnedServiceProcess identity, string username, string password)

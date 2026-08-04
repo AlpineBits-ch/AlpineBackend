@@ -39,4 +39,17 @@ public class ChannelPushRequested
     /// Without it the device cannot tell which group to decrypt against once a channel's
     /// encryption has been toggled off and on.</summary>
     public int? MlsGeneration { get; set; }
+
+    /// <summary>
+    /// Every recipient on this event has <c>HidePushContent</c> set (privacy spec T2-23), so the
+    /// push may carry routing ids only - no body, no author name, no channel name.
+    ///
+    /// <para>Guild splits one message's recipients into at most two events rather than putting a
+    /// per-user flag inside one, because the decision is made once per cohort and the payload
+    /// itself differs: on the hidden event <see cref="Content"/> is empty and
+    /// <see cref="AuthorId"/> is blank, so the privacy property holds even for a consumer that
+    /// ignores this flag entirely. What the flag adds is the ability to skip the profile lookup
+    /// and render a generic body ("New message") instead of an empty one.</para>
+    /// </summary>
+    public bool HideContent { get; set; }
 }

@@ -5,6 +5,7 @@ using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Endpoints;
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Aggregates;
@@ -65,6 +66,17 @@ public class MessagingEndpointsTests
     /// <summary>CreateMessage consults the context's MLS state to decide whether plaintext is
     /// acceptable. With no generation rows seeded, every context in this fixture reads as
     /// unencrypted, so these tests keep exercising the plaintext path exactly as before.</summary>
+    /// <summary>The T0-2 resolver over a test's own bus: everyone on the product default
+    /// (<c>Friends</c>), nobody blocked, friendship read off whatever profiles the test's responder
+    /// returns. Only consulted for a two-person DM - a group send is not re-evaluated, which is why
+    /// most of the fixture is unaffected by it.</summary>
+    private static DirectMessagePolicyService Policy(FakeMessageBus bus) =>
+        TestPrivacyServices.Build(bus).Policy;
+
+    /// <summary>T2-20's guard with the shipped no-op classifier, i.e. one that never refuses.</summary>
+    private static ExplicitContentGuard Content(FakeMessageBus bus) =>
+        TestPrivacyServices.Build(bus).Content;
+
     private MlsGroupService MakeMlsService(FakeMessageBus bus) =>
         new(_context, new FakeMessagingHubContext(), bus, new MlsJoinRequestService(_context),
             Helpers.TestMlsServices.Coverage(bus));
@@ -95,7 +107,7 @@ public class MessagingEndpointsTests
         var bus = new FakeMessageBus();
         var dto = new CreateMessageDto { Content = "hi", ConversationId = "conv-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.Anonymous(), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.Anonymous(), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -111,7 +123,7 @@ public class MessagingEndpointsTests
         var bus = new FakeMessageBus();
         var dto = new CreateMessageDto { Content = "hi" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -131,7 +143,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -152,7 +164,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "this has a badword in it", ChannelId = "chan-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -181,7 +193,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "@everyone lunch?", ChannelId = "chan-1", MentionsEveryone = true, MentionsHere = true };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
         Assert.Multiple(() =>
@@ -222,7 +234,7 @@ public class MessagingEndpointsTests
             RoleMentions = roleMentions.ToList(),
         };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         return bus.Invoked.OfType<CreateMessageCommand>().Single();
     }
@@ -248,7 +260,7 @@ public class MessagingEndpointsTests
             MentionsHere = true,
         };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
         Assert.Multiple(() =>
@@ -289,7 +301,7 @@ public class MessagingEndpointsTests
             RoleMentions = Enumerable.Range(0, over).Select(i => $"role-{i}").ToList(),
         };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
         Assert.Multiple(() =>
@@ -376,7 +388,7 @@ public class MessagingEndpointsTests
         var dto = new CreateMessageDto { Content = "oops", ChannelId = "chan-1" };
 
         var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(),
-            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -398,7 +410,7 @@ public class MessagingEndpointsTests
         };
 
         var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(),
-            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         // Nobody joining later could read it, and the sender clearly has a stale view of the room.
         Assert.That(result, Is.InstanceOf<Conflict<MlsSendConflictDto>>());
@@ -418,7 +430,7 @@ public class MessagingEndpointsTests
         };
 
         await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(),
-            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         // A client that predates generations sends none, and the only group it could have encrypted
         // against is the live one - so stamp it rather than refusing a correct message.
@@ -441,7 +453,7 @@ public class MessagingEndpointsTests
         };
 
         var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(),
-            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         // Sealed to a group that has since been replaced - nobody in the channel can read it.
         var conflict = (Conflict<MlsSendConflictDto>)result;
@@ -456,7 +468,7 @@ public class MessagingEndpointsTests
         var dto = new CreateMessageDto { Content = "ordinary", ChannelId = "chan-1" };
 
         var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(),
-            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -478,7 +490,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "@everyone deploy is out", ChannelId = "chan-1", MentionsEveryone = true, MentionsHere = true };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
         Assert.Multiple(() =>
@@ -501,7 +513,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "ordinary message", ChannelId = "chan-1" };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>()
                 .Any(r => r.Permission == ExternalPermission.MentionEveryone), Is.False,
@@ -529,7 +541,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "@everyone", ConversationId = conversationId, MentionsEveryone = true };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
         Assert.Multiple(() =>
@@ -555,8 +567,8 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-slow" };
 
-        var first = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
-        var second = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var first = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
+        var second = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -584,8 +596,8 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-slow" };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("mod-1"), _context, bus, _cache, MakeMlsService(bus));
-        var second = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("mod-1"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("mod-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
+        var second = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("mod-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.That(second, Is.InstanceOf<Created<MessageDto>>());
     }
@@ -606,8 +618,8 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "hi", ChannelId = "chan-slow" };
 
-        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache, MakeMlsService(bus));
-        var second = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache, MakeMlsService(bus));
+        await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
+        var second = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.That(second, Is.InstanceOf<Created<MessageDto>>());
     }
@@ -630,12 +642,12 @@ public class MessagingEndpointsTests
         // Blocked by auto-mod, so it must never have reached the slowmode gate...
         var blocked = await endpoint.CreateMessage(
             new CreateMessageDto { Content = "badword", ChannelId = "chan-slow" },
-            ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         // ...so the author's very next clean message is still their first real send.
         var clean = await endpoint.CreateMessage(
             new CreateMessageDto { Content = "sorry", ChannelId = "chan-slow" },
-            ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+            ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -657,7 +669,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "badword", ChannelId = "chan-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("bot-1", userType: "Bot"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -679,7 +691,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "hello world", ChannelId = "chan-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         var command = bus.Invoked.OfType<CreateMessageCommand>().Single();
         Assert.Multiple(() =>
@@ -697,7 +709,7 @@ public class MessagingEndpointsTests
         var bus = new FakeMessageBus();
         var dto = new CreateMessageDto { Content = "hi", ConversationId = "conv-missing" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -722,7 +734,7 @@ public class MessagingEndpointsTests
         var bus = new FakeMessageBus();
         var dto = new CreateMessageDto { Content = "hi", ConversationId = "conv-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {
@@ -751,7 +763,7 @@ public class MessagingEndpointsTests
         });
         var dto = new CreateMessageDto { Content = "hi", ConversationId = "conv-1" };
 
-        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus));
+        var result = await endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser("user-1"), _context, bus, _cache, MakeMlsService(bus), Policy(bus), Content(bus));
 
         Assert.Multiple(() =>
         {

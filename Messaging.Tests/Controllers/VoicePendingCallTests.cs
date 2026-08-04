@@ -52,6 +52,8 @@ public class VoicePendingCallTests
         _controller = new VoiceController(
             null!, bus, _cache, callStore,
             new DeviceIdResolver(bus, _cache, NullLogger<DeviceIdResolver>.Instance),
+            // GetPendingCall never consults the DM policy - only POST /call does.
+            TestPrivacyServices.Build(bus).Policy,
             new FakeMessagingHubContext())
         {
             ControllerContext = new ControllerContext

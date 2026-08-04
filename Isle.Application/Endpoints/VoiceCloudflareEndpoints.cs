@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Echo.Realtime.Sfu;
+using Isle.Api.Services.Privacy;
 using Isle.Api.Services.State;
 using Isle.Domain;
 using Isle.Domain.Aggregates;
@@ -34,6 +35,7 @@ public class VoiceCloudflareEndpoints
         [NotBody] CloudflareService cf,
         [NotBody] VoicePlayerRegistry registry,
         [NotBody] VoiceTrackRegistry tracks,
+        [NotBody] PositionalVoiceConsent consent,
         CancellationToken ct)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -43,6 +45,13 @@ public class VoiceCloudflareEndpoints
         // hand out a Cloudflare session, so position ingestion can cluster them.
         if (!registry.TryGetSteamId(userId, out _))
             return Results.BadRequest("Join voice before opening a Cloudflare session.");
+
+        // T2-19, re-checked rather than inferred from the registry entry. /voice/join is the primary
+        // gate, but a registration can outlive the consent that created it — the entry carries a 2h
+        // TTL and survives socket drops by design, so a revocation that lands between join and
+        // session creation would otherwise be honoured only on the next join.
+        if (!await consent.MayCaptureAsync(userId, ct))
+            return Results.Forbid();
 
         var cfSessionId = await cf.CreateSessionAsync(ct);
 
@@ -64,12 +73,21 @@ public class VoiceCloudflareEndpoints
         [NotBody] VoiceTrackRegistry tracks,
         [NotBody] VoiceCluster cluster,
         [NotBody] ISfuClient sfu,
+        [NotBody] PositionalVoiceConsent consent,
         CancellationToken ct)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
 
         if (!tracks.OwnsSession(userId, body.CfSessionId))
+            return Results.Forbid();
+
+        // T2-19, at the point capture actually begins. A local audio track is the microphone going
+        // up: it is recorded in VoiceTrackRegistry and pulled by every audible peer. Checked before
+        // anything reaches Cloudflare, and only for the publish direction — subscribing to peers is
+        // listening, which this consent does not govern.
+        if (body.Tracks.Any(t => t is { Location: "local", TrackName: "audio" })
+            && !await consent.MayCaptureAsync(userId, ct))
             return Results.Forbid();
 
         // Proximity is the entire access-control boundary of positional voice, and it was enforced

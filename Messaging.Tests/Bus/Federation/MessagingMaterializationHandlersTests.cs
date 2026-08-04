@@ -30,13 +30,15 @@ public class MessagingMaterializationHandlersTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
-    private async Task<Message> SeedMessage(string id, string channelId = "chan-1", string authorId = "author-1")
+    private async Task<Message> SeedMessage(string id, string channelId = "chan-1", string authorId = "author-1",
+        string? embedsJson = null)
     {
         var message = Message.Create(new CreateMessageParams
         {
             Content = "original"u8.ToArray(),
             ChannelId = channelId,
             AuthorId = authorId,
+            EmbedsJson = embedsJson,
         });
         message.Id = id;
         await _context.Messages.AddAsync(message);
@@ -123,6 +125,36 @@ public class MessagingMaterializationHandlersTests
             Assert.That(stored!.Content, Is.EqualTo("edited content"u8.ToArray()));
             Assert.That(_bus.Published, Has.Count.EqualTo(1));
             Assert.That(_bus.Published[0], Is.InstanceOf<MessageUpdated>());
+        });
+    }
+
+    /// <summary>A federated edit only ever carries text, and it does not touch the stored embeds -
+    /// so the update event it publishes has to read them off the row. Omitting them told every
+    /// client that an edited message had lost its card when nothing of the sort had happened.</summary>
+    [Test]
+    public async Task MessageEdited_PublishedEventCarriesTheStoredEmbeds()
+    {
+        await SeedMessage("fed-msg-1", embedsJson: """[{"title":"card"}]""");
+
+        var message = new FederatedMessageEditedReceived
+        {
+            EventId = "evt-3b",
+            OriginInstanceId = "instance-a",
+            SenderId = "author-1",
+            ChannelId = "chan-1",
+            MessageId = "fed-msg-1",
+            Content = "edited content"u8.ToArray(),
+        };
+
+        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await _context.SaveChangesAsync();
+
+        var published = (MessageUpdated)_bus.Published.Single();
+        var stored = await _repo.GetMessageAsync("fed-msg-1");
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.EmbedsJson, Is.EqualTo("""[{"title":"card"}]"""));
+            Assert.That(published.EmbedsJson, Is.EqualTo("""[{"title":"card"}]"""));
         });
     }
 

@@ -141,9 +141,14 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         {
             if (presenceMap.TryGetValue(member.Id, out var presence))
             {
-                if (Enum.TryParse<OnlineStatus>(presence.Status, out var status))
+                if (PresenceProjection.TryParse(presence.Status, out var status))
                 {
-                    member.Status = status;
+                    // Projected, not assigned raw. This line used to hand the stored status
+                    // straight to every viewer, which meant a member who had set themselves
+                    // invisible was rendered as Hidden to the whole member list - the one thing
+                    // that status exists to prevent. The caller still sees their own real status.
+                    member.Status = PresenceProjection.ProjectFor(
+                        status, viewerIsSubject: member.UserId == userId);
                 }
                 else
                 {

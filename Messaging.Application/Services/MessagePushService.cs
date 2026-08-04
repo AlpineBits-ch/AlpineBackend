@@ -36,6 +36,17 @@ public class MessagePushPayload
     /// pick the right group: encryption can be toggled off and on, and each stretch is a distinct
     /// group whose epochs restart at zero.</summary>
     public int? MlsGeneration { get; init; }
+
+    /// <summary>
+    /// T2-23. Recipients who have <c>HidePushContent</c> set: their copy of this push carries no
+    /// body, no author name, no avatar and no ciphertext - only the routing ids the client needs to
+    /// open the right conversation once the user unlocks the phone.
+    ///
+    /// <para>Per recipient rather than per message, because it is the reader's setting and one
+    /// message goes to several of them. Empty by default, so nothing changes for a caller that does
+    /// not populate it.</para>
+    /// </summary>
+    public IReadOnlySet<string> HideContentForUserIds { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -61,6 +72,15 @@ public static class MessagePushService
     /// send as the final body, so a device that cannot decrypt is no worse off than before.</summary>
     public const string EncryptedPlaceholder = "You have a new encrypted message";
 
+    /// <summary>T2-23's body for a recipient who hides push content. The same mechanism as the
+    /// encrypted placeholder - a fixed string in place of the message - but it does not claim the
+    /// message was encrypted, because for a plaintext DM that would simply be untrue.</summary>
+    public const string HiddenContentPlaceholder = "You have a new message";
+
+    /// <summary>The APNs alert title for a hidden push. The title is normally the sender's name,
+    /// which is exactly one of the three things T2-23 says must not be in the payload.</summary>
+    public const string HiddenContentTitle = "New message";
+
     /// <summary>
     /// FCM caps a message's data payload at 4KB. The ciphertext is the only unbounded field, so it
     /// is the one that gets dropped when the budget runs out - the rest of the payload still buys
@@ -80,10 +100,15 @@ public static class MessagePushService
         MessagePushPayload payload,
         ILogger? logger = null)
     {
-        var body = BuildBody(payload, out _);
-
         foreach (var (token, userId) in recipients)
         {
+            // Per recipient, not per message: the alert body and title depend on whether *this*
+            // reader hides push content, so they cannot be computed once outside the loop the way
+            // they used to be.
+            var hidden = payload.HideContentForUserIds.Contains(userId);
+            var body = hidden ? HiddenContentPlaceholder : BuildBody(payload, out _);
+            var title = hidden ? HiddenContentTitle : payload.SenderName;
+
             var data = BuildData(payload, userId);
             try
             {
@@ -109,7 +134,7 @@ public static class MessagePushService
                         },
                         Aps = new Aps
                         {
-                            Alert = new ApsAlert { Title = payload.SenderName, Body = body },
+                            Alert = new ApsAlert { Title = title, Body = body },
                             Sound = "default",
                             MutableContent = true,
                         },
@@ -153,6 +178,31 @@ public static class MessagePushService
         MessagePushPayload payload,
         string recipientUserId)
     {
+        // T2-23. A recipient who hides push content gets routing ids and nothing else: no body, no
+        // author name, no avatar, and no ciphertext either - shipping the ciphertext would let the
+        // notification extension reconstruct the body on the lock screen, which is the exact thing
+        // the setting exists to prevent. `hidden` is set so the client can tell this apart from a
+        // message that genuinely had no content.
+        if (payload.HideContentForUserIds.Contains(recipientUserId))
+        {
+            var hiddenData = new Dictionary<string, string>
+            {
+                ["type"] = "message",
+                ["messageId"] = payload.MessageId,
+                ["contextId"] = payload.ContextId,
+                ["recipientUserId"] = recipientUserId,
+                ["encrypted"] = payload.IsEncrypted ? "1" : "0",
+                ["hidden"] = "1",
+                ["body"] = HiddenContentPlaceholder,
+            };
+
+            if (!string.IsNullOrWhiteSpace(payload.ConversationId)) hiddenData["conversationId"] = payload.ConversationId!;
+            if (!string.IsNullOrWhiteSpace(payload.ChannelId)) hiddenData["channelId"] = payload.ChannelId!;
+            if (!string.IsNullOrWhiteSpace(payload.GuildId)) hiddenData["guildId"] = payload.GuildId!;
+
+            return hiddenData;
+        }
+
         var body = BuildBody(payload, out var ciphertext);
 
         var data = new Dictionary<string, string>

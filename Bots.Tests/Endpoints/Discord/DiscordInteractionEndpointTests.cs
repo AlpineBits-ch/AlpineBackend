@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Bots.Application.Endpoints.Discord;
 using Bots.Application.Gateway;
 using Bots.Contracts.Gateway.Payloads;
@@ -313,6 +314,54 @@ public class DiscordInteractionEndpointTests
                 "the clicking human is not the message author, so the ordinary author check cannot apply");
             Assert.That(update.ComponentsJson, Is.EqualTo("[]"),
                 "an empty array is how 'disable the buttons now the flow is done' is expressed");
+        });
+    }
+
+    /// <summary>
+    /// The commonest UPDATE_MESSAGE of all - "the flow is done, grey the buttons out" - mentions
+    /// neither content nor embeds. It used to arrive as content "" and embeds null, which blanked
+    /// the message it was only meant to disable the buttons on.
+    /// </summary>
+    [Test]
+    public async Task Callback_UpdateMessage_ComponentsOnly_LeavesContentAndEmbedsAlone()
+    {
+        await _pendingStore.SaveAsync("token-abc", new PendingInteraction(
+            "intr_1", "usr_bot1", "gld_1", "ch_1", "usr_invoker", "confirm", Acknowledged: false,
+            MessageId: "mesg_1", InteractionType: InteractionType.MessageComponent));
+
+        // Deserialized rather than constructed: "the bot did not send this key" is a property of
+        // the wire body, and an object initializer cannot express it.
+        var callback = JsonSerializer.Deserialize<InteractionCallbackPayload>(
+            """{"type":7,"data":{"components":[]}}""", JsonSerializerOptions.Web)!;
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var update = _bus.Invoked.OfType<UpdateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(update.Content, Is.Null, "no content key means the text stays as it is");
+            Assert.That(update.EmbedsJson, Is.Null, "no embeds key means the embeds stay as they are");
+            Assert.That(update.ComponentsJson, Is.EqualTo("[]"));
+        });
+    }
+
+    [Test]
+    public async Task Callback_UpdateMessage_WithEmbeds_ReplacesThem()
+    {
+        await _pendingStore.SaveAsync("token-abc", new PendingInteraction(
+            "intr_1", "usr_bot1", "gld_1", "ch_1", "usr_invoker", "confirm", Acknowledged: false,
+            MessageId: "mesg_1", InteractionType: InteractionType.MessageComponent));
+
+        var callback = JsonSerializer.Deserialize<InteractionCallbackPayload>(
+            """{"type":7,"data":{"embeds":[{"title":"Updated Card"}]}}""", JsonSerializerOptions.Web)!;
+
+        await _endpoint.CallbackAsync("intr_1", "token-abc", callback, _pendingStore, _bus, _hub);
+
+        var update = _bus.Invoked.OfType<UpdateMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(update.EmbedsJson, Does.Contain("Updated Card"));
+            Assert.That(update.Content, Is.Null, "an embeds-only update must not overwrite the bot's text");
         });
     }
 

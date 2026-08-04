@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Text.Json;
 using Domain;
 using Echo.Realtime.Devices;
@@ -6,6 +6,7 @@ using Facet.Extensions;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Messaging.Application.Dtos.Request;
@@ -116,7 +117,7 @@ public class ConversationEndpoints
     [WolverinePost("/api/v1/conversations/consume-tokens")]
     public async Task<IResult> FetchTokensForUsers(ConsumeMlsDeviceTokensForUserRequest request,
         [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
-        [NotBody] IDistributedCache cache)
+        [NotBody] IDistributedCache cache, [NotBody] DirectMessagePolicyService dmPolicy)
     {
         var ownUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(ownUserId is null) return Results.Unauthorized();
@@ -130,10 +131,13 @@ public class ConversationEndpoints
                 + "from every device they own.");
         }
 
-        if (!await IsBefriendedWithUsers(ownUserId, request.UserIds.ToList(), messageBus))
-        {
-            return Results.BadRequest("User is not friends with the users you are trying to consume tokens for");
-        }
+        // T0-2. Drawing a key package from somebody's devices is the first step of putting a
+        // conversation in front of them, so it is gated by exactly the rule that governs the
+        // conversation itself - the *recipient's* DM policy and the block list, not the caller's
+        // friend list. Refusing here also stops the draw being usable as an oracle for whether an
+        // account exists and has devices.
+        var refusal = await dmPolicy.EvaluateAsync(ownUserId, targets);
+        if (refusal is not null) return DmRefusalResults.ToResult(refusal);
 
         var replayKey = $"mls-consume:{ownUserId}:{string.Join(",", targets)}";
 
@@ -218,7 +222,8 @@ public class ConversationEndpoints
     public async Task<IResult> CreateConversation(CreateConversationDto createDto,
         [FromQuery] bool allowPartialDeviceCoverage,
         [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
-        [NotBody] MlsDeviceCoverageService coverage, [NotBody] HttpContext http )
+        [NotBody] MlsDeviceCoverageService coverage, [NotBody] HttpContext http,
+        [NotBody] DirectMessagePolicyService dmPolicy )
     {
 
 
@@ -246,18 +251,21 @@ public class ConversationEndpoints
             memberProfiles.Add(memberResponse.Profile);
         }
         
-        var befriendedUserIds = response.Profile.Relationships
-            .Where(r => r.Status == RelationshipStatus.Accepted)
-            .Select(r => r.UserId).Where(u => u != userId).ToList();
-        
-        // check if all user ids are friends 
-        
-        foreach (var createConversationMemberDto in createDto.Members)
-        {
-            // TODO: We have to check the users privacy bit settings here, but for now default to this
-            if (!befriendedUserIds.Contains(createConversationMemberDto.UserId))
-                return Results.BadRequest("User cannot be added to conversation if not friends");
-        }
+        // T0-2. Was: "is every invitee on *my* friend list?" - the initiator's setting, deciding a
+        // question that belongs to the person being contacted. Now each recipient's own
+        // DirectMessagePolicy decides, with a block in either direction refusing before policy is
+        // consulted at all. The profiles fetched above are handed in so the friendship branches do
+        // not re-fetch them.
+        //
+        // Refusal is 403 with a machine-readable code, not the 400 prose string this replaces -
+        // see DmRefusalResults for why that distinction is worth a breaking change.
+        var refusal = await dmPolicy.EvaluateAsync(
+            userId,
+            createDto.Members.Select(m => m.UserId).ToList(),
+            memberProfiles.DistinctBy(p => p.UserId, StringComparer.Ordinal)
+                .ToDictionary(p => p.UserId, p => p, StringComparer.Ordinal));
+
+        if (refusal is not null) return DmRefusalResults.ToResult(refusal);
 
 
         var selfMember = new CreateConversationMemberParams()
@@ -423,8 +431,11 @@ public class ConversationEndpoints
     /// <summary>
     /// Adds someone to a group conversation.
     ///
-    /// <para>Same friendship rule as creation: you may only pull in people you are actually friends
-    /// with, so a group cannot be used to put a stranger in front of someone.</para>
+    /// <para>Same T0-2 rule as creation, applied twice over: the person being pulled in has to
+    /// admit the caller under their own <c>DirectMessagePolicy</c>, <b>and</b> must not be on either
+    /// side of a block with anyone already in the room. The second half is what stops a group being
+    /// used to route around a block - adding somebody's blocked ex to the group they are in puts
+    /// exactly the person they blocked back in front of them.</para>
     ///
     /// <para>Refused on a two-person DM. Growing a 1:1 into a group silently changes what the other
     /// person thought they were in - that has to be an explicit new conversation, not a side effect
@@ -441,7 +452,9 @@ public class ConversationEndpoints
         AddConversationMemberDto dto,
         [NotBody] IMessageBus messageBus,
         [NotBody] ClaimsPrincipal user,
-        [NotBody] MicroserviceContext ctx)
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] DirectMessagePolicyService dmPolicy,
+        [NotBody] BlockCache blocks)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return (Results.Unauthorized(), null);
@@ -460,8 +473,23 @@ public class ConversationEndpoints
         if (conversation.Members.Any(m => m.UserId == dto.UserId))
             return (Results.Ok(conversation.ToFacet<Conversation, ConversationDto>()), null);
 
-        if (!await IsBefriendedWithUsers(userId, [dto.UserId], messageBus))
-            return (Results.BadRequest("User cannot be added to conversation if not friends"), null);
+        var refusal = await dmPolicy.EvaluateAsync(userId, [dto.UserId]);
+        if (refusal is not null) return (DmRefusalResults.ToResult(refusal), null);
+
+        // The candidate against everyone already in the room. Reported as a plain `blocked` without
+        // naming which member: the caller is entitled to know the add cannot happen, not to learn
+        // who in the group has blocked whom.
+        var existingMemberIds = conversation.Members
+            .Select(m => m.UserId)
+            .Where(u => !string.Equals(u, userId, StringComparison.Ordinal))
+            .ToList();
+
+        if (existingMemberIds.Count > 0)
+        {
+            var candidateBlocks = await blocks.BlockedEitherWayAsync(dto.UserId, existingMemberIds);
+            if (candidateBlocks.Count > 0)
+                return (DmRefusalResults.ToResult(new DmRefusal(DmRefusal.Blocked, dto.UserId)), null);
+        }
 
         var profileResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest
         {
@@ -543,47 +571,9 @@ public class ConversationEndpoints
     }
 
 
-    private async Task<bool> IsBefriendedWithUsers(string ownUserId, List<string> userIds, IMessageBus messageBus)
-    {
-        
-        var response = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
-        {
-            UserId = ownUserId
-        });
-        if (response.Profile is null) return false;
-
-        var memberProfiles = new List<ProfileDto>();
-
-        foreach (var userId in userIds)
-        {
-            var memberResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
-            {
-                UserId = userId
-            });
-            
-            if(memberResponse.Profile is null) return false;
-            
-            memberProfiles.Add(memberResponse.Profile);
-        }
-        
-        var befriendedUserIds = response.Profile.Relationships
-            .Where(r => r.Status == RelationshipStatus.Accepted)
-            .Select(r => r.UserId).Where(u => u != ownUserId).ToList();
-        
-        // check if all user ids are friends 
-        
-        foreach (var getTokenUserId in userIds)
-        {
-            if(getTokenUserId == ownUserId) continue;
-            // TODO: We have to check the users privacy bit settings here, but for now default to this
-            if (!befriendedUserIds.Contains(getTokenUserId))
-            {
-                return false;
-
-            }
-        }
-
-        return true;
-    }
-    
+    // IsBefriendedWithUsers is gone. It carried both of the `// TODO: We have to check the users
+    // privacy bit settings here` markers, and both of them were on a check that read the wrong
+    // party's data: it asked whether the *caller* had accepted the target as a friend, which a
+    // recipient who has since set "nobody may DM me" - or blocked the caller outright - has no say
+    // in whatsoever. DirectMessagePolicyService replaces it at all three call sites.
 }

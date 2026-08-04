@@ -314,4 +314,99 @@ public class RelationshipTests
 
         Assert.That(relationship.GetDomainEvents().OfType<FriendRemoved>().Count(), Is.EqualTo(1));
     }
+
+    // ── blocking (privacy spec T0-3) ─────────────────────────────────────────
+
+    private static Relationship Row(RelationshipStatus status, string? relatedId = "rlsp_other") => new()
+    {
+        Id = "rlsp_block", OwnerId = "profile-a", TargetId = "profile-b",
+        Status = status, RelatedId = relatedId,
+    };
+
+    [Test]
+    public void Block_SetsBlockedAndBreaksTheCrossLink()
+    {
+        var relationship = Row(RelationshipStatus.Friends);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Block(), Is.True);
+            Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.Blocked));
+            Assert.That(relationship.RelatedId, Is.Null, "a block row stands alone - there is no mirrored side");
+        });
+    }
+
+    [Test]
+    public void Block_IsIdempotent()
+    {
+        var relationship = Row(RelationshipStatus.Blocked, relatedId: null);
+
+        Assert.That(relationship.Block(), Is.False);
+    }
+
+    [Test]
+    public void Block_RaisesNoDomainEvent()
+    {
+        // The cross-service announcement is UserBlockedEvent, published by the endpoint - it needs
+        // the pair of user ids, which a domain event (carrying profile ids) does not have.
+        var relationship = Row(RelationshipStatus.Friends);
+
+        relationship.Block();
+
+        Assert.That(relationship.GetDomainEvents(), Is.Empty);
+    }
+
+    [Test]
+    public void Unblock_OnlyAppliesToABlockedRow()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(Row(RelationshipStatus.Blocked, relatedId: null).Unblock(), Is.True);
+            Assert.That(Row(RelationshipStatus.Friends).Unblock(), Is.False);
+            Assert.That(Row(RelationshipStatus.PendingIncoming).Unblock(), Is.False);
+        });
+    }
+
+    [Test]
+    public void Remove_RefusesToClearABlock()
+    {
+        // Negative, and load-bearing: the unfriend path must not be able to lift a block, or the
+        // block would vanish without a UserUnblockedEvent and every other service would go on
+        // enforcing one Social no longer has. It is also how the blocked party would find out.
+        var relationship = Row(RelationshipStatus.Blocked, relatedId: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Remove(), Is.False);
+            Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.Blocked));
+            Assert.That(relationship.GetDomainEvents(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public void Reject_RefusesToClearABlock()
+    {
+        // Same hazard as Remove: the blocker owns the block row, so without this the reject
+        // endpoint would take a block row id and silently clear the block.
+        var relationship = Row(RelationshipStatus.Blocked, relatedId: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Reject(), Is.False);
+            Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.Blocked));
+        });
+    }
+
+    [Test]
+    public void Accept_RefusesOnABlockedRow()
+    {
+        var relationship = Row(RelationshipStatus.Blocked, relatedId: null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(relationship.Accept(), Is.False);
+            Assert.That(relationship.AcceptCounterpart(), Is.False);
+            Assert.That(relationship.Status, Is.EqualTo(RelationshipStatus.Blocked));
+        });
+    }
 }

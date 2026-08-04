@@ -114,6 +114,9 @@
         "conversation_ReactionRemoved": {
           "$ref": "#/components/messages/conversation_ReactionRemoved"
         },
+        "conversation_ReadReceipt": {
+          "$ref": "#/components/messages/conversation_ReadReceipt"
+        },
         "conversation_UserTyping": {
           "$ref": "#/components/messages/conversation_UserTyping"
         },
@@ -812,6 +815,17 @@
       "messages": [
         {
           "$ref": "#/channels/hub/messages/conversation_ReactionRemoved"
+        }
+      ]
+    },
+    "receive_conversation_ReadReceipt": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/conversation_ReadReceipt"
         }
       ]
     },
@@ -2724,7 +2738,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\VoiceController.cs",
-            "line": 125,
+            "line": 122,
             "clrType": "Messaging.Domain.Entities.Call",
             "anonymous": false
           }
@@ -3205,7 +3219,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Messages\\MessageCreatedHandler.cs",
-            "line": 36,
+            "line": 38,
             "clrType": "Messaging.Domain.Events.Message.MessageCreated",
             "anonymous": false
           }
@@ -3756,6 +3770,34 @@
           }
         ]
       },
+      "conversation_ReadReceipt": {
+        "name": "conversation.ReadReceipt",
+        "title": "conversation.ReadReceipt",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string conversationId, string userId, string messageId\u003E",
+          "properties": {
+            "conversationId": {
+              "type": "string"
+            },
+            "messageId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Realtime\\UpdateConversationReadHandler.cs",
+            "line": 60,
+            "clrType": "\u003Canonymous type: string conversationId, string userId, string messageId\u003E",
+            "anonymous": true
+          }
+        ]
+      },
       "conversation_UserTyping": {
         "name": "conversation.UserTyping",
         "title": "conversation.UserTyping",
@@ -3775,7 +3817,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Realtime\\StartConversationTypingHandler.cs",
-            "line": 19,
+            "line": 54,
             "clrType": "\u003Canonymous type: string conversationId, string userId\u003E",
             "anonymous": true
           }
@@ -7641,7 +7683,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Messages\\MessageCreatedHandler.cs",
-            "line": 54,
+            "line": 55,
             "clrType": "Guild.Contracts.Bus.Events.MessageCreatedForChannel",
             "anonymous": false
           }
@@ -8042,13 +8084,19 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 89,
+            "line": 116,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 145,
+            "line": 122,
+            "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+            "anonymous": true
+          },
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
+            "line": 194,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
             "anonymous": true
           }
@@ -8355,7 +8403,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildTypingHandler.cs",
-            "line": 46,
+            "line": 76,
             "clrType": "\u003Canonymous type: string channelId, string userId\u003E",
             "anonymous": true
           }
@@ -8869,7 +8917,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 200,
+            "line": 249,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
             "anonymous": true
           },
@@ -9137,7 +9185,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Messages\\MessageCreatedHandler.cs",
-            "line": 245,
+            "line": 268,
             "clrType": "\u003Canonymous type: string MessageId, string ChannelId, string GuildId, string? ConversationId, string AuthorId, string Kind, System.DateTimeOffset CreatedAt\u003E",
             "anonymous": true
           }
@@ -9473,13 +9521,13 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Bus\\Federation\\SocialMaterializationHandlers.cs",
-            "line": 65,
+            "line": 70,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Integration\\Relationship\\Events\\RelationshipRealtimeHandlers.cs",
-            "line": 37,
+            "line": 38,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           }
@@ -9522,13 +9570,13 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Bus\\Federation\\SocialMaterializationHandlers.cs",
-            "line": 55,
+            "line": 60,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Integration\\Relationship\\Events\\RelationshipRealtimeHandlers.cs",
-            "line": 31,
+            "line": 32,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           }
@@ -9571,13 +9619,13 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Bus\\Federation\\SocialMaterializationHandlers.cs",
-            "line": 50,
+            "line": 55,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Integration\\Relationship\\Events\\RelationshipRealtimeHandlers.cs",
-            "line": 28,
+            "line": 29,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           }
@@ -9620,13 +9668,13 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Bus\\Federation\\SocialMaterializationHandlers.cs",
-            "line": 60,
+            "line": 65,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Integration\\Relationship\\Events\\RelationshipRealtimeHandlers.cs",
-            "line": 34,
+            "line": 35,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
             "anonymous": false
           }

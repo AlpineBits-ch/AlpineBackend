@@ -97,6 +97,8 @@ public class CreateMessageEventFanOutTests
         [
             dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser(userId), _context, bus, _cache,
             MakeMlsService(bus),
+            TestPrivacyServices.Build(bus).Policy,
+            TestPrivacyServices.Build(bus).Content,
         ])!;
 
         await task;

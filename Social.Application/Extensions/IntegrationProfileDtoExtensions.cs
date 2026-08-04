@@ -1,4 +1,4 @@
-﻿using Social.Contracts.Dtos;
+using Social.Contracts.Dtos;
 using Social.Domain.Aggregate;
 
 namespace Social.Api.Extensions;
@@ -12,7 +12,15 @@ public static class IntegrationProfileDtoExtensions
             Id = profileDto.Id,
             UserName = profileDto.UserName,
             Bio = profileDto.Bio,
-            Relationships = profileDto.Relationships.Select(r => r.ToIntegrationRelationship()).ToList(),
+            // Blocked rows are deliberately excluded (privacy spec T0-3). This projection is cached
+            // and handed to whichever service asked, and from there it can reach a client - so the
+            // subject's block list must not ride along on an ordinary profile lookup. The one
+            // sanctioned way to learn the block graph is GetBlockRelationshipsRequest, whose
+            // handler is a separate, deliberate call.
+            Relationships = profileDto.Relationships
+                .Where(r => r.Status != Domain.Enums.RelationshipStatus.Blocked)
+                .Select(r => r.ToIntegrationRelationship())
+                .ToList(),
             UserId = profileDto.UserId,
             AvatarUrl = $"https://api.venta.gg/api/v1/social/profiles/{profileDto.Id}/avatar",
             BannerUrl = $"https://api.venta.gg/api/v1/social/profiles/{profileDto.Id}/banner",
@@ -22,7 +30,30 @@ public static class IntegrationProfileDtoExtensions
 
         return profile;
     }
-    
+
+    /// <summary>
+    /// The minimal public projection a blocked reader gets over the bus (privacy spec T0-3),
+    /// mirroring <c>ProfileVisibility.Minimal</c> on the REST side: identity and media URLs, and
+    /// nothing the blocker chose to withhold - notably not the bio and not the friend list.
+    ///
+    /// <para>Returns a new instance rather than mutating: the caller's copy is very often the one
+    /// held in the shared <c>integration_profile:user_id:{...}</c> cache entry, and scrubbing that in
+    /// place would serve the blocked reader's view to everyone.</para>
+    /// </summary>
+    public static ProfileDto ToMinimalIntegrationProfile(this ProfileDto profile) => new()
+    {
+        Id = profile.Id,
+        UserId = profile.UserId,
+        UserName = profile.UserName,
+        AvatarUrl = profile.AvatarUrl,
+        BannerUrl = profile.BannerUrl,
+        Bio = null,
+        AccentColor = null,
+        Font = Domain.Enums.ProfileFont.Default.ToString(),
+        Hash = profile.Hash,
+        Relationships = [],
+    };
+
     public static RelationshipDto ToIntegrationRelationship(this Relationship relationshipDto)
     {
         return new RelationshipDto()

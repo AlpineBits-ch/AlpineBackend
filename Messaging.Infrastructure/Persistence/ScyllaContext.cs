@@ -50,12 +50,26 @@ public class ScyllaContext : IAsyncDisposable
         var replication = new Dictionary<string, string>
         {
             { "class", "NetworkTopologyStrategy" },
-            { "datacenter1", "1" } 
+            { "datacenter1", "1" }
         };
         session.CreateKeyspaceIfNotExists("messaging", replication);
         session.ChangeKeyspace("messaging");
 
+        return await CreateForSessionAsync(session);
+    }
 
+    /// <summary>
+    /// Migrations, UDT registration and mapping over a session the caller has already connected and
+    /// pointed at a keyspace.
+    ///
+    /// <para>Extracted from <see cref="CreateAsync()"/> so the live-node tests
+    /// (<c>ScyllaDmRetentionRangeDeleteTests</c>, gated on <c>ECHO_TEST_SCYLLA</c>) run against
+    /// <b>this</b> schema and <b>this</b> mapping rather than a hand-copied approximation of them.
+    /// A test that restates the column map is a test that keeps passing after the real one changes -
+    /// and the statements it is there to validate are ones that delete user messages.</para>
+    /// </summary>
+    public static async Task<ScyllaContext> CreateForSessionAsync(ISession session)
+    {
         await RunMigrationsAsync(session);
         await session.UserDefinedTypes.DefineAsync(
             UdtMap.For<MinimalAttachment>("minimal_attachment")
@@ -162,7 +176,10 @@ public class ScyllaContext : IAsyncDisposable
         return new ScyllaContext(session, mapper);
     }
 
-    private static async Task RunMigrationsAsync(ISession session)
+    /// <summary>Idempotent DDL for every table this service reads or writes. Public so a live-node
+    /// test can stand the real schema up in a throwaway keyspace - see
+    /// <see cref="CreateForSessionAsync"/>.</summary>
+    public static async Task RunMigrationsAsync(ISession session)
     {
         await session.ExecuteAsync(new SimpleStatement(
             "CREATE TYPE IF NOT EXISTS minimal_attachment (" +

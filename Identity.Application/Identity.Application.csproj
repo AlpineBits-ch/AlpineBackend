@@ -75,4 +75,18 @@
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
     </ItemGroup>
+
+    <!--
+      The versioned legal documents (T1-12) live in docs/legal at the repository root, beside the
+      spec they implement and where a reviewer expects to find text that needs legal review - not
+      buried in a service's source tree. They are copied next to the binary as "legal/" so the
+      running service can hash and serve them; LEGAL_DOCUMENTS_PATH overrides the location for a
+      deployment that mounts them from outside the image.
+    -->
+    <ItemGroup>
+        <None Include="..\docs\legal\**\*">
+            <Link>legal\%(RecursiveDir)%(Filename)%(Extension)</Link>
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
 </Project>

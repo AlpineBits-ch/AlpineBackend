@@ -43,6 +43,49 @@ public static class IdentityAuditActions
     /// about. If a session is ever found reading the wrong device's blob, this row is where it
     /// started.</summary>
     public const string SessionDeviceBound = "session.device-bound";
+
+    /// <summary>The account's privacy record was written. Audited because these are the controls a
+    /// user is told they own: "who turned my DMs back on, and when" has to be answerable, and a
+    /// stolen session quietly widening contactability leaves no other trace. The <c>Detail</c> names
+    /// the changed fields and never their values.</summary>
+    public const string PrivacySettingsChanged = "privacy-settings.changed";
+
+    /// <summary>The account accepted a version of a legal document (T1-10). The consent row is the
+    /// evidence; this row is what makes "when did they agree, and did anything else happen at the
+    /// same time" answerable against the same timeline as every other security event.</summary>
+    public const string ConsentRecorded = "consent.recorded";
+
+    /// <summary>A data-subject request was opened by staff (T1-13). The subject of a DSR is often
+    /// not the account this row hangs off - see <c>AdminDsrController</c> - so the <c>Detail</c>
+    /// names the request id and type, and the <c>UserId</c> is the <b>acting staff member</b>.
+    /// Attribution to a person is the entire reason a staff-facing queue needs an audit trail.</summary>
+    public const string DsrOpened = "dsr.opened";
+
+    /// <summary>A data-subject request was progressed - assigned, re-statused, annotated.</summary>
+    public const string DsrUpdated = "dsr.updated";
+
+    /// <summary>A data-subject request was closed with a disposition.</summary>
+    public const string DsrClosed = "dsr.closed";
+
+    /// <summary>The account asked for a copy of its own data (T1-7). Recorded at request time, not
+    /// only at download time, so the audit trail shows the whole shape of the event: a stolen session
+    /// that requests an export and then waits for it to assemble is visible from the moment it asks,
+    /// rather than only once the archive is already leaving.</summary>
+    public const string DataExportRequested = "data-export.requested";
+
+    /// <summary>An export archive was downloaded.
+    ///
+    /// <para>This is the precedent set by <see cref="BackupRead"/>, applied to the one artifact that
+    /// deserves it even more. An export is the single densest bundle of personal data in the system -
+    /// account, profile, memberships, conversations, every message the person sent - in one file, and
+    /// a session that downloads it leaves no other trace: nothing is written, nothing is deleted, and
+    /// the legitimate user has no way to notice. Exfiltration that cannot be prevented can at least be
+    /// made visible.</para>
+    ///
+    /// <para><c>Detail</c> names the export id, never the artifact key - the key is a bearer
+    /// credential for the archive, and copying it into an append-only table that is deliberately never
+    /// edited would leave it there long after the artifact's seven days.</para></summary>
+    public const string DataExportDownloaded = "data-export.downloaded";
 }
 
 public class CreateIdentityAuditEventParams

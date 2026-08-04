@@ -1,6 +1,7 @@
 ﻿using AppEnvironment;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
+using Domain;
 using Identity.Domain.Enums;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -12,6 +13,7 @@ namespace Identity.Infrastructure.Persistence;
 public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRole, string>
 {
     public DbSet<UserPreferences> UserPreferences { get; set; }
+    public DbSet<UserPrivacySettings> UserPrivacySettings { get; set; }
     public DbSet<UserPublicKey> UserPublicKeys { get; set; }
     public DbSet<UserKey> UserKeys { get; set; }
     public DbSet<UserKeyPackage> UserKeyPackages { get; set; }
@@ -23,7 +25,11 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<IdentityAuditEvent> IdentityAuditEvents { get; set; }
     public DbSet<LoginSession> LoginSessions { get; set; }
     public DbSet<RevokedDeviceCertificate> RevokedDeviceCertificates { get; set; }
-    
+    public DbSet<LegalDocument> LegalDocuments { get; set; }
+    public DbSet<UserConsent> UserConsents { get; set; }
+    public DbSet<DataSubjectRequest> DataSubjectRequests { get; set; }
+    public DbSet<DataExportRequest> DataExportRequests { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (optionsBuilder.IsConfigured) return;
@@ -36,6 +42,13 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
             options.MapEnum<Theme>();
             options.MapEnum<DirectMessageSettings>();
             options.MapEnum<PrivacySettings>();
+            // UserPrivacySettings' four policy columns. Postgres enum types rather than ints so a
+            // hand-written backfill or an ops query reads as words, and so adding a member is a
+            // migration rather than a silent renumbering.
+            options.MapEnum<DirectMessagePolicy>();
+            options.MapEnum<FriendRequestPolicy>();
+            options.MapEnum<Visibility>();
+            options.MapEnum<ExplicitContentFilter>();
             options.MapEnum<DeviceStatus>();
             options.MapEnum<DeviceType>();
             options.MapEnum<PushTokenKind>();
@@ -101,6 +114,22 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
             // inlining both keeps that a single-row update.
             userBuilder.OwnsOne(x => x.EncryptedMasterKey);
             userBuilder.OwnsOne(x => x.RecoveryCodeWrappedMasterKey);
+        });
+
+        // One row per account, in its own table, with the FK on the settings side - the mirror image
+        // of UserPreferences, which hangs off ApplicationUser.UserPreferencesId. Keyed this way round
+        // because every cross-service read is "settings for these user ids" and that has to be a
+        // single indexed lookup on user_privacy_settings, not a join back through asp_net_users.
+        modelBuilder.Entity<UserPrivacySettings>(privacy =>
+        {
+            privacy.HasOne<ApplicationUser>()
+                .WithOne(u => u.UserPrivacySettings)
+                .HasForeignKey<UserPrivacySettings>(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Unique is implied by the 1:1, but stated so the intent survives a future change to
+            // the relationship and so the backfill can rely on it.
+            privacy.HasIndex(p => p.UserId).IsUnique();
         });
 
         modelBuilder.Entity<UserPublicKey>(key =>
@@ -242,6 +271,88 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
                 .HasForeignKey(s => s.DeviceId)
                 .OnDelete(DeleteBehavior.SetNull);
             session.HasIndex(s => s.UserId);
+        });
+
+        // ── Legal documents, consent and the DSR queue (T1-10, T1-12, T1-13) ──
+        //
+        // These four enums are mapped as *strings*, not as Postgres enum types like the ones above.
+        // A Postgres enum type is a database-wide object: adding one means an AlterDatabase step that
+        // has to be repeated in every migration's annotation block and in every hand-built
+        // DbContextOptions (see Identity.Tests/Migrations/MigrationRollbackPostgresTests.NewContext,
+        // where a missing mapping presents as a migration that cannot create its own columns). A
+        // string column reads exactly as well in an ops query, keeps this change to "three new tables
+        // and two new columns", and cannot collide with a concurrently-authored migration that alters
+        // the same database-level enum set.
+        modelBuilder.Entity<LegalDocument>(document =>
+        {
+            document.Property(d => d.DocumentType).HasConversion<string>().HasMaxLength(32);
+            document.Property(d => d.Version).HasMaxLength(64);
+            document.Property(d => d.ContentHash).HasMaxLength(64);
+
+            // One row per published version. The seeder upserts on this key, so a redeploy converges
+            // instead of stacking a second row for the same document every restart.
+            document.HasIndex(d => new { d.DocumentType, d.Version }).IsUnique();
+
+            // "Which version is current" is the read on every registration and every self payload.
+            document.HasIndex(d => new { d.DocumentType, d.EffectiveAt });
+        });
+
+        modelBuilder.Entity<UserConsent>(consent =>
+        {
+            consent.Property(c => c.DocumentType).HasConversion<string>().HasMaxLength(32);
+            consent.Property(c => c.Version).HasMaxLength(64);
+
+            consent.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(c => c.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Accepting the same version twice converges on one row rather than stacking duplicates -
+            // a client that retries a POST whose response it never saw must not produce two records
+            // of one decision.
+            consent.HasIndex(c => new { c.UserId, c.DocumentType, c.Version }).IsUnique();
+        });
+
+        modelBuilder.Entity<DataSubjectRequest>(request =>
+        {
+            request.Property(r => r.Type).HasConversion<string>().HasMaxLength(32);
+            request.Property(r => r.Status).HasConversion<string>().HasMaxLength(32);
+            request.Property(r => r.Disposition).HasConversion<string>().HasMaxLength(32);
+            request.Property(r => r.SubjectEmail).HasMaxLength(320);
+
+            // Deliberately NOT an FK to asp_net_users. Most of the requests this queue exists for
+            // come from people with no account here - see DataSubjectRequest's remarks.
+            request.HasIndex(r => r.SubjectEmail);
+
+            // The queue view is "open work, soonest deadline first", and the overdue banner is the
+            // same query with a cutoff.
+            request.HasIndex(r => new { r.Status, r.DueAt });
+        });
+
+        // T1-7. Same string-mapped-enum call as the three above, and for the same reason.
+        modelBuilder.Entity<DataExportRequest>(export =>
+        {
+            export.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
+            export.Property(e => e.ArtifactKey).HasMaxLength(512);
+            export.Property(e => e.FailureReason).HasMaxLength(512);
+
+            // text[], the same shape UserDevice.Capabilities uses. A primitive collection rather than
+            // a joined string so "which services are missing" stays a list all the way to the DTO,
+            // and rather than jsonb because there is no document here - eight short names, never
+            // queried by element.
+            export.PrimitiveCollection(e => e.MissingServices);
+
+            export.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Both reads this table has: the subject's own list, newest first, and the rate-limit
+            // check, which is that same list bounded to the last 24 hours.
+            export.HasIndex(e => new { e.UserId, e.RequestedAt });
+
+            // The expiry sweep's read - "what is ready and past its window" - across all accounts.
+            export.HasIndex(e => new { e.Status, e.ExpiresAt });
         });
 
         modelBuilder.UseOpenIddict();

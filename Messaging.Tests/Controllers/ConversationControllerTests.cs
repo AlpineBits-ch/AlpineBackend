@@ -26,7 +26,7 @@ public class ConversationControllerTests
 
     private static ConversationController MakeController(TestMessagingContext ctx, ClaimsPrincipal user)
     {
-        var controller = new ConversationController(ctx);
+        var controller = new ConversationController(ctx, TestPrivacyServices.Build(new FakeMessageBus()).Privacy);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = user },

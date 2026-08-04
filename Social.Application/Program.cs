@@ -28,6 +28,37 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 });
 
 builder.Services.AddScoped<FileService>();
+
+// Privacy enforcement (docs/specs/privacy.md). PrivacySettingsCache is the Redis-backed,
+// fail-closed read side of Identity's privacy record; ProfileProjectionService is the single gate
+// every profile projection - REST and bus alike - passes through; BusSharedGuildResolver answers
+// co-membership from Guild and degrades to "no shared guilds" (never "allow") when Guild is
+// unreachable. Scoped, not singleton: it takes IMessageBus, which Wolverine resolves per scope so
+// the call joins the ambient message context rather than a detached root-scope bus.
+// UserDirectory is the single chokepoint for finding a user by something a human typed, so the
+// Discoverable* flags apply to any lookup added later; BusIdentityProfileFactsResolver answers the
+// two profile fields Identity owns (birthday, linked external accounts) and degrades to "nothing to
+// show" when Identity is unreachable.
+builder.Services.AddScoped<PrivacySettingsCache>();
+builder.Services.AddScoped<ProfileProjectionService>();
+builder.Services.AddScoped<ISharedGuildResolver, BusSharedGuildResolver>();
+builder.Services.AddScoped<IIdentityProfileFactsResolver, BusIdentityProfileFactsResolver>();
+builder.Services.AddScoped<UserDirectory>();
+
+// T0-4: telemetry consent. Sentry stays on - it is service-operational - but an event may only
+// carry an account identifier if that account set AllowDataCollection. Identity answers this from
+// its own table; Social has no table, so the answer comes from the same fail-closed
+// PrivacySettingsCache registered above, resolved ahead of time on a background loop because
+// SentryPrivacy.HasDataCollectionConsent is called synchronously from inside the SDK's BeforeSend.
+// Anything unresolved - a cache miss, a bus failure, an id nobody has asked about yet - is a "no",
+// and pseudonymization is what happens on a "no".
+builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
+{
+    var cache = services.GetRequiredService<PrivacySettingsCache>();
+    var settings = await cache.GetManyAsync(userIds, ct);
+    return settings.ToDictionary(pair => pair.Key, pair => pair.Value.AllowDataCollection);
+});
+
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>
 {

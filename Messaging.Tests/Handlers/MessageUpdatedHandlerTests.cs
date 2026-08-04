@@ -124,6 +124,38 @@ public class MessageUpdatedHandlerTests
         });
     }
 
+    /// <summary>The reported symptom was "the update notification drops the embed", so the payload
+    /// the conversation members actually receive is asserted here, not just the event that produced
+    /// it.</summary>
+    [Test]
+    public async Task Handle_ConversationMessage_BroadcastPayloadCarriesTheEmbeds()
+    {
+        _context.Members.AddRange(
+            MakeMember("m-1", "author-1", "conv-1"),
+            MakeMember("m-2", "other-user", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var handler = new MessageUpdatedHandler();
+        var evt = new MessageUpdated
+        {
+            MessageId = "msg-1",
+            ConversationId = "conv-1",
+            AuthorId = "author-1",
+            Content = "edited"u8.ToArray(),
+            EmbedsJson = "[{\"title\":\"card\"}]",
+        };
+
+        await handler.Handle(evt, _hub, _context, _bus);
+
+        var hubClients = (FakeHubClients)_hub.Clients;
+        var payload = (MessageUpdated)hubClients.SentMessages.Single().Args[0]!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"));
+            Assert.That(payload.Content, Is.EqualTo("edited"u8.ToArray()));
+        });
+    }
+
     [Test]
     public async Task Handle_NeitherConversationNorChannel_NoFanOut()
     {

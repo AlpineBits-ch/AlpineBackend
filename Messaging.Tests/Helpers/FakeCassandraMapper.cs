@@ -33,7 +33,19 @@ public class FakeCassandraMapper : IMapper
         Fetches.Add((cql, args));
 
         if (typeof(T) == typeof(Message))
-            return Task.FromResult(ConsumeOnce(Messages.Cast<T>()));
+        {
+            // The one WHERE clause this fake interprets rather than ignores. Every read that pages a
+            // mixed-order clustering key re-reads its boundary millisecond with an equality-bounded
+            // query and merges the result over what it already had (see
+            // ScyllaMessageRepository.ReadInstantAsync). A fake that answered that read with the
+            // whole partition would hand the repository rows the cluster would never have returned,
+            // and the merge would then duplicate every row in the seed - so the repository would
+            // fail here for a reason that exists only in the fake.
+            var instant = InstantFilter(cql, args);
+            var rows = instant is null ? Messages : Messages.Where(m => m.CreatedAt == instant.Value);
+
+            return Task.FromResult(ConsumeOnce(rows.Cast<T>()));
+        }
 
         if (typeof(T) == typeof(Reaction))
         {
@@ -64,6 +76,15 @@ public class FakeCassandraMapper : IMapper
         if (poco is Message message) Messages.Insert(0, message);
         return Task.CompletedTask;
     }
+
+    /// <summary>The bound value of a <c>created_at = ?</c> restriction, or null if the statement has
+    /// none. Positional rather than parsed: the repository always binds the partition key first and
+    /// the instant second, and a fake that tried to parse CQL properly would be a second, untested
+    /// implementation of the thing under test.</summary>
+    private static DateTimeOffset? InstantFilter(string cql, object[] args) =>
+        cql.Contains("created_at = ?", StringComparison.Ordinal) && args.Length > 1 && args[1] is DateTimeOffset at
+            ? at
+            : null;
 
     /// <summary>
     /// Wraps a sequence so that enumerating it drains it, the way the driver's RowSet behaves.

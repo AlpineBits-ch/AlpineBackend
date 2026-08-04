@@ -63,6 +63,14 @@ public class PurgeUserDataCommandHandler
             .ToListAsync();
         ctx.PublicKeys.RemoveRange(publicKeys);
 
+        // Not covered by the membership cascade: GuildDirectMessagePreference is keyed on
+        // (UserId, GuildId) precisely so it survives leaving a guild, which means the purge has to
+        // remove it explicitly or a deleted account leaves its contactability choices behind.
+        var directMessagePreferences = await ctx.GuildDirectMessagePreferences
+            .Where(p => p.UserId == command.UserId)
+            .ToListAsync();
+        ctx.GuildDirectMessagePreferences.RemoveRange(directMessagePreferences);
+
         return new PurgeUserDataCommandResponse
         {
             UserId = command.UserId,

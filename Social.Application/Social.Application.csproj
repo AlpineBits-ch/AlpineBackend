@@ -53,6 +53,10 @@
     <ItemGroup>
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
       <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
+      <!-- Shared-guild membership for FriendRequestPolicy.ServerMembers and the mutualServers
+           profile field. Contracts only - Guild.Contracts references nothing, so this adds no
+           coupling beyond the two message types. -->
+      <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
       <ProjectReference Include="..\Social.Contracts\Social.Contracts.csproj" />
       <ProjectReference Include="..\Social.Infrastructure\Social.Infrastructure.csproj" />
       <ProjectReference Include="..\Federation.Contracts\Federation.Contracts.csproj" />

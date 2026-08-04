@@ -47,7 +47,7 @@ public class RecoveryKeyRetrofitTests
                 Username = username,
                 BirthDate = DateTime.UtcNow.AddYears(-20),
             }).ToUrl("/api/v1/authentication/register");
-            x.StatusCodeShouldBe(HttpStatusCode.OK);
+            x.StatusCodeShouldBe(HttpStatusCode.Accepted);
         });
 
         var tokenResult = await Host.Scenario(x =>

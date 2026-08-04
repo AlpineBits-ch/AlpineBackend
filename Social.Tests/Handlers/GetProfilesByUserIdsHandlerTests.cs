@@ -71,4 +71,56 @@ public class GetProfilesByUserIdsHandlerTests
 
         Assert.That(response.Profiles, Is.Empty);
     }
+
+    // ── T0-3 ─────────────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task Handle_NarrowsOnlyTheBlockedSubjectsInTheBatch()
+    {
+        var viewer = Profile.Create(new CreateProfileParams { UserId = "user-viewer", Username = "viewer" });
+        var blocker = Profile.Create(new CreateProfileParams { UserId = "user-blocker", Username = "blocker" });
+        var innocent = Profile.Create(new CreateProfileParams { UserId = "user-innocent", Username = "innocent" });
+        blocker.Bio = "blocker bio";
+        innocent.Bio = "innocent bio";
+        _context.Profiles.AddRange(viewer, blocker, innocent);
+        await _context.SaveChangesAsync();
+
+        _context.Relationships.Add(new Relationship
+        {
+            Id = Relationship.GenerateId(),
+            OwnerId = blocker.Id,
+            TargetId = viewer.Id,
+            Status = Social.Domain.Enums.RelationshipStatus.Blocked,
+        });
+        await _context.SaveChangesAsync();
+
+        var response = await GetProfilesByUserIdsHandler.Handle(
+            new GetProfileByUserIdsRequest
+            {
+                UserIds = ["user-blocker", "user-innocent"],
+                ViewerUserId = "user-viewer",
+            },
+            NullLogger<GetProfileByUserIdHandler>.Instance, _context, _cache);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.Profiles.Single(p => p.UserId == "user-blocker").Bio, Is.Null);
+            Assert.That(response.Profiles.Single(p => p.UserId == "user-innocent").Bio, Is.EqualTo("innocent bio"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_NoViewer_LeavesEveryProfileUntouched()
+    {
+        var subject = Profile.Create(new CreateProfileParams { UserId = "user-a", Username = "a" });
+        subject.Bio = "bio";
+        _context.Profiles.Add(subject);
+        await _context.SaveChangesAsync();
+
+        var response = await GetProfilesByUserIdsHandler.Handle(
+            new GetProfileByUserIdsRequest { UserIds = ["user-a"] },
+            NullLogger<GetProfileByUserIdHandler>.Instance, _context, _cache);
+
+        Assert.That(response.Profiles.Single().Bio, Is.EqualTo("bio"));
+    }
 }

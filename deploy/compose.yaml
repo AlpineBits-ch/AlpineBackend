@@ -471,6 +471,20 @@ services:
       # gateway and the Caddyfile must agree on the name. Left empty the gateway derives
       # docs.<instance host> itself, which is what the installers configure Caddy for.
       DOCS_DOMAIN: "${DOCS_DOMAIN:-}"
+      # Reverse-proxy trust. Deliberately NOT in x-app-env: the whole point of the secret is
+      # that only the gateway knows it, and putting it in the shared block would hand it to all
+      # eight backend services - the exact outcome the gateway strips the header to prevent.
+      #
+      # The reverse proxy sends this value as the X-Echo-Proxy-Auth header alongside
+      # X-Forwarded-For; a match is what makes the forwarded chain believable, and therefore
+      # what gives each caller their own rate-limit bucket instead of one bucket for the whole
+      # internet. Both default to empty so a .env written before this existed still starts: the
+      # gateway then ignores forwarded headers, partitions on the peer address, and says so in a
+      # startup warning.
+      GATEWAY_PROXY_SECRET: "${GATEWAY_PROXY_SECRET:-}"
+      # Alternative mechanism, honoured in addition to the secret: addresses/CIDRs whose
+      # forwarded headers are believed. Only useful where proxy addresses are stable.
+      GATEWAY_TRUSTED_PROXIES: "${GATEWAY_TRUSTED_PROXIES:-}"
     ports:
       - "${GATEWAY_BIND:-127.0.0.1:8080}:8080"
     depends_on:

@@ -35,17 +35,34 @@ public class CrossServiceFlowTests
     {
         var email = $"xservice-{Guid.NewGuid()}@example.com";
 
+        const string username = "xserviceuser";
+        const string password = "SecurePass123!";
+
         var registerResponse = await _stack.Identity.Client.PostAsJsonAsync("/api/v1/authentication/register", new
         {
             Email = email,
-            Password = "SecurePass123!",
-            Username = "xserviceuser",
+            Password = password,
+            Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        await E2EAssert.SucceededAsync(registerResponse, _stack.Identity, "Register failed");
+        await E2EAssert.HasStatusAsync(
+            registerResponse, System.Net.HttpStatusCode.Accepted, _stack.Identity, "Register failed");
 
-        var body = await registerResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-        var userId = body.GetProperty("userId").GetString();
+        // Registration no longer returns the account id - it cannot, since the same response has to
+        // cover an address that already has an account
+        // (docs/specs/registration-contract-change.md).
+        var tokenResponse = await _stack.Identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
+            new Dictionary<string, string>
+            {
+                ["grant_type"] = "password",
+                ["username"] = username,
+                ["password"] = password,
+                ["client_id"] = "echo",
+            }));
+        await E2EAssert.SucceededAsync(tokenResponse, _stack.Identity, "Token request failed");
+
+        var tokenBody = await tokenResponse.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var userId = E2EUsers.UserIdFromAccessToken(tokenBody.GetProperty("access_token").GetString()!);
         Assert.That(userId, Is.Not.Null.And.Not.Empty);
 
         var socialConnectionString = new NpgsqlConnectionStringBuilder

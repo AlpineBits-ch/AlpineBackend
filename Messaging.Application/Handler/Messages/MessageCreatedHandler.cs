@@ -8,6 +8,7 @@ using Identity.Contracts.Bus.Response;
 using Identity.Contracts.Enums;
 
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
 using Messaging.Infrastructure.Persistence;
@@ -26,7 +27,8 @@ namespace Messaging.Application.Handler.Messages;
 [NonTransactional]
 public class MessageCreatedHandler
 {
-    public static async Task Handle(MessageCreated messageCreated, IHubContext<EchoRealtimeHub> hubContext, MicroserviceContext ctx, IMessageBus bus, ILogger<MessageCreatedHandler> logger)
+    public static async Task Handle(MessageCreated messageCreated, IHubContext<EchoRealtimeHub> hubContext, MicroserviceContext ctx, IMessageBus bus,
+        BlockCache blocks, PrivacySettingsCache privacySettings, ILogger<MessageCreatedHandler> logger)
     {
         if (!string.IsNullOrWhiteSpace(messageCreated.ConversationId))
         {
@@ -40,6 +42,14 @@ public class MessageCreatedHandler
             var now = DateTimeOffset.UtcNow;
             var pushUserIds = conversationMembers.Where(m => !m.IsMuted(now)).Select(m => m.UserId).ToList();
 
+            // T0-3's "blocker receives no notification from the blocked user".
+            if (pushUserIds.Count > 0)
+            {
+                var blocked = await blocks.BlockedEitherWayAsync(messageCreated.AuthorId, pushUserIds);
+                if (blocked.Count > 0)
+                    pushUserIds = pushUserIds.Where(id => !blocked.Contains(id)).ToList();
+            }
+
             if (pushUserIds.Count > 0)
             {
                 var response = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
@@ -52,8 +62,16 @@ public class MessageCreatedHandler
                     .Where(t => t.Kind == PushTokenKind.Fcm)
                     .Select(t => (t.Token, t.UserId));
 
+                // T2-23. Which of these readers wants routing ids only.
+                var settings = await privacySettings.GetAsync(pushUserIds);
+                var hideContentFor = settings.Values
+                    .Where(s => s.HidePushContent)
+                    .Select(s => s.UserId)
+                    .ToHashSet(StringComparer.Ordinal);
+
                 await MessagePushService.SendAsync(recipients, new MessagePushPayload
                 {
+                    HideContentForUserIds = hideContentFor,
                     MessageId = messageCreated.MessageId,
                     ContextId = messageCreated.ConversationId,
                     ConversationId = messageCreated.ConversationId,

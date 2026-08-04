@@ -27,7 +27,8 @@ public class UpdateMessageCommandTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
-    private async Task<Message> SeedMessage(string authorId = "author-1", string? channelId = null, string? conversationId = "conv-1")
+    private async Task<Message> SeedMessage(string authorId = "author-1", string? channelId = null,
+        string? conversationId = "conv-1", string? embedsJson = null, string? componentsJson = null)
     {
         var message = Message.Create(new CreateMessageParams
         {
@@ -35,7 +36,9 @@ public class UpdateMessageCommandTests
             ChannelId = channelId,
             ConversationId = conversationId,
             AuthorId = authorId,
+            EmbedsJson = embedsJson,
         });
+        message.ComponentsJson = componentsJson;
         await _context.Messages.AddAsync(message);
         await _context.SaveChangesAsync();
         _context.ChangeTracker.Clear();
@@ -130,6 +133,133 @@ public class UpdateMessageCommandTests
         {
             Assert.That(response.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"));
             Assert.That(evt!.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Patch semantics: null
+    // leaves the field alone, an empty array clears it
+
+    [Test]
+    public async Task Handle_ContentOnlyEdit_LeavesTheStoredEmbedIntact()
+    {
+        var message = await SeedMessage(authorId: "author-1", channelId: "chan-1", conversationId: null,
+            embedsJson: "[{\"title\":\"card\"}]");
+
+        var handler = new UpdateMessageCommandHandler();
+        var (response, evt) = await handler.Handle(new UpdateMessageCommand
+        {
+            MessageId = message.Id,
+            RequestingAuthorId = "author-1",
+            Content = "edited text"u8.ToArray(),
+            // No embeds: the caller is saying nothing about them.
+        }, _repo);
+        await _context.SaveChangesAsync();
+
+        var stored = await _context.Messages.FindAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"), "the embed must survive in storage");
+            Assert.That(stored.Content, Is.EqualTo("edited text"u8.ToArray()));
+            Assert.That(response.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"));
+            Assert.That(evt!.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"),
+                "and the update notification must carry it - this is the reported symptom");
+        });
+    }
+
+    [Test]
+    public async Task Handle_ExplicitEmptyEmbedsArray_ClearsTheEmbed()
+    {
+        var message = await SeedMessage(authorId: "author-1", embedsJson: "[{\"title\":\"card\"}]");
+
+        var handler = new UpdateMessageCommandHandler();
+        var (_, evt) = await handler.Handle(new UpdateMessageCommand
+        {
+            MessageId = message.Id,
+            RequestingAuthorId = "author-1",
+            Content = "no card any more"u8.ToArray(),
+            EmbedsJson = "[]",
+        }, _repo);
+        await _context.SaveChangesAsync();
+
+        var stored = await _context.Messages.FindAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.EmbedsJson, Is.EqualTo("[]"));
+            Assert.That(evt!.EmbedsJson, Is.EqualTo("[]"));
+        });
+    }
+
+    /// <summary>An embeds-only or components-only edit sends no content, which must not blank the
+    /// message - the same asymmetry, one field over.</summary>
+    [Test]
+    public async Task Handle_NullContent_LeavesTheStoredContentAlone()
+    {
+        var message = await SeedMessage(authorId: "author-1");
+
+        var handler = new UpdateMessageCommandHandler();
+        var (response, evt) = await handler.Handle(new UpdateMessageCommand
+        {
+            MessageId = message.Id,
+            RequestingAuthorId = "author-1",
+            Content = null,
+            EmbedsJson = "[{\"title\":\"card\"}]",
+        }, _repo);
+        await _context.SaveChangesAsync();
+
+        var stored = await _context.Messages.FindAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.Content, Is.EqualTo("original"u8.ToArray()));
+            Assert.That(stored.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"));
+            Assert.That(response.Content, Is.EqualTo("original"u8.ToArray()));
+            Assert.That(evt!.Content, Is.EqualTo("original"u8.ToArray()));
+        });
+    }
+
+    /// <summary>Components already had these semantics; pinned here so the two fields cannot drift
+    /// apart again.</summary>
+    [Test]
+    public async Task Handle_ContentOnlyEdit_LeavesTheStoredComponentsIntact()
+    {
+        var message = await SeedMessage(authorId: "author-1", componentsJson: "[{\"type\":1}]");
+
+        var handler = new UpdateMessageCommandHandler();
+        await handler.Handle(new UpdateMessageCommand
+        {
+            MessageId = message.Id,
+            RequestingAuthorId = "author-1",
+            Content = "edited"u8.ToArray(),
+        }, _repo);
+        await _context.SaveChangesAsync();
+
+        var stored = await _context.Messages.FindAsync(message.Id);
+        Assert.That(stored!.ComponentsJson, Is.EqualTo("[{\"type\":1}]"));
+    }
+
+    /// <summary>The negative case still holds with the patch semantics in place: a non-author edit
+    /// is refused before anything is written, embeds included.</summary>
+    [Test]
+    public async Task Handle_NonAuthorEdit_ChangesNothingAtAll()
+    {
+        var message = await SeedMessage(authorId: "author-1", embedsJson: "[{\"title\":\"card\"}]");
+
+        var handler = new UpdateMessageCommandHandler();
+        var (response, evt) = await handler.Handle(new UpdateMessageCommand
+        {
+            MessageId = message.Id,
+            RequestingAuthorId = "someone-else",
+            Content = "hijacked"u8.ToArray(),
+            EmbedsJson = "[]",
+        }, _repo);
+        await _context.SaveChangesAsync();
+
+        var stored = await _context.Messages.FindAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.Forbidden, Is.True);
+            Assert.That(evt, Is.Null);
+            Assert.That(stored!.Content, Is.EqualTo("original"u8.ToArray()));
+            Assert.That(stored.EmbedsJson, Is.EqualTo("[{\"title\":\"card\"}]"));
         });
     }
 }

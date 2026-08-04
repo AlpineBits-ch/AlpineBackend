@@ -2,6 +2,7 @@ using Guild.Contracts.Bus.Events;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Handler.Messages;
+using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
 using Messaging.Tests.Helpers;
@@ -57,6 +58,14 @@ public class MessageCreatedHandlerTests
         Attachments = [],
     };
 
+    /// <summary>Block and privacy caches over a test's bus: nobody blocked, everybody on the
+    /// product defaults (so <c>HidePushContent</c> is false and the payload is unchanged).</summary>
+    private static BlockCache Blocks(FakeMessageBus bus, params BlockRelationship[] blocks) =>
+        TestPrivacyServices.Build(bus, blocks: blocks).Blocks;
+
+    private static PrivacySettingsCache Privacy(FakeMessageBus bus, params UserPrivacySettingsSummary[] settings) =>
+        TestPrivacyServices.Build(bus, settings).Privacy;
+
     private static FakeMessageBus BusWithNoDeviceTokens() => new(msg => msg switch
     {
         GetProfileByUserIdRequest => new GetProfileByUserIdResponse { Profile = new ProfileDto { UserName = "author-1", Relationships = [] } },
@@ -78,7 +87,7 @@ public class MessageCreatedHandlerTests
 
         var bus = BusWithNoDeviceTokens();
 
-        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Has.Count.EqualTo(1));
@@ -96,7 +105,7 @@ public class MessageCreatedHandlerTests
 
         var bus = BusWithNoDeviceTokens();
 
-        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
 
         var tokenRequest = (GetPushTokensForUsersRequest)bus.Invoked.Single(m => m is GetPushTokensForUsersRequest);
         Assert.That(tokenRequest.UserIds, Is.EquivalentTo(new[] { "user-2", "user-3" }));
@@ -111,7 +120,7 @@ public class MessageCreatedHandlerTests
         var bus = BusWithNoDeviceTokens();
 
         Assert.DoesNotThrowAsync(() => MessageCreatedHandler.Handle(
-            MakeEvent(conversationId: "conv-1"), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance));
+            MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance));
     }
 
     // ══════════════════════════════════════════════════════════════════════════ Handle - channel
@@ -122,7 +131,7 @@ public class MessageCreatedHandlerTests
     {
         var bus = new FakeMessageBus();
 
-        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
 
         Assert.That(bus.Sent.Any(m => m is MessageCreatedForChannel evt && evt.ChannelId == "chan-1"), Is.True);
     }
@@ -132,7 +141,7 @@ public class MessageCreatedHandlerTests
     {
         var bus = new FakeMessageBus();
 
-        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Is.Empty);
@@ -149,7 +158,7 @@ public class MessageCreatedHandlerTests
         var evt = MakeEvent(channelId: "chan-1");
         evt.CreatedAt = new DateTimeOffset(2026, 3, 4, 5, 6, 7, 890, TimeSpan.Zero);
 
-        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
 
         var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
         Assert.That(forwarded.CreatedAt, Is.EqualTo(evt.CreatedAt));
@@ -162,7 +171,7 @@ public class MessageCreatedHandlerTests
         var evt = MakeEvent(channelId: "chan-1");
         evt.Type = DomainMessageType.Invite;
 
-        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
 
         var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
         Assert.That(forwarded.Type, Is.EqualTo(Guild.Contracts.Bus.Events.MessageType.Invite));
@@ -174,7 +183,7 @@ public class MessageCreatedHandlerTests
         var bus = new FakeMessageBus();
 
         Assert.DoesNotThrowAsync(() => MessageCreatedHandler.Handle(
-            MakeEvent(), _hub, _context, bus, NullLogger<MessageCreatedHandler>.Instance));
+            MakeEvent(), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance));
     }
 
     // ══════════════════════════════════════════════════════════════════════════ LoadAsync

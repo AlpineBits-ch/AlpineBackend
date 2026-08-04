@@ -9,6 +9,7 @@ using JasperFx;
 using JasperFx.RuntimeCompiler;
 using Messaging;
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Messaging.Infrastructure;
 using Messaging.Infrastructure.Persistence;
 using Messaging.Persistence;
@@ -92,6 +93,39 @@ builder.Services.AddScoped<MlsGroupService>();
 // certificate-enforcement phase is actually flippable and two instances cannot disagree about it.
 Domain.MlsPolicy.Bind(builder.Configuration);
 builder.Services.AddScoped<IceServerService>();
+
+// ── Privacy (docs/specs/privacy.md, T0-2/T0-3 and T2-18/20/22/23) ──────────────
+// Both caches are Redis-backed rather than in-memory on purpose: they are read on every DM send
+// and every push fan-out, and a stale per-pod copy means a user's "nobody may DM me" or their
+// block silently does not apply on whichever pod serves the next request.
+builder.Services.AddScoped<PrivacySettingsCache>();
+builder.Services.AddScoped<BlockCache>();
+builder.Services.AddScoped<DirectMessagePolicyService>();
+builder.Services.AddScoped<ExplicitContentGuard>();
+
+// T2-14's per-guild DM toggle, over Guild's GetGuildDirectMessagePreferenceRequest.
+builder.Services.AddScoped<ISharedGuildDirectMessageLookup, SharedGuildDirectMessageLookup>();
+
+// T2-20. The control exists and is honoured; classification itself is out of scope, so the default
+// classifies nothing. Swapping this one registration is the whole of wiring a real scanner in.
+builder.Services.AddSingleton<IMediaClassifier, NoOpMediaClassifier>();
+
+// T2-21. There is no clip feature, and this is not one: it is the enforcement point a clip feature
+// would have to pass, registered now so it cannot be shipped around later.
+builder.Services.AddSingleton<IVoiceRecordingSessionConsentStore, DeniedByDefaultSessionConsentStore>();
+builder.Services.AddScoped<IVoiceRecordingConsent, VoiceRecordingConsent>();
+
+// T2-22.
+builder.Services.AddSingleton(DmRetentionOptions.FromConfiguration(builder.Configuration));
+builder.Services.AddHostedService<DmRetentionSweepService>();
+
+// T0-4: telemetry consent.
+builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
+{
+    var cache = services.GetRequiredService<PrivacySettingsCache>();
+    var settings = await cache.GetAsync(userIds, ct);
+    return settings.ToDictionary(pair => pair.Key, pair => pair.Value.AllowDataCollection);
+});
 if (args.Contains("codegen") || args.Contains("describe"))
 {
     var debugScylla = ScyllaContext.CreateDebug();

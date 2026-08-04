@@ -39,6 +39,11 @@ public class MicroserviceContext : DbContext
 
         modelBuilder.Entity<Relationship>(relationshipBuilder =>
         {
+            // Blocking (privacy spec T0-3) turned the directed (owner, target) pair into a hot
+            // point lookup: every friend request, every profile read and every cross-service
+            // GetBlockRelationshipsRequest asks "is there a Blocked row from A to B".
+            relationshipBuilder.HasIndex(r => new { r.OwnerId, r.TargetId });
+
             relationshipBuilder.HasOne(r => r.Owner)
                 .WithMany(p => p.Relationships)
                 .HasForeignKey(r => r.OwnerId)

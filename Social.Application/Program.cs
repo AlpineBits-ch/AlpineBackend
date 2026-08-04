@@ -27,6 +27,22 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 });
 
 builder.Services.AddScoped<FileService>();
+
+// Privacy enforcement (docs/specs/privacy.md).
+builder.Services.AddScoped<PrivacySettingsCache>();
+builder.Services.AddScoped<ProfileProjectionService>();
+builder.Services.AddScoped<ISharedGuildResolver, BusSharedGuildResolver>();
+builder.Services.AddScoped<IIdentityProfileFactsResolver, BusIdentityProfileFactsResolver>();
+builder.Services.AddScoped<UserDirectory>();
+
+// T0-4: telemetry consent.
+builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
+{
+    var cache = services.GetRequiredService<PrivacySettingsCache>();
+    var settings = await cache.GetManyAsync(userIds, ct);
+    return settings.ToDictionary(pair => pair.Key, pair => pair.Value.AllowDataCollection);
+});
+
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>
 {

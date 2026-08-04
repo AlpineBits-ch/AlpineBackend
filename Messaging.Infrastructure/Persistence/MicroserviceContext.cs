@@ -26,6 +26,9 @@ public class MicroserviceContext : DbContext
     public DbSet<MessageSearchEntry> MessageSearchEntries { get; set; }
     public DbSet<UserMention> UserMentions { get; set; }
 
+    /// <summary>Single-row sweep position for T2-22's DM retention job.</summary>
+    public DbSet<DmRetentionCursor> DmRetentionCursors { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -82,6 +85,13 @@ public class MicroserviceContext : DbContext
             // every user at once.
             mentionBuilder.HasIndex(m => m.CreatedAt)
                 .HasDatabaseName("IX_user_mentions_created");
+        });
+
+        modelBuilder.Entity<DmRetentionCursor>(cursorBuilder =>
+        {
+            // Nothing but the inherited Id/CreatedAt/UpdatedAt plus the position columns; there is
+            // deliberately no index and no FK.
+            cursorBuilder.Property(c => c.LastUserId).IsRequired();
         });
 
         modelBuilder.Entity<MessageSearchEntry>(searchBuilder =>

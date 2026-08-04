@@ -7,6 +7,7 @@ using Isle.Api.Services;
 using Isle.Api.Services.Hosted;
 using Isle.Api.Services.Ingestion;
 using Isle.Api.Services.KingOfTheHill;
+using Isle.Api.Services.Privacy;
 using Isle.Api.Services.Quests;
 using Isle.Api.Services.Rcon;
 using Isle.Api.Services.Rewards;
@@ -147,6 +148,10 @@ public static class IsleApplicationServiceCollectionExtensions
         // attenuation radius. Proximity voice range is 80 m, so 8000 UE units (cm).
         services.AddSingleton(new VoiceGridConfig { CellSize = 8000f });
         services.AddSingleton<VoiceCluster>();
+
+        // T2-19 (docs/specs/privacy.md).
+        services.AddScoped<PrivacySettingsCache>();
+        services.AddScoped<PositionalVoiceConsent>();
 
         return services;
     }

@@ -50,6 +50,18 @@ public static class Env
 
     public static readonly AccountDeletionConfiguration AccountDeletion = new();
 
+    public static readonly RetentionConfiguration Retention = new();
+
+    public static readonly PrivacyConfiguration Privacy = new();
+
+    public static readonly LegalDocumentConfiguration Legal = new();
+
+    public static readonly DataExportConfiguration DataExport = new();
+
+    public static readonly SagaDeadlineConfiguration SagaDeadlines = new();
+
+    public static readonly TelemetryConsentConfiguration TelemetryConsent = new();
+
 }
 
 public class RabbitMQConfig
@@ -282,6 +294,142 @@ public class AccountDeletionConfiguration
 
     public TimeSpan SweepInterval { get; set; } =
         TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS") ?? (5 * 60).ToString()));
+}
+
+/// <summary>
+/// Data-retention TTLs (T1-8 of docs/specs/privacy.md), swept by Identity's
+/// <c>RetentionSweepService</c>.
+/// </summary>
+public class RetentionConfiguration
+{
+    /// <summary>How long a login's IP address and user agent are kept before being scrubbed. The
+    /// row survives - a user's session list is how they notice a session they did not start, and
+    /// deleting it would remove the thing they are meant to look at.</summary>
+    public TimeSpan LoginSessionIpAndUserAgent { get; set; } =
+        TimeSpan.FromDays(int.Parse(GetEnvironmentVariable("RETENTION_LOGIN_SESSION_IP_DAYS") ?? "90"));
+
+    /// <summary>How long an audit event's IP address is kept.</summary>
+    public TimeSpan AuditEventIpAddress { get; set; } =
+        TimeSpan.FromDays(int.Parse(GetEnvironmentVariable("RETENTION_AUDIT_EVENT_IP_DAYS") ?? "180"));
+
+    /// <summary>How long a revoked login session row is kept before deletion.</summary>
+    public TimeSpan RevokedLoginSession { get; set; } =
+        TimeSpan.FromDays(int.Parse(GetEnvironmentVariable("RETENTION_REVOKED_SESSION_DAYS") ?? "180"));
+
+    /// <summary>Gap between sweep passes.</summary>
+    public TimeSpan SweepInterval { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("RETENTION_SWEEP_INTERVAL_SECONDS") ?? (6 * 60 * 60).ToString()));
+
+    /// <summary>Rows touched per pass, per category.</summary>
+    public int SweepBatchSize { get; set; } =
+        int.Parse(GetEnvironmentVariable("RETENTION_SWEEP_BATCH_SIZE") ?? "5000");
+
+    /// <summary>
+    /// Whether Messaging's user-set DM retention sweep (T2-22) may delete from the Scylla message
+    /// store.
+    /// </summary>
+    public bool DmScyllaDeleteEnabled { get; set; } =
+        GetEnvironmentVariable("RETENTION_DM_SCYLLA_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+}
+
+/// <summary>Privacy-policy knobs that are not per-user settings - currently only the age at which
+/// the minor protections of T1-11 stop applying.</summary>
+public class PrivacyConfiguration
+{
+    /// <summary>The age at which an account stops being treated as a minor.</summary>
+    public int AgeOfMajority { get; set; } =
+        int.Parse(GetEnvironmentVariable("PRIVACY_AGE_OF_MAJORITY") ?? "18");
+
+    /// <summary>
+    /// Whether a purged account keeps the single non-identifying <c>WasVerifiedAdult</c> boolean
+    /// (T1-9).
+    /// </summary>
+    public bool RetainWasVerifiedAdult { get; set; } =
+        GetEnvironmentVariable("PRIVACY_RETAIN_WAS_VERIFIED_ADULT")?.Equals("false", StringComparison.OrdinalIgnoreCase) != true;
+
+    /// <summary>The statutory window for answering a data-subject request (T1-13).</summary>
+    public TimeSpan DataSubjectRequestResponseWindow { get; set; } =
+        TimeSpan.FromDays(int.Parse(GetEnvironmentVariable("PRIVACY_DSR_RESPONSE_WINDOW_DAYS") ?? "30"));
+}
+
+/// <summary>Where the versioned legal documents (T1-12) live and how their public URLs are
+/// built.</summary>
+public class LegalDocumentConfiguration
+{
+    /// <summary>Directory holding <c>manifest.json</c> and the document files.</summary>
+    public string DirectoryPath { get; set; } =
+        GetEnvironmentVariable("LEGAL_DOCUMENTS_PATH")
+        ?? Path.Combine(AppContext.BaseDirectory, "legal");
+
+    /// <summary>Public, browser-facing base URL the document routes hang off.</summary>
+    public string PublicBaseUrl { get; set; } =
+        GetEnvironmentVariable("LEGAL_DOCUMENTS_PUBLIC_BASE_URL")
+        ?? ((GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg") + "/api/v1/identity/legal/documents");
+}
+
+/// <summary>The GDPR Art.</summary>
+public class DataExportConfiguration
+{
+    /// <summary>How long an account must wait between export requests.</summary>
+    public TimeSpan RateLimitWindow { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("DATA_EXPORT_RATE_LIMIT_SECONDS") ?? (24 * 60 * 60).ToString()));
+
+    /// <summary>How long a finished archive stays downloadable before the sweep marks the row
+    /// <c>Expired</c> and deletes the object.</summary>
+    public TimeSpan ArtifactTtl { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("DATA_EXPORT_ARTIFACT_TTL_SECONDS") ?? (7 * 24 * 60 * 60).ToString()));
+
+    /// <summary>Lifetime of the signed URL the download route redirects to.</summary>
+    public TimeSpan DownloadUrlLifetime { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("DATA_EXPORT_DOWNLOAD_URL_SECONDS") ?? "300"));
+
+    /// <summary>Gap between expiry sweep passes.</summary>
+    public TimeSpan SweepInterval { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("DATA_EXPORT_SWEEP_INTERVAL_SECONDS") ?? (6 * 60 * 60).ToString()));
+
+    /// <summary>Rows an expiry sweep pass touches.</summary>
+    public int SweepBatchSize { get; set; } =
+        int.Parse(GetEnvironmentVariable("DATA_EXPORT_SWEEP_BATCH_SIZE") ?? "500");
+
+    /// <summary>Cap on the messages one export carries out of a single conversation.</summary>
+    public int MaxMessagesPerConversation { get; set; } =
+        int.Parse(GetEnvironmentVariable("DATA_EXPORT_MAX_MESSAGES_PER_CONVERSATION") ?? "5000");
+}
+
+/// <summary>
+/// How long Echo's two cross-service privacy sagas (<c>Echo.Sagas.AccountDeletionSaga</c> and
+/// <c>Echo.Sagas.ExportUserDataSaga</c>) wait for the last participant before declaring the fan-out
+/// stalled.
+/// </summary>
+public class SagaDeadlineConfiguration
+{
+    public TimeSpan AccountPurge { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("ACCOUNT_PURGE_SAGA_DEADLINE_SECONDS") ?? (60 * 60).ToString()));
+
+    public TimeSpan DataExport { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("DATA_EXPORT_SAGA_DEADLINE_SECONDS") ?? (60 * 60).ToString()));
+}
+
+/// <summary>
+/// Tuning for the per-service telemetry consent gate (T0-4) - the in-memory mirror that lets <see
+/// cref="SentryPrivacy.HasDataCollectionConsent"/>, a synchronous delegate called from inside the
+/// Sentry SDK, answer without a Redis round trip on the error path.
+/// </summary>
+public class TelemetryConsentConfiguration
+{
+    /// <summary>
+    /// How often the tracked ids are re-resolved through the service's privacy-settings cache.
+    /// </summary>
+    public TimeSpan RefreshInterval { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("TELEMETRY_CONSENT_REFRESH_SECONDS") ?? "15"));
+
+    /// <summary>How long a resolved answer is trusted without being re-confirmed.</summary>
+    public TimeSpan EntryLifetime { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("TELEMETRY_CONSENT_ENTRY_LIFETIME_SECONDS") ?? "45"));
+
+    /// <summary>Ceiling on how many accounts are tracked at once.</summary>
+    public int MaxTrackedUsers { get; set; } =
+        int.Parse(GetEnvironmentVariable("TELEMETRY_CONSENT_MAX_TRACKED_USERS") ?? "5000");
 }
 
 public class DiscordImportConfiguration

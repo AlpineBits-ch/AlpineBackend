@@ -2,6 +2,7 @@ using Echo.Realtime;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Social.Api.Dtos.Realtime;
+using Social.Api.Services;
 using Social.Contracts.Bus.Integration.Events;
 using Social.Infrastructure.Persistence;
 
@@ -22,6 +23,9 @@ public class RelationshipRealtimeHandlers
     public static Task Handle(FriendRemovedEvent removed, MicroserviceContext ctx, IHubContext<EchoRealtimeHub> hub)
         => PushBothSidesAsync(ctx, hub, removed.RelationshipId, "social.FriendRemoved");
 
+    /// <summary>The one <c>social.*</c> event a blocked pair may still exchange.</summary>
+    private const string FriendRemovedEventName = "social.FriendRemoved";
+
     /// <summary>
     /// Loads the mirrored pair the event's relationship id belongs to and pushes one
     /// recipient-oriented payload to each owner.
@@ -40,6 +44,11 @@ public class RelationshipRealtimeHandlers
         // The row can legitimately be gone by the time this runs (account deletion purges
         // relationships, and the bus hop is asynchronous) - nothing left to tell anyone about.
         if (relationship is null) return;
+
+        if (eventName != FriendRemovedEventName &&
+            relationship.Owner is not null && relationship.Target is not null &&
+            await ctx.AnyBlockBetweenAsync(relationship.OwnerId, relationship.TargetId))
+            return;
 
         await PushSideAsync(hub, relationship, eventName);
         if (relationship.Related is not null)

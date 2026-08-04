@@ -89,4 +89,56 @@ public class IntegrationProfileDtoExtensionsTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => ((DomainRelationshipStatus)999).ToIntegrationEnum());
     }
+
+    // ── T0-3: the block list does not ride along on an ordinary profile lookup ─
+
+    [Test]
+    public void ToIntegrationProfile_OmitsBlockedRelationships()
+    {
+        // This projection is cached and handed to whichever service asked, and from there it can
+        // reach a client.
+        var friend = MakeProfile("prfl_friend", "user-friend");
+        var blocked = MakeProfile("prfl_blocked", "user-blocked");
+
+        var profile = MakeProfile();
+        profile.Relationships.Add(new Relationship
+        {
+            Id = "rlsp_friend", OwnerId = profile.Id, TargetId = friend.Id, Target = friend,
+            Status = DomainRelationshipStatus.Friends,
+        });
+        profile.Relationships.Add(new Relationship
+        {
+            Id = "rlsp_blocked", OwnerId = profile.Id, TargetId = blocked.Id, Target = blocked,
+            Status = DomainRelationshipStatus.Blocked,
+        });
+
+        var dto = profile.ToIntegrationProfile();
+
+        Assert.That(dto.Relationships.Select(r => r.Id), Is.EquivalentTo(new[] { "rlsp_friend" }));
+    }
+
+    [Test]
+    public void ToMinimalIntegrationProfile_KeepsIdentityAndDropsEverythingElse()
+    {
+        var friend = MakeProfile("prfl_friend", "user-friend");
+        var profile = MakeProfile();
+        profile.Relationships.Add(new Relationship
+        {
+            Id = "rlsp_friend", OwnerId = profile.Id, TargetId = friend.Id, Target = friend,
+            Status = DomainRelationshipStatus.Friends,
+        });
+
+        var minimal = profile.ToIntegrationProfile().ToMinimalIntegrationProfile();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(minimal.Id, Is.EqualTo(profile.Id));
+            Assert.That(minimal.UserId, Is.EqualTo(profile.UserId));
+            Assert.That(minimal.UserName, Is.EqualTo("tester"));
+            Assert.That(minimal.AvatarUrl, Is.Not.Null.And.Not.Empty);
+            Assert.That(minimal.Bio, Is.Null);
+            Assert.That(minimal.AccentColor, Is.Null);
+            Assert.That(minimal.Relationships, Is.Empty);
+        });
+    }
 }

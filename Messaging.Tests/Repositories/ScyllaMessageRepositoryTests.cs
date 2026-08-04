@@ -41,6 +41,109 @@ public class ScyllaMessageRepositoryTests
         return newestFirst;
     }
 
+    // ══════════════════════════════════════════════════════════════════════════ T2-22's retention
+    // read ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task GetContextMessagesOlderThanAsync_MaterializesTheSinglePassResult()
+    {
+        // Same trap as every other read here: the driver's RowSet self-consumes, so a lazy
+        // projection handed straight back would delete nothing and report nothing.
+        SeedPartition("conv-1", 3);
+
+        var rows = await _repo.GetContextMessagesOlderThanAsync(
+            "conv-1", DateTimeOffset.UtcNow, DateTimeOffset.MinValue, string.Empty, 10);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows, Has.Count.EqualTo(3));
+            Assert.That(rows.Count, Is.EqualTo(3), "a second enumeration must still see the rows");
+        });
+    }
+
+    [Test]
+    public async Task GetContextMessagesOlderThanAsync_WithANonPositiveLimit_ReadsNothing()
+    {
+        // LIMIT 0 is a hard error in CQL, not an empty page, so the guard has to be in front of the
+        // query rather than relying on the cluster to shrug.
+        SeedPartition("conv-1", 3);
+
+        var rows = await _repo.GetContextMessagesOlderThanAsync(
+            "conv-1", DateTimeOffset.UtcNow, DateTimeOffset.MinValue, string.Empty, 0);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(rows, Is.Empty);
+            Assert.That(_mapper.Fetches, Is.Empty, "no statement may be sent at all");
+        });
+    }
+
+    [Test]
+    public async Task GetContextMessagesOlderThanAsync_UsesATimestampOnlySlice_NotARowTupleCursor()
+    {
+        // This assertion used to be the opposite, and it was wrong on a real node.
+        SeedPartition("conv-1", 1);
+
+        await _repo.GetContextMessagesOlderThanAsync(
+            "conv-1", DateTimeOffset.UtcNow, DateTimeOffset.MinValue, string.Empty, 10);
+
+        var cql = _mapper.Fetches[0].Cql;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(cql, Does.Contain("created_at > ?"));
+            Assert.That(cql, Does.Contain("created_at < ?"));
+            Assert.That(cql, Does.Not.Contain("(created_at, message_id)"),
+                "a row-tuple cursor cannot be correct against a mixed-order clustering key");
+            Assert.That(cql, Does.Contain("ORDER BY created_at ASC"));
+        });
+    }
+
+    [Test]
+    public async Task GetContextMessagesOlderThanAsync_ReturnsRowsOldestFirst()
+    {
+        // The wire order under ORDER BY created_at ASC is (created_at ASC, message_id DESC) because
+        // the clustering key mixes directions; the contract - and the relational backend - is
+        // ascending on both, so the page is sorted before it is handed back.
+        var newestFirst = SeedPartition("conv-1", 3);
+
+        var rows = await _repo.GetContextMessagesOlderThanAsync(
+            "conv-1", DateTimeOffset.UtcNow, DateTimeOffset.MinValue, string.Empty, 10);
+
+        Assert.That(rows.Select(m => m.Id),
+            Is.EqualTo(newestFirst.AsEnumerable().Reverse().Select(m => m.Id)));
+    }
+
+    [Test]
+    public async Task GetContextMessagesOlderThanAsync_WhenThePageIsFull_ReReadsTheBoundaryInstant()
+    {
+        // A page that fills its limit may have been cut inside one millisecond, and half a
+        // same-millisecond group is what makes a timestamp-only resume lossy.
+        SeedPartition("conv-1", 2);
+
+        await _repo.GetContextMessagesOlderThanAsync(
+            "conv-1", DateTimeOffset.UtcNow, DateTimeOffset.MinValue, string.Empty, 2);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_mapper.Fetches, Has.Count.EqualTo(2));
+            Assert.That(_mapper.Fetches[1].Cql, Does.Contain("created_at = ?"));
+        });
+    }
+
+    [Test]
+    public async Task GetContextMessagesOlderThanAsync_WhenThePageIsShort_DoesNotReReadAnything()
+    {
+        // A short page exhausted the slice, so its last group is already whole and the extra round
+        // trip would buy nothing.
+        SeedPartition("conv-1", 2);
+
+        await _repo.GetContextMessagesOlderThanAsync(
+            "conv-1", DateTimeOffset.UtcNow, DateTimeOffset.MinValue, string.Empty, 50);
+
+        Assert.That(_mapper.Fetches, Has.Count.EqualTo(1));
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // The incident: a non-empty partition must not read back as an empty list
     // ══════════════════════════════════════════════════════════════════════════

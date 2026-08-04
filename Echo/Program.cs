@@ -1,4 +1,3 @@
-using System.Threading.RateLimiting;
 using AppEnvironment;
 using Echo.Docs;
 using Echo.Persistence;
@@ -66,36 +65,8 @@ builder.Services.AddDataProtection()
     .SetApplicationName("yarp-proxy-cluster") // Must be the same name across all YARP instances
     .PersistKeysToStackExchangeRedis(redisConnection, "DataProtection-Keys");
 
-builder.Services.AddRateLimiter(options =>
-{
-    options.AddPolicy("PerUserPolicy", context =>
-    {
-        // Webhook execution is authenticated by a token in the path, not by a signed-in user, so
-        // the usual identity partition doesn't exist for it.
-        if (TryGetWebhookId(context.Request.Path, out var webhookId))
-        {
-            return RateLimitPartition.GetFixedWindowLimiter($"webhook:{webhookId}", _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = 100,
-                Window = TimeSpan.FromMinutes(1),
-                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                QueueLimit = 0
-            });
-        }
-
-        var username = context.User.Identity?.Name ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
-
-        return RateLimitPartition.GetFixedWindowLimiter(username, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = 100,
-            Window = TimeSpan.FromMinutes(1),
-            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            QueueLimit = 0
-        });
-    });
-
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-});
+// Registers the PerUserPolicy that RateLimitConfigFilter stamps onto every proxied route.
+builder.Services.AddEchoRateLimiting();
 
 builder.Services.AddReverseProxy()
     .LoadFromMemory(ProxyConfig.GetRoutes(), ProxyConfig.GetClusters())
@@ -171,6 +142,24 @@ var app = builder.Build();
 app.UseCors("AlpinePolicy");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Placed here on purpose, and the placement is the whole feature:
+//
+//   * after routing - WebApplication injects UseRouting ahead of every middleware registered here,
+//     so the selected endpoint (and with it the RateLimiterPolicy metadata RateLimitConfigFilter
+//     stamps onto each YARP route) is already resolvable. Without that the limiter finds no policy
+//     metadata and lets everything through, which is the bug this is fixing.
+//   * after UseAuthentication - the partitioner reads the caller's subject claim off
+//     HttpContext.User. Run any earlier and User is still anonymous, so every signed-in caller on
+//     the instance would be lumped into the shared address bucket.
+//   * before the endpoint terminal - MapHub/MapControllers/MapReverseProxy below only register
+//     endpoints; the endpoint middleware that executes them is appended after everything here, so
+//     a rejection still short-circuits before any proxying or hub negotiation happens.
+//
+// Only endpoints that carry the policy metadata are limited: there is no global limiter, so the
+// realtime hub, /health and the gateway's own controllers are unaffected.
+app.UseEchoRateLimiter();
+
 // The single per-user realtime connection is terminated here on the gateway.
 app.MapHub<EchoRealtimeHub>("/api/v1/ws/hub");
 app.MapControllers();
@@ -194,24 +183,3 @@ app.UseInfrastructure();
 
 
 await app.RunJasperFxCommands(args);
-
-/// <summary>
-/// Extracts the webhook id from "/api/webhooks/{webhookId}/{token}", the one unauthenticated write
-/// route on the gateway (see the webhook-execute-route in ProxyConfig).
-/// </summary>
-static bool TryGetWebhookId(PathString path, out string webhookId)
-{
-    webhookId = string.Empty;
-    if (!path.HasValue) return false;
-
-    var value = path.Value!;
-    const string prefix = "/api/webhooks/";
-    if (!value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
-
-    var rest = value[prefix.Length..];
-    var slash = rest.IndexOf('/');
-    if (slash <= 0) return false;
-
-    webhookId = rest[..slash];
-    return true;
-}

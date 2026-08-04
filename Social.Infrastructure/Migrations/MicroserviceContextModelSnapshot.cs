@@ -127,15 +127,15 @@ namespace Social.Infrastructure.Migrations
                     b.HasKey("Id")
                         .HasName("pk_relationships");
 
-                    b.HasIndex("OwnerId")
-                        .HasDatabaseName("ix_relationships_owner_id");
-
                     b.HasIndex("RelatedId")
                         .IsUnique()
                         .HasDatabaseName("ix_relationships_related_id");
 
                     b.HasIndex("TargetId")
                         .HasDatabaseName("ix_relationships_target_id");
+
+                    b.HasIndex("OwnerId", "TargetId")
+                        .HasDatabaseName("ix_relationships_owner_id_target_id");
 
                     b.ToTable("relationships", (string)null);
                 });

@@ -10,13 +10,18 @@ using Social.Domain.Aggregate;
 using Social.Domain.Enums;
 using Social.Infrastructure.Persistence;
 using Social.Contracts.Bus.Integration.Events;
+using Social.Api.Services;
 using Wolverine;
 
 namespace Social.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/profiles")]
-public partial class ProfileController(MicroserviceContext ctx, ILogger<ProfileController> logger, IMessageBus bus) : ControllerBase
+public partial class ProfileController(
+    MicroserviceContext ctx,
+    ILogger<ProfileController> logger,
+    IMessageBus bus,
+    ProfileProjectionService projection) : ControllerBase
 {
     [GeneratedRegex("^#[0-9A-Fa-f]{6}$")]
     private static partial Regex HexColorRegex();
@@ -117,14 +122,18 @@ public partial class ProfileController(MicroserviceContext ctx, ILogger<ProfileC
         }
         
         // Deliberately does NOT Include Relationships.
-        var profile = await ctx.Profiles.FirstOrDefaultAsync(p => p.Id == id);
+        var profile = await ctx.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id);
         if (profile is null)
         {
             logger.LogInformation("profile not found for id {id}", id);
             return NotFound();
         }
 
-        return Ok(profile.ToFacet<Profile, ProfileDto>());
+        // Privacy spec T0-5/T2-17/T2-19: Hidden renders as Offline, the four field-visibility
+        // settings are applied, activity is gated on ShareActivity, and a blocked reader gets the
+        // minimal public projection - all inside the projection, so a field the viewer may not see
+        // is absent from the body rather than present and ignored.
+        return Ok(await projection.ProjectAsync(profile, currentProfile.Id));
 
     }
     
@@ -148,13 +157,15 @@ public partial class ProfileController(MicroserviceContext ctx, ILogger<ProfileC
         }
         
         // See GetAsync - no Relationships Include on an arbitrary target's profile.
-        var profile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == id);
+        var profile = await ctx.Profiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == id);
         if (profile is null)
         {
             logger.LogInformation("profile not found for user id {id}", id);
             return NotFound();
         }
 
-        return Ok(profile.ToFacet<Profile, ProfileDto>());
+        // Same gate as GetAsync - the two routes differ only in how the subject is addressed, so
+        // neither may be the lenient one.
+        return Ok(await projection.ProjectAsync(profile, currentProfile.Id));
     }
 }

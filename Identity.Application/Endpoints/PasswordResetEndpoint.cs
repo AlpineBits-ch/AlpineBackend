@@ -1,16 +1,13 @@
 using Identity.Application.Dtos.Request;
 using Identity.Application.Dtos.Response;
 using Identity.Application.Services;
-using Identity.Application.Templates;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
 using Identity.Infrastructure.Persistence;
-using Messaging;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
-using Microsoft.Extensions.Logging;
 using Wolverine.Http;
 
 namespace Identity.Application.Endpoints;
@@ -20,38 +17,24 @@ namespace Identity.Application.Endpoints;
 /// can't be confused with an email-verification code for the same address.</summary>
 public class PasswordResetEndpoint
 {
+    /// <summary>The single refusal for every reset code that does not work.</summary>
+    private const string CodeRefused = "Invalid or expired code - request a new one.";
+
+    /// <summary>Requests a reset code.</summary>
     [WolverineGet("api/v1/user/request-password-reset")]
-    public async Task<IResult> RequestPasswordReset([FromQuery] string email, [NotBody] IDistributedCache cache,
-        [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService, [NotBody] ILogger<PasswordResetEndpoint> logger)
+    public async Task<IResult> RequestPasswordReset([FromQuery] string? email, [NotBody] IDistributedCache cache,
+        [NotBody] MicroserviceContext ctx, [NotBody] AccountEmailDispatcher mail)
     {
+        if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest("email is required.");
+
         var normalized = email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
 
         // Always look the same to the caller whether or not the account exists - avoids leaking
         // which emails are registered.
-        if (user?.Email is null) return Results.Accepted();
-
-        var code = await PasswordResetCodeService.GetOrCreateCodeAsync(cache, user.Email);
-        var renderer = new EmailTemplateRenderer();
-
-        var body = await renderer.RenderAsync("PasswordResetEmail.cshtml", new PasswordResetEmail
+        if (user?.Email is not null)
         {
-            Name = user.UserName ?? user.Email,
-            Email = user.Email,
-            ResetCode = code,
-        });
-
-        try
-        {
-            await emailService.SendEmailAsync(user.Email, "Reset your Venta.gg password", body);
-        }
-        catch (Exception ex)
-        {
-            // Don't let a mail-delivery fault (e.g. Graph mail not configured in this environment,
-            // or a transient outage) turn into an unhandled 500 that also contradicts the "always
-            // look the same" contract above by revealing, via a failure response, that the account
-            // exists.
-            logger.LogError(ex, "Failed to send password reset email to {Email}", user.Email);
+            await mail.QueuePasswordResetCodeAsync(cache, user.Email, user.UserName ?? user.Email);
         }
 
         return Results.Accepted();
@@ -64,18 +47,15 @@ public class PasswordResetEndpoint
     {
         var normalized = dto.Email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
-        if (user?.Email is null) return Results.BadRequest("Invalid code");
+
+        // An unknown address is answered exactly as a live account with a dead code is.
+        if (user?.Email is null) return Results.BadRequest(CodeRefused);
 
         // Counts the attempt and destroys the code after too many wrong guesses - a wrong answer
         // used to leave the code intact for its whole 15-minute life, so it could be guessed
         // indefinitely.
         var codeResult = await PasswordResetCodeService.ValidateAsync(cache, user.Email, dto.Code);
-        if (codeResult != OneTimeCodeResult.Valid)
-        {
-            return codeResult == OneTimeCodeResult.TooManyAttempts
-                ? Results.BadRequest("Too many incorrect attempts - request a new code.")
-                : Results.BadRequest("Invalid or expired code");
-        }
+        if (codeResult != OneTimeCodeResult.Valid) return Results.BadRequest(CodeRefused);
 
         // Our short code is the client-facing secret; Identity's own reset token is generated and
         // consumed entirely server-side in the same request so we still go through UserManager's

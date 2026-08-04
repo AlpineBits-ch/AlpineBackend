@@ -146,8 +146,21 @@ builder.Services.AddScoped<ChoreRotationService>();
 builder.Services.AddScoped<LedgerService>();
 builder.Services.AddScoped<HomeStatusService>();
 builder.Services.AddScoped<NotificationResolutionService>();
+// Scoped, not singleton: both take IMessageBus, which Wolverine registers per scope.
+builder.Services.AddScoped<PrivacySettingsCache>();
+builder.Services.AddScoped<BlockCache>();
+builder.Services.AddScoped<GuildDirectMessagePreferenceService>();
 builder.Services.AddScoped<InboxService>();
 builder.Services.AddScoped<InboxMentionService>();
+
+// T0-4: telemetry consent.
+builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
+{
+    var cache = services.GetRequiredService<PrivacySettingsCache>();
+    var settings = await cache.GetAsync(userIds, ct);
+    return settings.ToDictionary(pair => pair.Key, pair => pair.Value.AllowDataCollection);
+});
+
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();

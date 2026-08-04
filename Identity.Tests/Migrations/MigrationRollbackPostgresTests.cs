@@ -1,4 +1,5 @@
 using Identity.Infrastructure.Persistence;
+using Domain;
 using Identity.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -191,6 +192,10 @@ public class MigrationRollbackPostgresTests
             options.MapEnum<Theme>();
             options.MapEnum<DirectMessageSettings>();
             options.MapEnum<PrivacySettings>();
+            options.MapEnum<DirectMessagePolicy>();
+            options.MapEnum<FriendRequestPolicy>();
+            options.MapEnum<Visibility>();
+            options.MapEnum<ExplicitContentFilter>();
             options.MapEnum<DeviceStatus>();
             options.MapEnum<DeviceType>();
             options.MapEnum<PushTokenKind>();

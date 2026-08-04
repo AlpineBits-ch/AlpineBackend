@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Echo.E2E.Tests.Fixtures;
 using Echo.E2E.Tests.Hosts;
 using Echo.E2E.Tests.Support;
@@ -44,7 +46,7 @@ public class SmokeTests
     }
 
     [Test]
-    public async Task RegisterUser_AgainstRealIdentityProcess_Returns200WithUserId()
+    public async Task RegisterUser_AgainstRealIdentityProcess_Returns202WithNoUserId()
     {
         var request = new
         {
@@ -56,6 +58,12 @@ public class SmokeTests
 
         var response = await _stack.Identity.Client.PostAsJsonAsync("/api/v1/authentication/register", request);
 
-        await E2EAssert.SucceededAsync(response, _stack.Identity, "Register failed");
+        await E2EAssert.HasStatusAsync(response, HttpStatusCode.Accepted, _stack.Identity, "Register failed");
+
+        // The id is gone from the body on purpose: the same response has to cover an address that
+        // already has an account. See docs/specs/registration-contract-change.md.
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.That(body.TryGetProperty("userId", out _), Is.False);
+        Assert.That(body.GetProperty("status").GetString(), Is.EqualTo("verification_pending"));
     }
 }

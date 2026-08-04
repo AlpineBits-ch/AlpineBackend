@@ -1,78 +1,67 @@
-﻿using Identity.Application.Services;
-using Identity.Application.Templates;
+using Identity.Application.Services;
 using Identity.Infrastructure.Persistence;
-using Messaging;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Wolverine.Http;
 
 namespace Identity.Application.Endpoints;
 
+/// <summary>Email verification.</summary>
 public class UserVerificationEndpoint
 {
-    
+    /// <summary>
+    /// The single refusal <see cref="VerifyEmail"/> gives for every code that does not work,
+    /// whatever the reason.
+    /// </summary>
+    private const string CodeRefused = "Invalid or expired verification code - request a new one.";
+
+    /// <summary>Requests a verification code by email.</summary>
     [WolverineGet("api/v1/user/generate-verification-code")]
-    public async Task<IResult> GenerateVerificationCode([FromQuery] string email, [NotBody] IDistributedCache cache, [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService)
+    public async Task<IResult> GenerateVerificationCode([FromQuery] string? email, [NotBody] MicroserviceContext ctx,
+        [NotBody] IDistributedCache cache, [NotBody] AccountEmailDispatcher mail)
     {
+        // Input validation survives: whether a caller sent an identifier at all does not depend on
+        // whose identifier it is.
+        if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest("email is required.");
+
         var normalized = email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
-        if (user == null)
+
+        // Callers may pass the username rather than the address (the "verify your email" prompt only
+        // has the login identifier on hand), so the mail and its cache entry are keyed by the
+        // account's canonical email - that is the key the signup welcome email already used.
+        if (user is { Email: not null, EmailConfirmed: false })
         {
-            return Results.Accepted();
+            await mail.QueueVerificationCodeAsync(cache, user.Email);
         }
-        if(user.Email == null)
-        {
-            return Results.BadRequest("User email not found");
-        }
-        if(user.EmailConfirmed) return Results.BadRequest("User already verified");
 
-        // Key the cache by the account's canonical email, not the caller-supplied
-        // identifier - callers may pass the username (e.g. the post-login
-        // "verify your email" prompt only has the login identifier on hand), and
-        // that must resolve to the same cache entry the signup welcome email used.
-        var verificationCode = await VerificationCodeService.GetOrCreateCodeAsync(cache, user.Email);
-        var renderer = new EmailTemplateRenderer();
-
-        var body = await renderer.RenderAsync("WelcomeEmail.cshtml", new WelcomeEmail()
-        {
-            Name = email,
-            ConfirmationCode = verificationCode
-        });
-
-        
-        await emailService.SendEmailAsync(user.Email, "Welcome to Venta.gg!", body);
-
-        
-        return Results.Ok();
+        return Results.Accepted();
     }
-    
+
+    /// <summary>Confirms an address with the emailed code.</summary>
     [WolverineGet("api/v1/user/verify-email")]
-    public async Task<IResult> VerifyEmail([FromQuery] string email, [FromQuery] string code, [NotBody] IDistributedCache cache, [NotBody] MicroserviceContext ctx, [NotBody] EmailService emailService)
+    public async Task<IResult> VerifyEmail([FromQuery] string? email, [FromQuery] string? code,
+        [NotBody] IDistributedCache cache, [NotBody] MicroserviceContext ctx)
     {
+        if (string.IsNullOrWhiteSpace(email)) return Results.BadRequest(CodeRefused);
+
         var normalized = email.ToUpperInvariant();
         var user = ctx.Users.FirstOrDefault(x => x.NormalizedEmail == normalized || x.NormalizedUserName == normalized);
-        if (user == null)
-        {
-            return Results.Accepted();
-        }
-        if(user.EmailConfirmed) return Results.BadRequest("User already verified");
+
+        // No account, or an account with no address to confirm.
+        if (user?.Email is null) return Results.BadRequest(CodeRefused);
 
         // Counts the attempt and destroys the code after too many wrong guesses - see
         // OneTimeCodeService.
-        var codeResult = await VerificationCodeService.ValidateAsync(cache, user.Email!, code);
-        if (codeResult != OneTimeCodeResult.Valid)
-        {
-            return codeResult switch
-            {
-                OneTimeCodeResult.Expired => Results.BadRequest("Verification code not found"),
-                OneTimeCodeResult.TooManyAttempts => Results.BadRequest("Too many incorrect attempts - request a new code."),
-                _ => Results.BadRequest("Invalid verification code"),
-            };
-        }
+        var codeResult = await VerificationCodeService.ValidateAsync(cache, user.Email, code);
+        if (codeResult != OneTimeCodeResult.Valid) return Results.BadRequest(CodeRefused);
 
-        user.EmailConfirmed = true;
-        user.EmailVerifiedAt = DateTime.UtcNow;
-        await ctx.SaveChangesAsync();
+        if (!user.EmailConfirmed)
+        {
+            user.EmailConfirmed = true;
+            user.EmailVerifiedAt = DateTime.UtcNow;
+            await ctx.SaveChangesAsync();
+        }
 
         return Results.Ok();
     }

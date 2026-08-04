@@ -22,8 +22,11 @@ public class UpdateMessageCommandHandler
             return (new UpdateMessageResponse { Forbidden = true }, null);
         }
 
-        message.Content = command.Content;
-        message.EmbedsJson = command.EmbedsJson;
+        // Every field here is a patch: null means "the caller said nothing about this", a value
+        // means "replace it".
+        if (command.Content is not null) message.Content = command.Content;
+        // Null means "leave the embeds alone"; an empty array clears them.
+        if (command.EmbedsJson is not null) message.EmbedsJson = command.EmbedsJson;
         // Null means "leave the components alone"; an empty array clears them.
         if (command.ComponentsJson is not null) message.ComponentsJson = command.ComponentsJson;
         message.UpdatedAt = DateTime.UtcNow;

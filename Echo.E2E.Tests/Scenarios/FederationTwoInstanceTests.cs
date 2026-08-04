@@ -78,7 +78,8 @@ public class FederationTwoInstanceTests
             Username = username,
             BirthDate = DateTime.UtcNow.AddYears(-20),
         });
-        await E2EAssert.SucceededAsync(register, identity, "Register failed");
+        // 202, fixed body, no user id - see docs/specs/registration-contract-change.md.
+        await E2EAssert.HasStatusAsync(register, System.Net.HttpStatusCode.Accepted, identity, "Register failed");
 
         var token = await identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(new Dictionary<string, string>
         {

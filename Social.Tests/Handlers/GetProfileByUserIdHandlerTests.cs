@@ -65,4 +65,87 @@ public class GetProfileByUserIdHandlerTests
 
         Assert.That(response.Profile, Is.Null);
     }
+
+    // ── T0-3: the bus route must not be a way around the block ───────────────
+
+    private async Task<(Profile Viewer, Profile Subject)> SeedBlockedPairAsync()
+    {
+        var viewer = Profile.Create(new CreateProfileParams { UserId = "user-viewer", Username = "viewer" });
+        var subject = Profile.Create(new CreateProfileParams { UserId = "user-subject", Username = "subject" });
+        subject.Bio = "private bio";
+        _context.Profiles.AddRange(viewer, subject);
+        await _context.SaveChangesAsync();
+
+        _context.Relationships.Add(new Relationship
+        {
+            Id = Relationship.GenerateId(),
+            OwnerId = subject.Id,
+            TargetId = viewer.Id,
+            Status = Social.Domain.Enums.RelationshipStatus.Blocked,
+        });
+        await _context.SaveChangesAsync();
+
+        return (viewer, subject);
+    }
+
+    [Test]
+    public async Task Handle_BlockedViewer_GetsTheMinimalProjection()
+    {
+        await SeedBlockedPairAsync();
+
+        var response = await GetProfileByUserIdHandler.Handle(
+            new GetProfileByUserIdRequest { UserId = "user-subject", ViewerUserId = "user-viewer" },
+            NullLogger<GetProfileByUserIdHandler>.Instance, _context, _cache);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(response.Profile!.UserName, Is.EqualTo("subject"));
+            Assert.That(response.Profile!.Bio, Is.Null);
+            Assert.That(response.Profile!.Relationships, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Handle_UnrelatedViewer_GetsTheOrdinaryProjection()
+    {
+        await SeedBlockedPairAsync();
+        var other = Profile.Create(new CreateProfileParams { UserId = "user-other", Username = "other" });
+        _context.Profiles.Add(other);
+        await _context.SaveChangesAsync();
+
+        var response = await GetProfileByUserIdHandler.Handle(
+            new GetProfileByUserIdRequest { UserId = "user-subject", ViewerUserId = "user-other" },
+            NullLogger<GetProfileByUserIdHandler>.Instance, _context, _cache);
+
+        Assert.That(response.Profile!.Bio, Is.EqualTo("private bio"));
+    }
+
+    [Test]
+    public async Task Handle_BlockedViewer_LeavesTheSharedCacheEntryUnfiltered()
+    {
+        // Regression guard for the obvious way to get this wrong: scrubbing the cached instance in
+        // place would serve the blocked reader's narrowed view to everybody else too.
+        await SeedBlockedPairAsync();
+
+        await GetProfileByUserIdHandler.Handle(
+            new GetProfileByUserIdRequest { UserId = "user-subject", ViewerUserId = "user-viewer" },
+            NullLogger<GetProfileByUserIdHandler>.Instance, _context, _cache);
+
+        var cachedBytes = _cache.Get("integration_profile:user_id:user-subject");
+        var cached = JsonSerializer.Deserialize<ProfileDto>(cachedBytes!);
+        Assert.That(cached!.Bio, Is.EqualTo("private bio"));
+    }
+
+    [Test]
+    public async Task Handle_NoViewerSupplied_StillReturnsTheSubjectView()
+    {
+        // Additive: an existing caller that never sets ViewerUserId keeps working unchanged.
+        await SeedBlockedPairAsync();
+
+        var response = await GetProfileByUserIdHandler.Handle(
+            new GetProfileByUserIdRequest { UserId = "user-subject" },
+            NullLogger<GetProfileByUserIdHandler>.Instance, _context, _cache);
+
+        Assert.That(response.Profile!.Bio, Is.EqualTo("private bio"));
+    }
 }

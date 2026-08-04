@@ -12,6 +12,18 @@
     </ItemGroup>
 
     <ItemGroup>
+      <!--
+        The privacy-policy enums (DirectMessagePolicy, FriendRequestPolicy, Visibility,
+        ExplicitContentFilter) live in Domain, alongside ProtectionLevel and for the same reason:
+        more than one service needs the same values for the same decision, and a copy per side
+        drifts. Carrying them by value here is what keeps a consumer from re-parsing strings into
+        its own copy.
+
+        This assembly deliberately does NOT reference Identity.Domain. Every service in the
+        solution references Identity.Contracts, so a reference here would put Identity's EF
+        entities on every one of their compile paths - the exact entity leak Domain.Tests/Facets
+        exists to catch.
+      -->
       <ProjectReference Include="..\Domain\Domain.csproj" />
     </ItemGroup>
 

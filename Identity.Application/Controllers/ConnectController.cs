@@ -37,23 +37,19 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
 
         if (request.IsPasswordGrantType())
         {
-            user = await manager.FindByNameAsync(request.Username);
-            if (user == null)
-            {
-                logger.LogInformation("User not found by email: {username}", request.Username);
-            }
-            if(user == null)
-                return NotFound();
+            var candidate = await manager.FindByNameAsync(request.Username);
 
-            if (user.EmailVerifiedAt == null)
+            // An unknown username is refused exactly as a wrong password is - same 401, same empty
+            // body - and pays the same PBKDF2 cost on the way out.
+            if (candidate == null)
             {
-                logger.LogInformation("User {username} is not verified", request.Username);
-                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
-
+                await passwords.CheckDummyAsync(request.Password);
+                logger.LogInformation("Password grant refused: no account named {username}", request.Username);
+                return Unauthorized();
             }
 
             // Lockout-aware.
-            var check = await passwords.CheckAsync(user, request.Password);
+            var check = await passwords.CheckAsync(candidate, request.Password);
             if (check == Services.PasswordCheckResult.LockedOut)
             {
                 logger.LogInformation("Account {username} is locked out after repeated failures", request.Username);
@@ -65,6 +61,15 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             {
                 logger.LogInformation("The username {username} or password is incorrect", request.Username);
                 return Unauthorized();
+            }
+
+            user = candidate;
+
+            // Deliberately after the password check, where it used to be before it.
+            if (user.EmailVerifiedAt == null)
+            {
+                logger.LogInformation("User {username} is not verified", request.Username);
+                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
             }
 
             if (!user.IsSigninAllowed())

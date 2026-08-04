@@ -101,6 +101,34 @@ public class PurgeUserDataCommandHandlerTests
     }
 
     [Test]
+    public async Task Handle_DeletesBlocksInBothDirections()
+    {
+        // Privacy spec T0-3: "blocks referencing a purged user are deleted by Social's
+        // PurgeUserDataCommandHandler".
+        var purged = Profile.Create(new CreateProfileParams { UserId = "user-purge", Username = "purged" });
+        var other = Profile.Create(new CreateProfileParams { UserId = "user-a", Username = "other" });
+        var bystanderA = Profile.Create(new CreateProfileParams { UserId = "user-b", Username = "b" });
+        var bystanderB = Profile.Create(new CreateProfileParams { UserId = "user-c", Username = "c" });
+        _context.Profiles.AddRange(purged, other, bystanderA, bystanderB);
+        await _context.SaveChangesAsync();
+
+        _context.Relationships.AddRange(
+            new Relationship { Id = "blck_1", OwnerId = purged.Id, TargetId = other.Id, Status = RelationshipStatus.Blocked },
+            new Relationship { Id = "blck_2", OwnerId = other.Id, TargetId = purged.Id, Status = RelationshipStatus.Blocked },
+            new Relationship { Id = "blck_3", OwnerId = bystanderA.Id, TargetId = bystanderB.Id, Status = RelationshipStatus.Blocked });
+        await _context.SaveChangesAsync();
+
+        await Purge("user-purge");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_context.Relationships.Any(r => r.Id == "blck_1"), Is.False, "blocks the purged user placed");
+            Assert.That(_context.Relationships.Any(r => r.Id == "blck_2"), Is.False, "blocks placed against the purged user");
+            Assert.That(_context.Relationships.Any(r => r.Id == "blck_3"), Is.True, "an unrelated block must survive");
+        });
+    }
+
+    [Test]
     public async Task Handle_UnknownUserId_DoesNotThrowAndReturnsResponse()
     {
         var response = await Purge("no-such-user");

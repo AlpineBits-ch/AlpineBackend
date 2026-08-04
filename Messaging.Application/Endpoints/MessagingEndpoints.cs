@@ -8,6 +8,7 @@ using Messaging.Application.Commands;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Entities;
@@ -29,7 +30,8 @@ public class MessagingEndpoints
 {
     /// <summary>Deliberately returns a bare IResult and no cascaded event.</summary>
     [WolverinePost("/api/v1/messaging")]
-    public async Task<IResult> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls)
+    public async Task<IResult> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls,
+        [NotBody] DirectMessagePolicyService dmPolicy, [NotBody] ExplicitContentGuard contentGuard)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return Results.Unauthorized();
@@ -125,12 +127,45 @@ public class MessagingEndpoints
             {
                 return Results.Forbid();
             }
+
+            var otherMemberIds = conversation.Members
+                .Select(m => m.UserId)
+                .Where(u => !string.Equals(u, userId, StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            // A two-person DM is the "new one-to-one send" T0-2 names: the recipient's policy is
+            // re-checked on every send, so a person who switches to friends-only (or blocks the
+            // sender) stops receiving messages immediately rather than only being protected from
+            // conversations that do not exist yet.
+            if (otherMemberIds.Count == 1)
+            {
+                var refusal = await dmPolicy.EvaluateAsync(userId, otherMemberIds);
+                if (refusal is not null) return DmRefusalResults.ToResult(refusal);
+            }
+
+            // T2-20. Attachment content is filtered against each recipient's ExplicitContentFilter.
+            if (dto.Attachments.Count > 0)
+            {
+                var candidates = await context.Attachments.AsNoTracking()
+                    .Where(a => dto.Attachments.Contains(a.Id))
+                    .Select(a => new { a.Id, a.FileName, a.ContentType })
+                    .ToListAsync();
+
+                var refuseForContent = await contentGuard.ShouldRefuseAsync(
+                    userId,
+                    otherMemberIds,
+                    candidates.Select(a => new MediaClassificationRequest(a.Id, a.FileName, a.ContentType)).ToList());
+
+                if (refuseForContent) return DmRefusalResults.ExplicitContent();
+            }
+
             conversation.UpdatedAt = DateTime.UtcNow;
 
         }
-        
-       
-        
+
+
+
         var attachments = (await context.Attachments.AsNoTracking().Where(a => dto.Attachments.Contains(a.Id)).ToListAsync()).Select(a => new MinimalAttachmentContract()
         {
             Id = a.Id,

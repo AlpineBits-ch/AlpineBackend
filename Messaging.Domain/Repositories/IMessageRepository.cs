@@ -20,6 +20,17 @@ public interface IMessageRepository
     public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagePageByCursorAsync(
         MessagePageQuery query);
 
+    /// <summary>
+    /// One page of a context's messages older than <paramref name="olderThan"/>, oldest first,
+    /// starting strictly after the supplied cursor.
+    /// </summary>
+    public Task<IReadOnlyList<Message>> GetContextMessagesOlderThanAsync(
+        string contextId,
+        DateTimeOffset olderThan,
+        DateTimeOffset afterCreatedAt,
+        string afterMessageId,
+        int limit);
+
     public Task<Message> UpdateMessageAsync(Message message);
 
     public Task DeleteMessageAsync(Message message);

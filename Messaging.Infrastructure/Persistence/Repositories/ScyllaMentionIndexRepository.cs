@@ -27,38 +27,81 @@ public class ScyllaMentionIndexRepository(ScyllaContext context) : IMentionIndex
         }
     }
 
+    /// <summary>
+    /// Widest a single same-millisecond group may be before <see cref="ReadInstantAsync"/> stops
+    /// trying to read all of it.
+    /// </summary>
+    private const int MaxSameInstantGroup = 10_000;
+
+    /// <summary>One page of a user's mentions, newest first.</summary>
     public async Task<IReadOnlyList<UserMention>> GetPageAsync(MentionPageQuery query)
     {
-        var limit = Math.Clamp(query.Limit, 1, 100);
-
         // Not a guard against a silly caller: Scylla rejects LIMIT 0 outright, so a clamp that
         // allowed it would turn an empty page into a driver exception.
-        var cql = "WHERE user_id = ?";
-        var parameters = new List<object> { query.UserId };
+        var limit = Math.Clamp(query.Limit, 1, 100);
+
+        var rows = new List<UserMention>();
 
         if (query.Before is not null)
         {
-            // The cursor is (created_at, message_id) because two mentions can land in the same
-            // millisecond - comparing on the timestamp alone would either skip the second one or
-            // return it twice.
-            cql += " AND (created_at, message_id) < (?, ?)";
-            parameters.Add(query.Before.Value);
-            parameters.Add(query.BeforeMessageId ?? string.Empty);
+            // The cursor's own millisecond, read whole and split by message_id - the only part of
+            // the range where the tie-break matters relative to the cursor.
+            var beforeId = query.BeforeMessageId ?? string.Empty;
+
+            rows.AddRange((await ReadInstantAsync(query.UserId, query.Before.Value))
+                .Where(m => string.CompareOrdinal(m.MessageId, beforeId) < 0)
+                .Where(m => query.Since is null || m.CreatedAt >= query.Since.Value));
         }
 
-        if (query.Since is not null)
+        var remaining = limit - rows.Count;
+        if (remaining > 0)
         {
-            cql += " AND created_at >= ?";
-            parameters.Add(query.Since.Value);
+            // Single-column relations only.
+            var cql = "WHERE user_id = ?";
+            var parameters = new List<object> { query.UserId };
+
+            if (query.Before is not null)
+            {
+                cql += " AND created_at < ?";
+                parameters.Add(query.Before.Value);
+            }
+
+            if (query.Since is not null)
+            {
+                cql += " AND created_at >= ?";
+                parameters.Add(query.Since.Value);
+            }
+
+            cql += " LIMIT ?";
+            parameters.Add(remaining);
+
+            // ToList() immediately: Mapper.FetchAsync returns a lazy projection over the driver's
+            // RowSet, whose enumerator dequeues from an internal queue.
+            var slice = (await context.Mapper.FetchAsync<UserMention>(cql, parameters.ToArray())).ToList();
+
+            // A short slice exhausted the range, so whatever millisecond it ends on is already
+            // whole.
+            if (slice.Count >= remaining)
+            {
+                var boundary = slice[^1].CreatedAt;
+                var wholeGroup = await ReadInstantAsync(query.UserId, boundary);
+                slice = slice.Where(m => m.CreatedAt != boundary).Concat(wholeGroup).ToList();
+            }
+
+            rows.AddRange(slice);
         }
 
-        cql += " LIMIT ?";
-        parameters.Add(limit);
-
-        // ToList() immediately: Mapper.FetchAsync returns a lazy projection over the driver's
-        // RowSet, whose enumerator dequeues from an internal queue.
-        return (await context.Mapper.FetchAsync<UserMention>(cql, parameters.ToArray())).ToList();
+        return rows
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenByDescending(m => m.MessageId, StringComparer.Ordinal)
+            .Take(limit)
+            .ToList();
     }
+
+    /// <summary>Every mention of one user sharing one <c>created_at</c>.</summary>
+    private async Task<List<UserMention>> ReadInstantAsync(string userId, DateTimeOffset instant) =>
+        (await context.Mapper.FetchAsync<UserMention>(
+            "WHERE user_id = ? AND created_at = ? LIMIT ?", userId, instant, MaxSameInstantGroup)).ToList();
 
     public Task DeleteAsync(string userId, DateTimeOffset createdAt, string messageId) =>
         context.Mapper.DeleteAsync<UserMention>(

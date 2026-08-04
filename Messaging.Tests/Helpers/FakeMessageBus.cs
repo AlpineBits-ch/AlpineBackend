@@ -14,17 +14,21 @@ public class FakeMessageBus : IMessageBus
     public List<object> Sent { get; } = new();
     public List<object> Published { get; } = new();
 
-    private readonly Func<object, object>? _responder;
+    /// <summary>Exposed so a decorating bus can answer the few request types it cares about and
+    /// hand everything else back to this one - see TestPrivacyServices, which layers the privacy
+    /// and block lookups over a test's existing responder without every test having to restate
+    /// them.</summary>
+    public Func<object, object>? Responder { get; set; }
 
-    public FakeMessageBus(Func<object, object>? responder = null) => _responder = responder;
+    public FakeMessageBus(Func<object, object>? responder = null) => Responder = responder;
 
     public Task<T> InvokeAsync<T>(object message, CancellationToken cancellation = default, TimeSpan? timeout = null)
     {
         Invoked.Add(message);
-        if (_responder is null)
+        if (Responder is null)
             throw new InvalidOperationException($"FakeMessageBus has no responder configured for {message.GetType().Name}");
 
-        return Task.FromResult((T)_responder(message));
+        return Task.FromResult((T)Responder(message));
     }
 
     public Task InvokeAsync(object message, CancellationToken cancellation = default, TimeSpan? timeout = null)

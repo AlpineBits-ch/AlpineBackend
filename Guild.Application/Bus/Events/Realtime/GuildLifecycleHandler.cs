@@ -30,12 +30,12 @@ public class GuildLifecycleHandler
     // A brand-new connection defaults to Online (matches Discord's default) — there is no prior
     // presence entry to preserve a status from.
     public async Task Handle(UserConnected message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub)
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
     {
         var updates = await RefreshPresenceAsync(message.UserId, microserviceContext, service,
             defaultStatus: nameof(OnlineStatus.Online));
 
-        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub);
+        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks);
     }
 
     // The gateway hub republishes this while the connection is alive (throttled), replacing the old
@@ -75,19 +75,44 @@ public class GuildLifecycleHandler
         return updates;
     }
 
+    /// <summary>Fans a presence change out to the guilds the user is in.</summary>
     private static async Task BroadcastPresenceChangesAsync(string userId, List<(string GuildId, string Status)> updates,
-        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub)
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
     {
+        if (updates.Count == 0) return;
+
+        var blockView = await blocks.GetAsync([userId]);
+
         foreach (var (guildId, status) in updates)
         {
             var presence = await service.GetGuildPresenceAsync(guildId);
-            await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.PresenceChanged",
-                new { UserId = userId, GuildId = guildId, Status = status });
+            var recipients = presence.Select(p => p.UserId).Distinct(StringComparer.Ordinal).ToList();
+
+            var self = recipients.Where(id => string.Equals(id, userId, StringComparison.Ordinal)).ToList();
+            var others = blockView.Reachable(userId,
+                recipients.Where(id => !string.Equals(id, userId, StringComparison.Ordinal)));
+
+            if (self.Count > 0)
+            {
+                await hub.Clients.Users(self).SendAsync("guild.PresenceChanged",
+                    new { UserId = userId, GuildId = guildId, Status = status });
+            }
+
+            if (others.Count > 0)
+            {
+                await hub.Clients.Users(others).SendAsync("guild.PresenceChanged",
+                    new
+                    {
+                        UserId = userId,
+                        GuildId = guildId,
+                        Status = PresenceProjection.ProjectNameFor(status, viewerIsSubject: false),
+                    });
+            }
         }
     }
 
     public async Task Handle(UserStatusChanged message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub)
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
     {
         var members = await microserviceContext.GuildMembers
             .AsNoTracking()
@@ -114,7 +139,7 @@ public class GuildLifecycleHandler
             updates.Add((m.GuildId, message.Status));
         }
 
-        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub);
+        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks);
     }
 
     // Marks the member offline in Redis immediately on disconnect rather than waiting for the
@@ -122,7 +147,7 @@ public class GuildLifecycleHandler
     // stress test), then falls through to the pre-existing voice-cleanup logic below.
     public async Task Handle(UserDisconnected message, MicroserviceContext microserviceContext,
         GuildHydrateService service, IDistributedCache cache, LockedJsonCacheStore voiceStore,
-        IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+        IHubContext<EchoRealtimeHub> hub, IMessageBus bus, BlockCache blocks)
     {
         var userId = message.UserId;
 
@@ -132,12 +157,22 @@ public class GuildLifecycleHandler
             .Select(m => new { m.Id, m.GuildId })
             .ToListAsync();
 
+        // Offline carries no Hidden to leak, but a block still applies: presence events must not
+        // flow between a blocked pair in either direction, and "they just went offline" is a
+        // presence event like any other.
+        var blockView = members.Count > 0 ? await blocks.GetAsync([userId]) : BlockView.Empty;
+
         foreach (var m in members)
         {
             var presence = await service.GetGuildPresenceAsync(m.GuildId);
             await service.RemovePresenceStateAsync(m.GuildId, m.Id);
 
-            await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.PresenceChanged",
+            var recipients = blockView.Reachable(userId,
+                presence.Select(p => p.UserId).Distinct(StringComparer.Ordinal));
+
+            if (recipients.Count == 0) continue;
+
+            await hub.Clients.Users(recipients).SendAsync("guild.PresenceChanged",
                 new { UserId = userId, GuildId = m.GuildId, Status = nameof(OnlineStatus.Offline) });
         }
 

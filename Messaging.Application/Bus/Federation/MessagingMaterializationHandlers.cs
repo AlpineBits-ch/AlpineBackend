@@ -58,6 +58,10 @@ public class MessagingMaterializationHandlers
             ChannelId = message.ChannelId,
             AuthorId = existing.AuthorId,
             Content = message.Content,
+            // Off the stored row: a federated edit only ever carries text, and omitting this made
+            // the update notification report no embeds on a message that still has them - the
+            // clients that re-render from the payload would drop the card until a refetch.
+            EmbedsJson = existing.EmbedsJson,
         });
     }
 

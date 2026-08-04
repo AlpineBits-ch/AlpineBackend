@@ -1,6 +1,8 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
+using Identity.Contracts.Bus.Response;
 using Social.Api.Dtos.Request;
 using Social.Api.Endpoints;
+using Social.Api.Services;
 using Social.Domain.Aggregate;
 using Social.Domain.Enums;
 using Social.Domain.Events.Relationship;
@@ -17,6 +19,10 @@ public class FriendshipEndpointsTests
     private string _dbName = null!;
     private TestSocialContext _context = null!;
     private FakeDistributedCache _cache = null!;
+    private FakeMessageBus _bus = null!;
+    private PrivacySettingsCache _privacy = null!;
+    private UserDirectory _directory = null!;
+    private ISharedGuildResolver _sharedGuilds = null!;
 
     [SetUp]
     public void SetUp()
@@ -24,7 +30,15 @@ public class FriendshipEndpointsTests
         _dbName = Guid.NewGuid().ToString();
         _context = new TestSocialContext(_dbName);
         _cache = new FakeDistributedCache();
+        _bus = new FakeMessageBus();
+        _sharedGuilds = new NoSharedGuildResolver();
+        // Everyone/discoverable is the shipped default, so these tests keep exercising the
+        // pre-privacy behaviour of the endpoint; the refusals live in FriendRequestPrivacyTests.
+        _privacy = PrivacyTestHelpers.CacheReturning(_cache, _bus,
+            PrivacyTestHelpers.Defaults("user-a"), PrivacyTestHelpers.Defaults("user-b"));
+        _directory = PrivacyTestHelpers.Directory(_context, _privacy);
     }
+
 
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
@@ -40,13 +54,13 @@ public class FriendshipEndpointsTests
         return profile;
     }
 
-    // ── CreateAsync ──────────────────────────────────────────────────────────
+    // â”€â”€ CreateAsync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [Test]
     public async Task CreateAsync_NoAuthenticatedUser_ReturnsUnauthorized()
     {
         var result = await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "target" }, _context, new ClaimsPrincipal());
+            new CreateFriendshipDto { UserName = "target" }, _context, _directory, _sharedGuilds, new ClaimsPrincipal());
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.UnauthorizedHttpResult>());
     }
@@ -55,20 +69,23 @@ public class FriendshipEndpointsTests
     public async Task CreateAsync_InitiatorProfileMissing_ReturnsBadRequest()
     {
         var result = await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "target" }, _context, MakeUser("no-such-user"));
+            new CreateFriendshipDto { UserName = "target" }, _context, _directory, _sharedGuilds, MakeUser("no-such-user"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.BadRequest<string>>());
     }
 
     [Test]
-    public async Task CreateAsync_TargetProfileMissing_ReturnsBadRequest()
+    public async Task CreateAsync_TargetProfileMissing_ReturnsPolicyRefusal()
     {
+        // Was a 400 "Target profile not found." Privacy spec T2-16 / cross-cutting rule 5: a
+        // username nobody holds and a username whose holder is not discoverable must look the
+        // same, so both now land on the same 403.
         await AddProfile("user-a", "initiator");
 
         var result = await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "no-such-target" }, _context, MakeUser("user-a"));
+            new CreateFriendshipDto { UserName = "no-such-target" }, _context, _directory, _sharedGuilds, MakeUser("user-a"));
 
-        Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.BadRequest<string>>());
+        FriendRequestPrivacyAssertions.AssertPolicyRefusal(result);
     }
 
     [Test]
@@ -77,7 +94,7 @@ public class FriendshipEndpointsTests
         await AddProfile("user-a", "solo");
 
         var result = await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "solo" }, _context, MakeUser("user-a"));
+            new CreateFriendshipDto { UserName = "solo" }, _context, _directory, _sharedGuilds, MakeUser("user-a"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.BadRequest<string>>());
     }
@@ -94,7 +111,7 @@ public class FriendshipEndpointsTests
         await _context.SaveChangesAsync();
 
         var result = await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "target" }, _context, MakeUser("user-a"));
+            new CreateFriendshipDto { UserName = "target" }, _context, _directory, _sharedGuilds, MakeUser("user-a"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.Conflict<string>>());
     }
@@ -106,7 +123,7 @@ public class FriendshipEndpointsTests
         var target = await AddProfile("user-b", "target");
 
         var result = await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "target" }, _context, MakeUser("user-a"));
+            new CreateFriendshipDto { UserName = "target" }, _context, _directory, _sharedGuilds, MakeUser("user-a"));
 
         Assert.That(result, Is.InstanceOf<Microsoft.AspNetCore.Http.HttpResults.Ok>());
 
@@ -130,7 +147,7 @@ public class FriendshipEndpointsTests
         });
     }
 
-    // ── AcceptAsync ──────────────────────────────────────────────────────────
+    // â”€â”€ AcceptAsync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private async Task<(Relationship Incoming, Relationship Outgoing)> SeedPendingPair(Profile initiator, Profile target)
     {
@@ -209,7 +226,7 @@ public class FriendshipEndpointsTests
         });
     }
 
-    // ── AcceptAsync idempotency (double accept) ──────────────────────────────
+    // â”€â”€ AcceptAsync idempotency (double accept) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [Test]
     public async Task AcceptAsync_CalledTwice_StillLeavesExactlyOneRelationshipPair()
@@ -220,7 +237,7 @@ public class FriendshipEndpointsTests
         await AddProfile("user-b", "target");
 
         await FriendshipEndpoints.CreateAsync(
-            new CreateFriendshipDto { UserName = "target" }, _context, MakeUser("user-a"));
+            new CreateFriendshipDto { UserName = "target" }, _context, _directory, _sharedGuilds, MakeUser("user-a"));
         await _context.SaveChangesAsync();
 
         var incoming = _context.Relationships.Single(r => r.OwnerId != initiator.Id);
@@ -283,7 +300,7 @@ public class FriendshipEndpointsTests
         });
     }
 
-    // ── RejectAsync ──────────────────────────────────────────────────────────
+    // â”€â”€ RejectAsync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [Test]
     public async Task RejectAsync_UnknownId_ReturnsNotFound()
@@ -314,7 +331,7 @@ public class FriendshipEndpointsTests
         });
     }
 
-    // ── RevokeAsync ──────────────────────────────────────────────────────────
+    // â”€â”€ RevokeAsync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [Test]
     public async Task RevokeAsync_UnknownId_ReturnsNotFound()

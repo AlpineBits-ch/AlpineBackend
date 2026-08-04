@@ -86,9 +86,13 @@ public class GuildVoiceDisconnectCleanupTests
         string userId, string? deviceId, IDistributedCache? cache = null, LockedJsonCacheStore? store = null)
     {
         var effectiveCache = cache ?? _cache;
+        // No blocks: this suite is about voice cleanup, and the block filter only ever removes
+        // presence recipients - of which the fake Redis reports none anyway.
+        var blocks = PrivacyTestFactory.Blocks(new FakeInvokingMessageBus(), new FakeDistributedCache());
         return _handler.Handle(
             new UserDisconnected(userId, deviceId), _context, _hydrate, effectiveCache,
-            store ?? new LockedJsonCacheStore(new FakeDistributedLockService(), effectiveCache), _hub, _bus);
+            store ?? new LockedJsonCacheStore(new FakeDistributedLockService(), effectiveCache), _hub, _bus,
+            blocks);
     }
 
     // ══════════════════════════════════════════════════════════════════════════ 1.

@@ -135,9 +135,11 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         {
             if (presenceMap.TryGetValue(member.Id, out var presence))
             {
-                if (Enum.TryParse<OnlineStatus>(presence.Status, out var status))
+                if (PresenceProjection.TryParse(presence.Status, out var status))
                 {
-                    member.Status = status;
+                    // Projected, not assigned raw.
+                    member.Status = PresenceProjection.ProjectFor(
+                        status, viewerIsSubject: member.UserId == userId);
                 }
                 else
                 {

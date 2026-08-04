@@ -1,10 +1,9 @@
-﻿using FluentValidation.Results;
+using FluentValidation.Results;
 
 namespace Identity.Contracts.Bus.Response;
 
+/// <summary>The registration handler's answer to the controller.</summary>
 public class CreateUserWithEmailAndPasswordResponse
 {
-    public string UserId { get; set; }
-
-    public ICollection<ValidationFailure> Failures { get; set; }= [];
+    public ICollection<ValidationFailure> Failures { get; set; } = [];
 }

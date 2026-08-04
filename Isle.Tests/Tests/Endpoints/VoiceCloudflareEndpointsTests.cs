@@ -1,5 +1,6 @@
-using Echo.Realtime.Sfu;
+﻿using Echo.Realtime.Sfu;
 using Isle.Api.Endpoints;
+using Isle.Api.Services.Privacy;
 using Isle.Api.Services.State;
 using Isle.Domain;
 using Isle.Domain.Aggregates;
@@ -28,6 +29,7 @@ public class VoiceCloudflareEndpointsTests
     private QueuedHttpMessageHandler _handler = null!;
     private CloudflareService _cf = null!;
     private VoiceCloudflareEndpoints _endpoint = null!;
+    private PositionalVoiceConsent _consent = null!;
 
     [SetUp]
     public void SetUp()
@@ -39,6 +41,10 @@ public class VoiceCloudflareEndpointsTests
         _handler = new QueuedHttpMessageHandler();
         _cf = new CloudflareService(new FakeHttpClientFactory(_handler), NullLogger<CloudflareService>.Instance);
         _endpoint = new VoiceCloudflareEndpoints();
+
+        // T2-19: publishing a microphone into the proximity grid now requires positional-capture
+        // consent, so the existing cases need a consenting account rather than the fail-closed default.
+        _consent = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice(UserId, true)]).Consent;
 
         // Every CF action must act as a session the caller minted; CreateSession records this, and
         // these tests call the other endpoints directly.
@@ -67,7 +73,7 @@ public class VoiceCloudflareEndpointsTests
     [Test]
     public async Task CreateSession_NoUserId_ReturnsUnauthorized()
     {
-        var result = await _endpoint.CreateSession(TestPrincipal.CreateAnonymous(), _cf, _registry, _tracks, CancellationToken.None);
+        var result = await _endpoint.CreateSession(TestPrincipal.CreateAnonymous(), _cf, _registry, _tracks, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
@@ -75,7 +81,7 @@ public class VoiceCloudflareEndpointsTests
     [Test]
     public async Task CreateSession_NotYetJoinedVoice_ReturnsBadRequest()
     {
-        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, _tracks, CancellationToken.None);
+        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, _tracks, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -86,7 +92,7 @@ public class VoiceCloudflareEndpointsTests
         await _registry.RegisterAsync(UserId, "steam-1");
         _handler.EnqueueJson(System.Net.HttpStatusCode.OK, """{"sessionId":"cf-session-123"}""");
 
-        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, _tracks, CancellationToken.None);
+        var result = await _endpoint.CreateSession(TestPrincipal.Create(UserId), _cf, _registry, _tracks, _consent, CancellationToken.None);
 
         var value = ((IValueHttpResult)result).Value!;
         Assert.That(GetProp<string>(value, "cfSessionId"), Is.EqualTo("cf-session-123"));
@@ -100,7 +106,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.CreateAnonymous(), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.CreateAnonymous(), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
@@ -114,7 +120,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("victim-session", Sdp, [LocalAudioTrack]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         Assert.Multiple(() =>
         {
@@ -138,7 +144,7 @@ public class VoiceCloudflareEndpointsTests
             "cf-session", Sdp, [new CfTrackNew("remote", SessionId: "far-session", TrackName: "audio")]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         Assert.Multiple(() =>
         {
@@ -156,7 +162,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [remoteTrack]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<Ok<CfTracksNewResponse>>());
         Assert.That(_tracks.TryGet(UserId, out _), Is.False);
@@ -171,7 +177,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<Ok<CfTracksNewResponse>>());
         Assert.That(_tracks.TryGet(UserId, out var track), Is.True);
@@ -191,7 +197,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         Assert.That(result, Is.InstanceOf<Ok<CfTracksNewResponse>>());
         await _sfu.Received(1).SendSelfPosition(UserId,
@@ -210,7 +216,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
 
         Assert.That(async () => await _endpoint.TracksNew(
-                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None),
+                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None),
             Throws.TypeOf<CloudflareCallsException>());
         Assert.That(_tracks.TryGet(UserId, out _), Is.False);
     }
@@ -252,7 +258,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [RemoteAudioTrack]);
 
         var result = await _endpoint.TracksNew(
-            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None);
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None);
 
         var value = (CfTracksNewResponse)((IValueHttpResult)result).Value!;
         Assert.Multiple(() =>
@@ -270,7 +276,7 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [RemoteAudioTrack]);
 
         Assert.That(async () => await _endpoint.TracksNew(
-                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None),
+                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None),
             Throws.TypeOf<CloudflareCallsException>());
         // Against the shared schedule rather than a literal: the budget is owned by
         // CloudflareService.SubscribeRetryDelays, and it is sized to cover the publisher's whole
@@ -288,13 +294,78 @@ public class VoiceCloudflareEndpointsTests
         var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
 
         Assert.That(async () => await _endpoint.TracksNew(
-                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, CancellationToken.None),
+                body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, _consent, CancellationToken.None),
             Throws.TypeOf<CloudflareCallsException>());
         Assert.Multiple(() =>
         {
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             Assert.That(_tracks.TryGet(UserId, out _), Is.False);
         });
+    }
+
+    // ── Positional voice consent (T2-19) ──────────────────────────────────
+
+    [Test]
+    public async Task CreateSession_ConsentWithheld_IsForbiddenAndNeverReachesCloudflare()
+    {
+        // Re-checked here rather than inferred from the registry entry: that entry carries a 2h TTL
+        // and deliberately survives socket drops, so it can outlive the consent that created it.
+        await _registry.RegisterAsync(UserId, "steam-1");
+        var consent = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice(UserId, false)]).Consent;
+
+        var result = await _endpoint.CreateSession(
+            TestPrincipal.Create(UserId), _cf, _registry, _tracks, consent, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(_handler.Requests, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task TracksNew_PublishingAMicrophoneWithoutConsent_IsForbiddenAndPublishesNothing()
+    {
+        var consent = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice(UserId, false)]).Consent;
+        var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
+
+        var result = await _endpoint.TracksNew(
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, consent, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(_tracks.TryGet(UserId, out _), Is.False);
+            Assert.That(_handler.Requests, Is.Empty, "nothing may reach Cloudflare without capture consent");
+        });
+    }
+
+    [Test]
+    public async Task TracksNew_ConsentCannotBeResolved_RefusesThePublish()
+    {
+        var consent = PrivacyTestFactory.Build(lookupFails: true).Consent;
+        var body = new IsleTracksNewBody("cf-session", Sdp, [LocalAudioTrack]);
+
+        var result = await _endpoint.TracksNew(
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, consent, CancellationToken.None);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task TracksNew_SubscribingOnlyIsUnaffectedByCaptureConsent()
+    {
+        // Edge, and deliberate: this consent governs capture of the caller's own voice.
+        var consent = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice(UserId, false)]).Consent;
+        SeedAudiblePeer("peer-1", "peer-session");
+        QueueTracksNewResponse();
+        var body = new IsleTracksNewBody(
+            "cf-session", Sdp, [new CfTrackNew("remote", SessionId: "peer-session", TrackName: "audio")]);
+
+        var result = await _endpoint.TracksNew(
+            body, TestPrincipal.Create(UserId), _cf, _tracks, _cluster, _sfu, consent, CancellationToken.None);
+
+        Assert.That(result, Is.InstanceOf<Ok<CfTracksNewResponse>>());
     }
 
     // ── Renegotiate ───────────────────────────────────────────────────────

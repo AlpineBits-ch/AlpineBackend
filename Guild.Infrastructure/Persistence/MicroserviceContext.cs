@@ -47,6 +47,7 @@ public class MicroserviceContext : DbContext
 
     public DbSet<GuildNotificationSetting> GuildNotificationSettings { get; set; }
     public DbSet<NotificationOverride> NotificationOverrides { get; set; }
+    public DbSet<GuildDirectMessagePreference> GuildDirectMessagePreferences { get; set; }
 
     // ── Household modules ────────────────────────────────────────────────────
     public DbSet<ListItem> ListItems { get; set; }
@@ -213,6 +214,24 @@ public class MicroserviceContext : DbContext
                 .HasFilter("category_id IS NOT NULL");
         });
 
+
+        modelBuilder.Entity<GuildDirectMessagePreference>(preferenceBuilder =>
+        {
+            // No inverse navigation on Guild: GuildDto is Facet-generated and a collection on the
+            // aggregate widens that materialization graph (same reasoning as ForumTag).
+            preferenceBuilder.HasOne(x => x.Guild)
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One row per (user, guild), enforced rather than assumed - both the PUT endpoint and
+            // the bus handler upsert on this pair, and a duplicate would make "may this person DM
+            // me" a coin flip.
+            preferenceBuilder.HasIndex(x => new { x.UserId, x.GuildId }).IsUnique();
+
+            // The GET /users/me/guild-privacy shape: every override one caller holds, across guilds.
+            preferenceBuilder.HasIndex(x => x.UserId);
+        });
 
         modelBuilder.Entity<Category>(categoryBuilder =>
         {

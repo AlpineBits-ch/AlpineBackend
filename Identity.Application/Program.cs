@@ -136,6 +136,11 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddScoped<EmailService>();
 
+// Keeps the Graph sendMail call off the request path for the anonymous "send me a code" routes, so
+// the account-exists and no-such-account branches take the same time as well as returning the same
+// 202. Singleton: it holds no per-request state and opens its own scope per send.
+builder.Services.AddSingleton<Identity.Application.Services.AccountEmailDispatcher>();
+
 // Every password-gated route goes through one lockout-aware check, and every per-device rule
 // resolves its device from the session rather than from the X-Device-Id header.
 builder.Services.AddScoped<Identity.Application.Services.IAccountPasswordVerifier,
@@ -146,8 +151,29 @@ builder.Services.AddScoped<Identity.Application.Services.MasterKeyRewrapTicketSe
 // The §I.1 rollout knobs, from configuration rather than from whatever the binary was compiled
 // with. Absent or unparsable values keep the safe default - see MlsPolicy.Bind.
 Domain.MlsPolicy.Bind(builder.Configuration);
+// Versioned consent (T1-10) and the legal documents it points at (T1-12).
+builder.Services.AddScoped<Identity.Application.Services.ConsentService>();
+builder.Services.AddSingleton<Identity.Application.Services.LegalDocumentCatalog>();
+
+// T0-4's consent hook, finally attached to a real lookup.
+builder.Services.AddSingleton<Identity.Application.Services.DataCollectionConsentSnapshot>();
+builder.Services.AddHostedService<Identity.Application.Services.DataCollectionConsentRefreshService>();
+
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddHostedService<Identity.Application.Services.AccountDeletionPurgeSweepService>();
+
+// T1-8. Nothing in this system had a TTL before this loop existed.
+builder.Services.AddHostedService<Identity.Application.Services.RetentionSweepService>();
+
+// T1-7.
+builder.Services.AddS3Storage();
+builder.Services.AddScoped<Identity.Application.Services.DataExport.IDataExportArtifactStore,
+    Identity.Application.Services.DataExport.S3DataExportArtifactStore>();
+builder.Services.AddHostedService<Identity.Application.Services.DataExport.DataExportExpirySweepService>();
+
+// Publishes whatever legal documents this build ships, and re-hashes them so an edit to a published
+// document is visible in the log instead of silent.
+builder.Services.AddHostedService<Identity.Application.Services.LegalDocumentSeeder>();
 
 builder.UseWolverine(opts =>
 {

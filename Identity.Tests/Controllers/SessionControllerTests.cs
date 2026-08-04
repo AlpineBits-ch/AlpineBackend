@@ -28,7 +28,7 @@ public class SessionControllerTests
                 Username = username,
                 BirthDate = DateTime.UtcNow.AddYears(-20),
             }).ToUrl("/api/v1/authentication/register");
-            x.StatusCodeShouldBe(HttpStatusCode.OK);
+            x.StatusCodeShouldBe(HttpStatusCode.Accepted);
         });
 
         var form = new Dictionary<string, string>

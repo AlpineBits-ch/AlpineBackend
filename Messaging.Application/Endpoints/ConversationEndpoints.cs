@@ -1,4 +1,4 @@
-﻿using System.Security.Claims;
+using System.Security.Claims;
 using System.Text.Json;
 using Domain;
 using Echo.Realtime.Devices;
@@ -6,6 +6,7 @@ using Facet.Extensions;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Services;
+using Messaging.Application.Services.Privacy;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
 using Messaging.Application.Dtos.Request;
@@ -83,7 +84,7 @@ public class ConversationEndpoints
     [WolverinePost("/api/v1/conversations/consume-tokens")]
     public async Task<IResult> FetchTokensForUsers(ConsumeMlsDeviceTokensForUserRequest request,
         [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
-        [NotBody] IDistributedCache cache)
+        [NotBody] IDistributedCache cache, [NotBody] DirectMessagePolicyService dmPolicy)
     {
         var ownUserId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(ownUserId is null) return Results.Unauthorized();
@@ -97,10 +98,9 @@ public class ConversationEndpoints
                 + "from every device they own.");
         }
 
-        if (!await IsBefriendedWithUsers(ownUserId, request.UserIds.ToList(), messageBus))
-        {
-            return Results.BadRequest("User is not friends with the users you are trying to consume tokens for");
-        }
+        // T0-2.
+        var refusal = await dmPolicy.EvaluateAsync(ownUserId, targets);
+        if (refusal is not null) return DmRefusalResults.ToResult(refusal);
 
         var replayKey = $"mls-consume:{ownUserId}:{string.Join(",", targets)}";
 
@@ -182,7 +182,8 @@ public class ConversationEndpoints
     public async Task<IResult> CreateConversation(CreateConversationDto createDto,
         [FromQuery] bool allowPartialDeviceCoverage,
         [NotBody] IMessageBus messageBus, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext ctx,
-        [NotBody] MlsDeviceCoverageService coverage, [NotBody] HttpContext http )
+        [NotBody] MlsDeviceCoverageService coverage, [NotBody] HttpContext http,
+        [NotBody] DirectMessagePolicyService dmPolicy )
     {
 
 
@@ -210,18 +211,14 @@ public class ConversationEndpoints
             memberProfiles.Add(memberResponse.Profile);
         }
         
-        var befriendedUserIds = response.Profile.Relationships
-            .Where(r => r.Status == RelationshipStatus.Accepted)
-            .Select(r => r.UserId).Where(u => u != userId).ToList();
-        
-        // check if all user ids are friends 
-        
-        foreach (var createConversationMemberDto in createDto.Members)
-        {
-            // TODO: We have to check the users privacy bit settings here, but for now default to this
-            if (!befriendedUserIds.Contains(createConversationMemberDto.UserId))
-                return Results.BadRequest("User cannot be added to conversation if not friends");
-        }
+        // T0-2.
+        var refusal = await dmPolicy.EvaluateAsync(
+            userId,
+            createDto.Members.Select(m => m.UserId).ToList(),
+            memberProfiles.DistinctBy(p => p.UserId, StringComparer.Ordinal)
+                .ToDictionary(p => p.UserId, p => p, StringComparer.Ordinal));
+
+        if (refusal is not null) return DmRefusalResults.ToResult(refusal);
 
 
         var selfMember = new CreateConversationMemberParams()
@@ -348,7 +345,9 @@ public class ConversationEndpoints
         AddConversationMemberDto dto,
         [NotBody] IMessageBus messageBus,
         [NotBody] ClaimsPrincipal user,
-        [NotBody] MicroserviceContext ctx)
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] DirectMessagePolicyService dmPolicy,
+        [NotBody] BlockCache blocks)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return (Results.Unauthorized(), null);
@@ -367,8 +366,21 @@ public class ConversationEndpoints
         if (conversation.Members.Any(m => m.UserId == dto.UserId))
             return (Results.Ok(conversation.ToFacet<Conversation, ConversationDto>()), null);
 
-        if (!await IsBefriendedWithUsers(userId, [dto.UserId], messageBus))
-            return (Results.BadRequest("User cannot be added to conversation if not friends"), null);
+        var refusal = await dmPolicy.EvaluateAsync(userId, [dto.UserId]);
+        if (refusal is not null) return (DmRefusalResults.ToResult(refusal), null);
+
+        // The candidate against everyone already in the room.
+        var existingMemberIds = conversation.Members
+            .Select(m => m.UserId)
+            .Where(u => !string.Equals(u, userId, StringComparison.Ordinal))
+            .ToList();
+
+        if (existingMemberIds.Count > 0)
+        {
+            var candidateBlocks = await blocks.BlockedEitherWayAsync(dto.UserId, existingMemberIds);
+            if (candidateBlocks.Count > 0)
+                return (DmRefusalResults.ToResult(new DmRefusal(DmRefusal.Blocked, dto.UserId)), null);
+        }
 
         var profileResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest
         {
@@ -449,47 +461,5 @@ public class ConversationEndpoints
     }
 
 
-    private async Task<bool> IsBefriendedWithUsers(string ownUserId, List<string> userIds, IMessageBus messageBus)
-    {
-        
-        var response = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
-        {
-            UserId = ownUserId
-        });
-        if (response.Profile is null) return false;
-
-        var memberProfiles = new List<ProfileDto>();
-
-        foreach (var userId in userIds)
-        {
-            var memberResponse = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
-            {
-                UserId = userId
-            });
-            
-            if(memberResponse.Profile is null) return false;
-            
-            memberProfiles.Add(memberResponse.Profile);
-        }
-        
-        var befriendedUserIds = response.Profile.Relationships
-            .Where(r => r.Status == RelationshipStatus.Accepted)
-            .Select(r => r.UserId).Where(u => u != ownUserId).ToList();
-        
-        // check if all user ids are friends 
-        
-        foreach (var getTokenUserId in userIds)
-        {
-            if(getTokenUserId == ownUserId) continue;
-            // TODO: We have to check the users privacy bit settings here, but for now default to this
-            if (!befriendedUserIds.Contains(getTokenUserId))
-            {
-                return false;
-
-            }
-        }
-
-        return true;
-    }
-    
+    // IsBefriendedWithUsers is gone.
 }

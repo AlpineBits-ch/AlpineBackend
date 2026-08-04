@@ -1,10 +1,18 @@
 namespace Messaging.Contracts.Bus.Commands;
 
+/// <summary>
+/// Every replaceable field on this command is a patch, not a snapshot: null means "leave what is
+/// stored alone", a value means "replace it".
+/// </summary>
 public class UpdateMessageCommand
 {
     public string MessageId { get; set; }
     public string RequestingAuthorId { get; set; }
-    public byte[] Content { get; set; }
+
+    /// <summary>Replacement body.</summary>
+    public byte[]? Content { get; set; }
+
+    /// <summary>Replacement embeds.</summary>
     public string? EmbedsJson { get; set; }
 
     /// <summary>Replacement components.</summary>

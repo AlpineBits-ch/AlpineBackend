@@ -191,8 +191,14 @@ public class InteractionCallbackPayload
 /// Discord's real webhook-execute endpoint takes the same {content, flags} shape directly.</summary>
 public class InteractionResponseDataPayload
 {
+    /// <summary>On UPDATE_MESSAGE this is a patch, so "was the key there at all" is the question
+    /// that matters - see <see cref="HasContent"/>.</summary>
     [JsonPropertyName("content")]
-    public string? Content { get; set; }
+    public string? Content
+    {
+        get => _content;
+        set { _content = value; HasContent = true; }
+    }
 
     /// <summary>venta has no native embed/rich-card concept in its message model - these get
     /// flattened into plain text (see DiscordInteractionEndpoint) rather than dropped, since a
@@ -200,7 +206,24 @@ public class InteractionResponseDataPayload
     /// `content` at all - silently posting an empty message would look broken with no indication
     /// why.</summary>
     [JsonPropertyName("embeds")]
-    public List<EmbedPayload> Embeds { get; set; } = new();
+    public List<EmbedPayload> Embeds
+    {
+        // An explicit `"embeds": null` normalises to an empty list rather than null: on the update
+        // path it means "clear them", and every create-path reader can then stay null-oblivious.
+        get => _embeds;
+        set { _embeds = value ?? new(); HasEmbeds = true; }
+    }
+
+    private string? _content;
+    private List<EmbedPayload> _embeds = new();
+
+    /// <summary>Whether the body carried a `content` key at all.</summary>
+    [JsonIgnore]
+    public bool HasContent { get; private set; }
+
+    /// <summary>Whether the body carried an `embeds` key at all - see <see cref="HasContent"/>.</summary>
+    [JsonIgnore]
+    public bool HasEmbeds { get; private set; }
 
     /// <summary>64 = EPHEMERAL, and now enforced: the response is delivered over the realtime hub
     /// to the invoking user alone and never written to the message store, so it is absent from

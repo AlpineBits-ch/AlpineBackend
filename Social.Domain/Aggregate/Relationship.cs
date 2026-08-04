@@ -97,12 +97,14 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
         return true;
     }
 
-    /// <summary>Idempotent for the same reason as <see cref="Accept"/> - an already-cleared
-    /// relationship is a no-op rather than a second FriendRequestRejected.</summary>
+    /// <summary>
+    /// Idempotent for the same reason as <see cref="Accept"/> - an already-cleared relationship is
+    /// a no-op rather than a second FriendRequestRejected.
+    /// </summary>
     /// <returns>True if this call actually changed the status.</returns>
     public bool Reject()
     {
-        if (this.Status == RelationshipStatus.None) return false;
+        if (this.Status is RelationshipStatus.None or RelationshipStatus.Blocked) return false;
 
         if (this.Status == RelationshipStatus.PendingIncoming)
         {
@@ -117,14 +119,15 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
         return true;
     }
 
-    /// <summary>Covers both "revoke my own pending outgoing request" and "unfriend an accepted
-    /// friendship" - FriendEndpoint.RevokeAsync uses this for both, and federation only cares
-    /// that the relationship no longer exists either way. Idempotent: removing an already-removed
-    /// relationship raises nothing.</summary>
+    /// <summary>
+    /// Covers both "revoke my own pending outgoing request" and "unfriend an accepted friendship" -
+    /// FriendEndpoint.RevokeAsync uses this for both, and federation only cares that the
+    /// relationship no longer exists either way.
+    /// </summary>
     /// <returns>True if this call actually changed the status.</returns>
     public bool Remove()
     {
-        if (this.Status == RelationshipStatus.None) return false;
+        if (this.Status is RelationshipStatus.None or RelationshipStatus.Blocked) return false;
 
         this.AddDomainEvent(new FriendRemoved()
         {
@@ -135,6 +138,31 @@ public class Relationship : Aggregate<Relationship>, IPrefixedEntity
         this.Status = RelationshipStatus.None;
         return true;
     }
-    
-    
+
+    /// <summary>
+    /// Turns this row into the blocker's one-sided block record (privacy spec T0-3).
+    /// </summary>
+    /// <returns>
+    /// True if this call actually changed the status - false when already blocked, which keeps a
+    /// repeated block idempotent.
+    /// </returns>
+    public bool Block()
+    {
+        if (this.Status == RelationshipStatus.Blocked) return false;
+
+        this.Status = RelationshipStatus.Blocked;
+        this.RelatedId = null;
+        return true;
+    }
+
+    /// <summary>Lifts a block.</summary>
+    /// <returns>True if this row was a block.</returns>
+    public bool Unblock()
+    {
+        if (this.Status != RelationshipStatus.Blocked) return false;
+
+        this.Status = RelationshipStatus.None;
+        this.RelatedId = null;
+        return true;
+    }
 }

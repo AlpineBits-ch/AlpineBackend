@@ -25,7 +25,13 @@ public class FakeCassandraMapper : IMapper
         Fetches.Add((cql, args));
 
         if (typeof(T) == typeof(Message))
-            return Task.FromResult(ConsumeOnce(Messages.Cast<T>()));
+        {
+            // The one WHERE clause this fake interprets rather than ignores.
+            var instant = InstantFilter(cql, args);
+            var rows = instant is null ? Messages : Messages.Where(m => m.CreatedAt == instant.Value);
+
+            return Task.FromResult(ConsumeOnce(rows.Cast<T>()));
+        }
 
         if (typeof(T) == typeof(Reaction))
         {
@@ -56,6 +62,14 @@ public class FakeCassandraMapper : IMapper
         if (poco is Message message) Messages.Insert(0, message);
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// The bound value of a <c>created_at = ?</c> restriction, or null if the statement has none.
+    /// </summary>
+    private static DateTimeOffset? InstantFilter(string cql, object[] args) =>
+        cql.Contains("created_at = ?", StringComparison.Ordinal) && args.Length > 1 && args[1] is DateTimeOffset at
+            ? at
+            : null;
 
     /// <summary>
     /// Wraps a sequence so that enumerating it drains it, the way the driver's RowSet behaves.

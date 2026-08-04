@@ -15,9 +15,16 @@ public class FakeHubContext : IHubContext<EchoRealtimeHub>
 public class FakeHubClients : IHubClients
 {
     public List<(string Method, object?[] Args)> SentMessages { get; } = new();
+
+    /// <summary>The same sends, but paired with the user ids they were addressed to.</summary>
+    public List<(string Method, IReadOnlyList<string> UserIds, object?[] Args)> SentToUsers { get; } = new();
+
     private readonly IClientProxy _proxy;
 
-    public FakeHubClients() => _proxy = new FakeClientProxy(SentMessages);
+    public FakeHubClients() => _proxy = new FakeClientProxy(this, []);
+
+    private IClientProxy ProxyFor(IEnumerable<string> userIds) =>
+        new FakeClientProxy(this, userIds.ToList());
 
     public IClientProxy All => _proxy;
     public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => _proxy;
@@ -26,15 +33,23 @@ public class FakeHubClients : IHubClients
     public IClientProxy Group(string groupName) => _proxy;
     public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => _proxy;
     public IClientProxy Groups(IReadOnlyList<string> groupNames) => _proxy;
-    public IClientProxy User(string userId) => _proxy;
-    public IClientProxy Users(IReadOnlyList<string> userIds) => _proxy;
+    public IClientProxy User(string userId) => ProxyFor([userId]);
+    public IClientProxy Users(IReadOnlyList<string> userIds) => ProxyFor(userIds);
+
+    /// <summary>Every user id addressed by a send of <paramref name="method"/>, deduplicated.</summary>
+    public List<string> RecipientsOf(string method) =>
+        SentToUsers.Where(s => s.Method == method)
+            .SelectMany(s => s.UserIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 }
 
-public class FakeClientProxy(List<(string Method, object?[] Args)> log) : IClientProxy
+public class FakeClientProxy(FakeHubClients owner, IReadOnlyList<string> userIds) : IClientProxy
 {
     public Task SendCoreAsync(string method, object?[] args, CancellationToken ct = default)
     {
-        log.Add((method, args));
+        owner.SentMessages.Add((method, args));
+        owner.SentToUsers.Add((method, userIds, args));
         return Task.CompletedTask;
     }
 }

@@ -50,16 +50,32 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
         if (skip < 0) skip = 0;
 
         var cql = $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? ORDER BY created_at DESC LIMIT ?";
+        var wanted = skip + take;
 
         // ToList() here is load-bearing, not a style choice: Mapper.FetchAsync returns a lazy
         // projection over the driver's RowSet, whose enumerator dequeues from an internal
         // ConcurrentQueue<Row>.
-        var messageItems = (await context.Mapper.FetchAsync<Message>(cql, contextId, skip + take)).ToList();
+        var messageItems = (await context.Mapper.FetchAsync<Message>(cql, contextId, wanted)).ToList();
+
+        // A short read exhausted the partition, so its last millisecond is already whole.
+        if (messageItems.Count >= wanted)
+        {
+            var boundary = messageItems[^1].CreatedAt;
+            var wholeGroup = await ReadInstantAsync(contextId, boundary);
+            messageItems = messageItems.Where(m => m.CreatedAt != boundary).Concat(wholeGroup).ToList();
+        }
 
         var result = messageItems
+            // Newest-first with the tie-break spelled out, so `skip` counts down a total order
+            // rather than down whatever the scan happened to emit.
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenByDescending(m => m.Id, StringComparer.Ordinal)
             .Skip(skip)
             .Take(take)
-            .OrderBy(m => m.CreatedAt) // Flip them back to chronological order
+            // Flip them back to chronological order - the same (created_at, message_id) ascending
+            // order every other read here returns, and the one the relational backend returns.
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id, StringComparer.Ordinal)
             .ToList();
 
         var reactionCql = "SELECT * FROM reactions WHERE context_id = ? AND message_id = ?";
@@ -88,44 +104,104 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
         var anchor = await GetMessageAsync(query.AnchorMessageId);
         if (anchor is null || anchor.ContextId != query.ContextId) return empty;
 
+        // The anchor's own millisecond, read once and shared by both halves of an `around` page -
+        // FetchRelativeAsync needs it in full for either direction (see its remarks), and for
+        // `around` it is literally the same rows twice.
+        var anchorInstant = await ReadInstantAsync(query.ContextId, anchor.CreatedAt);
+
         List<Message> page;
         if (query.Direction == MessageCursorDirection.Around)
         {
             // Split either side of the anchor.
             var half = Math.Max(1, (query.Limit - 1) / 2);
-            var older = await FetchRelativeAsync(query.ContextId, anchor, before: true, limit: half);
-            var newer = await FetchRelativeAsync(query.ContextId, anchor, before: false, limit: half);
+            var older = await FetchRelativeAsync(query.ContextId, anchor, before: true, limit: half, anchorInstant);
+            var newer = await FetchRelativeAsync(query.ContextId, anchor, before: false, limit: half, anchorInstant);
 
             page = [.. older, anchor, .. newer];
         }
         else
         {
             page = await FetchRelativeAsync(query.ContextId, anchor,
-                before: query.Direction == MessageCursorDirection.Before, limit: query.Limit);
+                before: query.Direction == MessageCursorDirection.Before, limit: query.Limit, anchorInstant);
         }
 
-        var ordered = page.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id).ToList();
+        // Ordinal, matching the byte-wise comparison a Scylla clustering key on a text column
+        // performs - and matching GetContextMessagesOlderThanAsync, so every read this repository
+        // exposes hands back one order.
+        var ordered = page
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id, StringComparer.Ordinal)
+            .ToList();
+
         return (ordered, await FetchReactionsAsync(ordered));
     }
 
-    /// <summary>One side of a cursor page.</summary>
-    private async Task<List<Message>> FetchRelativeAsync(string contextId, Message anchor, bool before, int limit)
+    /// <summary>
+    /// One side of a cursor page: the <paramref name="limit"/> messages nearest <paramref
+    /// name="anchor"/> on the given side of it, in the total order <c>(created_at, message_id)</c>.
+    /// </summary>
+    /// <param name="anchorInstant">
+    /// The anchor's whole millisecond, already read - passed in so an <c>around</c> page reads it
+    /// once instead of once per side.
+    /// </param>
+    private async Task<List<Message>> FetchRelativeAsync(
+        string contextId, Message anchor, bool before, int limit, List<Message> anchorInstant)
     {
-        // ORDER BY here is the *read* order, which for `after` is the reverse of the table's
-        // declared clustering order - legal within a single partition, and necessary so that LIMIT
-        // takes the rows adjacent to the anchor rather than the newest in the partition.
-        var comparison = before ? "<" : ">";
-        var order = before ? "DESC" : "ASC";
+        // LIMIT 0 is a hard error in CQL, not an empty page.
+        if (limit <= 0) return [];
 
-        var cql =
-            $"SELECT {Message.SelectColumns} FROM messages " +
-            $"WHERE context_id = ? AND (created_at, message_id) {comparison} (?, ?) " +
-            $"ORDER BY created_at {order} LIMIT ?";
+        // The anchor's same-millisecond siblings on the requested side.
+        var rows = anchorInstant
+            .Where(m => before
+                ? string.CompareOrdinal(m.Id, anchor.Id) < 0
+                : string.CompareOrdinal(m.Id, anchor.Id) > 0)
+            .ToList();
 
-        // Materialized immediately: Mapper.FetchAsync hands back a single-pass projection over the
-        // driver's RowSet, which self-consumes on enumeration (see GetMessagePageAsync's comment).
-        return (await context.Mapper.FetchAsync<Message>(cql, contextId, anchor.CreatedAt, anchor.Id, limit)).ToList();
+        var remaining = limit - rows.Count;
+        if (remaining > 0)
+        {
+            // A single-column relation on one clustering column is an ordinary slice, and its
+            // direction is the only thing ORDER BY is being asked for here - the tie-break is
+            // handled above and below rather than trusted to the scan.
+            var comparison = before ? "<" : ">";
+            var order = before ? "DESC" : "ASC";
+
+            var cql =
+                $"SELECT {Message.SelectColumns} FROM messages " +
+                $"WHERE context_id = ? AND created_at {comparison} ? " +
+                $"ORDER BY created_at {order} LIMIT ?";
+
+            // Materialized immediately: Mapper.FetchAsync hands back a single-pass projection over
+            // the driver's RowSet, which self-consumes on enumeration (see GetMessagePageAsync).
+            var slice = (await context.Mapper.FetchAsync<Message>(
+                cql, contextId, anchor.CreatedAt, remaining)).ToList();
+
+            // A short slice exhausted the range, so whatever millisecond it ends on is already
+            // whole.
+            if (slice.Count >= remaining)
+            {
+                var boundary = slice[^1].CreatedAt;
+                var wholeGroup = await ReadInstantAsync(contextId, boundary);
+                slice = slice.Where(m => m.CreatedAt != boundary).Concat(wholeGroup).ToList();
+            }
+
+            rows.AddRange(slice);
+        }
+
+        // Nearest-to-the-anchor first, so the trim drops the far end of the range rather than
+        // punching a hole in the middle of it. The caller flips the page back to chronological.
+        var nearestFirst = before
+            ? rows.OrderByDescending(m => m.CreatedAt).ThenByDescending(m => m.Id, StringComparer.Ordinal)
+            : rows.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id, StringComparer.Ordinal);
+
+        return nearestFirst.Take(limit).ToList();
     }
+
+    /// <summary>Every row of one partition sharing one <c>created_at</c>.</summary>
+    private async Task<List<Message>> ReadInstantAsync(string contextId, DateTimeOffset instant) =>
+        (await context.Mapper.FetchAsync<Message>(
+            $"SELECT {Message.SelectColumns} FROM messages WHERE context_id = ? AND created_at = ? LIMIT ?",
+            contextId, instant, MaxSameInstantGroup)).ToList();
 
     private async Task<Dictionary<string, List<Reaction>>> FetchReactionsAsync(List<Message> messages)
     {
@@ -136,6 +212,53 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
         return messages
             .Zip(reactionResults, (m, reactions) => (m.Id, Reactions: reactions.ToList()))
             .ToDictionary(x => x.Id, x => x.Reactions);
+    }
+
+    /// <summary>
+    /// Widest a single same-millisecond group may be before <see cref="ReadInstantAsync"/> stops
+    /// trying to read all of it.
+    /// </summary>
+    private const int MaxSameInstantGroup = 10_000;
+
+    /// <summary>
+    /// The retention/export forward scan: one page of a partition older than <paramref
+    /// name="olderThan"/>, resuming after <paramref name="afterCreatedAt"/>, returned oldest-first.
+    /// </summary>
+    public async Task<IReadOnlyList<Message>> GetContextMessagesOlderThanAsync(
+        string contextId, DateTimeOffset olderThan, DateTimeOffset afterCreatedAt, string afterMessageId, int limit)
+    {
+        // LIMIT 0 is a hard error in CQL, not an empty page.
+        if (limit <= 0) return [];
+
+        // Two single-column relations on one clustering column is an ordinary slice.
+        var cql =
+            $"SELECT {Message.SelectColumns} FROM messages " +
+            "WHERE context_id = ? AND created_at > ? AND created_at < ? " +
+            "ORDER BY created_at ASC LIMIT ?";
+
+        // Materialized immediately - Mapper.FetchAsync hands back a single-pass, self-consuming
+        // projection over the driver's RowSet (see GetMessagePageAsync).
+        var rows = (await context.Mapper.FetchAsync<Message>(
+            cql, contextId, afterCreatedAt, olderThan, limit)).ToList();
+
+        // A short page exhausted the slice, so whatever group it ends on is already whole.
+        if (rows.Count >= limit)
+        {
+            var boundary = rows[^1].CreatedAt;
+
+            // Everything already read at that instant is replaced rather than appended to - the two
+            // reads overlap by construction.
+            var wholeGroup = await ReadInstantAsync(contextId, boundary);
+
+            rows = rows.Where(m => m.CreatedAt != boundary).Concat(wholeGroup).ToList();
+        }
+
+        // The wire order is (created_at ASC, message_id DESC); the contract - and the relational
+        // backend - is ascending on both.
+        return rows
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id, StringComparer.Ordinal)
+            .ToList();
     }
 
     public async Task<Message> UpdateMessageAsync(Message message)

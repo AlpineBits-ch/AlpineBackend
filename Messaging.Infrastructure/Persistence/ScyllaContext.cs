@@ -50,12 +50,20 @@ public class ScyllaContext : IAsyncDisposable
         var replication = new Dictionary<string, string>
         {
             { "class", "NetworkTopologyStrategy" },
-            { "datacenter1", "1" } 
+            { "datacenter1", "1" }
         };
         session.CreateKeyspaceIfNotExists("messaging", replication);
         session.ChangeKeyspace("messaging");
 
+        return await CreateForSessionAsync(session);
+    }
 
+    /// <summary>
+    /// Migrations, UDT registration and mapping over a session the caller has already connected and
+    /// pointed at a keyspace.
+    /// </summary>
+    public static async Task<ScyllaContext> CreateForSessionAsync(ISession session)
+    {
         await RunMigrationsAsync(session);
         await session.UserDefinedTypes.DefineAsync(
             UdtMap.For<MinimalAttachment>("minimal_attachment")
@@ -162,7 +170,8 @@ public class ScyllaContext : IAsyncDisposable
         return new ScyllaContext(session, mapper);
     }
 
-    private static async Task RunMigrationsAsync(ISession session)
+    /// <summary>Idempotent DDL for every table this service reads or writes.</summary>
+    public static async Task RunMigrationsAsync(ISession session)
     {
         await session.ExecuteAsync(new SimpleStatement(
             "CREATE TYPE IF NOT EXISTS minimal_attachment (" +

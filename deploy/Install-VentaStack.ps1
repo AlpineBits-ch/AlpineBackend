@@ -360,6 +360,10 @@ if (-not $ReuseEnv) {
     $Config['RABBITMQ_PASSWORD']     = New-Secret 24
     $Config['SCYLLA_PASSWORD']       = New-Secret 20
     $Config['IDENTITY_KEY_PASSWORD'] = New-Secret 32
+    # Shared secret the reverse proxy presents as the X-Echo-Proxy-Auth header, proving the
+    # X-Forwarded-For chain it wrote may be believed. Without it the gateway ignores forwarded
+    # headers and every anonymous caller shares one rate-limit bucket keyed on the proxy.
+    $Config['GATEWAY_PROXY_SECRET']  = New-Secret 32
 }
 
 # Anything the steps below read must exist, including in a .env written by an older
@@ -386,6 +390,13 @@ $Defaults = @{
     STEAM_WEB_API_KEY = ''; DISCORD_IMPORT_BOT_TOKEN = ''; DISCORD_IMPORT_CLIENT_ID = ''
     SENTRY_URL = ''; PERSONAL_ACCESS_TOKEN = ''
     FEDERATION_PRIVATE_KEY_BASE_64 = ''; FEDERATION_PUBLIC_KEY_BASE_64 = ''; IDENTITY_SIGNING_CERT = ''
+    # Generated once and then carried forward by the loop below, which only fills keys that are
+    # missing or empty: the value has to match what the generated Caddyfile sends, and rotating
+    # one without the other fails silently rather than loudly.
+    GATEWAY_PROXY_SECRET = (New-Secret 32)
+    # Alternative to the secret, for deployments with stable proxy addresses. Empty here because
+    # container addresses are reassigned on restart.
+    GATEWAY_TRUSTED_PROXIES = ''
 }
 foreach ($key in $Defaults.Keys) {
     if (-not $Config.ContainsKey($key) -or [string]::IsNullOrEmpty($Config[$key])) { $Config[$key] = $Defaults[$key] }
@@ -535,6 +546,18 @@ MINIO_CONSOLE_BIND="127.0.0.1:9001"
 RABBITMQ_MGMT_BIND="127.0.0.1:15672"
 HAIRPIN_HOST_ENTRY="$($Config['HAIRPIN_HOST_ENTRY'])"
 
+# -- Gateway / reverse-proxy trust ----------------------------------------------------
+# Read by the echo container only - deliberately not shared with the other services, and
+# stripped from the request before anything is proxied downstream.
+#   GATEWAY_PROXY_SECRET    the reverse proxy sends this as the X-Echo-Proxy-Auth header;
+#                           matching it is what makes X-Forwarded-For believable, which is
+#                           what gives each caller their own rate-limit bucket. Leave it
+#                           unset and every anonymous caller shares one bucket.
+#   GATEWAY_TRUSTED_PROXIES optional address/CIDR allowlist, honoured in addition to the
+#                           secret. Only useful where proxy addresses are stable.
+GATEWAY_PROXY_SECRET="$($Config['GATEWAY_PROXY_SECRET'])"
+GATEWAY_TRUSTED_PROXIES="$($Config['GATEWAY_TRUSTED_PROXIES'])"
+
 # -- PostgreSQL -----------------------------------------------------------------------
 USE_EXTERNAL_DB="$($Config['USE_EXTERNAL_DB'])"
 DATABASE_HOSTNAME="$($Config['DATABASE_HOSTNAME'])"
@@ -668,6 +691,12 @@ $($Config['INSTANCE_DOMAIN']) {
 	# at /api/discord/v10/gateway) are upgraded transparently by reverse_proxy.
 	reverse_proxy echo:8080 {
 		header_up X-Forwarded-Proto https
+		# Proves to the gateway that the X-Forwarded-For chain above was written by this
+		# proxy, so it can rate-limit per real client instead of lumping everyone into one
+		# bucket keyed on this container's address. header_up *sets*, so a client that sends
+		# its own copy of this header has it overwritten here rather than merged. The gateway
+		# strips it again before proxying to any backend service.
+		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
 		flush_interval -1
 	}
 }
@@ -691,6 +720,7 @@ $($Config['DOCS_DOMAIN']) {
 
 	reverse_proxy echo:8080 {
 		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
 	}
 }
 "@
@@ -717,6 +747,20 @@ else {
         Write-Host ''
         Write-Host '  Forward the usual X-Forwarded-For / -Proto / -Host headers, and allow request'
         Write-Host '  bodies of at least 100 MB (500 MB on the storage host).'
+        Write-Host ''
+        Write-Host '  Also set this header on requests to the gateway, replacing (not appending to) any'
+        Write-Host '  copy the client sent - it is what lets the gateway believe your X-Forwarded-For and'
+        Write-Host '  give each caller their own rate-limit bucket. Without it every anonymous caller'
+        Write-Host '  shares one:'
+        Write-Host ''
+        Write-Host "    X-Echo-Proxy-Auth: $($Config['GATEWAY_PROXY_SECRET'])"
+        Write-Host ''
+        Write-Host "  nginx:  proxy_set_header X-Echo-Proxy-Auth `"$($Config['GATEWAY_PROXY_SECRET'])`";"
+        Write-Host "  Caddy:  header_up X-Echo-Proxy-Auth `"$($Config['GATEWAY_PROXY_SECRET'])`""
+        Write-Host '  Traefik: a headers middleware with customRequestHeaders on that name.'
+        Write-Host ''
+        Write-Host '  The value is in deploy\.env as GATEWAY_PROXY_SECRET. The gateway removes the header'
+        Write-Host '  before proxying onward, so it never reaches the backend services.'
     }
     else {
         Write-Warn 'no TLS: federation with other instances requires a public HTTPS endpoint'

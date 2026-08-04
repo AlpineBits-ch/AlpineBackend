@@ -205,8 +205,82 @@ The installer leaves the optional integrations blank and the stack runs without 
 | `STEAM_WEB_API_KEY` | Steam login still works (the key is only for profile enrichment) |
 | `SENTRY_URL` | no error reporting |
 | `ISLE_*` | only read when the `isle` profile is enabled |
+| `GATEWAY_PROXY_SECRET` | forwarded headers are ignored and **every anonymous caller on the internet shares one rate-limit bucket** — see below |
+| `GATEWAY_TRUSTED_PROXIES` | nothing, unless you are using it instead of the secret |
 
 After editing, apply with `ventactl up`.
+
+### `GATEWAY_PROXY_SECRET` — how the gateway identifies a caller
+
+The gateway rate-limits per caller. A signed-in caller is identified by the user id in their
+token; everyone else is identified by their IP address. But the gateway is never the edge —
+Caddy (or your own proxy) terminates TLS and forwards over the container network — so the
+address the gateway sees on the socket is the *proxy*, identical for every caller alive. The
+real address is in `X-Forwarded-For`, and a header can be forged, so the gateway will only
+believe it when something vouches for it.
+
+`GATEWAY_PROXY_SECRET` is that something. The installer generates a 32-byte random value,
+writes it to `deploy/.env`, and configures the reverse proxy to send it as the
+**`X-Echo-Proxy-Auth`** header on every request to the gateway. The gateway compares it in
+constant time and, on a match, trusts the forwarded chain. It then **removes the header**, so
+it never reaches any of the eight backend services.
+
+**Why a secret rather than a list of proxy addresses.** There is also
+`GATEWAY_TRUSTED_PROXIES`, a comma-separated list of addresses or CIDR ranges whose forwarded
+headers are believed. Either mechanism is sufficient — the chain is trusted if the secret
+matches **or** the peer is on the list — but the secret is the recommended one, because
+container addresses are reassigned whenever the stack restarts and cloud load balancers rotate
+theirs. An allowlist that has gone stale does not fail loudly: it simply stops matching, the
+gateway quietly falls back to the peer address, and every anonymous caller collapses into one
+bucket. The secret is bound to the configuration, not to the network, so nothing about a
+restart or a replaced load balancer can invalidate it. Use `GATEWAY_TRUSTED_PROXIES` only if
+your proxy really does sit on a fixed range.
+
+**Leaving it unset is safe, but coarse.** The gateway starts, ignores forwarded headers
+entirely, partitions on the peer address, and logs a warning at startup naming both variables.
+Behind a proxy that means login, registration and password reset for everyone in the world are
+charged to a single bucket, so one busy client can 429 everybody else. Existing installations
+that predate this variable are in exactly that state until the installer is re-run.
+
+**Never give it a fixed or shared value.** A default secret is published wherever it is written
+down, which makes it precisely as useful as no secret. If you set it by hand, generate one
+(`openssl rand -hex 32`) and put the same value on the gateway and the proxy. It is trimmed
+before comparison, so a trailing newline in `.env` is harmless — but a value that is *only*
+whitespace is treated as unset and warned about, never as a blank secret that matches a blank
+header.
+
+**Configuring your own proxy.** `letsencrypt` mode needs nothing: the generated
+`deploy/generated/Caddyfile` already carries
+`header_up X-Echo-Proxy-Auth "…"` on both gateway sites. In `external-proxy` mode the installer
+prints the line to add; for reference:
+
+```nginx
+# nginx — inside the location block that proxy_passes to the gateway
+proxy_set_header X-Echo-Proxy-Auth "<GATEWAY_PROXY_SECRET from deploy/.env>";
+```
+
+Use a *set*, not an append: it must overwrite any copy the client sent. (The gateway refuses a
+multi-valued header anyway, but the failure mode of that is a client forcing itself onto the
+shared bucket, which is worth avoiding.) The repository's top-level `nginx.conf`, used for
+local/dev fronting rather than by these installers, does **not** set the header — add the line
+above to its `location /` block if you rate-limit behind it.
+
+### Rate limits
+
+The gateway allows **50 requests per second per signed-in user**, with a 100-request burst
+reserve, across all proxied routes combined — the same shape as Discord's global limit, so a
+client library written against Discord already backs off correctly. Anonymous (IP-partitioned)
+callers get **20 per second with a 40-request reserve**: signing in, registering and refreshing
+a token do not fan out the way a logged-in client's first paint does, and an address is the
+cheapest partition for an attacker to multiply. Webhook execution is partitioned per webhook id
+and gets the authenticated budget.
+
+Exceeding it returns `429` with `Retry-After`, `X-RateLimit-*` headers and a Discord-shaped
+JSON body. Note that this limit is **newly enforced**: it was configured but never installed in
+earlier builds, so callers that were previously unlimited will now see 429s.
+
+There is deliberately **no tighter bucket on credential routes** (`/connect/token`, password
+reset, registration) — brute-force protection for those is not implemented.
 
 ### Storage URLs
 

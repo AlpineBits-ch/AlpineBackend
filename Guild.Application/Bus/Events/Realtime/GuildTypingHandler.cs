@@ -17,8 +17,15 @@ public class GuildTypingHandler
         MicroserviceContext microserviceContext,
         IDistributedCache cache,
         GuildPermissionService permissionService,
-        ChannelAudienceService audience)
+        ChannelAudienceService audience,
+        PrivacySettingsCache privacySettings,
+        BlockCache blocks)
     {
+        // Privacy spec T2-18, enforced at the emit site rather than the render site: a user who has
+        // turned typing indicators off does not produce one, so it never reaches the wire at all.
+        var typerSettings = await privacySettings.GetAsync(message.UserId);
+        if (!typerSettings.SendTypingIndicators) return;
+
         var cacheId = $"channel_map:{message.ChannelId}";
 
         var cachedGuildId = await cache.GetStringAsync(cacheId);
@@ -43,7 +50,25 @@ public class GuildTypingHandler
         var presence = await service.GetGuildPresenceAsync(cachedGuildId);
         var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
 
-        await hub.Clients.Users(viewerIds).SendAsync("guild.UserTyping",
+        if (viewerIds.Count == 0) return;
+
+        // No realtime event flows between a blocked pair (T0-3).
+        var blockView = await blocks.GetAsync([message.UserId]);
+        var candidates = blockView.Reachable(message.UserId, viewerIds);
+
+        if (candidates.Count == 0) return;
+
+        // Reciprocal (T2-18): someone who does not send typing indicators does not receive them.
+        var recipientSettings = await privacySettings.GetAsync(candidates);
+
+        var recipients = candidates
+            .Where(id => string.Equals(id, message.UserId, StringComparison.Ordinal)
+                         || (recipientSettings.TryGetValue(id, out var settings) && settings.SendTypingIndicators))
+            .ToList();
+
+        if (recipients.Count == 0) return;
+
+        await hub.Clients.Users(recipients).SendAsync("guild.UserTyping",
             new { channelId = message.ChannelId, userId = message.UserId });
     }
 }

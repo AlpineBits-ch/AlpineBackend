@@ -38,6 +38,27 @@ public static class IdentityAuditActions
     /// account password.
     /// </summary>
     public const string SessionDeviceBound = "session.device-bound";
+
+    /// <summary>The account's privacy record was written.</summary>
+    public const string PrivacySettingsChanged = "privacy-settings.changed";
+
+    /// <summary>The account accepted a version of a legal document (T1-10).</summary>
+    public const string ConsentRecorded = "consent.recorded";
+
+    /// <summary>A data-subject request was opened by staff (T1-13).</summary>
+    public const string DsrOpened = "dsr.opened";
+
+    /// <summary>A data-subject request was progressed - assigned, re-statused, annotated.</summary>
+    public const string DsrUpdated = "dsr.updated";
+
+    /// <summary>A data-subject request was closed with a disposition.</summary>
+    public const string DsrClosed = "dsr.closed";
+
+    /// <summary>The account asked for a copy of its own data (T1-7).</summary>
+    public const string DataExportRequested = "data-export.requested";
+
+    /// <summary>An export archive was downloaded.</summary>
+    public const string DataExportDownloaded = "data-export.downloaded";
 }
 
 public class CreateIdentityAuditEventParams

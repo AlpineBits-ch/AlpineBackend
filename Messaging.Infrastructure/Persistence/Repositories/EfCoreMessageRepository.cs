@@ -24,55 +24,63 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
             .FirstOrDefaultAsync(m => m.Id == messageId);
     }
 
-    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByConversationIdAsync(
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByConversationIdAsync(
         string conversationId, int take, int skip)
-    {
-        var messages = await context.Messages
-            .AsNoTracking()
-            .Where(m => m.ConversationId == conversationId)
-            .OrderByDescending(m => m.CreatedAt)
-            .Skip(skip)
-            .Take(take)
-            .Include(m => m.Attachments)
-            .ToListAsync();
+        => OffsetPageAsync(context.Messages.Where(m => m.ConversationId == conversationId), take, skip);
 
-        messages = messages.OrderBy(m => m.CreatedAt).ToList();
-        var reactionsByMessage = await FetchReactionsForMessages(messages);
-        return (messages, reactionsByMessage);
-    }
-
-    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByContextIdAsync(
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByContextIdAsync(
         string contextId, int take, int skip)
+        => OffsetPageAsync(context.Messages.Where(m => m.ContextId == contextId), take, skip);
+
+    public Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(
+        string channelId, int take, int skip)
+        => OffsetPageAsync(context.Messages.Where(m => m.ChannelId == channelId), take, skip);
+
+    /// <summary>One offset page: newest-first to apply the offset, returned oldest-first.</summary>
+    private async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> OffsetPageAsync(
+        IQueryable<Message> scoped, int take, int skip)
     {
-        var messages = await context.Messages
+        if (take <= 0) return (new List<Message>(), new Dictionary<string, List<Reaction>>());
+        if (skip < 0) skip = 0;
+
+        var messages = await scoped
             .AsNoTracking()
-            .Where(m => m.ContextId == contextId)
             .OrderByDescending(m => m.CreatedAt)
+            .ThenByDescending(m => m.Id)
             .Skip(skip)
             .Take(take)
             .Include(m => m.Attachments)
             .ToListAsync();
 
-        messages = messages.OrderBy(m => m.CreatedAt).ToList();
+        // Ordinal, matching the byte-wise comparison the Scylla backend's clustering key performs.
+        messages = messages
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id, StringComparer.Ordinal)
+            .ToList();
+
         var reactionsByMessage = await FetchReactionsForMessages(messages);
         return (messages, reactionsByMessage);
     }
 
-    public async Task<(ICollection<Message>, Dictionary<string, List<Reaction>>)> GetMessagesByChannelIdAsync(
-        string channelId, int take, int skip)
+    public async Task<IReadOnlyList<Message>> GetContextMessagesOlderThanAsync(
+        string contextId, DateTimeOffset olderThan, DateTimeOffset afterCreatedAt, string afterMessageId, int limit)
     {
-        var messages = await context.Messages
+        if (limit <= 0) return [];
+
+        // The relational twin of the Scylla row-tuple comparison, spelled out longhand because EF
+        // Core cannot translate a ValueTuple comparison into SQL's row-value syntax - same reason
+        // and same shape as RelativePageAsync above.
+        return await context.Messages
             .AsNoTracking()
-            .Where(m => m.ChannelId == channelId)
-            .OrderByDescending(m => m.CreatedAt)
-            .Skip(skip)
-            .Take(take)
+            .Where(m => m.ContextId == contextId
+                        && m.CreatedAt < olderThan
+                        && (m.CreatedAt > afterCreatedAt
+                            || (m.CreatedAt == afterCreatedAt && string.Compare(m.Id, afterMessageId) > 0)))
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id)
+            .Take(limit)
             .Include(m => m.Attachments)
             .ToListAsync();
-
-        messages = messages.OrderBy(m => m.CreatedAt).ToList();
-        var reactionsByMessage = await FetchReactionsForMessages(messages);
-        return (messages, reactionsByMessage);
     }
 
     public Task<Message> UpdateMessageAsync(Message message)
@@ -117,7 +125,14 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
                 before: query.Direction == MessageCursorDirection.Before, limit: query.Limit);
         }
 
-        var ordered = page.OrderBy(m => m.CreatedAt).ThenBy(m => m.Id).ToList();
+        // Ordinal, not the culture-sensitive default: the Scylla backend's clustering key compares
+        // message ids byte-wise, and a client that pages one backend and then the other must not
+        // see two orders.
+        var ordered = page
+            .OrderBy(m => m.CreatedAt)
+            .ThenBy(m => m.Id, StringComparer.Ordinal)
+            .ToList();
+
         return (ordered, await FetchReactionsForMessages(ordered));
     }
 

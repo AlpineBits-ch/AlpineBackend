@@ -1,4 +1,5 @@
-﻿using Facet;
+﻿using System.Text.Json.Serialization;
+using Facet;
 using Facet.Mapping;
 using Social.Domain.Aggregate;
 
@@ -17,4 +18,26 @@ public partial class ProfileDto
 {
     public string AvatarUrl { get; set; }
     public string BannerUrl { get; set; }
+
+    // ── Privacy-gated fields (spec T2-17 / T2-19) ────────────────────────────
+
+    /// <summary>Gated by <c>MutualFriendsVisibility</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<MutualFriendDto>? MutualFriends { get; set; }
+
+    /// <summary>Gated by <c>MutualServersVisibility</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<MutualServerDto>? MutualServers { get; set; }
+
+    /// <summary>Gated by <c>ConnectionsVisibility</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<ProfileConnectionDto>? Connections { get; set; }
+
+    /// <summary>Gated by <c>BirthdayVisibility</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateOnly? Birthday { get; set; }
+
+    /// <summary>Gated by <c>ShareActivity</c>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ProfileActivityDto? Activity { get; set; }
 }

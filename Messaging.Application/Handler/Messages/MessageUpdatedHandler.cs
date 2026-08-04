@@ -2,6 +2,7 @@
 
 using Guild.Contracts.Bus.Events;
 using Messaging.Domain.Events.Message;
+using Messaging.Domain.Previews;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,27 @@ public class MessageUpdatedHandler
                 EditedAt = messageUpdated.EditedAt,
                 IsAuthorEdit = messageUpdated.IsAuthorEdit,
             });
+        }
+
+        // Re-unfurl when the author changed the text, so editing a link changes the card. Raised
+        // here for the same reason as in MessageCreatedHandler: one handler class per message type.
+        //
+        // ShouldUnfurlEdit's IsAuthorEdit check is also the loop guard - the write this handler is
+        // reacting to may itself be a preview being attached, which publishes MessageUpdated like
+        // any other write.
+        if (UnfurlDecision.ShouldUnfurlEdit(
+                messageUpdated.IsAuthorEdit, messageUpdated.Flags, messageUpdated.Content))
+        {
+            // Either id resolves to the same storage partition, which is all the worker needs.
+            var contextId = messageUpdated.ConversationId ?? messageUpdated.ChannelId;
+            if (!string.IsNullOrWhiteSpace(contextId))
+            {
+                await bus.PublishAsync(new UnfurlMessageLinks
+                {
+                    MessageId = messageUpdated.MessageId,
+                    ContextId = contextId,
+                });
+            }
         }
     }
 

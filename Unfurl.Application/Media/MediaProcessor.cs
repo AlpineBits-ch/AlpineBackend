@@ -58,12 +58,19 @@ public class MediaProcessor(
 
             var placeholder = ThumbHash.Encode(image);
 
-            image.Mutate(x => x.Resize(new ResizeOptions
+            // Shrink only. ResizeMode.Max scales an image to *fit* the box, which means it happily
+            // enlarges anything smaller - so a 96x64 site logo came back as a blurry 1280x853 JPEG,
+            // several times the bytes of the original and worse to look at. There is no ImageSharp
+            // option for "never enlarge"; the guard is the option.
+            if (image.Width > Env.Unfurl.MaxImageEdge || image.Height > Env.Unfurl.MaxImageEdge)
             {
-                Size = new Size(Env.Unfurl.MaxImageEdge, Env.Unfurl.MaxImageEdge),
-                Mode = ResizeMode.Max,
-                Sampler = KnownResamplers.Lanczos3,
-            }));
+                image.Mutate(x => x.Resize(new ResizeOptions
+                {
+                    Size = new Size(Env.Unfurl.MaxImageEdge, Env.Unfurl.MaxImageEdge),
+                    Mode = ResizeMode.Max,
+                    Sampler = KnownResamplers.Lanczos3,
+                }));
+            }
 
             using var encoded = new MemoryStream();
             await image.SaveAsJpegAsync(encoded, new JpegEncoder { Quality = 85 }, ct);

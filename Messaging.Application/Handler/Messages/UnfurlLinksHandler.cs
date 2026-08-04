@@ -14,76 +14,22 @@ using MessageType = Messaging.Domain.Enums.MessageType;
 namespace Messaging.Application.Handler.Messages;
 
 /// <summary>
-/// Turns links in a freshly-posted message into previews (docs/specs/message-previews.md).
+/// Resolves the links in a message into previews (docs/specs/message-previews.md).
 ///
 /// <para>Deliberately after the fact. The send has already returned and
 /// <c>conversation.MessageCreated</c>/<c>guild.MessageCreated</c> have already gone out with an
 /// empty embeds array; the preview arrives moments later as an ordinary <c>MessageUpdated</c>. That
 /// is how Discord does it, and the reason is the same: a message must never wait on a third-party
 /// origin that may be slow, hostile, or gone.</para>
+///
+/// <para><b>Only <see cref="UnfurlMessageLinks"/> is handled here, and only here.</b> The decision
+/// to raise one is made by <see cref="UnfurlDecision"/> inside the handlers that already own
+/// MessageCreated and MessageUpdated. Subscribing to those events from this class instead looked
+/// tidier and silently did nothing - see UnfurlDecision's remarks for why.</para>
 /// </summary>
 [NonTransactional]
 public class UnfurlLinksHandler
 {
-    /// <summary>
-    /// Decides whether a new message is a candidate at all, and if so hands off to the worker
-    /// below. Kept cheap - the overwhelming majority of messages contain no link, and this runs on
-    /// every single one.
-    /// </summary>
-    public static UnfurlMessageLinks? Handle(MessageCreated created)
-    {
-        // Encrypted contexts: Content is MLS ciphertext, so there is no URL for the server to see.
-        // The same wall that stops search indexing. Not a gap to work around - a property of E2EE.
-        if (created.EncryptionState != MessageEncryptionState.Plain) return null;
-
-        // Join/leave/invite system messages have no user-authored body to unfurl.
-        if (created.Type != MessageType.Message) return null;
-
-        // A bot or webhook that posted its own cards gets left alone: Discord does not add link
-        // previews on top of author-supplied embeds, and there is no sensible way to order the two.
-        if (GeneratedEmbeds.HasAuthorEmbeds(created.EmbedsJson)) return null;
-
-        if (LinkExtractor.Extract(created.Content).Count == 0) return null;
-
-        return new UnfurlMessageLinks
-        {
-            MessageId = created.MessageId,
-            ContextId = created.ContextId,
-        };
-    }
-
-    /// <summary>
-    /// Re-unfurls after an edit, so changing a link changes the card.
-    ///
-    /// <para><b>The <c>IsAuthorEdit</c> guard is what stops this from looping.</b> Attaching a
-    /// preview is itself an update, and it publishes <c>MessageUpdated</c> like any other - so
-    /// reacting to every update would unfurl, publish, unfurl, publish, forever. The unfurler's own
-    /// write sets <c>IsAuthorEdit = false</c>; only a human (or a federated remote author) changing
-    /// the text sets it true.</para>
-    ///
-    /// <para>Suppression also arrives here with <c>IsAuthorEdit = false</c>, which is the second
-    /// thing this guard buys: dismissing a preview must not immediately rebuild it.</para>
-    /// </summary>
-    public static UnfurlMessageLinks? Handle(MessageUpdated updated)
-    {
-        if (!updated.IsAuthorEdit) return null;
-
-        if (MessageFlags.Has(updated.Flags, MessageFlags.SuppressEmbeds)) return null;
-
-        if (LinkExtractor.Extract(updated.Content).Count == 0) return null;
-
-        // ContextId is not on this event; either id resolves to the same storage partition, which is
-        // all the worker needs.
-        var contextId = updated.ConversationId ?? updated.ChannelId;
-        if (string.IsNullOrWhiteSpace(contextId)) return null;
-
-        return new UnfurlMessageLinks
-        {
-            MessageId = updated.MessageId,
-            ContextId = contextId,
-        };
-    }
-
     /// <summary>
     /// Resolves the links and attaches the result.
     ///

@@ -19,7 +19,11 @@ public class EchoInfraFixture
     // One database per service, matching compose's init-multiple-dbs.sh convention.
     public static readonly string[] DatabaseNames =
     [
-        "identity_e2e", "guild_e2e", "messaging_e2e", "social_e2e", "federation_e2e", "import_e2e", "echo_e2e"
+        "identity_e2e", "guild_e2e", "messaging_e2e", "social_e2e", "federation_e2e", "import_e2e",
+        // Unfurl owns no domain data; this holds Wolverine's envelope tables and nothing else. It
+        // still has to exist - a service whose database is missing fails to start.
+        "unfurl_e2e",
+        "echo_e2e"
     ];
 
     [OneTimeSetUp]

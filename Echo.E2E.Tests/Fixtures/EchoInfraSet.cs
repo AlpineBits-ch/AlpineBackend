@@ -154,6 +154,45 @@ public sealed class EchoInfraSet : IAsyncDisposable
         await s3.PutBucketAsync(new PutBucketRequest { BucketName = ObjectStorageBucket });
     }
 
+    /// <summary>
+    /// Creates databases that do not already exist.
+    ///
+    /// <para>Separate from <see cref="CreateDatabasesAsync"/>, which is called once with a known
+    /// list and would rather fail loudly on a duplicate. This one is for a database a service
+    /// cannot create for itself: every EF-backed service runs migrations at startup, and EF creates
+    /// the database when it is missing - but Unfurl owns no domain data and therefore has no
+    /// DbContext, so nothing creates the database Wolverine wants for its envelope tables and the
+    /// process dies on "Failed to setup resource Envelope Storage".</para>
+    ///
+    /// <para>Production has the same requirement and meets it elsewhere: <c>db_names</c> in the
+    /// infrastructure repo's Terraform, and the <c>postgres-init</c> service in compose.yaml.</para>
+    /// </summary>
+    public async Task EnsureDatabasesAsync(params string[] databaseNames)
+    {
+        await using var connection = new NpgsqlConnection(AdminConnectionString());
+        await connection.OpenAsync();
+
+        foreach (var database in databaseNames)
+        {
+            await using var exists = new NpgsqlCommand(
+                "SELECT 1 FROM pg_database WHERE datname = @name", connection);
+            exists.Parameters.AddWithValue("name", database);
+            if (await exists.ExecuteScalarAsync() is not null) continue;
+
+            await using var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", connection);
+            await create.ExecuteNonQueryAsync();
+        }
+    }
+
+    private string AdminConnectionString() => new NpgsqlConnectionStringBuilder
+    {
+        Host = PostgresHost,
+        Port = PostgresPort,
+        Database = "postgres",
+        Username = "postgres",
+        Password = "postgres",
+    }.ConnectionString;
+
     public async Task CreateDatabasesAsync(params string[] databaseNames)
     {
         var adminConnectionString = new NpgsqlConnectionStringBuilder

@@ -11,6 +11,7 @@ using Messaging.Application.Services;
 using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
+using Messaging.Domain.Previews;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -133,6 +134,24 @@ public class MessageCreatedHandler
                     ThumbnailUrl = a.ThumbnailUrl,
                     ThumbnailId = a.ThumbnailId,
                 }).ToList()
+            });
+        }
+
+        // Link previews (docs/specs/message-previews.md). Raised from here, at the end of the
+        // fan-out that has already delivered the message, rather than from a handler of its own:
+        // no message type in this service is handled by two handler classes, and the one attempt to
+        // make MessageCreated the first silently never ran. See UnfurlDecision.
+        //
+        // Last, and deliberately so - a failure to queue a preview must never cost the message its
+        // delivery or its push notification.
+        if (UnfurlDecision.ShouldUnfurlNew(
+                messageCreated.EncryptionState, messageCreated.Type,
+                messageCreated.EmbedsJson, messageCreated.Content))
+        {
+            await bus.PublishAsync(new UnfurlMessageLinks
+            {
+                MessageId = messageCreated.MessageId,
+                ContextId = messageCreated.ContextId,
             });
         }
     }

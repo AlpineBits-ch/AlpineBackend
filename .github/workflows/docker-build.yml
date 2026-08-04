@@ -206,9 +206,9 @@ jobs:
           mkdir -p ./Messaging.Application/Credentials
           echo "$SIX_LABORS_LIC" > ./Messaging.Application/Credentials/sixlabors.lic
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
+      # No QEMU: `platforms: linux/amd64` below is the only target, and it is the runner's own
+      # architecture - so there is nothing to emulate. Registering the binfmt handlers cost a step
+      # on every build and bought nothing.
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

@@ -55,7 +55,27 @@ public sealed class EchoTestStack : IAsyncDisposable
     public SpawnedServiceProcess Social { get; private set; } = null!;
     public SpawnedServiceProcess Federation { get; private set; } = null!;
     public SpawnedServiceProcess Import { get; private set; } = null!;
+
+    /// <summary>
+    /// Link previews (docs/specs/message-previews.md).
+    ///
+    /// <para>Spawned like the rest, and it has to be: the preview flow is the one feature that is
+    /// almost entirely <i>seam</i>. Everything interesting happens between processes - Messaging
+    /// raises MessageCreated, cascades UnfurlMessageLinks over RabbitMQ, request/responds to this
+    /// service, then writes the answer back through UpdateMessageCommand and out over the realtime
+    /// hub. Unit tests can reach none of that, and the first deployment proved it: every unit test
+    /// passed while the feature did nothing at all in the cluster.</para>
+    /// </summary>
+    public SpawnedServiceProcess Unfurl { get; private set; } = null!;
+
     public SpawnedServiceProcess Gateway { get; private set; } = null!;
+
+    /// <summary>
+    /// The Unfurl service's own base URL, which is also what it builds <c>proxy_url</c> values
+    /// from. Exposed so a test can follow a generated preview's image URL and prove the re-hosted
+    /// copy is really served.
+    /// </summary>
+    public string UnfurlBaseUrl { get; private set; } = null!;
 
     public string InstanceName { get; }
 
@@ -66,6 +86,12 @@ public sealed class EchoTestStack : IAsyncDisposable
     /// processes are given, so it cannot drift from what they actually connect to.
     /// </summary>
     public string IdentityDatabaseName { get; private set; } = null!;
+
+    /// <summary>This stack's Messaging database. Exposed for the same reason as
+    /// <see cref="IdentityDatabaseName"/>, plus one more: Wolverine's dead-letter and incoming-
+    /// envelope tables live here, and they are the only authoritative answer to "was this
+    /// cross-service message ever delivered" when a flow silently does nothing.</summary>
+    public string MessagingDatabaseName { get; private set; } = null!;
 
     private EchoTestStack(string instanceName) => InstanceName = instanceName;
 
@@ -138,7 +164,8 @@ public sealed class EchoTestStack : IAsyncDisposable
 
         var guildEnv = Common($"guild_{databaseSuffix}");
         guildEnv["INSTANCE_URL"] = identityUrl;
-        var messagingEnv = Common($"messaging_{databaseSuffix}");
+        stack.MessagingDatabaseName = $"messaging_{databaseSuffix}";
+        var messagingEnv = Common(stack.MessagingDatabaseName);
         messagingEnv["INSTANCE_URL"] = identityUrl;
         // Production defaults message storage to Scylla (compose.yaml sets USE_SCYLLA_DB=true;
         // see Messaging.Infrastructure.MessagingInfrastructure). Forced to the EF Core/Postgres
@@ -160,6 +187,43 @@ public sealed class EchoTestStack : IAsyncDisposable
         federationEnv["INSTANCE_NAME"] = instanceName;
         var importEnv = Common($"import_{databaseSuffix}");
         importEnv["INSTANCE_URL"] = identityUrl;
+        // Reserved up front, like Identity's, because the service has to be told its own public
+        // address: proxy_url values are built from UNFURL_PUBLIC_BASE_URL and stored inside
+        // messages, so it cannot be discovered after the fact.
+        var unfurlPort = SpawnedServiceProcess.ReserveFreeTcpPort();
+        stack.UnfurlBaseUrl = $"http://127.0.0.1:{unfurlPort}";
+
+        var unfurlDatabase = $"unfurl_{databaseSuffix}";
+
+        // Created here because nothing else will. Every other service in this stack runs EF
+        // migrations at startup and EF creates a missing database on the way; Unfurl has no
+        // DbContext at all, so its Wolverine envelope storage would hit a database that does not
+        // exist and the process would exit before becoming healthy.
+        await infra.EnsureDatabasesAsync(unfurlDatabase);
+
+        var unfurlEnv = Common(unfurlDatabase);
+        unfurlEnv["INSTANCE_URL"] = identityUrl;
+        unfurlEnv["UNFURL_PUBLIC_BASE_URL"] = stack.UnfurlBaseUrl;
+
+        // The one setting that is deliberately the opposite of production.
+        //
+        // The SSRF guard (AppEnvironment/Security/OutboundAddressGuard) refuses to dial loopback,
+        // and the stub origin these tests fetch from is on localhost - so with the production value
+        // every preview in this harness would fail for the right reason and prove nothing. It is
+        // scoped to this spawned process only; the guard itself is still exercised, by
+        // OutboundAddressGuardTests in Unfurl.Tests, against every range it is meant to block.
+        unfurlEnv["UNFURL_ALLOW_PRIVATE_TARGETS"] = "true";
+
+        // Preview images are re-hosted rather than hot-linked, so the media half of the pipeline
+        // needs a real bucket the same way Identity's export does - decode, resize, thumbhash, PUT,
+        // and then serve it back on the proxy route.
+        unfurlEnv["BUCKET_NAME"] = EchoInfraSet.ObjectStorageBucket;
+        unfurlEnv["ACCESS_KEY_ID"] = EchoInfraSet.ObjectStorageAccessKey;
+        unfurlEnv["SECRET_ACCESS_KEY"] = EchoInfraSet.ObjectStorageSecretKey;
+        unfurlEnv["SERVICE_URL"] = infra.ObjectStorageUrl;
+        unfurlEnv["PUBLIC_URL"] = infra.ObjectStorageUrl;
+        unfurlEnv["USE_SERVICE_URL"] = "true";
+
         var gatewayEnv = Common($"echo_{databaseSuffix}");
         gatewayEnv["INSTANCE_URL"] = identityUrl;
         // ExportUserDataSaga runs in the gateway process, and its deadline
@@ -197,6 +261,8 @@ public sealed class EchoTestStack : IAsyncDisposable
                 "Federation.Application", "/federation/health", federationEnv);
             stack.Import = await SpawnedServiceProcess.StartAsync(
                 "Import.Application", "/import/health", importEnv);
+            stack.Unfurl = await SpawnedServiceProcess.StartAsync(
+                "Unfurl.Application", "/unfurl/health", unfurlEnv, unfurlPort);
             stack.Gateway = await SpawnedServiceProcess.StartAsync(
                 "Echo", "/health", gatewayEnv);
         }
@@ -213,7 +279,7 @@ public sealed class EchoTestStack : IAsyncDisposable
 
     private async ValueTask DisposeStartedAsync()
     {
-        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import, Gateway }
+        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import, Unfurl, Gateway }
             .Where(p => p is not null);
         await Task.WhenAll(started.Select(p => p.DisposeAsync().AsTask()));
     }

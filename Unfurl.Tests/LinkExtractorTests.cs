@@ -165,4 +165,24 @@ public class LinkExtractorTests
     {
         Assert.That(LinkExtractor.Extract("see /docs/page for details"), Is.Empty);
     }
+
+    [Test]
+    public void Extract_DotlessHostname_IsNotTreatedAsALink()
+    {
+        // Markdown autolink detection requires a dot in the host, so "http://localhost:8080/x" and
+        // "http://intranet/page" are never recognised as links and never unfurled. Pinned here
+        // because it is surprising, it is inherited from the Markdown spec rather than chosen, and
+        // it cost a full E2E suite once: the stub origin served on localhost and every preview test
+        // failed while pointing squarely at the product.
+        //
+        // Behaviour matches Discord's, and an explicit markdown link - [text](http://localhost/x) -
+        // is unaffected, so an intranet user has a way to get a link rendered either way.
+        Assert.Multiple(() =>
+        {
+            Assert.That(LinkExtractor.Extract("http://localhost:8080/health"), Is.Empty);
+            Assert.That(LinkExtractor.Extract("http://intranet/page"), Is.Empty);
+            Assert.That(LinkExtractor.Extract("http://127.0.0.1:8080/health"), Is.Not.Empty,
+                "an IP literal still is a link - it is the dot that matters, not the routability");
+        });
+    }
 }

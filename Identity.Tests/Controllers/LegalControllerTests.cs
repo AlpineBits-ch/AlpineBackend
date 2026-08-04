@@ -411,4 +411,64 @@ public class LegalControllerTests
             await ctx.SaveChangesAsync();
         }
     }
+
+    /// <summary>
+    /// The seeder upserts and, until this was fixed, never removed - so a database that had seen an
+    /// earlier manifest kept rows for documents this build no longer ships. That is not merely
+    /// untidy: the placeholder rows were stamped with the date they were seeded, which is *later*
+    /// than the real Terms (2026-05-19) and Cookies (2025-05-17) documents that replaced them, and
+    /// "current" is the latest EffectiveAt. The stale placeholder went on being served as the
+    /// current Terms of Service, and its file was gone, so fetching it 404'd.
+    /// </summary>
+    [Test]
+    public async Task Seeder_RemovesDocumentsTheManifestNoLongerDeclares_AndTheRealOneBecomesCurrent()
+    {
+        using (var arrange = Host.Services.CreateScope())
+        {
+            var ctx = arrange.ServiceProvider.GetRequiredService<MicroserviceContext>();
+            ctx.LegalDocuments.Add(LegalDocument.Create(new CreateLegalDocumentParams
+            {
+                DocumentType = LegalDocumentType.Terms,
+                Version = "0.1.0-placeholder",
+                // Dated ahead of the real document, exactly as the seeded placeholders were.
+                EffectiveAt = DateTimeOffset.UtcNow.AddDays(-1),
+                ContentHash = new string('0', 64),
+                Url = "https://example.test/api/v1/identity/legal/documents/terms/0.1.0-placeholder",
+            }));
+            await ctx.SaveChangesAsync();
+        }
+
+        var seeder = new Identity.Application.Services.LegalDocumentSeeder(
+            Host.Services.GetRequiredService<IServiceScopeFactory>(),
+            Host.Services.GetRequiredService<Identity.Application.Services.LegalDocumentCatalog>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<
+                Identity.Application.Services.LegalDocumentSeeder>.Instance);
+
+        await seeder.StartAsync(CancellationToken.None);
+
+        using var assert = Host.Services.CreateScope();
+        var after = assert.ServiceProvider.GetRequiredService<MicroserviceContext>();
+        var terms = await after.LegalDocuments
+            .Where(d => d.DocumentType == LegalDocumentType.Terms)
+            .ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(terms.Select(t => t.Version), Does.Not.Contain("0.1.0-placeholder"),
+                "a document the manifest no longer declares has no file behind it, so leaving the "
+                + "row serves a 404 and lets it outrank the document that replaced it");
+            Assert.That(terms.Select(t => t.Version), Does.Contain("2026-05-19"));
+        });
+
+        var listed = await Host.Scenario(x =>
+        {
+            x.Get.Url("/api/v1/legal/documents");
+            x.StatusCodeShouldBe(HttpStatusCode.OK);
+        });
+        var currentTerms = (await listed.ReadAsJsonAsync<JsonElement>()).EnumerateArray()
+            .First(d => d.GetProperty("documentType").GetString() == "Terms");
+
+        Assert.That(currentTerms.GetProperty("version").GetString(), Is.EqualTo("2026-05-19"),
+            "the current Terms must be the real published document, not a stale placeholder");
+    }
 }

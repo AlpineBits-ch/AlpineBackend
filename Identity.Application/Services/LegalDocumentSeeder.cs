@@ -102,6 +102,40 @@ public class LegalDocumentSeeder(
             }
         }
 
+        // Rows the manifest no longer declares are removed, because the manifest - not the
+        // directory listing and not the table - decides what this build serves. A row left behind
+        // has no file, so GET /legal/documents/{type}/{version} answers 404 for it; worse, it keeps
+        // competing to be the *current* document of its type, which is decided by the latest
+        // EffectiveAt. That is not hypothetical: the 0.1.0-placeholder rows were stamped with the
+        // date they were seeded, which is later than the real Terms (2026-05-19) and Cookies
+        // (2025-05-17) documents that replaced them, so on any database that had seen the
+        // placeholders they went on outranking the real text.
+        //
+        // Safe against UserConsent: it stores documentType and version as plain strings with no
+        // foreign key to this table (its only FK is to ApplicationUser), so a consent record
+        // outlives the row it names. Removing a version somebody consented to still loses the
+        // ability to serve them the text they agreed to, which is why dropping a genuinely
+        // published document from the manifest must stay a deliberate act - hence the Warning.
+        var undeclared = existing
+            .Where(row => !declared.Any(
+                d => d.DocumentType == row.DocumentType && d.Version == row.Version))
+            .ToList();
+
+        foreach (var row in undeclared)
+        {
+            logger.LogWarning(
+                "Removing legal document {Type} v{Version}: the manifest no longer declares it, so "
+                + "no file backs it and it would 404 while still competing to be the current "
+                + "document of its type",
+                row.DocumentType, row.Version);
+        }
+
+        if (undeclared.Count > 0)
+        {
+            ctx.LegalDocuments.RemoveRange(undeclared);
+            changed = true;
+        }
+
         if (changed) await ctx.SaveChangesAsync(ct);
     }
 }

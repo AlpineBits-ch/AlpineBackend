@@ -87,7 +87,7 @@ public class ExportUserDataSaga : Saga
     /// one of them is wrong - either something is being erased that was never disclosed, or something
     /// is being disclosed that erasure will miss.</para>
     /// </summary>
-    private static readonly string[] ParticipatingServices =
+    internal static readonly string[] ParticipatingServices =
         ["identity", "social", "guild", "messaging", "federation", "import", "bots", "isle"];
 
     /// <summary>The export id, so two exports for different accounts - or a second export for the

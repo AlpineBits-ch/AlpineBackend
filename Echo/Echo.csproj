@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
@@ -41,4 +41,9 @@
       <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- Echo.Tests asserts that the saga fan-out width never outgrows the retry budget in
+             Messaging.SagaConcurrencyRetryDelays; that invariant needs the participant lists. -->
+        <InternalsVisibleTo Include="Echo.Tests" />
+    </ItemGroup>
 </Project>

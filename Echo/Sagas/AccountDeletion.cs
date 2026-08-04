@@ -78,7 +78,7 @@ public class AccountDeletionSaga : Saga
     /// Every environment running this saga still has to be running all eight processes; the
     /// difference is that an environment which is not now says so out loud.</para>
     /// </summary>
-    private static readonly string[] ParticipatingServices =
+    internal static readonly string[] ParticipatingServices =
         ["identity", "social", "guild", "messaging", "federation", "import", "bots", "isle"];
 
     public string Id { get; set; }

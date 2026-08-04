@@ -97,13 +97,32 @@ builder.UseWolverine(opts =>
     // entirely - meaning Federation could never send/receive the cross-service bus messages the
     // rest of federation wiring depends on outside Production.
     opts.ConfigureWolverine();
-    opts.UseSystemTextJsonForSerialization(o =>
-    {
-        o.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
-        o.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
-        o.TypeInfoResolverChain.Insert(1, FederationMessageContext.Default);
-
-    });
+    // Reflection-based serialization for bus messages, exactly like the other seven services.
+    //
+    // This used to install EventJsonContext and FederationMessageContext as the *entire*
+    // TypeInfoResolverChain. Because that chain had no reflection fallback, any message type not
+    // explicitly annotated in one of those two contexts could not be deserialized at all - and the
+    // failure was invisible in every way that matters: it is not a compile error, not a startup
+    // error, and produces no routing warning. The envelope is taken off the queue, dies in
+    // HandlerPipeline.TryDeserializeEnvelope before the handler is ever invoked, and is moved to the
+    // error queue.
+    //
+    // Both cross-service lifecycle commands were missing from those contexts, so in production
+    // Federation silently answered neither:
+    //   - ExportUserDataCommand  -> every data export resolved Partial, naming federation
+    //   - PurgeUserDataCommand   -> every account deletion hung, because AccountDeletionSaga
+    //                               deliberately never self-completes on its deadline
+    // Both are GDPR paths, and both failed with no error surfaced anywhere except the dead-letter
+    // queue, which nothing consumes or alerts on.
+    //
+    // Adding the two missing types would have fixed today's symptom and left the trap armed for the
+    // next contract added to the fan-out. Nothing here needs source generation - Federation is not
+    // trimmed or AOT-published - so the whole hazard goes away with it.
+    //
+    // The HTTP configuration above deliberately keeps EventJsonContext: those options come from
+    // ASP.NET with a reflection resolver already in the chain, so inserting a context there only
+    // prioritises it and still falls back. That is the safe shape; this was not.
+    opts.UseSystemTextJsonForSerialization(FederationBusSerialization.Configure);
 
     // Static codegen (the default) expects the ahead-of-time-generated types the Dockerfile bakes
     // in via `dotnet run -- codegen write` before publish.

@@ -107,7 +107,12 @@ public class LegalControllerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(content, Does.Contain("<!-- LEGAL REVIEW REQUIRED -->"));
+            // Was a check for the placeholder banner, back when what shipped was a generated
+            // outline. The documents are now the real published text, so this asserts the
+            // endpoint served that rather than an unreviewed stand-in - the hash check below
+            // proves the bytes are intact, but not that they are the right document.
+            Assert.That(content, Does.Contain("End User License Agreement"));
+            Assert.That(content, Does.Not.Contain("LEGAL REVIEW REQUIRED"));
             Assert.That(
                 Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
                     System.Text.Encoding.UTF8.GetBytes(content))).ToLowerInvariant(),

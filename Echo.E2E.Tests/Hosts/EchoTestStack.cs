@@ -14,12 +14,25 @@ public sealed class EchoTestStack : IAsyncDisposable
     public SpawnedServiceProcess Social { get; private set; } = null!;
     public SpawnedServiceProcess Federation { get; private set; } = null!;
     public SpawnedServiceProcess Import { get; private set; } = null!;
+
+    /// <summary>Link previews (docs/specs/message-previews.md).</summary>
+    public SpawnedServiceProcess Unfurl { get; private set; } = null!;
+
     public SpawnedServiceProcess Gateway { get; private set; } = null!;
+
+    /// <summary>
+    /// The Unfurl service's own base URL, which is also what it builds <c>proxy_url</c> values
+    /// from.
+    /// </summary>
+    public string UnfurlBaseUrl { get; private set; } = null!;
 
     public string InstanceName { get; }
 
     /// <summary>This stack's Identity database.</summary>
     public string IdentityDatabaseName { get; private set; } = null!;
+
+    /// <summary>This stack's Messaging database.</summary>
+    public string MessagingDatabaseName { get; private set; } = null!;
 
     private EchoTestStack(string instanceName) => InstanceName = instanceName;
 
@@ -87,7 +100,8 @@ public sealed class EchoTestStack : IAsyncDisposable
 
         var guildEnv = Common($"guild_{databaseSuffix}");
         guildEnv["INSTANCE_URL"] = identityUrl;
-        var messagingEnv = Common($"messaging_{databaseSuffix}");
+        stack.MessagingDatabaseName = $"messaging_{databaseSuffix}";
+        var messagingEnv = Common(stack.MessagingDatabaseName);
         messagingEnv["INSTANCE_URL"] = identityUrl;
         // Production defaults message storage to Scylla (compose.yaml sets USE_SCYLLA_DB=true; see
         // Messaging.Infrastructure.MessagingInfrastructure).
@@ -99,6 +113,34 @@ public sealed class EchoTestStack : IAsyncDisposable
         federationEnv["INSTANCE_NAME"] = instanceName;
         var importEnv = Common($"import_{databaseSuffix}");
         importEnv["INSTANCE_URL"] = identityUrl;
+        // Reserved up front, like Identity's, because the service has to be told its own public
+        // address: proxy_url values are built from UNFURL_PUBLIC_BASE_URL and stored inside
+        // messages, so it cannot be discovered after the fact.
+        var unfurlPort = SpawnedServiceProcess.ReserveFreeTcpPort();
+        stack.UnfurlBaseUrl = $"http://127.0.0.1:{unfurlPort}";
+
+        var unfurlDatabase = $"unfurl_{databaseSuffix}";
+
+        // Created here because nothing else will.
+        await infra.EnsureDatabasesAsync(unfurlDatabase);
+
+        var unfurlEnv = Common(unfurlDatabase);
+        unfurlEnv["INSTANCE_URL"] = identityUrl;
+        unfurlEnv["UNFURL_PUBLIC_BASE_URL"] = stack.UnfurlBaseUrl;
+
+        // The one setting that is deliberately the opposite of production.
+        unfurlEnv["UNFURL_ALLOW_PRIVATE_TARGETS"] = "true";
+
+        // Preview images are re-hosted rather than hot-linked, so the media half of the pipeline
+        // needs a real bucket the same way Identity's export does - decode, resize, thumbhash, PUT,
+        // and then serve it back on the proxy route.
+        unfurlEnv["BUCKET_NAME"] = EchoInfraSet.ObjectStorageBucket;
+        unfurlEnv["ACCESS_KEY_ID"] = EchoInfraSet.ObjectStorageAccessKey;
+        unfurlEnv["SECRET_ACCESS_KEY"] = EchoInfraSet.ObjectStorageSecretKey;
+        unfurlEnv["SERVICE_URL"] = infra.ObjectStorageUrl;
+        unfurlEnv["PUBLIC_URL"] = infra.ObjectStorageUrl;
+        unfurlEnv["USE_SERVICE_URL"] = "true";
+
         var gatewayEnv = Common($"echo_{databaseSuffix}");
         gatewayEnv["INSTANCE_URL"] = identityUrl;
         // ExportUserDataSaga runs in the gateway process, and its deadline
@@ -122,6 +164,8 @@ public sealed class EchoTestStack : IAsyncDisposable
                 "Federation.Application", "/federation/health", federationEnv);
             stack.Import = await SpawnedServiceProcess.StartAsync(
                 "Import.Application", "/import/health", importEnv);
+            stack.Unfurl = await SpawnedServiceProcess.StartAsync(
+                "Unfurl.Application", "/unfurl/health", unfurlEnv, unfurlPort);
             stack.Gateway = await SpawnedServiceProcess.StartAsync(
                 "Echo", "/health", gatewayEnv);
         }
@@ -138,7 +182,7 @@ public sealed class EchoTestStack : IAsyncDisposable
 
     private async ValueTask DisposeStartedAsync()
     {
-        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import, Gateway }
+        var started = new[] { Identity, Guild, Messaging, Social, Federation, Import, Unfurl, Gateway }
             .Where(p => p is not null);
         await Task.WhenAll(started.Select(p => p.DisposeAsync().AsTask()));
     }

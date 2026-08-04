@@ -158,4 +158,18 @@ public class LinkExtractorTests
     {
         Assert.That(LinkExtractor.Extract("see /docs/page for details"), Is.Empty);
     }
+
+    [Test]
+    public void Extract_DotlessHostname_IsNotTreatedAsALink()
+    {
+        // Markdown autolink detection requires a dot in the host, so "http://localhost:8080/x" and
+        // "http://intranet/page" are never recognised as links and never unfurled.
+        Assert.Multiple(() =>
+        {
+            Assert.That(LinkExtractor.Extract("http://localhost:8080/health"), Is.Empty);
+            Assert.That(LinkExtractor.Extract("http://intranet/page"), Is.Empty);
+            Assert.That(LinkExtractor.Extract("http://127.0.0.1:8080/health"), Is.Not.Empty,
+                "an IP literal still is a link - it is the dot that matters, not the routability");
+        });
+    }
 }

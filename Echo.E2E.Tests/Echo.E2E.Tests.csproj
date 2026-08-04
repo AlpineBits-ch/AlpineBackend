@@ -43,6 +43,7 @@
     <ProjectReference Include="..\Social.Application\Social.Application.csproj" />
     <ProjectReference Include="..\Federation.Application\Federation.Application.csproj" />
     <ProjectReference Include="..\Import.Application\Import.Application.csproj" />
+    <ProjectReference Include="..\Unfurl.Application\Unfurl.Application.csproj" />
     <ProjectReference Include="..\Echo\Echo.csproj" />
   </ItemGroup>
 

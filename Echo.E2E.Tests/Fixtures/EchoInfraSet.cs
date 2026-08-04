@@ -130,6 +130,33 @@ public sealed class EchoInfraSet : IAsyncDisposable
         await s3.PutBucketAsync(new PutBucketRequest { BucketName = ObjectStorageBucket });
     }
 
+    /// <summary>Creates databases that do not already exist.</summary>
+    public async Task EnsureDatabasesAsync(params string[] databaseNames)
+    {
+        await using var connection = new NpgsqlConnection(AdminConnectionString());
+        await connection.OpenAsync();
+
+        foreach (var database in databaseNames)
+        {
+            await using var exists = new NpgsqlCommand(
+                "SELECT 1 FROM pg_database WHERE datname = @name", connection);
+            exists.Parameters.AddWithValue("name", database);
+            if (await exists.ExecuteScalarAsync() is not null) continue;
+
+            await using var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", connection);
+            await create.ExecuteNonQueryAsync();
+        }
+    }
+
+    private string AdminConnectionString() => new NpgsqlConnectionStringBuilder
+    {
+        Host = PostgresHost,
+        Port = PostgresPort,
+        Database = "postgres",
+        Username = "postgres",
+        Password = "postgres",
+    }.ConnectionString;
+
     public async Task CreateDatabasesAsync(params string[] databaseNames)
     {
         var adminConnectionString = new NpgsqlConnectionStringBuilder

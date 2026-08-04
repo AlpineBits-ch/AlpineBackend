@@ -44,12 +44,16 @@ public class MediaProcessor(
 
             var placeholder = ThumbHash.Encode(image);
 
-            image.Mutate(x => x.Resize(new ResizeOptions
+            // Shrink only.
+            if (image.Width > Env.Unfurl.MaxImageEdge || image.Height > Env.Unfurl.MaxImageEdge)
             {
-                Size = new Size(Env.Unfurl.MaxImageEdge, Env.Unfurl.MaxImageEdge),
-                Mode = ResizeMode.Max,
-                Sampler = KnownResamplers.Lanczos3,
-            }));
+                image.Mutate(x => x.Resize(new ResizeOptions
+                {
+                    Size = new Size(Env.Unfurl.MaxImageEdge, Env.Unfurl.MaxImageEdge),
+                    Mode = ResizeMode.Max,
+                    Sampler = KnownResamplers.Lanczos3,
+                }));
+            }
 
             using var encoded = new MemoryStream();
             await image.SaveAsJpegAsync(encoded, new JpegEncoder { Quality = 85 }, ct);

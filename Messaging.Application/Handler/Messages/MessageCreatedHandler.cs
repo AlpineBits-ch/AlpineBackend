@@ -11,6 +11,7 @@ using Messaging.Application.Services;
 using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
+using Messaging.Domain.Previews;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -125,6 +126,18 @@ public class MessageCreatedHandler
                     ThumbnailUrl = a.ThumbnailUrl,
                     ThumbnailId = a.ThumbnailId,
                 }).ToList()
+            });
+        }
+
+        // Link previews (docs/specs/message-previews.md).
+        if (UnfurlDecision.ShouldUnfurlNew(
+                messageCreated.EncryptionState, messageCreated.Type,
+                messageCreated.EmbedsJson, messageCreated.Content))
+        {
+            await bus.PublishAsync(new UnfurlMessageLinks
+            {
+                MessageId = messageCreated.MessageId,
+                ContextId = messageCreated.ContextId,
             });
         }
     }

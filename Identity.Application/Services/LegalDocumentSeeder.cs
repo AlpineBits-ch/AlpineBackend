@@ -91,6 +91,28 @@ public class LegalDocumentSeeder(
             }
         }
 
+        // Rows the manifest no longer declares are removed, because the manifest - not the
+        // directory listing and not the table - decides what this build serves.
+        var undeclared = existing
+            .Where(row => !declared.Any(
+                d => d.DocumentType == row.DocumentType && d.Version == row.Version))
+            .ToList();
+
+        foreach (var row in undeclared)
+        {
+            logger.LogWarning(
+                "Removing legal document {Type} v{Version}: the manifest no longer declares it, so "
+                + "no file backs it and it would 404 while still competing to be the current "
+                + "document of its type",
+                row.DocumentType, row.Version);
+        }
+
+        if (undeclared.Count > 0)
+        {
+            ctx.LegalDocuments.RemoveRange(undeclared);
+            changed = true;
+        }
+
         if (changed) await ctx.SaveChangesAsync(ct);
     }
 }

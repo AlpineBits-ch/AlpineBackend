@@ -5,6 +5,7 @@ using Echo.Persistence.Persistance;
 using Echo.Proxy;
 using Echo.Realtime;
 using Echo.RateLimiter;
+using Echo.Sagas;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -43,6 +44,11 @@ builder.UseWolverine(opts =>
     // Development. Realtime therefore requires RabbitMQ + the target services to be running.
     opts.ConfigureWolverine(false);
 
+    // Nothing may be handled while Wolverine is still starting: a saga chain compiled on a
+    // listener thread clears the same handler list StartAsync is enumerating, and the host dies
+    // before it is ever healthy. See WolverineListenerStartup for the full mechanism.
+    opts.DeferListenerStartup();
+
     // Static codegen (the default) expects the ahead-of-time-generated types the Dockerfile
     // bakes in via `dotnet run -- codegen write` before publish. A local/dev/test run from raw
     // build output never runs that step, so fall back to compiling handlers on the fly.
@@ -52,6 +58,11 @@ builder.UseWolverine(opts =>
         opts.Services.AddRuntimeCompilation();
     }
 });
+
+// Registered immediately after UseWolverine so the host runs it directly after Wolverine's own
+// runtime has finished starting - hosted services start in registration order, and that ordering
+// is the entire guarantee here (see WolverineListenerStartup).
+builder.Services.AddHostedService<DeferredWolverineListeners>();
 
 if (args.Contains("codegen") || args.Contains("describe"))
 {

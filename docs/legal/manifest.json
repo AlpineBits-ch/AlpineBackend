@@ -6,26 +6,30 @@
     "a file beside it - never editing a published file in place, which is exactly what ContentHash",
     "exists to make detectable.",
     "Versions are ordered by effectiveAt, not by string comparison: the 'current' document of a",
-    "type is the one with the latest effectiveAt that is not in the future."
+    "type is the one with the latest effectiveAt that is not in the future.",
+    "Versions are the document's own 'last updated' date. These are the real published documents,",
+    "sourced from the alpine-angular-landing repo (src/app/components/legal); the placeholders they",
+    "replaced were never deployed. Any change here must be mirrored in that repo, or venta.gg and",
+    "the in-app policy will disagree."
   ],
   "documents": [
     {
       "documentType": "Terms",
-      "version": "0.1.0-placeholder",
-      "effectiveAt": "2026-08-04T00:00:00Z",
-      "file": "terms-0.1.0-placeholder.md"
+      "version": "2026-05-19",
+      "effectiveAt": "2026-05-19T00:00:00Z",
+      "file": "terms-2026-05-19.md"
     },
     {
       "documentType": "Privacy",
-      "version": "0.1.0-placeholder",
+      "version": "2026-08-04",
       "effectiveAt": "2026-08-04T00:00:00Z",
-      "file": "privacy-0.1.0-placeholder.md"
+      "file": "privacy-2026-08-04.md"
     },
     {
       "documentType": "Cookies",
-      "version": "0.1.0-placeholder",
-      "effectiveAt": "2026-08-04T00:00:00Z",
-      "file": "cookies-0.1.0-placeholder.md"
+      "version": "2025-05-17",
+      "effectiveAt": "2025-05-17T00:00:00Z",
+      "file": "cookies-2025-05-17.md"
     }
   ]
 }

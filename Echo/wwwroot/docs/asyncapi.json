@@ -3372,6 +3372,12 @@
                 "null"
               ]
             },
+            "componentsJson": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "content": {
               "type": "array",
               "items": {
@@ -3387,21 +3393,38 @@
             "correlationId": {
               "type": "string"
             },
+            "editedAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
             "embedsJson": {
               "type": [
                 "string",
                 "null"
               ]
             },
+            "flags": {
+              "type": "integer"
+            },
+            "isAuthorEdit": {
+              "type": "boolean"
+            },
             "messageId": {
               "type": "string"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
             }
           }
         },
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Messages\\MessageUpdatedHandler.cs",
-            "line": 28,
+            "line": 37,
             "clrType": "Messaging.Domain.Events.Message.MessageUpdated",
             "anonymous": false
           }
@@ -5130,6 +5153,9 @@
                       }
                     }
                   },
+                  "flags": {
+                    "type": "integer"
+                  },
                   "footer": {
                     "type": [
                       "object",
@@ -5147,6 +5173,9 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "type": {
+                    "type": "string"
                   },
                   "url": {
                     "type": [
@@ -7769,17 +7798,36 @@
             "channelId": {
               "type": "string"
             },
+            "componentsJson": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "content": {
               "type": "array",
               "items": {
                 "type": "integer"
               }
             },
+            "editedAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
             "embedsJson": {
               "type": [
                 "string",
                 "null"
               ]
+            },
+            "flags": {
+              "type": "integer"
+            },
+            "isAuthorEdit": {
+              "type": "boolean"
             },
             "messageId": {
               "type": "string"
@@ -7789,7 +7837,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Messages\\MessageUpdatedForChannelHandler.cs",
-            "line": 46,
+            "line": 54,
             "clrType": "Guild.Contracts.Bus.Events.MessageUpdatedForChannel",
             "anonymous": false
           }

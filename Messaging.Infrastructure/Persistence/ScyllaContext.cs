@@ -134,7 +134,9 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.SystemMessageVariant, cm => cm.WithName("system_message_variant"))
                 .Column(m => m.IsPinned, cm => cm.WithName("is_pinned"))
                 .Column(m => m.PinnedAt, cm => cm.WithName("pinned_at"))
-                .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id")));
+                .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id"))
+                .Column(m => m.Flags, cm => cm.WithName("flags"))
+                .Column(m => m.EditedAt, cm => cm.WithName("edited_at")));
 
         config.Define(
             new Map<PinnedMessage>()
@@ -401,6 +403,30 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD components_json text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // Message previews (docs/specs/message-previews.md). Both are worst-case for the
+        // alphabetical-ordering hazard: "edited_at" sorts before "embeds_json" and "encryption_state",
+        // and "flags" before "in_reply_to" and "is_pinned" - so a reader on a stale "SELECT *"
+        // prepare would decode a timestamp as the embeds JSON and an int as the reply id. Both names
+        // are appended to the END of Message.SelectColumns, which is what makes the wire order
+        // independent of the alphabetical position; do not re-sort that constant.
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD flags int;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD edited_at timestamp;"));
         }
         catch (InvalidQueryException)
         {

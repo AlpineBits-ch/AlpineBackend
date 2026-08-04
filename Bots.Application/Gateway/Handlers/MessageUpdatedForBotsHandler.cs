@@ -39,6 +39,11 @@ public class MessageUpdatedForBotsHandler
             Author = author,
             Timestamp = DateTimeOffset.UtcNow,
             Embeds = DeserializeEmbeds(message.EmbedsJson),
+            Flags = message.Flags,
+            // Null when the author never edited the text. A MESSAGE_UPDATE carrying a newly
+            // generated link preview therefore reaches a bot with no edited_timestamp, which is
+            // exactly how Discord reports the same event.
+            EditedTimestamp = message.EditedAt,
         };
 
         foreach (var botUserId in botUserIds)

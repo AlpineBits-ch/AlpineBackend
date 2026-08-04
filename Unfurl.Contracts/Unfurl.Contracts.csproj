@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="WolverineFx" Version="6.21.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <!-- The embed shape itself lives in Bots.Contracts because the Discord-compat surface was the
+           first thing to need it. Referencing it here rather than redefining keeps exactly one
+           definition of what an embed is - a second copy would drift the moment either side gained
+           a field, and both sides serialize into the same Message.EmbedsJson column. -->
+      <ProjectReference Include="..\Bots.Contracts\Bots.Contracts.csproj" />
+    </ItemGroup>
+
+</Project>

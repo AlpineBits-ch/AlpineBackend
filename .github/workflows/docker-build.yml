@@ -188,7 +188,11 @@ jobs:
             context: .
             dockerfile: Import.Application/Dockerfile
             image: import-application
-    
+          - project: unfurl
+            context: .
+            dockerfile: Unfurl.Application/Dockerfile
+            image: unfurl-application
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4

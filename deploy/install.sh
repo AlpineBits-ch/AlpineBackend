@@ -657,6 +657,20 @@ ISLE_BRIDGE_PORT="${ISLE_BRIDGE_PORT:-8080}"
 ISLE_RCON_PORT="${ISLE_RCON_PORT:-8888}"
 ISLE_RCON_PASSWORD="${ISLE_RCON_PASSWORD:-}"
 
+# ── Link previews ────────────────────────────────────────────────────────────────────
+# When someone posts a URL, the unfurl service fetches that page and turns it into a preview
+# card. Set to false if you would rather this server never made requests to third-party sites
+# on your users' behalf - messages still send, they just show no preview.
+UNFURL_ENABLED="${UNFURL_ENABLED:-true}"
+# Leave this false. True disables the guard that stops a posted link from reaching your own
+# private network - 127.0.0.1, your LAN, the cloud metadata endpoint - and any user could then
+# make this server fetch them.
+UNFURL_ALLOW_PRIVATE_TARGETS="false"
+# Preview images are re-hosted here so that third-party sites never see your users' IP
+# addresses. The URLs are stored in messages permanently, so changing this later leaves old
+# previews pointing at the old address.
+UNFURL_PUBLIC_BASE_URL="$INSTANCE_URL"
+
 # ── Misc ─────────────────────────────────────────────────────────────────────────────
 SENTRY_URL="${SENTRY_URL:-}"
 PERSONAL_ACCESS_TOKEN="${PERSONAL_ACCESS_TOKEN:-}"

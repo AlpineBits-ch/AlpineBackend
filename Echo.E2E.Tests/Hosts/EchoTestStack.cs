@@ -27,6 +27,16 @@ namespace Echo.E2E.Tests.Hosts;
 /// every assertion in AccountDeletionFlowTests still holds, but the saga itself never reaches
 /// <c>MarkCompleted</c> and no <c>AccountDeletionCompletedEvent</c> is published.</para>
 ///
+/// <para><b>For the data-export saga that same absence is the fixture rather than the obstacle.</b>
+/// The gap blocks <i>completion</i>, not <i>participation</i>: six of the eight participants run
+/// here, and <c>ExportUserDataSaga</c>'s deadline resolves an export those two never answer instead
+/// of leaving it Running forever. <c>DataExportFlowTests</c> therefore asserts that each of the six
+/// contributed a fragment, and that the two absent ones - and only those two - come back named on
+/// the request as missing. That is exactly the failure shape which shipped uncaught ("a participant
+/// receives the fan-out and silently never answers"), so spawning Bots and Isle would remove the
+/// only place this suite currently observes it; wiring them in should come with a deliberate way for
+/// that test to take one participant away.</para>
+///
 /// <para>They are not spawned because they cannot be, yet. <see cref="SpawnedServiceProcess"/> runs
 /// each service as a raw <c>dotnet &lt;dll&gt;</c> over local build output, which never runs the
 /// ahead-of-time <c>codegen write</c> step the published images do - so every service it starts
@@ -112,6 +122,17 @@ public sealed class EchoTestStack : IAsyncDisposable
         // over the real broker instead of bypassing it with a test-only trigger endpoint.
         identityEnv["ACCOUNT_DELETION_GRACE_PERIOD_SECONDS"] = "3";
         identityEnv["ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS"] = "2";
+        // Identity is the only service that touches the export artifact bucket - it owns the
+        // DataExportRequest row, the upload in AssembleUserDataExportCommandHandler and the signed
+        // URL the download route redirects to. Pointed at the infra set's MinIO (see
+        // EchoInfraSet.ObjectStorageUrl) so an export can actually finish: a failed PutAsync marks
+        // the request Failed, which is neither of the endings DataExportFlowTests is about.
+        identityEnv["BUCKET_NAME"] = EchoInfraSet.ObjectStorageBucket;
+        identityEnv["ACCESS_KEY_ID"] = EchoInfraSet.ObjectStorageAccessKey;
+        identityEnv["SECRET_ACCESS_KEY"] = EchoInfraSet.ObjectStorageSecretKey;
+        identityEnv["SERVICE_URL"] = infra.ObjectStorageUrl;
+        identityEnv["PUBLIC_URL"] = infra.ObjectStorageUrl;
+        identityEnv["USE_SERVICE_URL"] = "true";
         stack.Identity = await SpawnedServiceProcess.StartAsync(
             "Identity.Application", "/identity/health", identityEnv, identityPort);
 
@@ -141,6 +162,19 @@ public sealed class EchoTestStack : IAsyncDisposable
         importEnv["INSTANCE_URL"] = identityUrl;
         var gatewayEnv = Common($"echo_{databaseSuffix}");
         gatewayEnv["INSTANCE_URL"] = identityUrl;
+        // ExportUserDataSaga runs in the gateway process, and its deadline
+        // (Env.SagaDeadlines.DataExport, AppEnvironment/Env.cs) defaults to an hour - the point at
+        // which "still working" stops being a plausible explanation in production, and far longer
+        // than any test can wait. Shrunk here rather than lowered at the source, and only for
+        // spawned processes, so the production default is untouched.
+        //
+        // Deliberately generous for a test value. It is an upper bound on how long the six
+        // participants that DO run have to answer before the saga writes them off as silent, and
+        // Wolverine retries a saga write that loses the optimistic-concurrency race with cooldowns
+        // that already climb into the seconds (Messaging.SagaConcurrencyRetryDelays). A value tight
+        // enough to make a loaded machine look like a non-participant would turn
+        // DataExportFlowTests' central assertion into a flake.
+        gatewayEnv["DATA_EXPORT_SAGA_DEADLINE_SECONDS"] = "30";
 
         // Started sequentially (not in parallel) so a failure surfaces against the specific
         // service that failed, with that service's captured stdout/stderr, instead of an

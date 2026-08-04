@@ -331,6 +331,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<DateTimeOffset?>("EditedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("edited_at");
+
                     b.Property<string>("EmbedsJson")
                         .HasColumnType("text")
                         .HasColumnName("embeds_json");
@@ -338,6 +342,10 @@ namespace Messaging.Persistence.Migrations
                     b.Property<MessageEncryptionState>("EncryptionState")
                         .HasColumnType("message_encryption_state")
                         .HasColumnName("encryption_state");
+
+                    b.Property<int>("Flags")
+                        .HasColumnType("integer")
+                        .HasColumnName("flags");
 
                     b.Property<string>("InReplyTo")
                         .HasColumnType("text")

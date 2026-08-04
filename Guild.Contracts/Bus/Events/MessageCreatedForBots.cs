@@ -45,6 +45,22 @@ public class MessageUpdatedForBots
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public string? EmbedsJson { get; set; }
+
+    /// <summary>Interactive components - see <see cref="MessageUpdatedForChannel.ComponentsJson"/>.</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>
+    /// Discord-compatible message flags, surfaced on the bot gateway's MESSAGE_UPDATE.
+    ///
+    /// <para>This is how a bot learns that a link preview was suppressed rather than never
+    /// generated. Discord sends the same bit for the same reason, so a Discord bot library reads it
+    /// without changes.</para>
+    /// </summary>
+    public int Flags { get; set; }
+
+    /// <summary>Discord's <c>edited_timestamp</c>. Null when the author has never edited the text -
+    /// including on the update that merely attached a link preview.</summary>
+    public DateTimeOffset? EditedAt { get; set; }
 }
 
 /// <summary>

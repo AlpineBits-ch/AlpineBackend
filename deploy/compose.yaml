@@ -153,7 +153,7 @@ services:
           sleep 2
         done
         pg_isready -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" -U "${DATABASE_USERNAME}"
-        for db in identity_db guild_db messaging_db social_db federation_db bots_db import_db isle_db echo_db; do
+        for db in identity_db guild_db messaging_db social_db federation_db bots_db import_db isle_db echo_db unfurl_db; do
           psql -v ON_ERROR_STOP=1 -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" \
                -U "${DATABASE_USERNAME}" -d postgres <<SQL
         SELECT 'CREATE DATABASE $$db' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$$db')\gexec
@@ -446,6 +446,36 @@ services:
       retries: 10
       start_period: 90s
 
+  # Link previews (docs/specs/message-previews.md). The only service that makes outbound HTTP
+  # requests to hosts chosen by end users, which is exactly why it is its own container: its egress
+  # can be firewalled independently, and a hostile page cannot reach the message store or the MLS
+  # key material from here. It owns no data - unfurl_db holds Wolverine's envelopes and nothing
+  # else - so it is safe to scale or restart freely.
+  #
+  # Set UNFURL_ENABLED=false to turn the feature off entirely: no outbound fetches, no previews.
+  unfurl:
+    <<: *app-common
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/unfurl-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Unfurl.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: unfurl_db
+      UNFURL_ENABLED: "${UNFURL_ENABLED:-true}"
+      # Never "true" on a public instance: it disables the SSRF guard, letting any user's link
+      # reach 127.0.0.1, 169.254.169.254 and everything else on the compose network.
+      UNFURL_ALLOW_PRIVATE_TARGETS: "${UNFURL_ALLOW_PRIVATE_TARGETS:-false}"
+      # proxy_url values are built from this and stored in messages permanently, so it must be the
+      # instance's public URL and it must not change casually.
+      UNFURL_PUBLIC_BASE_URL: "${UNFURL_PUBLIC_BASE_URL:-${INSTANCE_URL:-}}"
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/unfurl/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
   # ── Gateway ────────────────────────────────────────────────────────────────────────
   # YARP reverse proxy + the SignalR realtime hub + the cross-service sagas
   # (Echo/Sagas/*). Not optional: user registration completes through a saga hosted here.
@@ -466,6 +496,7 @@ services:
       Services__Bots: http://bots:8080
       Services__Import: http://import:8080
       Services__Isle: http://isle:8080
+      Services__Unfurl: http://unfurl:8080
       PERSONAL_ACCESS_TOKEN: "${PERSONAL_ACCESS_TOKEN:-}"
       # The API reference is served by this container and is gated on the Host header, so the
       # gateway and the Caddyfile must agree on the name. Left empty the gateway derives
@@ -507,6 +538,8 @@ services:
       bots:
         condition: service_started
       import:
+        condition: service_started
+      unfurl:
         condition: service_started
     healthcheck:
       test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/health"]

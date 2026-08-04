@@ -110,6 +110,26 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public DateTime? PinnedAt { get; set; }
     public string? PinnedById { get; set; }
 
+    /// <summary>
+    /// Discord-compatible message flag bitfield - see <see cref="MessageFlags"/>. Today the only
+    /// bit in use is SUPPRESS_EMBEDS.
+    /// </summary>
+    public int Flags { get; set; }
+
+    /// <summary>
+    /// When the <b>author</b> last changed the text, as opposed to <c>UpdatedAt</c>, which is
+    /// bumped by anything that rewrites the row.
+    ///
+    /// <para>These were the same field until link previews arrived. Attaching a generated embed is
+    /// a write to the message, so it moved <c>UpdatedAt</c>, and every client renders "(edited)"
+    /// from that - meaning posting a URL marked your own message as edited a second later, by
+    /// nobody. Clients render the "(edited)" marker from this field; <c>UpdatedAt</c> stays the
+    /// row-touch timestamp that cache validators and sync cursors want.</para>
+    ///
+    /// <para>Null on a message that has never been edited.</para>
+    /// </summary>
+    public DateTimeOffset? EditedAt { get; set; }
+
     public Message()
     {
     }
@@ -129,7 +149,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
         "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id, " +
-        "author_display_name, author_avatar_url, components_json, mls_generation";
+        "author_display_name, author_avatar_url, components_json, mls_generation, flags, edited_at";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       

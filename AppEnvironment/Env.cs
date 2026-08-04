@@ -62,6 +62,114 @@ public static class Env
 
     public static readonly TelemetryConsentConfiguration TelemetryConsent = new();
 
+    public static readonly UnfurlConfiguration Unfurl = new();
+
+}
+
+/// <summary>
+/// Link-preview generation (docs/specs/message-previews.md).
+///
+/// <para>Every limit here exists because the unfurler fetches URLs chosen by anyone who can type in
+/// a chat box. The defaults are Discord's observed behaviour where it is known, and deliberately
+/// conservative where it is not.</para>
+/// </summary>
+public class UnfurlConfiguration
+{
+    /// <summary>
+    /// Master switch. Off leaves messages exactly as they are today - no outbound fetches, no
+    /// embeds generated - which is the setting a self-hoster who does not want their server making
+    /// requests on users' behalf wants, and the fastest way to stop the feature in an incident.
+    /// </summary>
+    public bool Enabled { get; set; } =
+        GetEnvironmentVariable("UNFURL_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true;
+
+    /// <summary>
+    /// Whether the fetcher may dial private/loopback addresses. Development and the E2E harness
+    /// need it so a test can serve a fixture page from localhost. <b>Never true in Production</b> -
+    /// it disables the SSRF guard entirely.
+    /// </summary>
+    public bool AllowPrivateTargets { get; set; } =
+        GetEnvironmentVariable("UNFURL_ALLOW_PRIVATE_TARGETS")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+
+    /// <summary>Total budget for one page fetch. Discord uses about five seconds; past that a user
+    /// has stopped expecting a card to appear anyway.</summary>
+    public TimeSpan FetchTimeout { get; set; } =
+        TimeSpan.FromSeconds(int.TryParse(GetEnvironmentVariable("UNFURL_FETCH_TIMEOUT_SECONDS"), out var t) ? t : 5);
+
+    /// <summary>How many redirect hops to follow, each re-validated against the SSRF guard.</summary>
+    public int MaxRedirects { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_REDIRECTS"), out var r) ? r : 5;
+
+    /// <summary>Hard cap on an HTML body, enforced while reading rather than from Content-Length -
+    /// which a hostile origin simply lies about.</summary>
+    public int MaxHtmlBytes { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_HTML_BYTES"), out var h) ? h : 2 * 1024 * 1024;
+
+    /// <summary>Hard cap on a preview image before decoding.</summary>
+    public int MaxImageBytes { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_IMAGE_BYTES"), out var i) ? i : 8 * 1024 * 1024;
+
+    /// <summary>Longest edge of the re-encoded preview image.</summary>
+    public int MaxImageEdge { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_IMAGE_EDGE"), out var e) ? e : 1280;
+
+    /// <summary>
+    /// Refuse to decode an image larger than this many megapixels regardless of how few bytes it
+    /// arrived in. A decompression bomb is small on the wire and enormous in memory, so the byte
+    /// cap above does not catch it.
+    /// </summary>
+    public int MaxImageMegapixels { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_IMAGE_MEGAPIXELS"), out var m) ? m : 50;
+
+    /// <summary>Floor and ceiling for the cache TTL derived from the origin's own Cache-Control.
+    /// A page claiming a one-second lifetime should not make us re-fetch on every mention, and one
+    /// claiming a year should not pin a stale card forever.</summary>
+    public TimeSpan MinCacheTtl { get; set; } =
+        TimeSpan.FromMinutes(int.TryParse(GetEnvironmentVariable("UNFURL_MIN_CACHE_TTL_MINUTES"), out var mn) ? mn : 15);
+
+    public TimeSpan MaxCacheTtl { get; set; } =
+        TimeSpan.FromHours(int.TryParse(GetEnvironmentVariable("UNFURL_MAX_CACHE_TTL_HOURS"), out var mx) ? mx : 24);
+
+    public TimeSpan DefaultCacheTtl { get; set; } =
+        TimeSpan.FromHours(int.TryParse(GetEnvironmentVariable("UNFURL_DEFAULT_CACHE_TTL_HOURS"), out var d) ? d : 6);
+
+    /// <summary>How long a failure is remembered, so a dead link is not re-fetched every time
+    /// somebody quotes it.</summary>
+    public TimeSpan FailureCacheTtl { get; set; } =
+        TimeSpan.FromMinutes(int.TryParse(GetEnvironmentVariable("UNFURL_FAILURE_CACHE_TTL_MINUTES"), out var f) ? f : 10);
+
+    /// <summary>
+    /// Concurrent in-flight fetches per origin host.
+    ///
+    /// <para>The number that keeps this instance from being a DDoS amplifier. One link posted in a
+    /// busy guild can be seen by thousands of people, and without a per-host limit a popular link
+    /// becomes a burst of requests at whoever published it.</para>
+    /// </summary>
+    public int MaxConcurrentPerHost { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_CONCURRENT_PER_HOST"), out var c) ? c : 2;
+
+    /// <summary>Concurrent fetches across all hosts, bounding the service's own resource use.</summary>
+    public int MaxConcurrentTotal { get; set; } =
+        int.TryParse(GetEnvironmentVariable("UNFURL_MAX_CONCURRENT_TOTAL"), out var ct) ? ct : 32;
+
+    /// <summary>
+    /// Sent on every outbound request. Functional, not cosmetic: several large sites (X, Reddit)
+    /// serve Open Graph tags only to user agents they recognise as link crawlers, so an anonymous
+    /// UA gets a blank page and no preview.
+    /// </summary>
+    public string UserAgent { get; set; } =
+        GetEnvironmentVariable("UNFURL_USER_AGENT")
+        ?? $"EchoBot/1.0 (+{GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg"}/bot)";
+
+    /// <summary>Public base URL that <c>proxy_url</c> values are built from. Baked into stored
+    /// messages, so changing it does not rewrite history.</summary>
+    public string PublicBaseUrl { get; set; } =
+        GetEnvironmentVariable("UNFURL_PUBLIC_BASE_URL")
+        ?? GetEnvironmentVariable("INSTANCE_URL")
+        ?? "https://api.venta.gg";
+
+    /// <summary>Key prefix for stored preview media in the shared bucket.</summary>
+    public string MediaPrefix { get; set; } = GetEnvironmentVariable("UNFURL_MEDIA_PREFIX") ?? "previews";
 }
 
 public class RabbitMQConfig
@@ -219,7 +327,23 @@ public class StorageConfiguration
     public string PublicUrl { get; set; } = GetEnvironmentVariable("PUBLIC_URL") ?? "https://storage.googleapis.com";
     public string ServiceUrl { get; set; } = GetEnvironmentVariable("SERVICE_URL") ?? "https://storage.googleapis.com";
     public bool UseServiceUrl { get; set; } = (GetEnvironmentVariable("USE_SERVICE_URL")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
-    
+
+    /// <summary>
+    /// Whether the object store is reached over plain HTTP - which is what <c>compose.yaml</c> and
+    /// the self-hosting installers ship (<c>SERVICE_URL: "http://minio:9000"</c>).
+    ///
+    /// <para><b>Only pre-signed URLs need to ask.</b> Ordinary SDK calls use <c>ServiceURL</c>
+    /// verbatim, so uploads and deletes were always right; <c>GetPreSignedUrlRequest.Protocol</c>
+    /// is separate configuration that defaults to <c>HTTPS</c> regardless, so every signed URL a
+    /// plain-HTTP deployment minted pointed at <c>https://</c> on a port speaking HTTP and could
+    /// not be opened. That is invisible for an artifact fetched by another service and fatal for
+    /// one handed to a person, which is how <c>Echo.E2E.Tests.DataExportFlowTests</c> found it on
+    /// the data-export download route (T1-7).</para>
+    /// </summary>
+    public bool ServiceUrlIsPlainHttp =>
+        UseServiceUrl && ServiceUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+
+
     public string Region { get; set; } = GetEnvironmentVariable("REGION") ?? "us-east-1";
 }
 

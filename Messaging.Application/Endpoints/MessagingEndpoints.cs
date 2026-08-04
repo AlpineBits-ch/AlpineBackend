@@ -13,7 +13,12 @@ using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
+using Messaging.Domain.Previews;
 using Messaging.Domain.Repositories;
+// Messaging.Domain.Enums is aliased rather than imported: it defines AuthorIdType and
+// MessageEncryptionState under the same names as Messaging.Contracts.Bus.Commands, which this file
+// also uses, and importing both makes every existing reference ambiguous.
+using MessageFlags = Messaging.Domain.Enums.MessageFlags;
 using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -436,6 +441,86 @@ public class MessagingEndpoints
         if (result.Forbidden) return Results.Forbid();
 
         return Results.Accepted(value: new { messageId, content = dto.Content });
+    }
+
+    /// <summary>
+    /// Hides or restores this message's link previews (docs/specs/message-previews.md).
+    ///
+    /// <para>This is message state, not a per-viewer preference: the SUPPRESS_EMBEDS flag lives on
+    /// the row every viewer reads, so dismissing a preview removes it for everyone who can see the
+    /// message. That is Discord's behaviour and the point of the feature - the person who posted
+    /// the link decides whether the card is shown.</para>
+    ///
+    /// <para>Suppressing also clears the generated embeds rather than only hiding them. Embeds an
+    /// <i>author</i> wrote (a bot's rich card) are left in place and merely hidden by the flag, so
+    /// unsuppressing restores them; a generated preview costs nothing to rebuild and should not sit
+    /// in the row after someone asked for it to go.</para>
+    /// </summary>
+    [WolverinePatch("/api/v1/messaging/{messageId}/embeds")]
+    public async Task<IResult> SuppressMessageEmbeds(string messageId, SuppressEmbedsDto dto,
+        [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Results.Unauthorized();
+
+        var message = await repo.GetMessageAsync(messageId);
+        if (message is null) return Results.NotFound();
+
+        // Same ladder as DeleteMessage above, and for the same reason: the author always controls
+        // their own message, and a moderator holding DeleteAnyMessage can already remove the whole
+        // message - so letting them remove just the preview is strictly less power, not more.
+        // In a DM there is no permission system to consult, so it is the author or nobody.
+        if (message.AuthorId != userId)
+        {
+            if (string.IsNullOrWhiteSpace(message.ChannelId)) return Results.Forbid();
+
+            var permission = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
+                new HasUserPermissionToChannelRequest
+                {
+                    ChannelId = message.ChannelId,
+                    UserId = userId,
+                    Permission = ExternalPermission.DeleteAnyMessage,
+                });
+
+            if (!permission.IsAllowed) return Results.Forbid();
+        }
+
+        var flags = dto.Suppress
+            ? MessageFlags.With(message.Flags, MessageFlags.SuppressEmbeds)
+            : MessageFlags.Without(message.Flags, MessageFlags.SuppressEmbeds);
+
+        // Drop only what the unfurler produced. An author-supplied embed is the author's content
+        // and survives; the flag is what hides it, so unsuppressing brings it back intact.
+        var remaining = dto.Suppress
+            ? GeneratedEmbeds.RemoveGenerated(message.EmbedsJson)
+            : null;
+
+        var result = await bus.InvokeAsync<UpdateMessageResponse>(new UpdateMessageCommand
+        {
+            MessageId = messageId,
+            RequestingAuthorId = userId,
+            AuthorizationAlreadyChecked = true,
+            IsAuthorEdit = false,
+            Flags = flags,
+            EmbedsJson = remaining,
+        });
+
+        if (result.NotFound) return Results.NotFound();
+        if (result.Forbidden) return Results.Forbid();
+
+        // Unsuppressing re-queues the unfurl, so the preview the user asked to see comes back
+        // without them having to re-post the link. Cheap: the URL is almost certainly still in the
+        // unfurler's Redis cache from the first time round.
+        if (!dto.Suppress)
+        {
+            await bus.PublishAsync(new UnfurlMessageLinks
+            {
+                MessageId = messageId,
+                ContextId = message.ContextId,
+            });
+        }
+
+        return Results.Accepted(value: new { messageId, suppressed = dto.Suppress });
     }
 
     [WolverinePost("/api/v1/messaging/{messageId}/pin")]

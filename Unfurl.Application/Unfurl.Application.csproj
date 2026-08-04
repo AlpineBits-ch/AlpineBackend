@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>Unfurl.Application</RootNamespace>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <!-- ImageSharp 4 is under the Six Labors Split License and refuses to build without a
+             licence file. Pointing at Messaging.Application's copy rather than keeping a second
+             one: it is the same commercial licence, and the file is a secret that CI materialises
+             from $SIX_LABORS_LIC - having one path to write means adding a service can never
+             half-configure it. Both projects sit in the same build context, so this resolves
+             identically locally and in Docker. -->
+        <SixLaborsLicenseFile>../Messaging.Application/Credentials/sixlabors.lic</SixLaborsLicenseFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Real HTML5 parsing. A regex over <meta> tags cannot survive unquoted attributes,
+             mis-nested tags or content that merely looks like markup - and getting it wrong here
+             means rendering an attacker's string as a page title. -->
+        <PackageReference Include="AngleSharp" Version="1.3.0" />
+        <PackageReference Include="AWSSDK.S3" Version="4.0.101.4" />
+        <PackageReference Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+        <PackageReference Include="SixLabors.ImageSharp" Version="4.0.0" />
+        <PackageReference Include="WolverineFx" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.Http" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="Credentials\**\*">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <!-- The embed shape. See Unfurl.Contracts for why it lives in Bots.Contracts. -->
+      <ProjectReference Include="..\Bots.Contracts\Bots.Contracts.csproj" />
+      <ProjectReference Include="..\Messaging\Messaging.csproj" />
+      <ProjectReference Include="..\Unfurl.Contracts\Unfurl.Contracts.csproj" />
+    </ItemGroup>
+
+</Project>

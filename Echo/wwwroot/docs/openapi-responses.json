@@ -341,6 +341,9 @@
                             }
                           }
                         },
+                        "flags": {
+                          "type": "integer"
+                        },
                         "footer": {
                           "type": [
                             "object",
@@ -358,6 +361,9 @@
                             "string",
                             "null"
                           ]
+                        },
+                        "type": {
+                          "type": "string"
                         },
                         "url": {
                           "type": [
@@ -390,7 +396,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Bots.Application\\Endpoints\\Discord\\DiscordMessageEndpoint.cs",
-        "line": 79
+        "line": 96
       }
     },
     {
@@ -473,6 +479,9 @@
                             }
                           }
                         },
+                        "flags": {
+                          "type": "integer"
+                        },
                         "footer": {
                           "type": [
                             "object",
@@ -490,6 +499,9 @@
                             "string",
                             "null"
                           ]
+                        },
+                        "type": {
+                          "type": "string"
                         },
                         "url": {
                           "type": [
@@ -528,7 +540,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Bots.Application\\Endpoints\\Discord\\DiscordMessageEndpoint.cs",
-        "line": 127
+        "line": 144
       },
       "summary": "Discord\u0027s \u0060message.edit(...)\u0060 - only the bot that authored the message may edit it\u2026",
       "description": "Discord\u0027s \u0060message.edit(...)\u0060 - only the bot that authored the message may edit it (matches Discord\u0027s own real rule). Reuses UpdateMessageCommand the exact same way CreateMessageAsync above reuses CreateMessageCommand - no separate edit logic. A field the body did not mention is left off the command entirely, which Messaging reads as \u0022leave the stored value alone\u0022; a field that is present but empty clears it. Note that an embeds-only edit therefore leaves \u0060content\u0060 as it stands rather than re-flattening the new embeds into it: overwriting the bot\u0027s own text is the worse of the two failures, and the structural embeds still travel on the update notification for clients that render them."
@@ -35544,7 +35556,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 40
+        "line": 45
       },
       "summary": "Deliberately returns a bare IResult and no cascaded event",
       "description": "Deliberately returns a bare IResult and no cascaded event. The MessageCreated for this send is raised by \u003Csee cref=\u0022T:Messaging.Application.Commands.CreateMessageCommandHandler\u0022/\u003E, which the InvokeAsync below runs - and Wolverine publishes a handler\u0027s other tuple member even when the caller asked for the first one, so returning a MessageCreated here too published a *second* copy of the same event. Everything downstream then ran twice: the realtime fan-out (a duplicate message and duplicate desktop notification) and, through Guild\u0027s channel path, a duplicate FCM/APNs push on every phone."
@@ -35590,7 +35602,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 317
+        "line": 322
       },
       "summary": "Moderator sweep of up to \u003Csee cref=\u0022F:Messaging.Application.Endpoints.MessagingEndpoints.\u2026",
       "description": "Moderator sweep of up to \u003Csee cref=\u0022F:Messaging.Application.Endpoints.MessagingEndpoints.MaxBulkDeleteMessages\u0022/\u003E messages in one channel. Fans out one MessageDeleted per removed message rather than a single bulk event: that reuses the whole existing per-delete pipeline unchanged (search-index cleanup, the MESSAGE_DELETE bot dispatch, the forum-post MessageCount decrement) instead of reimplementing each of those side effects in a bulk-shaped variant that could drift. Clients additionally get one aggregate realtime push so the UI can remove the whole range in a single update."
@@ -35625,7 +35637,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 523
+        "line": 608
       }
     },
     {
@@ -35682,7 +35694,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 384
+        "line": 389
       }
     },
     {
@@ -35723,8 +35735,51 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 422
+        "line": 427
       }
+    },
+    {
+      "project": "Messaging.Application",
+      "verb": "patch",
+      "path": "/api/v1/messaging/{messageId}/embeds",
+      "clrMethod": "MessagingEndpoints.SuppressMessageEmbeds",
+      "responses": {
+        "202": {
+          "description": "Accepted",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "\u003Canonymous type: string messageId, bool suppressed\u003E",
+                "properties": {
+                  "messageId": {
+                    "type": "string"
+                  },
+                  "suppressed": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "\u003Canonymous type: string messageId, bool suppressed\u003E"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
+        "line": 459
+      },
+      "summary": "Hides or restores this message\u0027s link previews (docs/specs/message-previews.md)",
+      "description": "Hides or restores this message\u0027s link previews (docs/specs/message-previews.md).  This is message state, not a per-viewer preference: the SUPPRESS_EMBEDS flag lives on the row every viewer reads, so dismissing a preview removes it for everyone who can see the message. That is Discord\u0027s behaviour and the point of the feature - the person who posted the link decides whether the card is shown.   Suppressing also clears the generated embeds rather than only hiding them. Embeds an \u003Ci\u003Eauthor\u003C/i\u003E wrote (a bot\u0027s rich card) are left in place and merely hidden by the flag, so unsuppressing restores them; a generated preview costs nothing to rebuild and should not sit in the row after someone asked for it to go."
     },
     {
       "project": "Messaging.Application",
@@ -35795,7 +35850,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 482
+        "line": 567
       }
     },
     {
@@ -35867,7 +35922,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
-        "line": 441
+        "line": 526
       }
     },
     {

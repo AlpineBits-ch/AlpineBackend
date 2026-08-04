@@ -1,4 +1,5 @@
-﻿using Yarp.ReverseProxy.Configuration;
+﻿using Echo.RateLimiter;
+using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
 
 namespace Echo.Proxy;
@@ -100,6 +101,25 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/api/webhooks/{webhookId}/{token}" }
         },
 
+        // Link preview media (docs/specs/message-previews.md).
+        //
+        // Deliberately no path rewrite, for the same reason the federation route above has none:
+        // this path is a contract. Every generated embed stores an absolute proxy_url built from it,
+        // and those strings are written into messages permanently - a message from last year still
+        // points here. Rewriting the segment would mean the service's own route had to be
+        // /api/v1/media/**, and any future change to the gateway prefix would break history.
+        //
+        // Rate-limit exempt: the requests are made by <img> tags with no bearer token, so they land
+        // in the anonymous partition and a single channel scroll would spend a viewer's whole
+        // anonymous budget on pictures. See RateLimitConfigFilter.ExemptMetadataKey.
+        new RouteConfig
+        {
+            RouteId = "previews-route",
+            ClusterId = "unfurl-cluster",
+            Match = new RouteMatch { Path = "/api/v1/previews/{**catch-all}" },
+            Metadata = new Dictionary<string, string> { [RateLimitConfigFilter.ExemptMetadataKey] = "true" },
+        },
+
         new RouteConfig
         {
             RouteId = "imports-route",
@@ -179,6 +199,7 @@ public static class ProxyConfig
         var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://isle.default.svc.cluster.local:8080";
         var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://bots.default.svc.cluster.local";
         var imports = Environment.GetEnvironmentVariable("Services__Import") ?? "http://import.default.svc.cluster.local";
+        var unfurl = Environment.GetEnvironmentVariable("Services__Unfurl") ?? "http://unfurl.default.svc.cluster.local";
 
         return new[]
         {
@@ -441,6 +462,30 @@ public static class ProxyConfig
                 Active = new ActiveHealthCheckConfig()
                 {
                     Path = "bots/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
+        },
+
+        new ClusterConfig
+        {
+            ClusterId = "unfurl-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = unfurl } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "unfurl/health",
                     Timeout = TimeSpan.FromSeconds(10),
                     Interval = TimeSpan.FromSeconds(15),
                 }

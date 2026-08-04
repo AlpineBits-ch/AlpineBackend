@@ -67,6 +67,25 @@ public class MessageUpdatedForChannel
     public byte[] Content { get; set; }
     public string AuthorId { get; set; }
     public string? EmbedsJson { get; set; }
+
+    /// <summary>Interactive components. Carried alongside EmbedsJson, which it was missing while
+    /// only embeds travelled - so a component change reached the database but never a client.</summary>
+    public string? ComponentsJson { get; set; }
+
+    /// <summary>Discord-compatible message flags. Clients and bots need SUPPRESS_EMBEDS to tell
+    /// "the author dismissed the preview" apart from "the preview failed to generate" - both
+    /// otherwise arrive as an empty embeds array.</summary>
+    public int Flags { get; set; }
+
+    /// <summary>When the author last edited the text, or null if never. Distinct from the row's
+    /// UpdatedAt: attaching a link preview rewrites the row without anybody having edited it, so
+    /// clients must render "(edited)" from this and not from the update itself arriving.</summary>
+    public DateTimeOffset? EditedAt { get; set; }
+
+    /// <summary>Whether the author caused this update. False for a server-attached link preview or
+    /// a moderator suppression - which is what tells the channel broadcast to include the author
+    /// rather than skip them as it does for their own edits.</summary>
+    public bool IsAuthorEdit { get; set; } = true;
 }
 
 

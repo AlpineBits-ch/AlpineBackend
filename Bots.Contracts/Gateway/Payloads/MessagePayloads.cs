@@ -42,6 +42,27 @@ public class MessageCreatePayload
 
     [JsonPropertyName("type")]
     public int Type { get; set; } = 0;
+
+    /// <summary>
+    /// Discord's message flag bitfield. The bit that matters today is SUPPRESS_EMBEDS (1 &lt;&lt; 2),
+    /// set when someone dismissed the message's link previews.
+    ///
+    /// <para>A bot needs it to tell "the previews were dismissed" apart from "this message never
+    /// had any" - both arrive as an empty <c>embeds</c> array otherwise. Discord sends the same bit
+    /// with the same meaning, so a Discord bot library reads it unmodified.</para>
+    /// </summary>
+    [JsonPropertyName("flags")]
+    public int Flags { get; set; }
+
+    /// <summary>
+    /// When the author last edited the text, or null if they never did.
+    ///
+    /// <para>Null on the MESSAGE_UPDATE that merely attached a link preview, deliberately: that
+    /// update is the server adding a card, not the author rewriting anything, and a bot that logs
+    /// edits should not report one.</para>
+    /// </summary>
+    [JsonPropertyName("edited_timestamp")]
+    public DateTimeOffset? EditedTimestamp { get; set; }
 }
 
 public class MessageDeletePayload

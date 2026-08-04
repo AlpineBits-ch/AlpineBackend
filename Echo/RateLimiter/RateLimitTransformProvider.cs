@@ -7,12 +7,34 @@ namespace Echo.RateLimiter;
 
 public class RateLimitConfigFilter : IProxyConfigFilter
 {
+    /// <summary>
+    /// Metadata key a route sets to opt out of <see cref="GatewayRateLimiting.PolicyName"/>.
+    ///
+    /// <para>Exists for static, cacheable, unauthenticated asset routes - today just the link
+    /// preview media proxy. The per-user policy partitions anonymous callers by IP, and an
+    /// <c>&lt;img&gt;</c> tag carries no bearer token, so a viewer scrolling a channel full of link
+    /// previews arrives as one anonymous IP making a burst of requests and spends their whole
+    /// anonymous budget on pictures - starving the API calls that budget is actually there to
+    /// protect. These responses are immutable and served with a week-long <c>Cache-Control</c>, so
+    /// the browser makes each request once.</para>
+    ///
+    /// <para>Opting a route out is a deliberate, reviewable act: it must be spelled here <b>and</b>
+    /// in the route definition, and it must never be applied to anything that reads user data.</para>
+    /// </summary>
+    public const string ExemptMetadataKey = "RateLimitExempt";
+
     public ValueTask<ClusterConfig> ConfigureClusterAsync(ClusterConfig cluster, CancellationToken cancel)
         => ValueTask.FromResult(cluster);
 
     public ValueTask<RouteConfig> ConfigureRouteAsync(RouteConfig route, ClusterConfig? cluster, CancellationToken cancel)
     {
-        var updated = route with { RateLimiterPolicy = "PerUserPolicy" };
+        if (route.Metadata?.TryGetValue(ExemptMetadataKey, out var exempt) == true
+            && string.Equals(exempt, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return ValueTask.FromResult(route);
+        }
+
+        var updated = route with { RateLimiterPolicy = GatewayRateLimiting.PolicyName };
         return ValueTask.FromResult(updated);
     }
 }

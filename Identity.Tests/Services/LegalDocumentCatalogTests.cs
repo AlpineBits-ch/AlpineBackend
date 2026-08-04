@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using AppEnvironment;
 using Identity.Application.Services;
@@ -201,7 +202,7 @@ public class LegalDocumentCatalogTests
     // ── the documents this build actually ships ─────────────────────────────
 
     [Test]
-    public void TheShippedDocuments_LoadAndAreAllMarkedForLegalReview()
+    public void TheShippedDocuments_LoadAndAreTheRealPublishedText()
     {
         // docs/legal is copied next to the binary by Identity.Application.csproj.
         var catalog = new LegalDocumentCatalog(NullLogger<LegalDocumentCatalog>.Instance)
@@ -217,15 +218,34 @@ public class LegalDocumentCatalogTests
             LegalDocumentType.Terms, LegalDocumentType.Privacy, LegalDocumentType.Cookies,
         }), "the manifest in docs/legal must reach the build output");
 
-        foreach (var document in loaded)
+        Assert.Multiple(() =>
         {
-            var content = Encoding.UTF8.GetString(
-                catalog.ReadContent(document.DocumentType, document.Version)!);
+            foreach (var document in loaded)
+            {
+                var content = Encoding.UTF8.GetString(
+                    catalog.ReadContent(document.DocumentType, document.Version)!);
 
-            Assert.That(content, Does.Contain("<!-- LEGAL REVIEW REQUIRED -->"),
-                $"{document.DocumentType} v{document.Version} is a placeholder and must say so "
-                + "unmistakably - a plausible-looking generated policy is worse than an obvious "
-                + "placeholder, because it ships");
-        }
+                // This assertion used to run the other way round: it required the banner, because
+                // what shipped then was a generated outline and a plausible-looking generated
+                // policy is worse than an obvious placeholder.
+                Assert.That(content, Does.Not.Contain("LEGAL REVIEW REQUIRED"),
+                    $"{document.DocumentType} v{document.Version} is still an unreviewed "
+                    + "placeholder and must not ship");
+
+                // The version IS the document's own "last updated" date.
+                Assert.That(content, Does.Contain(ExpectedLastUpdated(document.Version)),
+                    $"{document.DocumentType} v{document.Version} does not carry a matching "
+                    + $"'Last updated' line - either the text was edited without bumping the "
+                    + "version, or the manifest version is wrong");
+            }
+        });
+    }
+
+    /// <summary>Renders a <c>yyyy-MM-dd</c> manifest version as the "Last updated: August 4, 2026"
+    /// form the documents themselves use.</summary>
+    private static string ExpectedLastUpdated(string version)
+    {
+        var date = DateOnly.ParseExact(version, "yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return $"Last updated: {date.ToString("MMMM d, yyyy", CultureInfo.InvariantCulture)}";
     }
 }

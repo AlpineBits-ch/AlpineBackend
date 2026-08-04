@@ -103,7 +103,10 @@ public class LegalControllerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(content, Does.Contain("<!-- LEGAL REVIEW REQUIRED -->"));
+            // Was a check for the placeholder banner, back when what shipped was a generated
+            // outline.
+            Assert.That(content, Does.Contain("End User License Agreement"));
+            Assert.That(content, Does.Not.Contain("LEGAL REVIEW REQUIRED"));
             Assert.That(
                 Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
                     System.Text.Encoding.UTF8.GetBytes(content))).ToLowerInvariant(),

@@ -1,234 +1,110 @@
-﻿@model Identity.Application.Templates.WelcomeEmail
+@model Identity.Application.Templates.WelcomeEmail
 
 @{
     Layout = null;
 }
 
+@* Light, table-based, inline-styled. See Messaging/EmailLayout.cs for why - the short version is
+   that this file used to be dark-themed with everything in a <head><style> block, and Gmail drops
+   rules hung off `body` while Outlook renders through Word and ignores most of a stylesheet. The
+   background went, the light text stayed, and the mail arrived as near-white text on white.
+
+   Rules for editing this file:
+     * every declaration inline; nothing in <style>
+     * tables with bgcolor, not styled divs
+     * no gradients, no flexbox - Outlook renders the first as nothing and collapses the second
+     * dark text on light, so a client that strips all of it still shows a readable mail
+   Duplicated across the three templates rather than factored into a shared layout, because
+   RazorLight compiles these at runtime and a layout is one more thing to get wrong at send time.
+   Keep them in step by hand. *@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Welcome to AlpineBits</title>
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            background-color: #111318;
-            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-            color: #e2e4ea;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        .wrapper {
-            max-width: 560px;
-            margin: 48px auto;
-            padding: 0 16px 48px;
-        }
-
-        /* Header */
-        .header {
-            padding: 32px 0 24px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .logo-mark {
-            width: 32px;
-            height: 32px;
-            background: linear-gradient(135deg, #7C5CFC, #5B8DEF);
-            border-radius: 8px;
-            display: inline-block;
-        }
-
-        .logo-text {
-            font-size: 15px;
-            font-weight: 600;
-            color: #ffffff;
-            letter-spacing: -0.2px;
-        }
-
-        /* Card */
-        .card {
-            background: #1a1d26;
-            border: 1px solid #2a2d3a;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-        .card-top-bar {
-            height: 3px;
-            background: linear-gradient(90deg, #7C5CFC, #5B8DEF);
-        }
-
-        .card-body {
-            padding: 40px 40px 36px;
-        }
-
-        .badge {
-            display: inline-block;
-            background: rgba(124, 92, 252, 0.15);
-            color: #9d80ff;
-            font-size: 11px;
-            font-weight: 600;
-            letter-spacing: 0.8px;
-            text-transform: uppercase;
-            padding: 4px 10px;
-            border-radius: 20px;
-            border: 1px solid rgba(124, 92, 252, 0.25);
-            margin-bottom: 20px;
-        }
-
-        h1 {
-            font-size: 24px;
-            font-weight: 600;
-            color: #ffffff;
-            letter-spacing: -0.4px;
-            line-height: 1.3;
-            margin-bottom: 12px;
-        }
-
-        .subtitle {
-            font-size: 15px;
-            color: #8b8fa8;
-            line-height: 1.6;
-            margin-bottom: 32px;
-        }
-
-        /* Divider */
-        .divider {
-            height: 1px;
-            background: #2a2d3a;
-            margin-bottom: 28px;
-        }
-
-        /* Info row */
-        .info-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 28px;
-        }
-
-        .info-icon {
-            width: 36px;
-            height: 36px;
-            background: #22263a;
-            border: 1px solid #2a2d3a;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            font-size: 16px;
-        }
-
-        .info-label {
-            font-size: 11px;
-            color: #5a5e72;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            font-weight: 500;
-            margin-bottom: 2px;
-        }
-
-        .info-value {
-            font-family: 'DM Mono', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
-            font-size: 13px;
-            color: #c8cbda;
-        }
-
-        /* Verification code */
-        .code-label {
-            font-size: 11px;
-            color: #5a5e72;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            font-weight: 500;
-            margin-bottom: 10px;
-        }
-
-        .code-block {
-            background: #111318;
-            border: 1px solid #2a2d3a;
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            margin-bottom: 16px;
-        }
-
-        .code-value {
-            font-family: 'DM Mono', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
-            font-size: 32px;
-            font-weight: 500;
-            letter-spacing: 10px;
-            color: #ffffff;
-            text-indent: 10px;
-        }
-
-        /* Footer note */
-        .note {
-            font-size: 12px;
-            color: #454858;
-            line-height: 1.6;
-        }
-
-        /* Email footer */
-        .footer {
-            padding: 24px 0 0;
-            text-align: center;
-            font-size: 12px;
-            color: #3a3d50;
-            line-height: 1.7;
-        }
-    </style>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>Confirm your email address</title>
 </head>
-<body>
-    <div class="wrapper">
+<body style="margin:0;padding:0;background-color:#f4f6f8;">
 
-        <div class="header">
-            <span class="logo-mark"></span>
-            <span class="logo-text">AlpineBits</span>
-        </div>
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f6f8;">
+    Your verification code is inside. It expires in 15 minutes.
+</div>
 
-        <div class="card">
-            <div class="card-top-bar"></div>
-            <div class="card-body">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f6f8" style="background-color:#f4f6f8;">
+    <tr>
+        <td align="center" style="padding:32px 12px 48px;">
+            <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;">
 
-                <div class="badge">New Account</div>
+                <tr>
+                    <td style="padding:0 4px 18px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="padding-right:10px;">
+                                    <div style="width:26px;height:26px;border-radius:7px;background:#4B5BC4;"></div>
+                                </td>
+                                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#14171d;letter-spacing:-.01em;">venta</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
 
-                <h1>Welcome, @Model.Name!</h1>
-                <p class="subtitle">
-                    Your account has been created. Enter the code below to confirm your email address.
-                </p>
+                <tr>
+                    <td bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e3e7ec;border-radius:12px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td bgcolor="#4B5BC4" style="background-color:#4B5BC4;height:3px;line-height:3px;font-size:0;border-radius:12px 12px 0 0;">&nbsp;</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:30px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 
-                <div class="divider"></div>
+                                    <div style="font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#4B5BC4;margin:0 0 12px;">New account</div>
 
-                <div class="info-row">
-                    <div class="info-icon">✉</div>
-                    <div>
-                        <div class="info-label">Email</div>
-                        <div class="info-value">@Model.Email</div>
-                    </div>
-                </div>
+                                    <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:600;color:#14171d;letter-spacing:-.02em;">Welcome, @Model.Name</h1>
 
-                <div class="code-label">Your verification code</div>
-                <div class="code-block">
-                    <span class="code-value">@Model.ConfirmationCode</span>
-                </div>
+                                    <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#5b6472;">
+                                        Your account has been created. Enter the code below to confirm your email address.
+                                    </p>
 
-                <p class="note">This code expires in 15 minutes. Do not share it with anyone.</p>
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#eef1f5" style="background-color:#eef1f5;height:1px;line-height:1px;font-size:0;">&nbsp;</td></tr></table>
+                                    <div style="height:22px;line-height:22px;font-size:0;">&nbsp;</div>
 
-            </div>
-        </div>
+                                    <div style="margin:0 0 16px;">
+                                        <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#646d79;margin:0 0 3px;">Email</div>
+                                        <div style="font-size:14px;line-height:1.5;color:#14171d;">@Model.Email</div>
+                                    </div>
 
-        <div class="footer">
-            AlpineBits · This email was sent to @Model.Email<br />
-            If you didn't create an account, you can safely ignore this.
-        </div>
+                                    <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#646d79;margin:0 0 8px;">Your verification code</div>
 
-    </div>
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 14px;">
+                                        <tr>
+                                            <td align="center" bgcolor="#f7f9fb" style="background-color:#f7f9fb;border:1px solid #e3e7ec;border-radius:8px;padding:18px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Courier New',monospace;font-size:30px;font-weight:700;letter-spacing:.28em;color:#14171d;text-indent:.28em;">@Model.ConfirmationCode</td>
+                                        </tr>
+                                    </table>
+
+                                    <p style="margin:0;font-size:12.5px;line-height:1.6;color:#646d79;">
+                                        This code expires in 15 minutes. Do not share it with anyone.
+                                    </p>
+
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:20px 8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#646d79;">
+                        Sent to @Model.Email<br />
+                        If you did not create an account, you can safely ignore this.
+                    </td>
+                </tr>
+
+            </table>
+        </td>
+    </tr>
+</table>
+
 </body>
 </html>

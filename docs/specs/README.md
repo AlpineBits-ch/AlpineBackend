@@ -20,12 +20,14 @@ What the venta clients (Alpine desktop/web, venta-mobile) have to build.
 | [registration-contract-change.md](./registration-contract-change.md) | Migrating off the old signup payload |
 | [multi-device-voice-and-calls.md](./multi-device-voice-and-calls.md) | Calls and voice channels across a user's devices |
 | [social-friend-realtime.md](./social-friend-realtime.md) | `social.*` websocket events for friend requests |
+| [status-frontend-guide.md](./status-frontend-guide.md) | Platform status banner, component states, `status.*` websocket events |
 
 ## Design and implementation
 
 | Spec | Covers |
 |---|---|
 | [moderation-and-support.md](./moderation-and-support.md) | Moderation console, support site, reports, bans, appeals, tickets |
+| [status-and-incidents.md](./status-and-incidents.md) | Public status page, incident records, the automatic detector |
 | [privacy.md](./privacy.md) | Settings, consent records, data-subject rights |
 | [message-previews.md](./message-previews.md) | The Unfurl service |
 | [inbox.md](./inbox.md) | Inbox and mention fan-out |

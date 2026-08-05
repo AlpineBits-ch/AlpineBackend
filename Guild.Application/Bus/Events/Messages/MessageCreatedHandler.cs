@@ -49,7 +49,11 @@ public class MessageCreatedHandler
         var viewerIds = await audience.FilterToViewersAsync(
             message.ChannelId, presence.Select(p => p.UserId).Except([message.AuthorId]));
 
-        await hub.Clients.Users(viewerIds).SendAsync("guild.MessageCreated", message);
+        // The author is in the broadcast audience, and excluded from everything below it.
+        var broadcastIds = await audience.FilterToViewersAsync(
+            message.ChannelId, presence.Select(p => p.UserId).Append(message.AuthorId).Distinct());
+
+        await hub.Clients.Users(broadcastIds).SendAsync("guild.MessageCreated", message);
 
         await TouchChannelActivityAsync(message.ChannelId, message.CreatedAt, message.MessageId, context);
 

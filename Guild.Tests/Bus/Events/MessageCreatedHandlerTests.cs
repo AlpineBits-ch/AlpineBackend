@@ -459,6 +459,43 @@ public class MessageCreatedHandlerTests
     }
 
     [Test]
+    public async Task Broadcast_ReachesTheAuthorsOwnOtherDevices()
+    {
+        await SeedGuildAsync(memberCount: 1);
+
+        await RunAsync(
+            Message(),
+            Present("memb-1", "user-1", OnlineStatus.Online),
+            Present(AuthorMemberId, AuthorUserId, OnlineStatus.Online));
+
+        var broadcast = ((FakeHubClients)_hub.Clients).SentToUsers.Single(s => s.Method == "guild.MessageCreated");
+
+        // Clients.Users addresses an ACCOUNT, not the connection that sent the message, so
+        // excluding the author here excluded every other device they are signed in on: send from
+        // the desktop and the phone never heard about it.
+        Assert.That(broadcast.UserIds, Does.Contain(AuthorUserId),
+            "the author's other devices are part of the audience for their own message");
+        Assert.That(broadcast.UserIds, Does.Contain("user-1"),
+            "and everyone else who can see the channel still is too");
+    }
+
+    [Test]
+    public async Task Broadcast_DoesNotMentionTheAuthorToThemselves()
+    {
+        await SeedGuildAsync(memberCount: 1);
+
+        // @here, which resolves against presence - the case where including the author in the
+        // broadcast audience could most easily have leaked into the mention set.
+        await RunAsync(
+            Message(here: true),
+            Present("memb-1", "user-1", OnlineStatus.Online),
+            Present(AuthorMemberId, AuthorUserId, OnlineStatus.Online));
+
+        Assert.That(MentionedMemberIds(), Does.Not.Contain(AuthorMemberId),
+            "being swept up by your own @here is not a mention, however the broadcast is addressed");
+    }
+
+    [Test]
     public async Task StillRepublishesForBotsWithTheResolvedGuildId()
     {
         await SeedGuildAsync(memberCount: 1);

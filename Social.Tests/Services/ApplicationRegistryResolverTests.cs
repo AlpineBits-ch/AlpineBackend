@@ -142,7 +142,7 @@ public class ApplicationRegistryResolverTests
         var name = await Resolver(http).ResolveAndStoreAsync(VolantaId);
 
         Assert.That(name, Is.Not.Null);
-        Assert.That(name, Does.Not.Contain('‮'), "bidi override survives HTML escaping and must be stripped");
+        Assert.That(name, Does.Not.Contain('\u202e'), "bidi override survives HTML escaping and must be stripped");
         Assert.That(name, Does.Not.Contain('\0'));
         Assert.That(name, Does.Not.Contain('\n'));
     }

@@ -269,6 +269,23 @@ The split is deliberately shallow. A deeper permission model here would be guess
 this instance does not have; the meaningful line is "can see what other staff did" and "can act on
 staff", and both belong to Admin.
 
+### Two refusals, not one
+
+The check asks Identity over the bus on every request and **fails closed** - an Identity outage
+denies access rather than assuming the best. But failing closed and reporting *why* are different
+things, and conflating them is what made the console feel as though it logged people out constantly:
+
+* **`staff_required`** (403) - the check completed and the answer was no. Final. The console
+  discards the session and asks for a password.
+* **`staff_check_unavailable`** (503) - the check could not be completed: the bus timed out, Identity
+  was restarting, the round trip threw. **The session is untouched.** The console waits, retries
+  twice on its own, and only then shows a retry button - it never asks for the password again on the
+  strength of a dependency being briefly unwell.
+
+Both deny the request. The status code is about what the caller should do next, not about who gets
+in. `StaffAccess` marks the second case on `HttpContext.Items`; `AdminControllerBase.StaffForbidden`
+reads it, so every admin endpoint gets this without a per-action change.
+
 ### Changing someone's role
 
 `POST /api/v1/admin/users/{id}/role` with `{ "role": "Default" | "Moderator" | "Admin" }`. Admin only

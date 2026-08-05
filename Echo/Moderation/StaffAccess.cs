@@ -18,6 +18,11 @@ public sealed record StaffPrincipal(string UserId, StaffRole Role, string? UserN
 /// <summary>Resolves the caller's staff tier, on every request, from Identity.</summary>
 public class StaffAccess(IMessageBus bus, ILogger<StaffAccess> logger)
 {
+    /// <summary>
+    /// Set when the check could not be completed, as opposed to completing and saying no.
+    /// </summary>
+    public const string UnavailableItemKey = "Echo.Moderation.StaffCheckUnavailable";
+
     public async Task<StaffPrincipal?> ResolveAsync(HttpContext context)
     {
         var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -50,7 +55,10 @@ public class StaffAccess(IMessageBus bus, ILogger<StaffAccess> logger)
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Staff check failed for {UserId}; denying access.", userId);
+            // Still denied.
+            context.Items[UnavailableItemKey] = true;
+
+            logger.LogError(ex, "Staff check for {UserId} could not be completed; denying access.", userId);
             return null;
         }
     }
@@ -69,12 +77,25 @@ public abstract class AdminControllerBase(MicroserviceContext context, StaffAcce
     protected Task<StaffPrincipal?> ResolveStaffAsync() => staff.ResolveAsync(HttpContext);
 
     /// <summary>A 403 with a machine-readable code, rather than <c>Forbid()</c>.</summary>
-    protected IActionResult StaffForbidden() =>
-        StatusCode(StatusCodes.Status403Forbidden, new
+    protected IActionResult StaffForbidden()
+    {
+        // "We could not check" is not "you are not staff", and answering 403 for both is what makes
+        // an operator retype their password because RabbitMQ was busy for a second.
+        if (HttpContext.Items.ContainsKey(StaffAccess.UnavailableItemKey))
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                code = "staff_check_unavailable",
+                message = "We could not verify your staff access just now. Your session is still valid - try again in a moment.",
+            });
+        }
+
+        return StatusCode(StatusCodes.Status403Forbidden, new
         {
             code = "staff_required",
             message = "This endpoint requires a moderator or administrator account.",
         });
+    }
 
     protected IActionResult AdminOnly() =>
         StatusCode(StatusCodes.Status403Forbidden, new

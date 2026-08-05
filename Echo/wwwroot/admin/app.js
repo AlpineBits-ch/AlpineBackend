@@ -119,6 +119,32 @@
     }
 
     /**
+     * The in-flight refresh, if there is one.
+     *
+     * Single-flighted because this console fires several requests at once - the view render and the
+     * badge poll land on the same tick - so an expired access token produces two or three
+     * simultaneous 401s. Each starting its own refresh means several grants racing to write
+     * `tokens.set`, with the last writer winning and the others' tokens orphaned. One promise, every
+     * caller awaits it.
+     */
+    let refreshing = null;
+
+    function refreshOnce() {
+        refreshing ??= grant({
+            grant_type: 'refresh_token',
+            client_id: 'echo',
+            refresh_token: tokens.refresh,
+        })
+            .then(result => {
+                tokens.set(result.access_token, result.refresh_token);
+                return result;
+            })
+            .finally(() => { refreshing = null; });
+
+        return refreshing;
+    }
+
+    /**
      * One request wrapper, with a single refresh attempt on 401.
      *
      * The retry is deliberately not a loop: if a refreshed token is also rejected, the session is
@@ -143,32 +169,44 @@
 
         if (response.status === 401 && !retried && tokens.refresh) {
             try {
-                const refreshed = await grant({
-                    grant_type: 'refresh_token',
-                    client_id: 'echo',
-                    refresh_token: tokens.refresh,
-                });
-
-                tokens.set(refreshed.access_token, refreshed.refresh_token);
+                await refreshOnce();
                 return call(method, path, { body, query, retried: true });
             } catch {
                 signOut();
-                throw new Error('Your session expired. Sign in again.');
+                throw fail(401, 'session_expired', 'Your session expired. Sign in again.');
             }
         }
 
         if (response.status === 401) {
             signOut();
-            throw new Error('Your session expired. Sign in again.');
+            throw fail(401, 'session_expired', 'Your session expired. Sign in again.');
         }
 
         const text = await response.text();
         let payload = null;
         try { payload = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
 
-        if (!response.ok) throw new Error(payload?.message || `The server answered ${response.status}.`);
+        if (!response.ok) {
+            // The status and the server's own code travel with the error. Callers need to tell a
+            // dead session from a dependency that is briefly unavailable, and a message string is
+            // not something to make that decision on.
+            throw fail(response.status, payload?.code,
+                payload?.message || `The server answered ${response.status}.`);
+        }
 
         return payload;
+    }
+
+    function fail(status, code, message) {
+        return Object.assign(new Error(message), { status, code });
+    }
+
+    /** Worth waiting out rather than signing out for: the gateway could not reach Identity, or
+     *  something downstream is briefly unwell. The session itself is untouched. */
+    function isTransient(error) {
+        return error.code === 'staff_check_unavailable'
+            || (typeof error.status === 'number' && error.status >= 500)
+            || error.status === undefined;   // fetch itself threw: offline, DNS, dropped connection
     }
 
     function busy(button, on) {
@@ -247,16 +285,58 @@
 
     $('#sign-out').addEventListener('click', signOut);
 
-    async function start() {
+    /**
+     * The staff check could not be completed. Waits, retries, and if it still cannot, says so and
+     * offers a button - without touching the tokens.
+     *
+     * Two automatic attempts before bothering anybody: the common case is a service restarting, and
+     * it is back within a few seconds. Signing the operator out instead is what this replaces.
+     */
+    async function stall(error, attempt) {
+        if (attempt < 2) {
+            $('#signin-error').replaceChildren(banner('info', 'Checking your access...'));
+            await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
+            return start(attempt + 1);
+        }
+
+        const box = banner('warn', error.code === 'staff_check_unavailable'
+            ? 'We could not verify your access just now. You are still signed in - this is on our side.'
+            : 'We could not reach the server. You are still signed in.');
+
+        const retry = el('button', 'btn sm');
+        retry.type = 'button';
+        retry.append(icon('refresh'), document.createTextNode(' Try again'));
+        retry.addEventListener('click', () => start());
+
+        box.append(retry);
+        $('#signin-error').replaceChildren(box);
+    }
+
+    /**
+     * Brings up the console for whatever session is already in hand.
+     *
+     * <b>Only a definitive answer discards the session.</b> This used to clear the tokens on any
+     * failure at all, which meant a moderator was thrown back to the sign-in form - and had to retype
+     * their password - every time the staff check could not be completed. That check asks Identity
+     * over the bus on every request and fails closed by design, so one slow RabbitMQ round trip, one
+     * Identity restart, one dropped connection was a full sign-out. It is by far the most likely
+     * reason the console feels like it logs you out constantly.
+     *
+     * Now: 401 and "you are not staff" clear the session, because both are final. Anything else
+     * keeps it and offers a retry.
+     */
+    async function start(attempt = 0) {
         try {
             session = await call('GET', `${API}/session`);
         } catch (error) {
+            if (isTransient(error)) return stall(error, attempt);
+
             // A correct password on a non-staff account lands here. Saying so is the whole reason
             // this call exists - the alternative is showing an empty queue to someone who will
             // reasonably conclude the console is broken.
             tokens.clear();
             $('#signin-error').replaceChildren(banner('danger',
-                error.message.includes('moderator') || error.message.includes('administrator')
+                error.code === 'staff_required'
                     ? 'That account is not a moderator or administrator on this instance.'
                     : error.message));
             return;
@@ -2125,8 +2205,8 @@
     function retractIncident(incident) {
         modal(close => {
             const form = el('div');
-            form.append(el('h3', null, 'Take this off the public page?'));
-            form.append(el('p', 'hint',
+            form.append(el('h2', null, 'Take this off the public page?'));
+            form.append(el('p', 'lede',
                 'It stops appearing on status.' + location.hostname.split('.').slice(1).join('.')
                 + ' and in every client banner. It is not deleted, and anyone who already read it still read it.'));
 
@@ -2167,7 +2247,10 @@
 
         modal(close => {
             const form = el('div');
-            form.append(el('h3', null, 'Publish to the status page'));
+            form.append(el('h2', null, 'Publish to the status page'));
+            form.append(el('p', 'lede',
+                'This goes live immediately, on the status page and in every client banner. Write what '
+                + 'a user would notice, not what a monitor measured.'));
 
             const kind = select([['Incident', 'Incident'], ['Maintenance', 'Scheduled maintenance']], 'Incident');
             const title = el('input');
@@ -2183,11 +2266,11 @@
             body.value = prefill.body || '';
             body.placeholder = 'What people are seeing, and that we are on it. No error rates.';
 
-            const picker = el('div', 'stack');
+            const picker = el('div', 'check-list');
             const chosen = new Set(prefill.components || []);
 
             components.forEach(component => {
-                const line = el('label', 'hstack');
+                const line = el('label', 'check');
                 const box = el('input');
                 box.type = 'checkbox';
                 box.checked = chosen.has(component.key);
@@ -2368,7 +2451,7 @@
             'The sentence an automatically generated incident is built from. Say what a user would '
             + 'notice, in their words - it is published verbatim.'));
 
-        const visibleRow = el('label', 'hstack');
+        const visibleRow = el('label', 'check');
         visibleRow.append(visible, el('span', null, 'Show on the public page'));
         edit.append(visibleRow);
 

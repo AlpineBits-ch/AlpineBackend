@@ -190,6 +190,52 @@ input, select, textarea {
 
 textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
 
+/*
+ * Checkboxes and radios have to escape the rule above.
+ *
+ * `width: 100%` on a checkbox renders a full-width bordered box with the tick floating somewhere in
+ * the middle of it and the label stranded at the far right - which is exactly how the status page's
+ * component picker shipped. Nothing in the console used a checkbox until then, so the base rule went
+ * that long without an exception rather than this being a regression.
+ */
+input[type="checkbox"],
+input[type="radio"] {
+    width: auto;
+    flex: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    accent-color: var(--brand);
+}
+
+/* A checkbox and its text as one line and one click target. The text is the readable weight rather
+   than the muted 12px `label` above, because here the label *is* the option. */
+.check {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 0;
+    padding: 6px 2px;
+    font-size: 14px;
+    font-weight: 450;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.check:hover { color: var(--brand); }
+
+/* Bounded so a list of a dozen options cannot push a modal's own buttons off the screen. */
+.check-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 208px;
+    overflow-y: auto;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
 input:focus, select:focus, textarea:focus {
     outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
     outline-offset: -1px;

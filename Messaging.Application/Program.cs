@@ -63,7 +63,7 @@ builder.UseWolverine(opts =>
 
     // Static codegen (the default) expects the ahead-of-time-generated types the Dockerfile bakes
     // in via `dotnet run -- codegen write` before publish.
-    if (builder.Environment.IsDevelopment())
+    if (builder.Environment.IsDevelopment() || !AppEnvironment.Env.MessagingConfiguration.UseScyllaDb)
     {
         opts.CodeGeneration.TypeLoadMode = JasperFx.CodeGeneration.TypeLoadMode.Dynamic;
         // Dynamic mode compiles handlers with Roslyn at startup - needs an IAssemblyGenerator,

@@ -364,7 +364,7 @@ public class AdminUsersController(
         }
 
         // Logged at Warning on both sides on purpose.
-        Audit(actor, ModerationAuditActions.RoleChanged, id, $"-> {result.Role}");
+        Audit(actor, ModerationAuditActions.RoleChanged, id, $"set to {result.Role}");
         await Db.SaveChangesAsync(ct);
 
         logger.LogWarning("Administrator {ActorId} set the role of {UserId} to {Role}",

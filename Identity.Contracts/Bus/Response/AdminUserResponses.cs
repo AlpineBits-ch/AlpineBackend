@@ -38,6 +38,12 @@ public class GetAdminUserDetailResponse
     public DateTimeOffset? LastSignInAt { get; set; }
 }
 
+public class GetUserNamesResponse
+{
+    /// <summary>Id to display name.</summary>
+    public Dictionary<string, string> Names { get; set; } = [];
+}
+
 public class GetPlatformStatsResponse
 {
     public int TotalUsers { get; set; }

@@ -109,6 +109,33 @@ public class AdminUserQueryHandler
         };
     }
 
+    /// <summary>Display names for a batch of ids.</summary>
+    public async Task<GetUserNamesResponse> Handle(GetUserNamesRequest request, MicroserviceContext ctx)
+    {
+        var ids = request.UserIds?
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct()
+            .Take(MaxNames)
+            .ToList() ?? [];
+
+        if (ids.Count == 0) return new GetUserNamesResponse();
+
+        var names = await ctx.Users.AsNoTracking()
+            .Where(u => ids.Contains(u.Id))
+            .Select(u => new { u.Id, u.UserName })
+            .ToListAsync();
+
+        return new GetUserNamesResponse
+        {
+            Names = names
+                .Where(n => n.UserName is not null)
+                .ToDictionary(n => n.Id, n => n.UserName!),
+        };
+    }
+
+    /// <summary>Ceiling on one name-resolution batch.</summary>
+    public const int MaxNames = 500;
+
     public async Task<GetPlatformStatsResponse> Handle(GetPlatformStatsRequest _, MicroserviceContext ctx)
     {
         var now = DateTimeOffset.UtcNow;

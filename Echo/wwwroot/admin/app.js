@@ -1894,10 +1894,27 @@
             const list = el('div', 'rows');
 
             entries.forEach(entry => {
+                // "Sam banned Alex", not "action.issued  user_3Gc... -> user_3Gl...". The ids are
+                // still in the detail pane and still the record; a list is for reading, and two
+                // 31-character ULIDs side by side are not something anybody reads.
+                const line = el('div', 'rw-title');
+                line.append(el('strong', null, who(entry.actorUserId, entry.actorName)));
+                line.append(document.createTextNode(` ${auditVerb(entry.action)}`));
+
+                // Only when the subject is an account. It is just as often a report, an action or a
+                // ticket, and "banned rprt_01KZ8M..." is worse than saying nothing.
+                if (entry.subjectId?.startsWith('user_')) {
+                    line.append(document.createTextNode(' '));
+                    line.append(el('strong', null, who(entry.subjectId, entry.subjectName)));
+                }
+
+                if (entry.action === 'user.role-changed') line.append(tag('Privilege', 'danger'));
+
                 list.append(row({
-                    mark: '',
-                    title: [el('span', 'mono', entry.action)],
-                    sub: `${entry.actorUserId} → ${entry.subjectId || '-'}${entry.detail ? ` · ${entry.detail}` : ''}`,
+                    // The one entry type that decides who can act on everyone else gets the stripe.
+                    mark: entry.action === 'user.role-changed' ? 'critical' : '',
+                    title: [line],
+                    sub: auditSubtitle(entry),
                     side: [el('span', 'rw-time', ago(entry.createdAt))],
                     onOpen: () => openDetail('Audit entry', auditPane(entry)),
                 }));
@@ -1909,17 +1926,84 @@
         },
     };
 
+    /**
+     * The dotted action name as something a person reads.
+     *
+     * Written as verbs that complete "<actor> ... <subject>", so the row is a sentence rather than
+     * a column of enum values. Anything unmapped falls back to the raw name with its punctuation
+     * softened - an audit log must still render an action nobody has written a label for yet, since
+     * the alternative is a new entry type silently displaying as blank.
+     */
+    const AUDIT_VERBS = {
+        'action.issued': 'actioned',
+        'action.revoked': 'lifted a restriction on',
+        'report.assigned': 'picked up a report about',
+        'report.resolved': 'closed a report about',
+        'report.reopened': 'reopened a report about',
+        'appeal.claimed': 'took an appeal from',
+        'appeal.decided': 'decided an appeal from',
+        'ticket.replied': 'replied to a ticket from',
+        'ticket.updated': 'updated a ticket from',
+        'user.role-changed': 'changed the staff role of',
+        'user.viewed': 'looked at',
+    };
+
+    const auditVerb = action => AUDIT_VERBS[action] || action.replace(/[.-]/g, ' ');
+
+    /** A name when we have one, the id when we do not. Never both - the id is in the detail pane. */
+    const who = (id, name) => name || id || 'someone';
+
+    /**
+     * The second line: what was done, and to which record.
+     *
+     * The subject id goes here rather than in the sentence when it is not an account, because
+     * "closed a report about Alex - rprt_01KZ8M..." reads correctly while putting the id in the
+     * sentence does not.
+     */
+    function auditSubtitle(entry) {
+        const parts = [];
+
+        if (entry.detail) parts.push(entry.detail);
+        if (entry.subjectId && !entry.subjectId.startsWith('user_')) parts.push(entry.subjectId);
+
+        return parts.join(' · ');
+    }
+
     function auditPane(entry) {
         const pane = el('div', 'pane');
-        pane.append(block(null, kv([
+
+        // The sentence first, so the pane opens with what happened rather than with a dotted
+        // identifier. Everything below it is the evidence for that sentence.
+        const summary = el('div', 'quote');
+        summary.textContent =
+            `${who(entry.actorUserId, entry.actorName)} ${auditVerb(entry.action)}`
+            + (entry.subjectId?.startsWith('user_')
+                ? ` ${who(entry.subjectId, entry.subjectName)}`
+                : '')
+            + (entry.detail ? ` - ${entry.detail}` : '');
+
+        pane.append(block(null, summary));
+
+        pane.append(block('Record', kv([
             ['Action', entry.action],
             ['Actor', copyable(entry.actorUserId)],
+            ['Actor name', entry.actorName || 'unknown'],
             ['Subject', entry.subjectId ? copyable(entry.subjectId) : '-'],
+            // Only for an account subject; a report id has no name and the row would read "unknown"
+            // as though something had failed to resolve.
+            ['Subject name', entry.subjectId?.startsWith('user_')
+                ? entry.subjectName || 'unknown'
+                : null],
             ['When', stamp(entry.createdAt)],
             ['From', entry.ipAddress || '-'],
         ])));
 
-        if (entry.detail) pane.append(block('Detail', el('div', 'quote', entry.detail)));
+        // The subject is where the trail continues, so make it one click rather than a copy-paste.
+        if (entry.subjectId?.startsWith('user_')) {
+            pane.append(block('Follow', button('Open this account', 'user',
+                () => openUser(entry.subjectId))));
+        }
+
         return pane;
     }
 

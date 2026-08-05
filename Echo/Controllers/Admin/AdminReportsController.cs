@@ -119,7 +119,8 @@ public class AdminReportsController(MicroserviceContext context, StaffAccess sta
         {
             // Empty string releases the report; null (absent) leaves it alone.
             report.Assign(string.IsNullOrWhiteSpace(update.AssignedToUserId) ? null : update.AssignedToUserId, now);
-            Audit(actor, ModerationAuditActions.ReportAssigned, report.Id, report.AssignedToUserId ?? "(unassigned)");
+            Audit(actor, ModerationAuditActions.ReportAssigned, report.Id,
+                report.AssignedToUserId is null ? "released" : $"assigned to {report.AssignedToUserId}");
         }
 
         if (update.Status is { } status)
@@ -152,7 +153,7 @@ public class AdminReportsController(MicroserviceContext context, StaffAccess sta
                 }
 
                 report.Resolve(status, update.Resolution!, actor.UserId, now);
-                Audit(actor, ModerationAuditActions.ReportResolved, report.Id, status.ToString());
+                Audit(actor, ModerationAuditActions.ReportResolved, report.Id, $"closed as {status}");
             }
             else
             {

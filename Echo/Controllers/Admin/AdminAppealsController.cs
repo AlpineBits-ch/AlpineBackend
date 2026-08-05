@@ -126,7 +126,7 @@ public class AdminAppealsController(
         appeal.Decide(request.Granted, request.Note, actor.UserId, now);
 
         Audit(actor, ModerationAuditActions.AppealDecided, appeal.Id,
-            $"{appeal.Status} on action {appeal.Action?.Reference ?? appeal.ActionId}");
+            $"{(request.Granted ? "accepted" : "declined")}, against {appeal.Action?.Reference ?? appeal.ActionId}");
 
         await Db.SaveChangesAsync(ct);
 

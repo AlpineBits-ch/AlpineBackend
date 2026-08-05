@@ -2,9 +2,12 @@ using Echo.Domain.Entities.Moderation;
 using Echo.Domain.Enums;
 using Echo.Moderation;
 using Echo.Persistence.Persistance;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 
 namespace Echo.Controllers.Admin;
 
@@ -160,7 +163,11 @@ public class AdminTicketsController(
 /// <summary>The audit log.</summary>
 [Authorize]
 [Route("api/v1/admin/audit")]
-public class AdminAuditController(MicroserviceContext context, StaffAccess staff)
+public class AdminAuditController(
+    MicroserviceContext context,
+    StaffAccess staff,
+    IMessageBus bus,
+    ILogger<AdminAuditController> logger)
     : AdminControllerBase(context, staff)
 {
     [HttpGet]
@@ -189,12 +196,51 @@ public class AdminAuditController(MicroserviceContext context, StaffAccess staff
             .OrderByDescending(e => e.CreatedAt)
             .Skip(skip)
             .Take(take)
-            .Select(e => new
-            {
-                e.Id, e.ActorUserId, e.Action, e.SubjectId, e.Detail, e.IpAddress, e.CreatedAt,
-            })
             .ToListAsync(ct);
 
-        return Ok(new { total, entries = rows });
+        // Names for every account the page mentions, resolved in one round trip rather than one per
+        // row.
+        var names = await ResolveNamesAsync(rows
+            .SelectMany(e => new[] { e.ActorUserId, e.SubjectId })
+            .Where(id => id is not null && id.StartsWith("user_", StringComparison.Ordinal))
+            .Select(id => id!)
+            .Distinct()
+            .ToList());
+
+        return Ok(new
+        {
+            total,
+            entries = rows.Select(e => new
+            {
+                e.Id,
+                e.ActorUserId,
+                actorName = names.GetValueOrDefault(e.ActorUserId),
+                e.Action,
+                e.SubjectId,
+                subjectName = e.SubjectId is null ? null : names.GetValueOrDefault(e.SubjectId),
+                e.Detail,
+                e.IpAddress,
+                e.CreatedAt,
+            }),
+        });
+    }
+
+    /// <summary>Ids to display names, or an empty map.</summary>
+    private async Task<Dictionary<string, string>> ResolveNamesAsync(List<string> ids)
+    {
+        if (ids.Count == 0) return [];
+
+        try
+        {
+            var response = await bus.InvokeAsync<GetUserNamesResponse>(
+                new GetUserNamesRequest { UserIds = ids });
+
+            return response.Names;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not resolve display names for the audit log; showing ids.");
+            return [];
+        }
     }
 }

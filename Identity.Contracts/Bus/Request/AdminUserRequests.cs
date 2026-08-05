@@ -27,6 +27,12 @@ public class GetAdminUserDetailRequest
 /// <summary>Instance-level counts for the console dashboard.</summary>
 public class GetPlatformStatsRequest;
 
+/// <summary>Display names for a set of account ids, in one round trip.</summary>
+public class GetUserNamesRequest
+{
+    public List<string> UserIds { get; set; } = [];
+}
+
 /// <summary>Sets an account's sign-in status on behalf of the moderation console.</summary>
 public class SetUserModerationStatusRequest
 {

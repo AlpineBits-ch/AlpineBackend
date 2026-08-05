@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
+using Echo.Domain.Entities.Moderation;
 using Echo.Domain.Enums;
 
 namespace Echo.Tests.Sites;
@@ -195,6 +197,33 @@ public class SiteAssetPathTests
 
         Assert.That(listed.Intersect(reasons), Is.EquivalentTo(reasons),
             "every ReportReason must be offered, or it can never be chosen");
+    }
+
+    /// <summary>Every audited action has a label in the console.</summary>
+    [Test]
+    public void Every_audited_action_has_a_label_in_the_console()
+    {
+        var script = File.ReadAllText(Path.Combine(WebRoot, "admin", "app.js"));
+
+        var labelled = Regex.Matches(script, @"'([a-z]+\.[a-z-]+)':\s*'")
+            .Select(m => m.Groups[1].Value)
+            .ToHashSet();
+
+        // The constants, read off the type rather than copied - a list duplicated here would be the
+        // same maintenance problem one level further out.
+        var audited = typeof(ModerationAuditActions)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f is { IsLiteral: true, FieldType.Name: nameof(String) })
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .ToList();
+
+        Assert.That(audited, Is.Not.Empty, "the audit action constants could not be read");
+
+        var missing = audited.Where(action => !labelled.Contains(action)).ToList();
+
+        Assert.That(missing, Is.Empty,
+            "these are written to the audit log but have no label in AUDIT_VERBS, so they render as "
+            + "their raw dotted name: " + string.Join(", ", missing));
     }
 
     /// <summary>Every icon the pages ask for by name has a file behind it.</summary>

@@ -217,6 +217,9 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
 
         if (member is null) return NotFound();
 
+        // Not part of the projection - none of it is a column.
+        member.EffectivePermissions = await permissionService.GetGuildPermissionsAsync(userId, guildId);
+
         return Ok(member);
 
     }

@@ -1897,4 +1897,90 @@ public class GuildPermissionServiceTests
 
         Assert.That(result, Is.False, "Actor must not be able to grant a bit it doesn't hold itself");
     }
+// ══════════════════════════════════════════════════════════════════════════
+    // GetGuildPermissionsAsync - the mask handed to clients
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // The whole reason this method exists.
+    [Test]
+    public async Task GetGuildPermissions_Owner_ResolvesSuperadminDespiteAnEmptyMemberRow()
+    {
+        _context.Guilds.Add(MakeGuild(ownerId: UserId));
+        _context.GuildMembers.Add(MakeGuildMember());
+        await _context.SaveChangesAsync();
+
+        var perms = await _service.GetGuildPermissionsAsync(UserId, GuildId);
+
+        Assert.That(perms.HasFlag(Permissions.Superadmin), Is.True);
+        Assert.That(perms.HasFlag(Permissions.EditAnyWikiPage), Is.True);
+    }
+
+    [Test]
+    public async Task GetGuildPermissions_UnionsEveryRoleTheMemberHolds()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.Roles.Add(MakeRole(id: "role-a", permissions: Permissions.SendMessages));
+        _context.Roles.Add(MakeRole(id: "role-b", permissions: Permissions.ManageEmojis));
+        _context.GuildMembers.Add(MakeGuildMember());
+        _context.RoleMembers.Add(MakeRoleMember("rm-a", "role-a", MemberId));
+        _context.RoleMembers.Add(MakeRoleMember("rm-b", "role-b", MemberId));
+        await _context.SaveChangesAsync();
+
+        var perms = await _service.GetGuildPermissionsAsync(UserId, GuildId);
+
+        Assert.That(perms.HasFlag(Permissions.SendMessages), Is.True);
+        Assert.That(perms.HasFlag(Permissions.ManageEmojis), Is.True);
+    }
+
+    // A module being off is a product state, not an authorization level - so the advertised mask
+    // must not name permissions every endpoint would then refuse.
+    [Test]
+    public async Task GetGuildPermissions_StripsPermissionsOwnedByDisabledModules()
+    {
+        var guild = MakeGuild(ownerId: UserId);
+        guild.Features = GuildFeaturePresets.Community & ~GuildFeatures.Wiki;
+        _context.Guilds.Add(guild);
+        _context.GuildMembers.Add(MakeGuildMember());
+        await _context.SaveChangesAsync();
+
+        var perms = await _service.GetGuildPermissionsAsync(UserId, GuildId);
+
+        Assert.That(perms.HasFlag(Permissions.Superadmin), Is.True, "ownership itself is unaffected");
+        Assert.That(perms.HasFlag(Permissions.EditAnyWikiPage), Is.False, "Wiki is switched off");
+        Assert.That(perms.HasFlag(Permissions.ViewWiki), Is.False);
+    }
+
+    [Test]
+    public async Task GetGuildPermissions_NonMember_IsNone()
+    {
+        _context.Guilds.Add(MakeGuild());
+        await _context.SaveChangesAsync();
+
+        var perms = await _service.GetGuildPermissionsAsync("stranger", GuildId);
+
+        Assert.That(perms, Is.EqualTo(Permissions.None));
+    }
+
+    // Agrees with the per-check API by construction rather than by coincidence: if these two ever
+    // disagree, a client renders a control the server then refuses, which is worse than hiding it.
+    [Test]
+    public async Task GetGuildPermissions_AgreesWithCanUserPerformActionOnGuild()
+    {
+        await SeedWithRolePermission(Permissions.SendMessages | Permissions.ManageEvents);
+
+        var perms = await _service.GetGuildPermissionsAsync(UserId, GuildId);
+
+        foreach (var candidate in AvailableTo(GuildFeaturePresets.Community))
+        {
+            var viaCheck = await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, candidate);
+            Assert.That(perms.HasFlag(candidate), Is.EqualTo(viaCheck), $"disagreement on {candidate}");
+        }
+    }
+
+    [Test]
+    public void GetGuildPermissions_BlankArguments_Throw()
+    {
+        Assert.ThrowsAsync<ArgumentException>(() => _service.GetGuildPermissionsAsync("", GuildId));
+        Assert.ThrowsAsync<ArgumentException>(() => _service.GetGuildPermissionsAsync(UserId, " "));
+    }
 }

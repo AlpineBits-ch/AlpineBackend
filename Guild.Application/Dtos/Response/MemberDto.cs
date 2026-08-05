@@ -1,6 +1,7 @@
 ﻿using Facet;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
+using Guild.Domain.Enums;
 using Social.Contracts.Dtos;
 
 namespace Guild.Application.Dtos.Response;
@@ -36,7 +37,12 @@ public partial class MemberDto
     NestedFacets = [typeof(FlatInviteDto), typeof(FlatRoleMember), typeof(FlatChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 2)]
 public partial class SelfMemberDto
 {
-
+    /// <summary>
+    /// What the caller may actually do in this guild, already resolved by
+    /// <c>GuildPermissionService.GetGuildPermissionsAsync</c>: ownership, every role they hold,
+    /// their own allow/deny, implied bits, and the clamp to enabled modules.
+    /// </summary>
+    public Permissions? EffectivePermissions { get; set; }
 }
 
 [Facet(typeof(Role), Include = ["Id", "CreatedAt", "UpdatedAt", nameof(Role.Permissions)])]

@@ -608,6 +608,20 @@ public class GuildPermissionService(
         });
     }
 
+    /// <summary>The caller's fully-resolved guild-scoped permissions, as a single mask.</summary>
+    public async Task<Permissions> GetGuildPermissionsAsync(string userId, string guildId)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(guildId))
+            throw new ArgumentException("UserId and GuildId cannot be null or whitespace");
+
+        var resolved = await ComputePermissionsForUserAsync(userId, guildId);
+
+        // The same gate CanUserPerformActionOnGuildAsync applies per check, applied once to the
+        // whole mask.
+        var features = await GetGuildFeaturesAsync(guildId);
+        return GuildFeatureMap.ClampToEnabled(features, resolved.BasePermissions);
+    }
+
     public async Task<bool> CanUserPerformActionOnGuildAsync(
         string userId,
         string guildId,

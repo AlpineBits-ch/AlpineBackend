@@ -63,6 +63,9 @@ public class TemplateRole
     public string Color { get; set; } = "#000000";
     public int Position { get; set; }
     public Permissions Permissions { get; set; } = Permissions.None;
+
+    /// <summary>True for the snapshot's @everyone entry.</summary>
+    public bool IsEveryone { get; set; }
 }
 
 public class TemplateCategory

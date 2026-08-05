@@ -1,6 +1,7 @@
 using Guild.Application.Bus.Consumers;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Commands;
+using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
 using Guild.Tests.Helpers;
 using JasperFx.Core;
@@ -134,7 +135,51 @@ public class ImportGuildStructureHandlerTests
 
         var everyoneRoles = _context.Roles.Where(r => r.GuildId == response.GuildId && r.Type == RoleType.Everyone).ToList();
         Assert.That(everyoneRoles, Has.Count.EqualTo(1));
-        Assert.That((ulong)everyoneRoles[0].Permissions, Is.EqualTo(0b11ul));
+
+        // 0b11 is what the command carries (ViewChannel | SendMessages, already remapped from
+        // Discord's layout by DiscordPermissionMapper).
+        Assert.That(everyoneRoles[0].Permissions,
+            Is.EqualTo((Permissions)0b11ul | Role.ExternalEveryoneBaseline));
+    }
+
+    [Test]
+    public async Task Handle_EveryoneRole_KeepsEchoNativeBitsDiscordCannotExpress()
+    {
+        // Regression: an imported guild used to land with an @everyone role strictly weaker than a
+        // natively created one - no wiki read, and no ability to edit/delete your own message or
+        // archive your own thread - because the Discord mask was assigned raw.
+        var response = await Invoke(BasicCommand());
+
+        var everyone = _context.Roles.Single(r => r.GuildId == response.GuildId && r.Type == RoleType.Everyone);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(everyone.Permissions.HasFlag(Permissions.ViewWiki), Is.True);
+            Assert.That(everyone.Permissions.HasFlag(Permissions.ManageOwnThreads), Is.True);
+            Assert.That(everyone.Permissions.HasFlag(Permissions.EditOwnMessages), Is.True);
+            Assert.That(everyone.Permissions.HasFlag(Permissions.DeleteOwnMessages), Is.True);
+
+            // Still a floor, not a reset: the Discord mask withheld these and they stay withheld.
+            Assert.That(everyone.Permissions.HasFlag(Permissions.Connect), Is.False);
+            Assert.That(everyone.Permissions.HasFlag(Permissions.CreateInvite), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Handle_OrdinaryImportedRole_DoesNotGetTheEveryoneBaseline()
+    {
+        // The baseline exists to keep @everyone at parity with a native guild.
+        var response = await Invoke(BasicCommand());
+
+        var moderator = _context.Roles.Single(r => r.Id == response.DiscordToEchoRoleIds["role-mod"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(moderator.Permissions.HasFlag(Permissions.ViewWiki), Is.False);
+            Assert.That(moderator.Permissions.HasFlag(Permissions.ManageOwnThreads), Is.False);
+            Assert.That(moderator.Permissions, Is.EqualTo((Permissions)0b1000ul),
+                "an ordinary role must carry exactly the mask the command supplied");
+        });
     }
 
     [Test]

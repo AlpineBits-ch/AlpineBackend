@@ -74,7 +74,10 @@ public class GuildTemplateEndpoint
         var everyoneRole = guild.Roles.FirstOrDefault(r => r.Type == RoleType.Everyone);
         if (everyoneRole is not null)
         {
-            snapshot.Roles.Insert(0, new TemplateRole { Name = "Everyone", Position = 0, Permissions = everyoneRole.Permissions });
+            snapshot.Roles.Insert(0, new TemplateRole
+            {
+                Name = "Everyone", Position = 0, Permissions = everyoneRole.Permissions, IsEveryone = true,
+            });
         }
 
         snapshot.Onboarding = await CaptureOnboardingAsync(ctx, guild);
@@ -147,8 +150,12 @@ public class GuildTemplateEndpoint
         ctx.Guilds.Add(guild);
 
         var everyoneRole = guild.Roles.First(r => r.Type == RoleType.Everyone);
-        var everyoneTemplate = template.Snapshot.Roles.FirstOrDefault(r => r.Position == 0 && r.Name == "Everyone");
-        if (everyoneTemplate is not null) everyoneRole.Permissions = everyoneTemplate.Permissions;
+        var everyoneTemplate = template.Snapshot.Roles.FirstOrDefault(r => r.IsEveryone)
+                               // Snapshots captured before TemplateRole.IsEveryone existed identify
+                               // the role only by the name and position the capture side writes.
+                               ?? template.Snapshot.Roles.FirstOrDefault(r => r.Position == 0 && r.Name == "Everyone");
+        if (everyoneTemplate is not null)
+            everyoneRole.ApplyExternalEveryonePermissions(everyoneTemplate.Permissions);
 
         // Onboarding in a template references roles and channels by name (ids don't survive into a
         // new guild), so the replay needs a name -> freshly-generated-id map.

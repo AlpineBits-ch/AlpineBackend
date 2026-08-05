@@ -33,6 +33,51 @@ public class Role : Aggregate<Role>, IPrefixedEntity
     
     public RoleType Type { get; init; } = RoleType.None;
 
+    /// <summary>
+    /// The permission set every newly created guild grants its @everyone role, and the single
+    /// source of truth for "what a plain member can do out of the box".
+    /// </summary>
+    public const Permissions DefaultEveryonePermissions =
+        Permissions.ViewChannel |
+        Permissions.SendMessages |
+        Permissions.EditOwnMessages |
+        Permissions.DeleteOwnMessages |
+        Permissions.AddReactions |
+        Permissions.AttachFiles |
+        Permissions.EmbedLinks |
+        Permissions.CreateThreads |
+        Permissions.SendMessagesInThreads |
+        Permissions.ManageOwnThreads |
+        Permissions.Connect |
+        Permissions.Speak |
+        Permissions.Stream |
+        Permissions.CreateInvite |
+        Permissions.ChangeNickname |
+        Permissions.ViewWiki;
+
+    /// <summary>
+    /// The part of <see cref="DefaultEveryonePermissions"/> that an @everyone mask arriving from
+    /// outside cannot express, and which is therefore OR'd back on by <see
+    /// cref="ApplyExternalEveryonePermissions"/> rather than being silently lost.
+    /// </summary>
+    public const Permissions ExternalEveryoneBaseline =
+        Permissions.EditOwnMessages |
+        Permissions.DeleteOwnMessages |
+        Permissions.ManageOwnThreads |
+        Permissions.ViewWiki;
+
+    /// <summary>
+    /// Replaces this @everyone role's permissions with a mask captured somewhere else - a Discord
+    /// import or a guild template - keeping <see cref="ExternalEveryoneBaseline"/> intact.
+    /// </summary>
+    public void ApplyExternalEveryonePermissions(Permissions external)
+    {
+        if (Type != RoleType.Everyone)
+            throw new InvalidOperationException(
+                $"Role {Id} is not the @everyone role; use Permissions directly for ordinary roles.");
+
+        Permissions = external | ExternalEveryoneBaseline;
+    }
 
     public static Role CreateEveryoneRole(string guildId, string memberId)
     {
@@ -56,19 +101,7 @@ public class Role : Aggregate<Role>, IPrefixedEntity
                 RoleId = roleId,
                 MemberId = memberId
             }],
-            Permissions =
-                Enums.Permissions.ViewChannel |
-                Enums.Permissions.SendMessages |
-                Enums.Permissions.AddReactions |
-                Enums.Permissions.AttachFiles |
-                Enums.Permissions.EmbedLinks |
-                Enums.Permissions.CreateThreads |
-                Enums.Permissions.SendMessagesInThreads |
-                Enums.Permissions.Connect |
-                Enums.Permissions.Speak |
-                Enums.Permissions.CreateInvite |
-                Enums.Permissions.ChangeNickname |
-                Enums.Permissions.Stream
+            Permissions = DefaultEveryonePermissions,
         };
 
         return role;

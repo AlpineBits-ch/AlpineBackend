@@ -84,7 +84,11 @@ public class ImportGuildStructureHandler
         {
             if (roleDto.IsEveryoneRole)
             {
-                everyoneRole.Permissions = (Permissions)roleDto.Permissions;
+                // Not a raw assignment: Discord has no bit for the wiki, for editing or deleting
+                // your own message, or for archiving your own thread, so DiscordPermissionMapper
+                // cannot produce them and an imported @everyone role would land strictly weaker
+                // than a natively created one.
+                everyoneRole.ApplyExternalEveryonePermissions((Permissions)roleDto.Permissions);
                 everyoneRole.Color = roleDto.Color;
                 roleIdMap[roleDto.DiscordId] = everyoneRole.Id;
                 response.DiscordToEchoRoleIds[roleDto.DiscordId] = everyoneRole.Id;

@@ -227,6 +227,66 @@ public class GuildTemplateEndpointTests
     // CreateGuildFromTemplate
     // ══════════════════════════════════════════════════════════════════════
 
+    [Test]
+    public async Task CreateGuildFromTemplate_IsEveryoneFlagWins_OverACustomRoleNamedEveryone()
+    {
+        // The old identification was Name == "Everyone" && Position == 0, which a custom role can
+        // shadow - the snapshot below has one deliberately sitting in that slot. The flag decides.
+        var template = GuildTemplate.Create(new CreateGuildTemplateParams
+        {
+            Name = "Shadowed", CreatorUserId = OwnerId,
+            Snapshot = new TemplateSnapshot
+            {
+                Roles =
+                [
+                    new TemplateRole { Name = "Everyone", Position = 0, Permissions = Permissions.ManageGuild },
+                    new TemplateRole { Name = "Members", Position = 1, Permissions = Permissions.SendMessages, IsEveryone = true },
+                ],
+            },
+        });
+        _context.GuildTemplates.Add(template);
+        await _context.SaveChangesAsync();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+
+        var result = await _endpoint.CreateGuildFromTemplate(template.Id, new CreateGuildFromTemplateDto { Name = "New Guild" },
+            _context, TestPrincipal.Create(UserId), _bus, _auditLog);
+
+        var newGuildId = GetProp<string>(((IValueHttpResult)result).Value!, "Id");
+        var roles = _context.Roles.Where(r => r.GuildId == newGuildId).ToList();
+        var everyone = roles.Single(r => r.Type == RoleType.Everyone);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(everyone.Permissions, Is.EqualTo(Permissions.SendMessages | Role.ExternalEveryoneBaseline),
+                "the flagged entry supplies @everyone's mask, not the one merely named 'Everyone'");
+            Assert.That(everyone.Permissions.HasFlag(Permissions.ManageGuild), Is.False,
+                "the shadowing custom role must not have been mistaken for @everyone");
+            Assert.That(roles.Any(r => r.Name == "Everyone" && r.Type == RoleType.None), Is.True,
+                "the custom role named 'Everyone' is still replayed as an ordinary role");
+        });
+    }
+
+    [Test]
+    public async Task CreateFromGuild_MarksTheSnapshotEveryoneEntry()
+    {
+        await SeedManagerMember();
+        _context.Roles.Add(Role.CreateEveryoneRole(GuildId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.CreateFromGuild(GuildId, new CreateGuildTemplateFromGuildDto { Name = "T" },
+            _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+
+        var templateId = GetProp<string>(((IValueHttpResult)result).Value!, "Id");
+        var snapshot = (await _context.GuildTemplates.AsNoTracking().FirstAsync(t => t.Id == templateId)).Snapshot;
+
+        var flagged = snapshot.Roles.Where(r => r.IsEveryone).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(flagged, Has.Count.EqualTo(1), "exactly one snapshot entry is @everyone");
+            Assert.That(flagged[0].Permissions, Is.EqualTo(Role.DefaultEveryonePermissions));
+        });
+    }
+
     private async Task<GuildTemplate> SeedTemplate()
     {
         var template = GuildTemplate.Create(new CreateGuildTemplateParams
@@ -305,9 +365,13 @@ public class GuildTemplateEndpointTests
         Assert.That(guild!.OwnerId, Is.EqualTo(UserId));
 
         var roles = _context.Roles.Where(r => r.GuildId == newGuildId).ToList();
-        Assert.That(roles.Any(r => r.Type == RoleType.Everyone && r.Permissions == Permissions.ViewChannel), Is.True,
-            "Everyone role's permissions must come from the template snapshot");
-        Assert.That(roles.Any(r => r.Name == "Moderator" && r.Permissions == Permissions.ManageChannel), Is.True);
+        // The snapshot seeded here predates TemplateRole.IsEveryone, so this also covers the
+        // name/position fallback.
+        Assert.That(roles.Any(r => r.Type == RoleType.Everyone
+                                   && r.Permissions == (Permissions.ViewChannel | Role.ExternalEveryoneBaseline)), Is.True,
+            "Everyone role's permissions must come from the template snapshot, floored by the baseline");
+        Assert.That(roles.Any(r => r.Name == "Moderator" && r.Permissions == Permissions.ManageChannel), Is.True,
+            "ordinary template roles are replayed verbatim - the baseline is @everyone-only");
 
         var categories = _context.Categories.Where(c => c.GuildId == newGuildId).ToList();
         Assert.That(categories, Has.Count.EqualTo(1));

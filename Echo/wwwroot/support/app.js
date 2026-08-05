@@ -208,17 +208,23 @@
         const result = $('#appeal-result');
         busy(button, true);
 
+        const reference = $('#a-ref').value.trim();
+        const email = $('#a-email').value.trim();
+
         try {
             const payload = await call('POST', `${API}/appeals`, {
-                body: {
-                    reference: $('#a-ref').value.trim(),
-                    email: $('#a-email').value.trim(),
-                    body: $('#a-body').value,
-                },
+                body: { reference, email, body: $('#a-body').value },
             });
 
             $('#appeal-form').classList.add('hidden');
             const box = notice('ok', payload.message, result);
+
+            // Carried into the status checker below, so coming back later is one click rather than
+            // digging the code out of an email again. Either reference works there - the appeal's
+            // own or the action's - so the one they typed is a fine fallback when the server did
+            // not hand one back.
+            $('#as-ref').value = payload.reference || reference;
+            $('#as-email').value = email;
 
             // The server answers the same body whether or not the reference matched a live action,
             // so it does not always hand back a reference. Showing one only when there is one is
@@ -228,6 +234,9 @@
                 ref.style.marginBottom = '0';
                 ref.append(icon('shield'), document.createTextNode(payload.reference));
                 box.querySelector('.grow').append(ref);
+
+                box.querySelector('.grow').append(el('p', 'hint',
+                    'Keep this to check on it later. The code from the ban notice works too.'));
             }
         } catch (error) {
             notice('danger', error.message, result);
@@ -416,21 +425,49 @@
     // ── Entry ───────────────────────────────────────────────────────────────
 
     // Deep links from the emails: /appeal?ref=..., /ticket?ref=...&token=...
+    //
+    // Everything the URL carries goes into the fields, on every form it fits, and then the cursor
+    // lands on the first thing still empty. Someone arriving here has just been banned and is
+    // holding a link - the least this page can do is not make them retype what the link already
+    // said.
     const params = new URLSearchParams(location.search);
     const path = location.pathname.replace(/^\//, '').replace(/\/$/, '');
 
     show(path || 'contact', false);
 
-    if (params.get('ref')) {
-        if (path === 'ticket') {
-            $('#t-ref').value = params.get('ref');
-            $('#t-token').value = params.get('token') || '';
-            if (params.get('token')) loadTicket(params.get('ref'), params.get('token'));
-        } else {
-            $('#a-ref').value = params.get('ref');
-            $('#as-ref').value = params.get('ref');
-        }
+    const fill = (selector, value) => {
+        // Never clobbers something already there: the browser restores form values on a back
+        // navigation, and a URL param overwriting a half-written reply would be worse than useless.
+        const node = $(selector);
+        if (node && value && !node.value) node.value = value;
+    };
+
+    const reference = params.get('ref') || params.get('reference');
+    const email = params.get('email');
+
+    if (path === 'ticket') {
+        fill('#t-ref', reference);
+        fill('#t-token', params.get('token'));
+
+        if (reference && params.get('token')) loadTicket(reference, params.get('token'));
+    } else {
+        // Both the appeal form and the status checker, because a reference in the URL is equally
+        // likely to mean "let me file this" and "let me see where mine got to".
+        fill('#a-ref', reference);
+        fill('#as-ref', reference);
+        fill('#c-email', email);
+        fill('#a-email', email);
+        fill('#as-email', email);
     }
+
+    // Focus the first field the URL did not answer, on whichever page is showing.
+    const active = $('.page[data-active]');
+    const firstEmpty = active && [...active.querySelectorAll('input, textarea')]
+        .find(node => !node.value && !node.closest('.hidden'));
+
+    // Only when something was prefilled. Focusing on a cold load scrolls a first-time visitor past
+    // the explanation they have not read yet.
+    if (firstEmpty && (reference || email)) firstEmpty.focus();
 
     // Only one FAQ answer open at a time. A page of simultaneously-expanded answers is a page
     // nobody can find their place in.

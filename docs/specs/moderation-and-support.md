@@ -343,6 +343,17 @@ POST   /appeals                      { reference, email, body } -> { appealRefer
 GET    /appeals/{reference}?email=   status only, no decision detail until decided
 ```
 
+**Two references exist, and the status lookup accepts either.** They are genuinely different records:
+the *action's* code identifies a decision and is what a ban notice tells you to quote in order to
+file an appeal; the *appeal's* code is the receipt for having filed one. Neither can be dropped -
+an action can exist without an appeal, and the appeal needs its own identity once it does.
+
+But the person holding them does not care about that distinction, and the one they still have is
+whichever email is nearer the top of their inbox. `GET /appeals/{reference}` therefore matches on
+`appeal.Reference` **or** `action.Reference`. Safe to widen because the email is still required and
+still has to match: the action code appears in a notice sent to that address, so on its own it
+identifies a decision and authorises nothing.
+
 `POST /appeals` answers the same 202-shaped body whether or not `reference` names a real action -
 the response must not confirm that a given action code exists. A bad code is logged and dropped, the
 same way the password-reset route treats an unknown address.

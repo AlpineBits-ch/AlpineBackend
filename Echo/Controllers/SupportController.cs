@@ -245,10 +245,15 @@ public class SupportController(
         var normalised = PublicReference.Normalise(reference);
         if (normalised is null || !LooksLikeEmail(email)) return AppealNotFound();
 
+        var address = email!.Trim().ToLowerInvariant();
+
+        // Either reference works: the appeal's own, or the action's.
         var appeal = await context.ModerationAppeals.AsNoTracking()
             .Include(a => a.Action)
             .FirstOrDefaultAsync(a =>
-                a.Reference == normalised && a.ContactEmail == email!.Trim().ToLowerInvariant(), ct);
+                a.ContactEmail == address
+                && (a.Reference == normalised
+                    || (a.Action != null && a.Action.Reference == normalised)), ct);
 
         if (appeal is null) return AppealNotFound();
 

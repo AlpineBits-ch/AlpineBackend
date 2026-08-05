@@ -41,6 +41,21 @@ builder.Services.AddScoped<GameCatalogSeeder>();
 builder.Services.AddScoped<GameCatalogLookup>();
 builder.Services.AddHostedService<GameCatalogSeedService>();
 
+// The bootstrap was the detectable games list, so every non-game RPC integration - flight trackers,
+// music players - is absent from it and could never be named.
+builder.Services.AddScoped<ApplicationRegistryResolver>();
+builder.Services.AddHttpClient(ApplicationRegistryResolver.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri("https://discord.com/api/v9/");
+
+    // Short and deliberate: this sits inside an activity write, and a slow third party must cost a
+    // missing name rather than a hung request. Failure is already a correct outcome here.
+    client.Timeout = TimeSpan.FromSeconds(5);
+
+    // Identifying ourselves honestly.
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Venta/1.0 (+https://venta.gg)");
+});
+
 // The only thing standing between an unauthenticated local IPC socket and every server the user
 // is in. See ActivityWriteGuard's docblock.
 builder.Services.AddScoped<ActivityWriteGuard>();

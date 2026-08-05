@@ -96,7 +96,11 @@ public partial class ProfileController(
 
         await bus.PublishAsync(new UserActivityChanged { UserId = userId, Activities = sanitized });
 
-        return NoContent();
+        // Returns what was actually published rather than 204, because the client cannot work it
+        // out for itself: an RPC payload carries an application id and no name - Discord's protocol
+        // has the name resolved centrally - so the caller genuinely does not know what it just told
+        // everyone it was doing.
+        return Ok(new SetActivityResultDto { Activities = sanitized });
     }
 
     // Bio/AccentColor: null leaves the field unchanged, "" clears it.

@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using Identity.Contracts.Bus.Response;
 using Domain;
 using Microsoft.AspNetCore.Http;
@@ -54,7 +54,7 @@ public class ProfileControllerPrivacyTests
             _identityFacts ?? new NoIdentityProfileFactsResolver());
 
         var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus, projection,
-            new ActivityWriteGuard(new GameCatalogLookup(_context)), new FakeDistributedCache())
+            TestGuards.OfflineActivityGuard(_context), new FakeDistributedCache())
         {
             ControllerContext = new ControllerContext
             {

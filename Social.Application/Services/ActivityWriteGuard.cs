@@ -8,7 +8,7 @@ namespace Social.Api.Services;
 /// <summary>
 /// Turns an untrusted activity payload into one that is safe to broadcast, or drops it.
 /// </summary>
-public sealed class ActivityWriteGuard(GameCatalogLookup catalog)
+public sealed class ActivityWriteGuard(GameCatalogLookup catalog, ApplicationRegistryResolver registry)
 {
     /// <summary>Sources allowed to carry a free-text name with no application id behind it.</summary>
     private static readonly HashSet<ActivitySource> FreeTextSources = [ActivitySource.Manual, ActivitySource.Media];
@@ -53,6 +53,10 @@ public sealed class ActivityWriteGuard(GameCatalogLookup catalog)
         {
             // The whole control. A resolved id means the catalog names the game, not the caller.
             name = await catalog.ResolveCanonicalNameAsync(applicationId, ct);
+
+            // Missing from the catalog is not the same as unknown.
+            name ??= await registry.ResolveAndStoreAsync(applicationId, ct);
+
             if (name is null) return null;
         }
         else

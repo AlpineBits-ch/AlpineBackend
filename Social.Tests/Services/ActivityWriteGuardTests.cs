@@ -1,4 +1,4 @@
-using Social.Api.Services;
+﻿using Social.Api.Services;
 using Social.Contracts.Dtos;
 using Social.Domain.Aggregate;
 using Social.Domain.Enums;
@@ -23,7 +23,7 @@ public class ActivityWriteGuardTests
     public async Task SetUp()
     {
         _context = new TestSocialContext(Guid.NewGuid().ToString());
-        _guard = new ActivityWriteGuard(new GameCatalogLookup(_context));
+        _guard = TestGuards.OfflineActivityGuard(_context);
         _now = DateTimeOffset.UtcNow;
 
         _context.GameApplications.Add(new GameApplication

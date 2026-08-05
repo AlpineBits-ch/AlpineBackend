@@ -151,7 +151,7 @@ builder.Services.AddCors(options =>
             .AllowCredentials()
             // AllowAnyHeader covers request headers; reading a response header from JS needs it
             // named here.
-            .WithExposedHeaders("Date");
+            .WithExposedHeaders("Date", "ETag");
     });
 });
 var app = builder.Build();

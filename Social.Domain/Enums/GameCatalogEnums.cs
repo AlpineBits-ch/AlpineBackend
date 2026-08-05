@@ -11,6 +11,13 @@ public enum GameCatalogSource
 
     /// <summary>Entered or corrected by staff.</summary>
     Manual,
+
+    /// <summary>
+    /// Learned on demand: an application id arrived over the RPC socket that the bootstrap did not
+    /// contain, and its display name was resolved once from the public application endpoint and
+    /// kept.
+    /// </summary>
+    Resolved,
 }
 
 /// <summary>The platform an executable rule applies to.</summary>

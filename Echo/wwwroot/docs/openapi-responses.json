@@ -35968,6 +35968,26 @@
     },
     {
       "project": "Social.Application",
+      "verb": "get",
+      "path": "/api/v1/games/catalog",
+      "clrMethod": "GameCatalogEndpoint.GetCatalogAsync",
+      "responses": {
+        "200": {
+          "description": "Success"
+        },
+        "400": {
+          "description": "Invalid request"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\GameCatalogEndpoint.cs",
+        "line": 42
+      },
+      "summary": "The detection catalog, optionally narrowed to one platform",
+      "description": "The detection catalog, optionally narrowed to one platform.  Only applications that actually carry executable rules appear here - the rest of the catalog exists to resolve application ids arriving over the RPC socket and is useless for process matching."
+    },
+    {
+      "project": "Social.Application",
       "verb": "post",
       "path": "/api/v1/relationships",
       "clrMethod": "FriendshipEndpoints.CreateAsync",

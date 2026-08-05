@@ -1036,7 +1036,7 @@
       "sites": [
         {
           "file": "Messaging.Application/Handler/Messages/MessageCreatedHandler.cs",
-          "line": 38,
+          "line": 39,
           "clrType": "Messaging.Domain.Events.Message.MessageCreated",
           "anonymous": false,
           "schema": {
@@ -1392,7 +1392,7 @@
       "sites": [
         {
           "file": "Messaging.Application/Handler/Messages/MessageUpdatedHandler.cs",
-          "line": 37,
+          "line": 38,
           "clrType": "Messaging.Domain.Events.Message.MessageUpdated",
           "anonymous": false,
           "schema": {
@@ -7142,17 +7142,17 @@
     },
     {
       "name": "guild.PresenceChanged",
-      "shapeCount": 1,
+      "shapeCount": 2,
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 116,
-          "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+          "line": 127,
+          "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+            "ClrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "Properties": {
               "userId": {
                 "Type": "string",
@@ -7168,19 +7168,120 @@
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
+              },
+              "activities": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Social.Contracts.Dtos.ActivityDto",
+                  "Properties": {
+                    "type": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "name": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "details": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "state": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "applicationId": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "integer",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "endsAt": {
+                      "Type": "integer",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "assets": {
+                      "Type": "object",
+                      "Nullable": true,
+                      "ClrType": "Social.Contracts.Dtos.ActivityAssetsDto",
+                      "Properties": {
+                        "largeImageUrl": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "largeText": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "smallImageUrl": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "smallText": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        }
+                      }
+                    },
+                    "party": {
+                      "Type": "object",
+                      "Nullable": true,
+                      "ClrType": "Social.Contracts.Dtos.ActivityPartyDto",
+                      "Properties": {
+                        "id": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "size": {
+                          "Type": "integer",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "max": {
+                          "Type": "integer",
+                          "Nullable": true,
+                          "Properties": {}
+                        }
+                      }
+                    },
+                    "source": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
               }
             }
           }
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 122,
-          "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+          "line": 140,
+          "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+            "ClrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "Properties": {
               "userId": {
                 "Type": "string",
@@ -7196,13 +7297,114 @@
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
+              },
+              "activities": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Social.Contracts.Dtos.ActivityDto",
+                  "Properties": {
+                    "type": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "name": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "details": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "state": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "applicationId": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "integer",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "endsAt": {
+                      "Type": "integer",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "assets": {
+                      "Type": "object",
+                      "Nullable": true,
+                      "ClrType": "Social.Contracts.Dtos.ActivityAssetsDto",
+                      "Properties": {
+                        "largeImageUrl": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "largeText": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "smallImageUrl": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "smallText": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        }
+                      }
+                    },
+                    "party": {
+                      "Type": "object",
+                      "Nullable": true,
+                      "ClrType": "Social.Contracts.Dtos.ActivityPartyDto",
+                      "Properties": {
+                        "id": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "size": {
+                          "Type": "integer",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "max": {
+                          "Type": "integer",
+                          "Nullable": true,
+                          "Properties": {}
+                        }
+                      }
+                    },
+                    "source": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
               }
             }
           }
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 194,
+          "line": 348,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
           "anonymous": true,
           "schema": {
@@ -8456,7 +8658,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 249,
+          "line": 403,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -9703,6 +9905,1042 @@
               "userName": {
                 "Type": "string",
                 "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "status.IncidentUpdated",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Echo/Controllers/Admin/AdminStatusController.cs",
+          "line": 509,
+          "clrType": "\u003Canonymous type: Echo.Status.StatusIncidentDto incident\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: Echo.Status.StatusIncidentDto incident\u003E",
+            "Properties": {
+              "incident": {
+                "Type": "object",
+                "Nullable": false,
+                "ClrType": "Echo.Status.StatusIncidentDto",
+                "Properties": {
+                  "reference": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "kind": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "title": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "impact": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "status": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "components": {
+                    "Type": "array",
+                    "Nullable": false,
+                    "Items": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "Properties": {}
+                  },
+                  "startedAt": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "resolvedAt": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "scheduledFor": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "scheduledUntil": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "template": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Properties": {}
+                  },
+                  "url": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "updates": {
+                    "Type": "array",
+                    "Nullable": false,
+                    "Items": {
+                      "Type": "object",
+                      "Nullable": false,
+                      "ClrType": "Echo.Status.StatusUpdateDto",
+                      "Properties": {
+                        "status": {
+                          "Type": "string",
+                          "Nullable": false,
+                          "Properties": {}
+                        },
+                        "body": {
+                          "Type": "string",
+                          "Nullable": false,
+                          "Properties": {}
+                        },
+                        "template": {
+                          "Type": "string",
+                          "Nullable": true,
+                          "Properties": {}
+                        },
+                        "postedAt": {
+                          "Type": "string",
+                          "Nullable": false,
+                          "Format": "date-time",
+                          "Properties": {}
+                        }
+                      }
+                    },
+                    "Properties": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "status.SummaryChanged",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Echo/Controllers/Admin/AdminStatusController.cs",
+          "line": 496,
+          "clrType": "Echo.Status.StatusSummaryDto",
+          "anonymous": false,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "Echo.Status.StatusSummaryDto",
+            "Properties": {
+              "indicator": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "updatedAt": {
+                "Type": "string",
+                "Nullable": false,
+                "Format": "date-time",
+                "Properties": {}
+              },
+              "banner": {
+                "Type": "object",
+                "Nullable": true,
+                "ClrType": "Echo.Status.StatusBannerDto",
+                "Properties": {
+                  "title": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "body": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "severity": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "incidentReference": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "url": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "template": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Properties": {}
+                  },
+                  "componentKey": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Properties": {}
+                  }
+                }
+              },
+              "components": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusComponentDto",
+                  "Properties": {
+                    "key": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "name": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "description": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "statusSince": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "uptime90d": {
+                      "Type": "number",
+                      "Nullable": true,
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              },
+              "incidents": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusIncidentDto",
+                  "Properties": {
+                    "reference": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "kind": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "title": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "impact": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "components": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "string",
+                        "Nullable": false,
+                        "Properties": {}
+                      },
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "resolvedAt": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledFor": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledUntil": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "template": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "url": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "updates": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "object",
+                        "Nullable": false,
+                        "ClrType": "Echo.Status.StatusUpdateDto",
+                        "Properties": {
+                          "status": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "body": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "template": {
+                            "Type": "string",
+                            "Nullable": true,
+                            "Properties": {}
+                          },
+                          "postedAt": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Format": "date-time",
+                            "Properties": {}
+                          }
+                        }
+                      },
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              },
+              "maintenance": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusIncidentDto",
+                  "Properties": {
+                    "reference": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "kind": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "title": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "impact": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "components": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "string",
+                        "Nullable": false,
+                        "Properties": {}
+                      },
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "resolvedAt": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledFor": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledUntil": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "template": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "url": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "updates": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "object",
+                        "Nullable": false,
+                        "ClrType": "Echo.Status.StatusUpdateDto",
+                        "Properties": {
+                          "status": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "body": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "template": {
+                            "Type": "string",
+                            "Nullable": true,
+                            "Properties": {}
+                          },
+                          "postedAt": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Format": "date-time",
+                            "Properties": {}
+                          }
+                        }
+                      },
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              },
+              "recent": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusIncidentDto",
+                  "Properties": {
+                    "reference": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "kind": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "title": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "impact": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "components": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "string",
+                        "Nullable": false,
+                        "Properties": {}
+                      },
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "resolvedAt": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledFor": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledUntil": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "template": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "url": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "updates": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "object",
+                        "Nullable": false,
+                        "ClrType": "Echo.Status.StatusUpdateDto",
+                        "Properties": {
+                          "status": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "body": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "template": {
+                            "Type": "string",
+                            "Nullable": true,
+                            "Properties": {}
+                          },
+                          "postedAt": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Format": "date-time",
+                            "Properties": {}
+                          }
+                        }
+                      },
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              }
+            }
+          }
+        },
+        {
+          "file": "Echo/Status/StatusProbe.cs",
+          "line": 495,
+          "clrType": "Echo.Status.StatusSummaryDto",
+          "anonymous": false,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "Echo.Status.StatusSummaryDto",
+            "Properties": {
+              "indicator": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "updatedAt": {
+                "Type": "string",
+                "Nullable": false,
+                "Format": "date-time",
+                "Properties": {}
+              },
+              "banner": {
+                "Type": "object",
+                "Nullable": true,
+                "ClrType": "Echo.Status.StatusBannerDto",
+                "Properties": {
+                  "title": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "body": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "severity": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "incidentReference": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "url": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "template": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Properties": {}
+                  },
+                  "componentKey": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Properties": {}
+                  }
+                }
+              },
+              "components": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusComponentDto",
+                  "Properties": {
+                    "key": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "name": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "description": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "statusSince": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "uptime90d": {
+                      "Type": "number",
+                      "Nullable": true,
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              },
+              "incidents": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusIncidentDto",
+                  "Properties": {
+                    "reference": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "kind": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "title": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "impact": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "components": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "string",
+                        "Nullable": false,
+                        "Properties": {}
+                      },
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "resolvedAt": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledFor": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledUntil": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "template": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "url": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "updates": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "object",
+                        "Nullable": false,
+                        "ClrType": "Echo.Status.StatusUpdateDto",
+                        "Properties": {
+                          "status": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "body": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "template": {
+                            "Type": "string",
+                            "Nullable": true,
+                            "Properties": {}
+                          },
+                          "postedAt": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Format": "date-time",
+                            "Properties": {}
+                          }
+                        }
+                      },
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              },
+              "maintenance": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusIncidentDto",
+                  "Properties": {
+                    "reference": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "kind": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "title": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "impact": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "components": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "string",
+                        "Nullable": false,
+                        "Properties": {}
+                      },
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "resolvedAt": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledFor": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledUntil": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "template": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "url": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "updates": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "object",
+                        "Nullable": false,
+                        "ClrType": "Echo.Status.StatusUpdateDto",
+                        "Properties": {
+                          "status": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "body": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "template": {
+                            "Type": "string",
+                            "Nullable": true,
+                            "Properties": {}
+                          },
+                          "postedAt": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Format": "date-time",
+                            "Properties": {}
+                          }
+                        }
+                      },
+                      "Properties": {}
+                    }
+                  }
+                },
+                "Properties": {}
+              },
+              "recent": {
+                "Type": "array",
+                "Nullable": false,
+                "Items": {
+                  "Type": "object",
+                  "Nullable": false,
+                  "ClrType": "Echo.Status.StatusIncidentDto",
+                  "Properties": {
+                    "reference": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "kind": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "title": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "impact": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "status": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "components": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "string",
+                        "Nullable": false,
+                        "Properties": {}
+                      },
+                      "Properties": {}
+                    },
+                    "startedAt": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "resolvedAt": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledFor": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "scheduledUntil": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Format": "date-time",
+                      "Properties": {}
+                    },
+                    "template": {
+                      "Type": "string",
+                      "Nullable": true,
+                      "Properties": {}
+                    },
+                    "url": {
+                      "Type": "string",
+                      "Nullable": false,
+                      "Properties": {}
+                    },
+                    "updates": {
+                      "Type": "array",
+                      "Nullable": false,
+                      "Items": {
+                        "Type": "object",
+                        "Nullable": false,
+                        "ClrType": "Echo.Status.StatusUpdateDto",
+                        "Properties": {
+                          "status": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "body": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Properties": {}
+                          },
+                          "template": {
+                            "Type": "string",
+                            "Nullable": true,
+                            "Properties": {}
+                          },
+                          "postedAt": {
+                            "Type": "string",
+                            "Nullable": false,
+                            "Format": "date-time",
+                            "Properties": {}
+                          }
+                        }
+                      },
+                      "Properties": {}
+                    }
+                  }
+                },
                 "Properties": {}
               }
             }

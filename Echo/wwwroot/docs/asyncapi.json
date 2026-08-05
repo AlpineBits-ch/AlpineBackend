@@ -438,6 +438,12 @@
         "social_FriendRequestRejected": {
           "$ref": "#/components/messages/social_FriendRequestRejected"
         },
+        "status_IncidentUpdated": {
+          "$ref": "#/components/messages/status_IncidentUpdated"
+        },
+        "status_SummaryChanged": {
+          "$ref": "#/components/messages/status_SummaryChanged"
+        },
         "conversation_StartTyping": {
           "$ref": "#/components/messages/conversation_StartTyping"
         },
@@ -2006,6 +2012,28 @@
         }
       ]
     },
+    "receive_status_IncidentUpdated": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/status_IncidentUpdated"
+        }
+      ]
+    },
+    "receive_status_SummaryChanged": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/status_SummaryChanged"
+        }
+      ]
+    },
     "send_call_CameraChanged": {
       "action": "send",
       "channel": {
@@ -3219,7 +3247,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Messages\\MessageCreatedHandler.cs",
-            "line": 38,
+            "line": 39,
             "clrType": "Messaging.Domain.Events.Message.MessageCreated",
             "anonymous": false
           }
@@ -3424,7 +3452,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Messages\\MessageUpdatedHandler.cs",
-            "line": 37,
+            "line": 38,
             "clrType": "Messaging.Domain.Events.Message.MessageUpdated",
             "anonymous": false
           }
@@ -8113,38 +8141,166 @@
       "guild_PresenceChanged": {
         "name": "guild.PresenceChanged",
         "title": "guild.PresenceChanged",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "summary": "Pushed by the server. WARNING: 2 different payload shapes are sent under this name.",
         "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
-          "properties": {
-            "guildId": {
-              "type": "string"
+          "oneOf": [
+            {
+              "type": "object",
+              "x-clr-type": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
+              "properties": {
+                "activities": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "x-clr-type": "Social.Contracts.Dtos.ActivityDto",
+                    "properties": {
+                      "applicationId": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "assets": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "x-clr-type": "Social.Contracts.Dtos.ActivityAssetsDto",
+                        "properties": {
+                          "largeImageUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "largeText": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "smallImageUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "smallText": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      },
+                      "details": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "endsAt": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "party": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "x-clr-type": "Social.Contracts.Dtos.ActivityPartyDto",
+                        "properties": {
+                          "id": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "max": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "size": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        }
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "startedAt": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                "guildId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                }
+              }
             },
-            "status": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
+            {
+              "type": "object",
+              "x-clr-type": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+              "properties": {
+                "guildId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "userId": {
+                  "type": "string"
+                }
+              }
             }
-          }
+          ],
+          "description": "Sent with 2 different payload shapes - see x-sites."
         },
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 116,
-            "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+            "line": 127,
+            "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 122,
-            "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
+            "line": 140,
+            "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 194,
+            "line": 348,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
             "anonymous": true
           }
@@ -8965,7 +9121,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 249,
+            "line": 403,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
             "anonymous": true
           },
@@ -9724,6 +9880,480 @@
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Integration\\Relationship\\Events\\RelationshipRealtimeHandlers.cs",
             "line": 35,
             "clrType": "Social.Api.Dtos.Realtime.FriendRelationshipPayload",
+            "anonymous": false
+          }
+        ]
+      },
+      "status_IncidentUpdated": {
+        "name": "status.IncidentUpdated",
+        "title": "status.IncidentUpdated",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: Echo.Status.StatusIncidentDto incident\u003E",
+          "properties": {
+            "incident": {
+              "type": "object",
+              "x-clr-type": "Echo.Status.StatusIncidentDto",
+              "properties": {
+                "components": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "impact": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "reference": {
+                  "type": "string"
+                },
+                "resolvedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "scheduledFor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "scheduledUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "template": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "updates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "x-clr-type": "Echo.Status.StatusUpdateDto",
+                    "properties": {
+                      "body": {
+                        "type": "string"
+                      },
+                      "postedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "template": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo\\Controllers\\Admin\\AdminStatusController.cs",
+            "line": 509,
+            "clrType": "\u003Canonymous type: Echo.Status.StatusIncidentDto incident\u003E",
+            "anonymous": true
+          }
+        ]
+      },
+      "status_SummaryChanged": {
+        "name": "status.SummaryChanged",
+        "title": "status.SummaryChanged",
+        "summary": "Pushed by the server. Payload: Echo.Status.StatusSummaryDto.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Status.StatusSummaryDto",
+          "properties": {
+            "banner": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "x-clr-type": "Echo.Status.StatusBannerDto",
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "componentKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "incidentReference": {
+                  "type": "string"
+                },
+                "severity": {
+                  "type": "string"
+                },
+                "template": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            },
+            "components": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "x-clr-type": "Echo.Status.StatusComponentDto",
+                "properties": {
+                  "description": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "key": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "statusSince": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "uptime90d": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            },
+            "incidents": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "x-clr-type": "Echo.Status.StatusIncidentDto",
+                "properties": {
+                  "components": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "reference": {
+                    "type": "string"
+                  },
+                  "resolvedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "scheduledFor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "scheduledUntil": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "template": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Echo.Status.StatusUpdateDto",
+                      "properties": {
+                        "body": {
+                          "type": "string"
+                        },
+                        "postedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "template": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "indicator": {
+              "type": "string"
+            },
+            "maintenance": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "x-clr-type": "Echo.Status.StatusIncidentDto",
+                "properties": {
+                  "components": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "reference": {
+                    "type": "string"
+                  },
+                  "resolvedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "scheduledFor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "scheduledUntil": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "template": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Echo.Status.StatusUpdateDto",
+                      "properties": {
+                        "body": {
+                          "type": "string"
+                        },
+                        "postedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "template": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "recent": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "x-clr-type": "Echo.Status.StatusIncidentDto",
+                "properties": {
+                  "components": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "reference": {
+                    "type": "string"
+                  },
+                  "resolvedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "scheduledFor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "scheduledUntil": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "template": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "updates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Echo.Status.StatusUpdateDto",
+                      "properties": {
+                        "body": {
+                          "type": "string"
+                        },
+                        "postedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "template": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo\\Controllers\\Admin\\AdminStatusController.cs",
+            "line": 496,
+            "clrType": "Echo.Status.StatusSummaryDto",
+            "anonymous": false
+          },
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo\\Status\\StatusProbe.cs",
+            "line": 495,
+            "clrType": "Echo.Status.StatusSummaryDto",
             "anonymous": false
           }
         ]

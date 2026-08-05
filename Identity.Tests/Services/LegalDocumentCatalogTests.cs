@@ -213,10 +213,18 @@ public class LegalDocumentCatalogTests
 
         var loaded = catalog.Load();
 
-        Assert.That(loaded.Select(d => d.DocumentType), Is.EquivalentTo(new[]
+        // Distinct, not the raw list.
+        Assert.That(loaded.Select(d => d.DocumentType).Distinct(), Is.EquivalentTo(new[]
         {
             LegalDocumentType.Terms, LegalDocumentType.Privacy, LegalDocumentType.Cookies,
         }), "the manifest in docs/legal must reach the build output");
+
+        // Superseded versions have to keep loading, because every stored consent points at the
+        // exact version it was given - a historical document that stops loading turns those records
+        // into references to text nobody can produce.
+        Assert.That(loaded.Select(d => (d.DocumentType, d.Version)), Is.Unique,
+            "a (type, version) pair must appear once - two entries for one version would make "
+            + "ContentHash ambiguous");
 
         Assert.Multiple(() =>
         {

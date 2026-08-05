@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Alba;
 using Identity.Application.Dtos.Request;
+using Identity.Application.Services;
 using Identity.Domain.Entities;
 using Identity.Domain.Enums;
 using Identity.Infrastructure.Persistence;
@@ -163,13 +164,23 @@ public class LegalControllerTests
         var user = await ctx.Users.FirstAsync(u => u.UserName == username);
         var stored = await ctx.UserConsents.Where(c => c.UserId == user.Id).ToListAsync();
 
-        var current = await ctx.LegalDocuments.ToListAsync();
+        // Resolved through ConsentService rather than by reading every row, because "current" is a
+        // rule and not a table: the latest EffectiveAt per type that is not in the future.
+        var consentService = scope.ServiceProvider.GetRequiredService<ConsentService>();
+        var current = await consentService.GetCurrentDocumentsAsync(DateTimeOffset.UtcNow);
+
         Assert.That(stored.Select(c => (c.DocumentType, c.Version)),
             Is.EquivalentTo(current
                 .Where(d => d.DocumentType != LegalDocumentType.Cookies)
                 .Select(d => (d.DocumentType, d.Version))),
             "the consent has to name the version that was current at signup - a record that does "
             + "not say which text was agreed to is not a record of anything");
+
+        // The rule above is only meaningful if a superseded version is genuinely excluded, so pin
+        // that directly: registration must record exactly one consent per required type.
+        Assert.That(stored.Select(c => c.DocumentType), Is.Unique,
+            "one consent per document type - a second row for a superseded version would make it "
+            + "ambiguous which text the account actually agreed to");
 
         // The IP itself is not asserted here: Alba hosts the app in-process over a TestServer,
         // which has no remote endpoint, so HttpContext.Connection.RemoteIpAddress is legitimately

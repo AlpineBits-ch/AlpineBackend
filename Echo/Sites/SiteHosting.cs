@@ -35,14 +35,20 @@ public static class SiteHosting
         var icons = Path.Combine(webRoot, "assets");
         var iconProvider = Directory.Exists(icons) ? new PhysicalFileProvider(icons) : null;
 
+        // The console routes on the fragment (#queue, #appeals), which never reaches the server, so
+        // it needs no fallback.
         app.ServeSite(Path.Combine(webRoot, "admin"), admin, iconProvider);
-        app.ServeSite(Path.Combine(webRoot, "support"), support, iconProvider);
+        app.ServeSite(Path.Combine(webRoot, "support"), support, iconProvider, SupportClientRoutes);
 
         return app;
     }
 
+    /// <summary>Paths on the support host that are pages rather than files.</summary>
+    private static readonly string[] SupportClientRoutes = ["/contact", "/appeal", "/ticket"];
+
     private static void ServeSite(
-        this WebApplication app, string root, string host, IFileProvider? iconProvider)
+        this WebApplication app, string root, string host, IFileProvider? iconProvider,
+        string[]? clientRoutes = null)
     {
         if (!Directory.Exists(root))
         {
@@ -56,6 +62,27 @@ public static class SiteHosting
             context => context.Request.Host.Host.Equals(host, StringComparison.OrdinalIgnoreCase),
             branch =>
             {
+                if (clientRoutes is { Length: > 0 })
+                {
+                    // Rewritten before the static-file middleware rather than added as a fallback
+                    // endpoint after it: UseStaticFiles is middleware, so by the time routing would
+                    // pick a fallback the request has already fallen through to YARP's catch-all.
+                    branch.Use(async (context, next) =>
+                    {
+                        var path = context.Request.Path.Value?.TrimEnd('/');
+
+                        if (!string.IsNullOrEmpty(path)
+                            && HttpMethods.IsGet(context.Request.Method)
+                            && clientRoutes.Contains(path, StringComparer.OrdinalIgnoreCase))
+                        {
+                            // Only the path is rewritten.
+                            context.Request.Path = "/index.html";
+                        }
+
+                        await next();
+                    });
+                }
+
                 branch.UseDefaultFiles(new DefaultFilesOptions { FileProvider = files });
 
                 if (iconProvider is not null)

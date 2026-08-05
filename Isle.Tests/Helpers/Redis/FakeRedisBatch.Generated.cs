@@ -9,6 +9,8 @@ namespace Isle.Tests.Helpers.Redis;
 internal sealed partial class FakeRedisBatch
 {
     IConnectionMultiplexer IRedisAsync.Multiplexer => throw NotSupported();
+    int IDatabaseAsync.Database => throw NotSupported();
+    ITransactionAsync IDatabaseAsync.CreateTransaction(object a0) => throw NotSupported();
     System.Threading.Tasks.Task<RedisArrayIndex> IDatabaseAsync.ArrayCountAsync(RedisKey a0, CommandFlags a1) => throw NotSupported();
     System.Threading.Tasks.Task<bool> IDatabaseAsync.ArrayDeleteAsync(RedisKey a0, RedisArrayIndex a1, CommandFlags a2) => throw NotSupported();
     System.Threading.Tasks.Task<int> IDatabaseAsync.ArrayDeleteAsync(RedisKey a0, RedisArrayIndex[] a1, CommandFlags a2) => throw NotSupported();
@@ -77,6 +79,7 @@ internal sealed partial class FakeRedisBatch
     System.Threading.Tasks.Task<RedisValue> IDatabaseAsync.HashGetAsync(RedisKey a0, RedisValue a1, CommandFlags a2) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue[]> IDatabaseAsync.HashGetAsync(RedisKey a0, RedisValue[] a1, CommandFlags a2) => throw NotSupported();
     System.Threading.Tasks.Task<StackExchange.Redis.Lease<Byte>> IDatabaseAsync.HashGetLeaseAsync(RedisKey a0, RedisValue a1, CommandFlags a2) => throw NotSupported();
+    System.Threading.Tasks.Task IDatabaseAsync.HashImportAsync(RedisKey a0, HashImport a1, System.ReadOnlyMemory<RedisValue> a2, CommandFlags a3) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue[]> IDatabaseAsync.HashKeysAsync(RedisKey a0, CommandFlags a1) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.HashLengthAsync(RedisKey a0, CommandFlags a1) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue> IDatabaseAsync.HashRandomFieldAsync(RedisKey a0, CommandFlags a1) => throw NotSupported();
@@ -129,6 +132,7 @@ internal sealed partial class FakeRedisBatch
     System.Threading.Tasks.Task<long> IDatabaseAsync.ListLeftPushAsync(RedisKey a0, RedisValue[] a1, CommandFlags a2) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.ListLengthAsync(RedisKey a0, CommandFlags a1) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue> IDatabaseAsync.ListMoveAsync(RedisKey a0, RedisKey a1, ListSide a2, ListSide a3, CommandFlags a4) => throw NotSupported();
+    System.Threading.Tasks.Task<RedisValue[]> IDatabaseAsync.ListMoveAsync(RedisKey a0, RedisKey a1, ListSide a2, ListSide a3, long a4, ListMoveCount a5, ListMoveOrder a6, CommandFlags a7) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.ListPositionAsync(RedisKey a0, RedisValue a1, long a2, long a3, CommandFlags a4) => throw NotSupported();
     System.Threading.Tasks.Task<long[]> IDatabaseAsync.ListPositionsAsync(RedisKey a0, RedisValue a1, long a2, long a3, long a4, CommandFlags a5) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue[]> IDatabaseAsync.ListRangeAsync(RedisKey a0, long a1, long a2, CommandFlags a3) => throw NotSupported();
@@ -160,6 +164,7 @@ internal sealed partial class FakeRedisBatch
     System.Threading.Tasks.Task<long> IDatabaseAsync.SetCombineAndStoreAsync(SetOperation a0, RedisKey a1, RedisKey[] a2, CommandFlags a3) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue[]> IDatabaseAsync.SetCombineAsync(SetOperation a0, RedisKey a1, RedisKey a2, CommandFlags a3) => throw NotSupported();
     System.Threading.Tasks.Task<RedisValue[]> IDatabaseAsync.SetCombineAsync(SetOperation a0, RedisKey[] a1, CommandFlags a2) => throw NotSupported();
+    System.Threading.Tasks.Task<long> IDatabaseAsync.SetCombineLengthAsync(SetOperation a0, RedisKey[] a1, long a2, bool a3, CommandFlags a4) => throw NotSupported();
     System.Threading.Tasks.Task<bool> IDatabaseAsync.SetContainsAsync(RedisKey a0, RedisValue a1, CommandFlags a2) => throw NotSupported();
     System.Threading.Tasks.Task<bool[]> IDatabaseAsync.SetContainsAsync(RedisKey a0, RedisValue[] a1, CommandFlags a2) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.SetIntersectionLengthAsync(RedisKey[] a0, long a1, CommandFlags a2) => throw NotSupported();
@@ -249,12 +254,14 @@ internal sealed partial class FakeRedisBatch
     System.Threading.Tasks.Task<StreamEntry[]> IDatabaseAsync.StreamRangeAsync(RedisKey a0, RedisValue? a1, RedisValue? a2, int? a3, Order a4, CommandFlags a5) => throw NotSupported();
     System.Threading.Tasks.Task<StreamEntry[]> IDatabaseAsync.StreamReadAsync(RedisKey a0, RedisValue a1, int? a2, CommandFlags a3) => throw NotSupported();
     System.Threading.Tasks.Task<RedisStream[]> IDatabaseAsync.StreamReadAsync(StreamPosition[] a0, int? a1, CommandFlags a2) => throw NotSupported();
+    System.Threading.Tasks.Task<RedisStream[]> IDatabaseAsync.StreamReadAsync(StreamPosition[] a0, int? a1, int? a2, int? a3, CommandFlags a4) => throw NotSupported();
     System.Threading.Tasks.Task<StreamEntry[]> IDatabaseAsync.StreamReadGroupAsync(RedisKey a0, RedisValue a1, RedisValue a2, RedisValue? a3, int? a4, CommandFlags a5) => throw NotSupported();
     System.Threading.Tasks.Task<StreamEntry[]> IDatabaseAsync.StreamReadGroupAsync(RedisKey a0, RedisValue a1, RedisValue a2, RedisValue? a3, int? a4, bool a5, CommandFlags a6) => throw NotSupported();
     System.Threading.Tasks.Task<StreamEntry[]> IDatabaseAsync.StreamReadGroupAsync(RedisKey a0, RedisValue a1, RedisValue a2, RedisValue? a3, int? a4, bool a5, TimeSpan? a6, CommandFlags a7) => throw NotSupported();
     System.Threading.Tasks.Task<RedisStream[]> IDatabaseAsync.StreamReadGroupAsync(StreamPosition[] a0, RedisValue a1, RedisValue a2, int? a3, CommandFlags a4) => throw NotSupported();
     System.Threading.Tasks.Task<RedisStream[]> IDatabaseAsync.StreamReadGroupAsync(StreamPosition[] a0, RedisValue a1, RedisValue a2, int? a3, bool a4, CommandFlags a5) => throw NotSupported();
     System.Threading.Tasks.Task<RedisStream[]> IDatabaseAsync.StreamReadGroupAsync(StreamPosition[] a0, RedisValue a1, RedisValue a2, int? a3, bool a4, TimeSpan? a5, CommandFlags a6) => throw NotSupported();
+    System.Threading.Tasks.Task<RedisStream[]> IDatabaseAsync.StreamReadGroupAsync(StreamPosition[] a0, RedisValue a1, RedisValue a2, int? a3, bool a4, TimeSpan? a5, int? a6, int? a7, CommandFlags a8) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.StreamTrimAsync(RedisKey a0, int a1, bool a2, CommandFlags a3) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.StreamTrimAsync(RedisKey a0, long a1, bool a2, long? a3, StreamTrimMode a4, CommandFlags a5) => throw NotSupported();
     System.Threading.Tasks.Task<long> IDatabaseAsync.StreamTrimByMinIdAsync(RedisKey a0, RedisValue a1, bool a2, long? a3, StreamTrimMode a4, CommandFlags a5) => throw NotSupported();

@@ -9,7 +9,7 @@
 
         <!-- FakeRedisDatabase/FakeRedisBatch stub every StackExchange.Redis member we don't use,
              including its experimental RedisJSON/module surface (SER00x) — none of it is ever called. -->
-        <NoWarn>$(NoWarn);SER003;SER006</NoWarn>
+        <NoWarn>$(NoWarn);SER003;SER006;SER008</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>

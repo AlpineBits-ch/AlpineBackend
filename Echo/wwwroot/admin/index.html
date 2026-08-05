@@ -80,6 +80,11 @@
       <button data-view="stats" class="rail-item">
         <i data-icon="chart-bar"></i> <span>Overview</span>
       </button>
+      <!-- Visible to moderators, who can read the signals and the incidents. Publishing is
+           administrator-only and gated in the view rather than on the rail. -->
+      <button data-view="status" class="rail-item">
+        <i data-icon="activity"></i> <span>Status page</span> <em class="badge" id="badge-status"></em>
+      </button>
       <button data-view="federation" class="rail-item admin-only hidden">
         <i data-icon="external-link"></i> <span>Federation</span>
       </button>

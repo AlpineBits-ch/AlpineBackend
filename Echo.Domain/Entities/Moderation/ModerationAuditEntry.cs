@@ -52,6 +52,15 @@ public static class ModerationAuditActions
 
     public const string UserViewed = "user.viewed";
 
+    // The status page.
+    public const string StatusIncidentCreated = "status.incident-created";
+    public const string StatusIncidentUpdated = "status.incident-updated";
+    public const string StatusIncidentEdited = "status.incident-edited";
+    public const string StatusIncidentConfirmed = "status.incident-confirmed";
+    public const string StatusIncidentRetracted = "status.incident-retracted";
+    public const string StatusComponentCreated = "status.component-created";
+    public const string StatusComponentUpdated = "status.component-updated";
+
     /// <summary>An account's staff tier changed.</summary>
     public const string RoleChanged = "user.role-changed";
 }

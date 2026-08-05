@@ -36,10 +36,13 @@ public class SiteAssetPathTests
 
     /// <summary>The subset that names a file on disk.</summary>
     private static IEnumerable<string> AssetReferences(string html) =>
-        LocalReferences(html).Where(r => Path.HasExtension(r.Split('?')[0]));
+        LocalReferences(html)
+            .Where(r => !r.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+            .Where(r => Path.HasExtension(r.Split('?')[0]));
 
     [TestCase("admin")]
     [TestCase("support")]
+    [TestCase("status")]
     public void Every_referenced_asset_resolves_to_a_file_that_exists(string site)
     {
         var references = AssetReferences(Page(site)).Distinct().ToList();
@@ -64,6 +67,7 @@ public class SiteAssetPathTests
     /// <summary>The specific mistake, named.</summary>
     [TestCase("admin")]
     [TestCase("support")]
+    [TestCase("status")]
     public void No_reference_repeats_the_site_folder_in_its_path(string site)
     {
         var offenders = LocalReferences(Page(site))
@@ -80,6 +84,7 @@ public class SiteAssetPathTests
     /// </summary>
     [TestCase("admin")]
     [TestCase("support")]
+    [TestCase("status")]
     public void Each_page_loads_the_shared_stylesheet_and_icon_injector(string site)
     {
         var html = Page(site);
@@ -131,6 +136,7 @@ public class SiteAssetPathTests
     /// <summary>The page scripts actually parse.</summary>
     [TestCase("admin/app.js")]
     [TestCase("support/app.js")]
+    [TestCase("status/app.js")]
     [TestCase("assets/icons.js")]
     public void Every_page_script_parses(string relativePath)
     {
@@ -236,7 +242,7 @@ public class SiteAssetPathTests
             .Select(Path.GetFileNameWithoutExtension)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var sources = new[] { "admin", "support" }
+        var sources = new[] { "admin", "support", "status" }
             .SelectMany(site => Directory.GetFiles(Path.Combine(WebRoot, site)))
             .Select(File.ReadAllText);
 

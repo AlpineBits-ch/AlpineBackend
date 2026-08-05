@@ -121,6 +121,16 @@ p { margin: 0 0 14px; }
 /* The brand mark carries its own colours and must not be recoloured. */
 [data-icon="venta-mark"] svg { fill: none; }
 
+/* Drawn as a stroke rather than as an outline, because a pulse line has no interior to fill.
+   Same shape of exception as the brand mark above, for the opposite reason. */
+[data-icon="activity"] svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 .btn {
     display: inline-flex;

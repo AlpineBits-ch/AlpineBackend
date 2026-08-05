@@ -8,6 +8,7 @@ using Echo.Realtime;
 using Echo.RateLimiter;
 using Echo.Sagas;
 using Echo.Sites;
+using Echo.Status;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -136,6 +137,10 @@ builder.Services.AddScoped<StaffAccess>();
 builder.Services.AddSingleton<ModerationMailer>();
 builder.Services.AddScoped<EmailService>();
 
+// The status page: the request counters, the detector, the public snapshot, and the CORS and
+// rate-limit policies that belong to it alone.
+builder.Services.AddVentaStatus();
+
 builder.Services.AddScoped<IGitHubClient>(s =>
 {
     var client = new GitHubClient(new ProductHeaderValue("AlpineUpdaterAPI"))
@@ -166,6 +171,10 @@ builder.Services.AddCors(options =>
 });
 var app = builder.Build();
 
+// First in the pipeline so it wraps everything, including the proxy and the gateway's own
+// controllers.
+app.UseStatusMetrics();
+
 app.UseCors("AlpinePolicy");
 app.UseAuthentication();
 app.UseAuthorization();
@@ -194,7 +203,7 @@ app.MapControllers();
 // Documentation site.
 app.MapVentaDocs();
 
-// The moderation console and the support site.
+// The moderation console, the support site and the status page.
 app.MapVentaSites();
 
 app.MapReverseProxy();

@@ -1,6 +1,7 @@
 using AppEnvironment;
 using Echo.Domain.Entities;
 using Echo.Domain.Entities.Moderation;
+using Echo.Domain.Entities.Status;
 using Microsoft.EntityFrameworkCore;
 
 namespace Echo.Persistence.Persistance;
@@ -16,6 +17,15 @@ public class MicroserviceContext : DbContext
     public DbSet<SupportTicket> SupportTickets { get; set; }
     public DbSet<SupportTicketMessage> SupportTicketMessages { get; set; }
     public DbSet<ModerationAuditEntry> ModerationAuditEntries { get; set; }
+
+    // Status page and incidents, here for the same reason and one more: the gateway is the only
+    // process that already sees every request and every response, and already health-checks every
+    // backend.
+    public DbSet<StatusComponent> StatusComponents { get; set; }
+    public DbSet<StatusIncident> StatusIncidents { get; set; }
+    public DbSet<StatusIncidentUpdate> StatusIncidentUpdates { get; set; }
+    public DbSet<StatusIncidentComponent> StatusIncidentComponents { get; set; }
+    public DbSet<StatusDayRollup> StatusDayRollups { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -60,6 +70,101 @@ public class MicroserviceContext : DbContext
         });
 
         ConfigureModeration(modelBuilder);
+        ConfigureStatus(modelBuilder);
+    }
+
+    /// <summary>The status page's tables.</summary>
+    private static void ConfigureStatus(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<StatusComponent>(builder =>
+        {
+            builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+
+            builder.Property(x => x.Key).HasMaxLength(32).IsRequired();
+            builder.Property(x => x.Name).HasMaxLength(StatusComponent.MaxNameLength).IsRequired();
+            builder.Property(x => x.Description).HasMaxLength(StatusComponent.MaxDescriptionLength);
+            builder.Property(x => x.ImpactHint).HasMaxLength(StatusComponent.MaxImpactHintLength);
+
+            // The seed matches on Key, so a rename in the console has to survive every subsequent
+            // startup - which it only does if two rows can never share a key.
+            builder.HasIndex(x => x.Key).IsUnique();
+            builder.HasIndex(x => x.Position);
+        });
+
+        modelBuilder.Entity<StatusIncident>(builder =>
+        {
+            builder.Property(x => x.Kind).HasConversion<string>().HasMaxLength(32);
+            builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            builder.Property(x => x.Impact).HasConversion<string>().HasMaxLength(32);
+            builder.Property(x => x.Origin).HasConversion<string>().HasMaxLength(32);
+
+            builder.Property(x => x.Title).HasMaxLength(StatusIncident.MaxTitleLength).IsRequired();
+            builder.Property(x => x.Template).HasMaxLength(32);
+            builder.Property(x => x.DetectionDetail).HasMaxLength(StatusIncident.MaxDetectionDetailLength);
+
+            builder.Property(x => x.Reference)
+                .HasMaxLength(PublicReference.TotalLength)
+                .IsRequired();
+
+            builder.HasIndex(x => x.Reference).IsUnique();
+
+            // The public page's own query: not retracted, newest first, open ones first.
+            builder.HasIndex(x => new { x.IsRetracted, x.ResolvedAt, x.StartedAt });
+
+            // The cross-replica dedupe, and the only reason the detector is safe to run on more
+            // than one gateway at once.
+            builder.HasIndex(x => x.AutoComponentId)
+                .IsUnique()
+                .HasFilter("resolved_at IS NULL AND origin = 'Automatic' AND is_retracted = false")
+                .HasDatabaseName("ix_status_incidents_auto_open");
+        });
+
+        modelBuilder.Entity<StatusIncidentUpdate>(builder =>
+        {
+            builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            builder.Property(x => x.Body).HasMaxLength(StatusIncidentUpdate.MaxBodyLength);
+            builder.Property(x => x.Template).HasMaxLength(32);
+
+            builder.HasIndex(x => new { x.IncidentId, x.PostedAt });
+
+            builder.HasOne(x => x.Incident)
+                .WithMany(x => x.Updates)
+                .HasForeignKey(x => x.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StatusIncidentComponent>(builder =>
+        {
+            builder.HasKey(x => new { x.IncidentId, x.ComponentId });
+
+            builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+
+            builder.HasOne(x => x.Incident)
+                .WithMany(x => x.Components)
+                .HasForeignKey(x => x.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict, not cascade: deleting a component that an incident refers to would rewrite
+            // history to say the outage affected less than it did.
+            builder.HasOne(x => x.Component)
+                .WithMany()
+                .HasForeignKey(x => x.ComponentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StatusDayRollup>(builder =>
+        {
+            builder.Property(x => x.Day).HasColumnType("date");
+
+            // One row per component per day, enforced here because the probe upserts it from every
+            // replica on every tick.
+            builder.HasIndex(x => new { x.ComponentId, x.Day }).IsUnique();
+
+            builder.HasOne(x => x.Component)
+                .WithMany()
+                .HasForeignKey(x => x.ComponentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     /// <summary>Enum columns are stored as strings throughout, not as ints.</summary>

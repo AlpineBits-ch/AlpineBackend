@@ -508,6 +508,15 @@ services:
       # Caddyfile, or the gateway serves nothing on that name and says so in its log.
       ADMIN_DOMAIN: "${ADMIN_DOMAIN:-}"
       SUPPORT_DOMAIN: "${SUPPORT_DOMAIN:-}"
+      # The public status page, same mechanism again. Its detector needs no configuration to work -
+      # the thresholds below are only for tuning an instance whose traffic is noisier or quieter
+      # than the defaults assume. STATUS_AUTO_DETECTION=0 leaves the page and the console fully
+      # working and stops anything being published without a person doing it.
+      STATUS_DOMAIN: "${STATUS_DOMAIN:-}"
+      STATUS_AUTO_DETECTION: "${STATUS_AUTO_DETECTION:-}"
+      STATUS_DEGRADED_RATE: "${STATUS_DEGRADED_RATE:-}"
+      STATUS_OUTAGE_RATE: "${STATUS_OUTAGE_RATE:-}"
+      STATUS_MINIMUM_VOLUME: "${STATUS_MINIMUM_VOLUME:-}"
       # Reverse-proxy trust. Deliberately NOT in x-app-env: the whole point of the secret is
       # that only the gateway knows it, and putting it in the shared block would hand it to all
       # eight backend services - the exact outcome the gateway strips the header to prevent.

@@ -37,6 +37,7 @@ param(
     [string]$DocsDomain,
     [string]$AdminDomain,
     [string]$SupportDomain,
+    [string]$StatusDomain,
     [string]$InstanceName,
     [string]$AcmeEmail,
     [ValidateSet('letsencrypt', 'local', 'external-proxy')]
@@ -283,6 +284,9 @@ if (-not $ReuseEnv) {
             $Config['SUPPORT_DOMAIN'] = Format-EnvValue (
                 Get-Setting -Preset $SupportDomain -Prompt 'Public hostname for the support site' `
                             -Default "support.$($Config['INSTANCE_DOMAIN'])")
+            $Config['STATUS_DOMAIN'] = Format-EnvValue (
+                Get-Setting -Preset $StatusDomain -Prompt 'Public hostname for the status page' `
+                            -Default "status.$($Config['INSTANCE_DOMAIN'])")
             $Config['INSTANCE_URL']       = "https://$($Config['INSTANCE_DOMAIN'])"
             $Config['STORAGE_PUBLIC_URL'] = "https://$($Config['STORAGE_DOMAIN'])"
         }
@@ -300,6 +304,7 @@ if (-not $ReuseEnv) {
             $Config['DOCS_DOMAIN']        = ''
             $Config['ADMIN_DOMAIN']       = ''
             $Config['SUPPORT_DOMAIN']     = ''
+            $Config['STATUS_DOMAIN']      = ''
             $Config['INSTANCE_URL']       = "http://$($Config['INSTANCE_DOMAIN']):8080"
             $Config['STORAGE_PUBLIC_URL'] = "http://$($Config['INSTANCE_DOMAIN']):9000"
         }
@@ -381,7 +386,7 @@ if (-not $ReuseEnv) {
 $Defaults = @{
     INSTANCE_NAME = 'Venta'; INSTANCE_DOMAIN = ''; TLS_MODE = 'local'; ACME_EMAIL = ''
     INSTANCE_URL = 'http://127.0.0.1:8080'; STORAGE_DOMAIN = ''; STORAGE_PUBLIC_URL = 'http://127.0.0.1:9000'
-    DOCS_DOMAIN = ''; ADMIN_DOMAIN = ''; SUPPORT_DOMAIN = ''
+    DOCS_DOMAIN = ''; ADMIN_DOMAIN = ''; SUPPORT_DOMAIN = ''; STATUS_DOMAIN = ''
     USE_EXTERNAL_DB = 'no'; DATABASE_HOSTNAME = 'postgres'; DATABASE_PORT = '5432'
     DATABASE_USERNAME = 'postgres'; DATABASE_PASSWORD = (New-Secret 24)
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
@@ -545,6 +550,7 @@ STORAGE_DOMAIN="$($Config['STORAGE_DOMAIN'])"
 DOCS_DOMAIN="$($Config['DOCS_DOMAIN'])"
 ADMIN_DOMAIN="$($Config['ADMIN_DOMAIN'])"
 SUPPORT_DOMAIN="$($Config['SUPPORT_DOMAIN'])"
+STATUS_DOMAIN="$($Config['STATUS_DOMAIN'])"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # -- Images ---------------------------------------------------------------------------
@@ -769,6 +775,19 @@ $($Config['SUPPORT_DOMAIN']) {
 # request, not by this block. If you want a second gate in front of it (an IP allowlist, mTLS,
 # basic auth), this is the right place for it - but do not add one to the support host above.
 $($Config['ADMIN_DOMAIN']) {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
+	}
+}
+
+# The public status page. Same container, same Host-header gating, and read-only: nothing on this
+# hostname accepts a write. It is the surface people reach when everything else is broken, so do
+# not put it behind a gate of any kind - an outage page that needs the outage to be over before it
+# will load is worth nothing.
+$($Config['STATUS_DOMAIN']) {
 	encode zstd gzip
 
 	reverse_proxy echo:8080 {

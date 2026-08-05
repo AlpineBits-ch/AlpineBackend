@@ -56,6 +56,7 @@ ARG_STORAGE_DOMAIN=""
 ARG_DOCS_DOMAIN=""
 ARG_ADMIN_DOMAIN=""
 ARG_SUPPORT_DOMAIN=""
+ARG_STATUS_DOMAIN=""
 ARG_INSTANCE_NAME=""
 ARG_ACME_EMAIL=""
 ARG_TLS_MODE=""              # letsencrypt | local | external-proxy
@@ -105,6 +106,7 @@ while [[ $# -gt 0 ]]; do
         --docs-domain)        ARG_DOCS_DOMAIN="$2"; shift 2 ;;
         --admin-domain)       ARG_ADMIN_DOMAIN="$2"; shift 2 ;;
         --support-domain)     ARG_SUPPORT_DOMAIN="$2"; shift 2 ;;
+        --status-domain)      ARG_STATUS_DOMAIN="$2"; shift 2 ;;
         --instance-name)      ARG_INSTANCE_NAME="$2"; shift 2 ;;
         --acme-email)         ARG_ACME_EMAIL="$2"; shift 2 ;;
         --tls)                ARG_TLS_MODE="$2"; shift 2 ;;
@@ -299,6 +301,7 @@ if [[ "$REUSE_ENV" == false ]]; then
             DOCS_DOMAIN="$(sanitize "${ARG_DOCS_DOMAIN:-$(ask 'Public hostname for the API reference' "docs.$INSTANCE_DOMAIN")}")"
             ADMIN_DOMAIN="$(sanitize "${ARG_ADMIN_DOMAIN:-$(ask 'Public hostname for the moderation console' "admin.$INSTANCE_DOMAIN")}")"
             SUPPORT_DOMAIN="$(sanitize "${ARG_SUPPORT_DOMAIN:-$(ask 'Public hostname for the support site' "support.$INSTANCE_DOMAIN")}")"
+            STATUS_DOMAIN="$(sanitize "${ARG_STATUS_DOMAIN:-$(ask 'Public hostname for the status page' "status.$INSTANCE_DOMAIN")}")"
             INSTANCE_URL="https://$INSTANCE_DOMAIN"
             STORAGE_PUBLIC_URL="https://$STORAGE_DOMAIN"
             ;;
@@ -407,6 +410,7 @@ fi
 : "${DOCS_DOMAIN:=${INSTANCE_DOMAIN:+docs.$INSTANCE_DOMAIN}}"
 : "${ADMIN_DOMAIN:=${INSTANCE_DOMAIN:+admin.$INSTANCE_DOMAIN}}"
 : "${SUPPORT_DOMAIN:=${INSTANCE_DOMAIN:+support.$INSTANCE_DOMAIN}}"
+: "${STATUS_DOMAIN:=${INSTANCE_DOMAIN:+status.$INSTANCE_DOMAIN}}"
 : "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
 : "${USE_EXTERNAL_DB:=no}"
 : "${DATABASE_HOSTNAME:=postgres}"
@@ -552,6 +556,7 @@ STORAGE_DOMAIN="${STORAGE_DOMAIN:-}"
 DOCS_DOMAIN="${DOCS_DOMAIN:-}"
 ADMIN_DOMAIN="${ADMIN_DOMAIN:-}"
 SUPPORT_DOMAIN="${SUPPORT_DOMAIN:-}"
+STATUS_DOMAIN="${STATUS_DOMAIN:-}"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # ── Images ───────────────────────────────────────────────────────────────────────────
@@ -767,6 +772,19 @@ $SUPPORT_DOMAIN {
 # request, not by this block. If you want a second gate in front of it (an IP allowlist, mTLS,
 # basic auth), this is the right place for it - but do not add one to $SUPPORT_DOMAIN above.
 $ADMIN_DOMAIN {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$GATEWAY_PROXY_SECRET"
+	}
+}
+
+# The public status page. Same container, same Host-header gating, and read-only: nothing on this
+# hostname accepts a write. It is the surface people reach when everything else is broken, so do
+# not put it behind a gate of any kind - an outage page that needs the outage to be over before it
+# will load is worth nothing.
+$STATUS_DOMAIN {
 	encode zstd gzip
 
 	reverse_proxy echo:8080 {

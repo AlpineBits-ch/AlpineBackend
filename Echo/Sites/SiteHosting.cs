@@ -3,19 +3,22 @@ using Microsoft.Extensions.FileProviders;
 namespace Echo.Sites;
 
 /// <summary>
-/// Serves the admin console and the support site from the gateway, each on its own hostname and
-/// nowhere else.
+/// Serves the admin console, the support site and the status page from the gateway, each on its own
+/// hostname and nowhere else.
 /// </summary>
 public static class SiteHosting
 {
     public const string AdminLabel = "admin";
     public const string SupportLabel = "support";
+    public const string StatusLabel = "status";
 
     public const string AdminDomainVariable = "ADMIN_DOMAIN";
     public const string SupportDomainVariable = "SUPPORT_DOMAIN";
+    public const string StatusDomainVariable = "STATUS_DOMAIN";
 
     public static string AdminHost => SiteHost.Resolve(AdminLabel, AdminDomainVariable);
     public static string SupportHost => SiteHost.Resolve(SupportLabel, SupportDomainVariable);
+    public static string StatusHost => SiteHost.Resolve(StatusLabel, StatusDomainVariable);
 
     /// <summary>Serves both sites, plus the shared icon set.</summary>
     public static WebApplication MapVentaSites(this WebApplication app)
@@ -24,13 +27,15 @@ public static class SiteHosting
 
         var admin = AdminHost;
         var support = SupportHost;
+        var status = StatusHost;
 
         app.Logger.LogInformation(
-            "Moderation console bound to host {AdminHost}; support site bound to {SupportHost}",
-            admin, support);
+            "Moderation console bound to host {AdminHost}; support site bound to {SupportHost}; status page bound to {StatusHost}",
+            admin, support, status);
 
         app.UseSiteHostDiagnostics(AdminLabel, admin, AdminDomainVariable, "moderation console");
         app.UseSiteHostDiagnostics(SupportLabel, support, SupportDomainVariable, "support site");
+        app.UseSiteHostDiagnostics(StatusLabel, status, StatusDomainVariable, "status page");
 
         var icons = Path.Combine(webRoot, "assets");
         var iconProvider = Directory.Exists(icons) ? new PhysicalFileProvider(icons) : null;
@@ -39,9 +44,13 @@ public static class SiteHosting
         // it needs no fallback.
         app.ServeSite(Path.Combine(webRoot, "admin"), admin, iconProvider);
         app.ServeSite(Path.Combine(webRoot, "support"), support, iconProvider, SupportClientRoutes);
+        app.ServeSite(Path.Combine(webRoot, "status"), status, iconProvider, StatusClientRoutes);
 
         return app;
     }
+
+    /// <summary>Paths on the status host that are pages rather than files.</summary>
+    private static readonly string[] StatusClientRoutes = ["/incident", "/history", "/maintenance"];
 
     /// <summary>Paths on the support host that are pages rather than files.</summary>
     private static readonly string[] SupportClientRoutes = ["/contact", "/appeal", "/ticket"];

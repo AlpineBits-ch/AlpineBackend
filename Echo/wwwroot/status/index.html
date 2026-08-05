@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="Live status of venta: sign-in, messages, servers, voice and the rest of the platform, with a history of past incidents." />
+<title>Status - venta</title>
+<link rel="stylesheet" href="/assets/venta.css" />
+<link rel="stylesheet" href="/status.css" />
+<link rel="icon" href="/assets/icons/venta-mark.svg" />
+<link rel="alternate" type="application/atom+xml" title="venta status" href="/api/v1/status/feed.atom" />
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="/">
+    <i data-icon="venta-mark"></i>
+    <span>venta<span class="brand-sub">status</span></span>
+  </a>
+  <span class="masthead-meta mono" id="updated"></span>
+</header>
+
+<main>
+
+  <!-- ── Overview ─────────────────────────────────────────────────────────
+       The verdict is the whole page for most visitors. It is first, it is
+       one sentence, and nothing is allowed above it - somebody who reads a
+       single line has to get the answer from that line. -->
+  <section class="page" id="page-overview" data-active>
+
+    <section class="verdict" id="verdict" aria-live="polite">
+      <div class="verdict-mark"><i data-icon="spinner" class="spin"></i></div>
+      <div>
+        <h1 id="verdict-text">Checking status...</h1>
+        <p class="verdict-sub" id="verdict-sub"></p>
+      </div>
+    </section>
+
+    <!-- Active incidents, each with its own timeline. Rendered before the
+         component list: a reader who sees red above wants the sentence, not
+         a table. -->
+    <section id="active" class="stack" aria-label="Active incidents"></section>
+
+    <section id="upcoming" class="stack" aria-label="Scheduled maintenance"></section>
+
+    <section class="card" aria-label="Components">
+      <div class="card-head">
+        <h2>Components</h2>
+        <span class="muted small">Last 90 days</span>
+      </div>
+      <div class="card-body">
+        <div id="components" class="components"></div>
+      </div>
+    </section>
+
+    <section class="card" aria-label="Recent incidents">
+      <div class="card-head">
+        <h2>Recent history</h2>
+        <a class="link-btn" href="/history" data-route>All incidents</a>
+      </div>
+      <div class="card-body">
+        <div id="recent" class="stack"></div>
+      </div>
+    </section>
+
+  </section>
+
+  <!-- ── One incident ──────────────────────────────────────────────────── -->
+  <section class="page" id="page-incident">
+    <p><a class="link-btn" href="/" data-route><i data-icon="arrow-left"></i> Back to status</a></p>
+    <div id="incident-view"></div>
+  </section>
+
+  <!-- ── History ───────────────────────────────────────────────────────── -->
+  <section class="page" id="page-history">
+    <p><a class="link-btn" href="/" data-route><i data-icon="arrow-left"></i> Back to status</a></p>
+    <section class="card">
+      <div class="card-head">
+        <h2 id="history-title">Incident history</h2>
+        <span class="muted small" id="history-count"></span>
+      </div>
+      <div class="card-body">
+        <div id="history" class="stack"></div>
+        <div class="actions">
+          <button class="btn" id="history-more" data-label="Load more">Load more</button>
+        </div>
+      </div>
+    </section>
+  </section>
+
+</main>
+
+<footer>
+  <span class="mono">venta status</span>
+  <span>
+    <a href="/api/v1/status/feed.atom">Atom feed</a>
+    <span id="support-link"></span>
+  </span>
+</footer>
+
+<script src="/assets/icons.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

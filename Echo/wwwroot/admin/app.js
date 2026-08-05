@@ -287,6 +287,17 @@
             setBadge('#badge-appeals', moderation.openAppeals, false);
             setBadge('#badge-tickets', moderation.ticketsAwaitingStaff, false);
         } catch { /* a badge is not worth a toast */ }
+
+        try {
+            // Counts open incidents, and burns hot on the ones the detector published that nobody
+            // has acknowledged - those resolve themselves at the first clean window, so an operator
+            // who wants to keep one needs to be told it exists.
+            const { total, unconfirmed } = await call('GET', `${API}/status/incidents`, {
+                query: { openOnly: true, limit: 1 },
+            });
+
+            setBadge('#badge-status', total, unconfirmed > 0);
+        } catch { /* same */ }
     }
 
     function setBadge(selector, count, hot) {
@@ -1853,6 +1864,543 @@
         });
     }
 
+    // ── View: status page ───────────────────────────────────────────────────
+    //
+    // Three panes behind one rail item. Signals is the technical view - error rates, request
+    // counts, destination health - and is the only place in the product those numbers exist; the
+    // public page is forbidden from carrying them (docs/specs/status-and-incidents.md §5).
+    //
+    // Reads are open to moderators. Every write here is administrator-only, because publishing to
+    // status.<host> is a public statement in the instance's name rather than a decision about one
+    // account. The buttons are hidden for a moderator and the server refuses them regardless.
+
+    const STATUS = `${API}/status`;
+
+    let statusTab = 'incidents';
+
+    const INCIDENT_STATES = [
+        ['Investigating', 'Investigating - we do not yet know the cause'],
+        ['Identified', 'Identified - we know the cause'],
+        ['Monitoring', 'Monitoring - a fix is out, watching it'],
+        ['Resolved', 'Resolved - it is over'],
+    ];
+
+    const MAINTENANCE_STATES = [
+        ['Scheduled', 'Scheduled'],
+        ['InProgress', 'In progress'],
+        ['Completed', 'Completed'],
+        ['Cancelled', 'Cancelled'],
+    ];
+
+    const IMPACTS = [
+        ['None', 'None - nothing a user would notice'],
+        ['Minor', 'Minor - degraded, most things work'],
+        ['Major', 'Major - a part of the platform is down'],
+        ['Critical', 'Critical - the platform is unusable'],
+    ];
+
+    const STATE_TEXT = {
+        investigating: 'Investigating', identified: 'Identified', monitoring: 'Monitoring',
+        resolved: 'Resolved', scheduled: 'Scheduled', in_progress: 'In progress',
+        completed: 'Completed', cancelled: 'Cancelled',
+    };
+
+    const COMPONENT_TEXT = {
+        operational: 'Operational', degraded_performance: 'Degraded', partial_outage: 'Partial outage',
+        major_outage: 'Major outage', under_maintenance: 'Maintenance',
+    };
+
+    /** Unknown slugs read as themselves rather than as a guess. A build that has not been told about
+     *  a new state should say so, not pick the scariest one it knows. */
+    function pretty(map, slug) {
+        return map[slug] || (slug ? slug.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) : '-');
+    }
+
+    function impactKind(impact) {
+        if (impact === 'critical') return 'danger';
+        if (impact === 'major') return 'danger';
+        if (impact === 'minor') return 'warn';
+        return 'info';
+    }
+
+    function statusGo(tab) {
+        statusTab = tab;
+        $('#view-tools').replaceChildren(...(views.status.tools() || []));
+        render();
+    }
+
+    views.status = {
+        title: 'Status page',
+
+        tools() {
+            const tabs = [['incidents', 'Incidents'], ['signals', 'Signals'], ['components', 'Components']]
+                .map(([key, text]) => {
+                    const button = el('button', `btn sm ${statusTab === key ? 'primary' : 'ghost'}`, text);
+                    button.addEventListener('click', () => statusGo(key));
+                    return button;
+                });
+
+            if (!session?.canViewAudit) return tabs;
+
+            const declare = el('button', 'btn sm primary');
+            declare.append(icon('plus'), document.createTextNode(' Publish'));
+            declare.addEventListener('click', () => declareIncident());
+            tabs.push(declare);
+
+            return tabs;
+        },
+
+        async render() {
+            if (statusTab === 'signals') return renderSignals();
+            if (statusTab === 'components') return renderStatusComponents();
+            return renderStatusIncidents();
+        },
+    };
+
+    async function renderStatusIncidents() {
+        const { incidents, total, unconfirmed } = await call('GET', `${STATUS}/incidents`, {
+            query: { limit: 50, includeRetracted: true },
+        });
+
+        const wrap = el('div');
+
+        if (unconfirmed > 0) {
+            // The one thing on this page waiting for a person: the detector published something and
+            // nobody has looked at it. It will resolve itself on the first clean window unless
+            // somebody takes it over.
+            wrap.append(banner('warn',
+                `${unconfirmed} automatic incident${unconfirmed === 1 ? '' : 's'} nobody has acknowledged. `
+                + 'Unless you take one over, it will resolve itself as soon as the signal clears.'));
+        }
+
+        if (!incidents.length) {
+            wrap.append(empty('Nothing has ever been published here.', 'activity'));
+            return wrap;
+        }
+
+        const list = el('div', 'rows');
+
+        incidents.forEach(incident => {
+            const title = el('div', 'rw-title');
+            title.append(el('strong', null, incident.title));
+
+            if (incident.origin === 'automatic') title.append(tag('Automatic', 'info'));
+            if (incident.origin === 'automatic' && !incident.confirmed && !incident.resolvedAt) {
+                title.append(tag('Unacknowledged', 'warn'));
+            }
+            if (incident.isRetracted) title.append(tag('Retracted'));
+            if (incident.kind === 'maintenance') title.append(tag('Maintenance'));
+
+            list.append(row({
+                mark: incident.resolvedAt ? '' : (impactKind(incident.impact) === 'danger' ? 'critical' : 'high'),
+                title: [title],
+                sub: `${pretty(STATE_TEXT, incident.status)} · ${incident.components.join(', ') || 'no components'} · ${incident.reference}`,
+                side: [el('span', 'rw-time', ago(incident.startedAt))],
+                onOpen: () => openIncident(incident.id),
+            }));
+        });
+
+        wrap.append(list, listFoot(total, incidents.length));
+        return wrap;
+    }
+
+    async function openIncident(id) {
+        const incident = await call('GET', `${STATUS}/incidents/${id}`);
+        const pane = el('div');
+
+        pane.append(kv([
+            ['Reference', copyable(incident.reference)],
+            ['Kind', incident.kind === 'maintenance' ? 'Maintenance' : 'Incident'],
+            ['State', pretty(STATE_TEXT, incident.status)],
+            ['Impact', tag(pretty({}, incident.impact), impactKind(incident.impact))],
+            ['Origin', incident.origin === 'automatic' ? 'Detected automatically' : 'Published by staff'],
+            ['Components', incident.components.join(', ') || '-'],
+            ['Started', stamp(incident.startedAt)],
+            ['Resolved', incident.resolvedAt ? stamp(incident.resolvedAt) : null],
+            ['Scheduled', incident.scheduledFor ? `${stamp(incident.scheduledFor)} - ${stamp(incident.scheduledUntil)}` : null],
+            ['Public link', linkOut(incident.url)],
+        ]));
+
+        if (incident.detectionDetail) {
+            // Staff-only, and the reason the public copy is allowed to be vague. Everything the
+            // detector measured is here and nowhere else.
+            pane.append(block('What the detector saw', el('pre', 'pre-wrap small', incident.detectionDetail)));
+        }
+
+        if (incident.updates?.length) {
+            const list = el('div', 'rows');
+
+            incident.updates.forEach(update => {
+                const head = el('div', 'rw-title');
+                head.append(el('strong', null, pretty(STATE_TEXT, update.status)));
+                if (!update.authorUserId) head.append(tag('Automatic', 'info'));
+
+                const item = el('div', 'block');
+                item.append(head);
+                item.append(el('div', 'rw-sub', stamp(update.postedAt)));
+                item.append(el('p', 'pre-wrap', update.body));
+                list.append(item);
+            });
+
+            pane.append(block('Timeline', list));
+        }
+
+        if (session?.canViewAudit && !incident.isRetracted) pane.append(incidentActions(incident));
+
+        openDetail(incident.title, pane);
+    }
+
+    function linkOut(url) {
+        const link = el('a', null, url);
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        return link;
+    }
+
+    function incidentActions(incident) {
+        const box = el('div', 'block');
+        box.append(el('h3', null, 'Post an update'));
+
+        // Said out loud rather than implied by a missing button: people expect an edit control here
+        // and its absence is a decision, not an oversight.
+        box.append(el('p', 'hint',
+            'Updates cannot be edited or deleted once posted. To correct one, post another.'));
+
+        const body = el('textarea');
+        body.rows = 5;
+        body.maxLength = 4000;
+        body.placeholder = incident.origin === 'automatic'
+            ? 'What is actually happening, in the words a user would use.'
+            : 'What changed since the last update?';
+
+        const state = select(
+            incident.kind === 'maintenance' ? MAINTENANCE_STATES : INCIDENT_STATES,
+            incident.kind === 'maintenance' ? 'InProgress' : 'Identified');
+
+        box.append(field('State', state));
+        box.append(field('Update', body));
+
+        const post = button('Post update', 'send', async () => {
+            if (!body.value.trim()) return toast('danger', 'An update needs a body.');
+
+            busy(post, true);
+            try {
+                await call('POST', `${STATUS}/incidents/${incident.id}/updates`, {
+                    body: { body: body.value.trim(), status: state.value },
+                });
+                toast('ok', 'Posted');
+                closeDetail();
+                render();
+                refreshBadges();
+            } catch (error) {
+                toast('danger', error.message);
+            } finally {
+                busy(post, false);
+            }
+        }, 'primary');
+
+        const actions = el('div', 'actions');
+        actions.append(post);
+
+        if (incident.origin === 'automatic' && !incident.confirmed) {
+            actions.append(button('Take over', 'user', async () => {
+                try {
+                    await call('POST', `${STATUS}/incidents/${incident.id}/confirm`);
+                    toast('ok', 'This incident is yours now. It will not resolve itself.');
+                    openIncident(incident.id);
+                    render();
+                } catch (error) {
+                    toast('danger', error.message);
+                }
+            }));
+        }
+
+        actions.append(button('Retract', 'trash', () => retractIncident(incident), 'danger'));
+
+        box.append(actions);
+        return box;
+    }
+
+    function retractIncident(incident) {
+        modal(close => {
+            const form = el('div');
+            form.append(el('h3', null, 'Take this off the public page?'));
+            form.append(el('p', 'hint',
+                'It stops appearing on status.' + location.hostname.split('.').slice(1).join('.')
+                + ' and in every client banner. It is not deleted, and anyone who already read it still read it.'));
+
+            const reason = el('input');
+            reason.placeholder = 'Why (recorded in the audit log)';
+            form.append(field('Reason', reason));
+
+            const actions = el('div', 'actions');
+            actions.append(button('Cancel', 'times', close));
+            actions.append(button('Retract', 'trash', async () => {
+                try {
+                    await call('POST', `${STATUS}/incidents/${incident.id}/retract`, {
+                        body: { reason: reason.value.trim() },
+                    });
+                    close();
+                    closeDetail();
+                    toast('ok', 'Retracted');
+                    render();
+                } catch (error) {
+                    toast('danger', error.message);
+                }
+            }, 'danger'));
+
+            form.append(actions);
+            return form;
+        });
+    }
+
+    /**
+     * The publish form.
+     *
+     * One action, not two: the title, the impact, the components and the first update are all on
+     * this screen, because an incident published with no first update is a red banner with nothing
+     * under it - which is worse for a reader than silence.
+     */
+    async function declareIncident(prefill = {}) {
+        const { components } = await call('GET', `${STATUS}/components`);
+
+        modal(close => {
+            const form = el('div');
+            form.append(el('h3', null, 'Publish to the status page'));
+
+            const kind = select([['Incident', 'Incident'], ['Maintenance', 'Scheduled maintenance']], 'Incident');
+            const title = el('input');
+            title.maxLength = 200;
+            title.value = prefill.title || '';
+            title.placeholder = 'What a user would say is wrong';
+
+            const impact = select(IMPACTS, prefill.impact || 'Minor');
+
+            const body = el('textarea');
+            body.rows = 5;
+            body.maxLength = 4000;
+            body.value = prefill.body || '';
+            body.placeholder = 'What people are seeing, and that we are on it. No error rates.';
+
+            const picker = el('div', 'stack');
+            const chosen = new Set(prefill.components || []);
+
+            components.forEach(component => {
+                const line = el('label', 'hstack');
+                const box = el('input');
+                box.type = 'checkbox';
+                box.checked = chosen.has(component.key);
+                box.addEventListener('change', () => box.checked ? chosen.add(component.key) : chosen.delete(component.key));
+                line.append(box, el('span', null, component.name));
+                picker.append(line);
+            });
+
+            const from = el('input');
+            from.type = 'datetime-local';
+            const until = el('input');
+            until.type = 'datetime-local';
+
+            const schedule = el('div', 'row hidden');
+            schedule.append(field('From', from), field('Until', until));
+
+            kind.addEventListener('change', () => schedule.classList.toggle('hidden', kind.value !== 'Maintenance'));
+
+            form.append(field('Kind', kind));
+            form.append(field('Title', title));
+            form.append(field('Impact', impact, 'Decides the colour, and what the incident claims about its components.'));
+            form.append(field('Affects', picker));
+            form.append(schedule);
+            form.append(field('First update', body));
+
+            const actions = el('div', 'actions');
+            actions.append(button('Cancel', 'times', close));
+
+            const publish = button('Publish', 'send', async () => {
+                if (!title.value.trim() || !body.value.trim()) {
+                    return toast('danger', 'A title and a first update are both required.');
+                }
+
+                busy(publish, true);
+                try {
+                    await call('POST', `${STATUS}/incidents`, {
+                        body: {
+                            kind: kind.value,
+                            title: title.value.trim(),
+                            body: body.value.trim(),
+                            impact: impact.value,
+                            components: [...chosen],
+                            scheduledFor: kind.value === 'Maintenance' && from.value ? new Date(from.value).toISOString() : null,
+                            scheduledUntil: kind.value === 'Maintenance' && until.value ? new Date(until.value).toISOString() : null,
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Published');
+                    statusGo('incidents');
+                } catch (error) {
+                    toast('danger', error.message);
+                    busy(publish, false);
+                }
+            }, 'primary');
+
+            actions.append(publish);
+            form.append(actions);
+            return form;
+        });
+    }
+
+    async function renderSignals() {
+        const { replica, report } = await call('GET', `${STATUS}/signals`);
+        const wrap = el('div');
+
+        if (!report.autoDetectionEnabled) {
+            wrap.append(banner('warn', 'Automatic detection is switched off on this instance. Nothing will be published without a person doing it.'));
+        }
+
+        // Said plainly, because it changes how the numbers should be read: several gateways each
+        // see a slice of the traffic, and this is one of them.
+        wrap.append(banner('info',
+            `Counted on replica ${replica} over the last ${report.windowSeconds}s. `
+            + `Degraded at ${(report.degradedRate * 100).toFixed(1)}%, outage at ${(report.outageRate * 100).toFixed(1)}%, `
+            + `after ${report.openSamples} consecutive windows and at least ${report.minimumVolume} requests.`));
+
+        const list = el('div', 'rows');
+
+        report.components.forEach(signal => {
+            const title = el('div', 'rw-title');
+            title.append(el('strong', null, signal.name));
+
+            if (!signal.monitored) title.append(tag('Manual', 'info'));
+            if (signal.suppressed) title.append(tag('In maintenance', 'info'));
+            if (signal.openIncidentReference) title.append(tag(signal.openIncidentReference, 'warn'));
+
+            const numbers = signal.requests > 0
+                ? `${signal.errors}/${signal.requests} failed (${(signal.errorRate * 100).toFixed(1)}%)`
+                : 'no traffic in the window';
+
+            const health = signal.destinations > 0
+                ? ` · ${signal.destinations - signal.unhealthyDestinations}/${signal.destinations} destinations healthy`
+                : '';
+
+            const side = [el('span', 'rw-time', pretty(COMPONENT_TEXT, signal.status))];
+
+            if (session?.canViewAudit) {
+                const declare = el('button', 'btn sm');
+                declare.append(icon('plus'));
+                declare.title = `Publish an incident for ${signal.name}`;
+                declare.addEventListener('click', event => {
+                    event.stopPropagation();
+                    declareIncident({ components: [signal.key], title: `Problems with ${signal.name}` });
+                });
+                side.unshift(declare);
+            }
+
+            list.append(row({
+                mark: signal.verdict === 'outage' ? 'critical' : signal.verdict === 'degraded' ? 'high' : '',
+                title: [title],
+                sub: `${numbers}${health} · ${signal.badStreak} bad / ${signal.cleanStreak} clean in a row`,
+                side,
+                onOpen: () => {},
+            }));
+        });
+
+        wrap.append(list);
+        return wrap;
+    }
+
+    async function renderStatusComponents() {
+        const { components } = await call('GET', `${STATUS}/components`);
+        const list = el('div', 'rows');
+
+        components.forEach(component => {
+            const title = el('div', 'rw-title');
+            title.append(el('strong', null, component.name));
+            title.append(el('span', 'mono faint', component.key));
+            if (!component.isVisible) title.append(tag('Hidden'));
+
+            list.append(row({
+                title: [title],
+                sub: component.clusters.length ? component.clusters.join(', ') : 'Not monitored automatically',
+                side: [el('span', 'rw-time', pretty(COMPONENT_TEXT, component.status))],
+                onOpen: () => openStatusComponent(component),
+            }));
+        });
+
+        return list;
+    }
+
+    function openStatusComponent(component) {
+        const pane = el('div');
+
+        pane.append(kv([
+            ['Key', copyable(component.key)],
+            ['State', pretty(COMPONENT_TEXT, component.status)],
+            ['Since', stamp(component.statusSince)],
+            ['Clusters', component.clusters.join(', ') || 'none'],
+        ]));
+
+        if (!session?.canViewAudit) {
+            openDetail(component.name, pane);
+            return;
+        }
+
+        const name = el('input');
+        name.value = component.name;
+
+        const description = el('input');
+        description.value = component.description || '';
+
+        const hint = el('textarea');
+        hint.rows = 3;
+        hint.maxLength = 300;
+        hint.value = component.impactHint || '';
+
+        const visible = el('input');
+        visible.type = 'checkbox';
+        visible.checked = component.isVisible;
+
+        const edit = el('div', 'block');
+        edit.append(el('h3', null, 'Edit'));
+        edit.append(field('Name', name, 'Shown on the public page.'));
+        edit.append(field('Description', description));
+        edit.append(field('Impact sentence', hint,
+            'The sentence an automatically generated incident is built from. Say what a user would '
+            + 'notice, in their words - it is published verbatim.'));
+
+        const visibleRow = el('label', 'hstack');
+        visibleRow.append(visible, el('span', null, 'Show on the public page'));
+        edit.append(visibleRow);
+
+        const save = button('Save', 'check', async () => {
+            busy(save, true);
+            try {
+                await call('PATCH', `${STATUS}/components/${component.id}`, {
+                    body: {
+                        name: name.value.trim(),
+                        description: description.value.trim(),
+                        impactHint: hint.value.trim(),
+                        isVisible: visible.checked,
+                    },
+                });
+                toast('ok', 'Saved');
+                closeDetail();
+                render();
+            } catch (error) {
+                toast('danger', error.message);
+            } finally {
+                busy(save, false);
+            }
+        }, 'primary');
+
+        const actions = el('div', 'actions');
+        actions.append(save);
+        edit.append(actions);
+        pane.append(edit);
+
+        openDetail(component.name, pane);
+    }
+
     // ── View: audit ─────────────────────────────────────────────────────────
 
     views.audit = {
@@ -1946,6 +2494,13 @@
         'ticket.updated': 'updated a ticket from',
         'user.role-changed': 'changed the staff role of',
         'user.viewed': 'looked at',
+        'status.incident-created': 'published a status incident',
+        'status.incident-updated': 'posted a status update on',
+        'status.incident-edited': 'edited a status incident',
+        'status.incident-confirmed': 'took over a status incident',
+        'status.incident-retracted': 'retracted a status incident',
+        'status.component-created': 'added a status component',
+        'status.component-updated': 'edited a status component',
     };
 
     const auditVerb = action => AUDIT_VERBS[action] || action.replace(/[.-]/g, ' ');

@@ -114,17 +114,22 @@ Enum values are `snake_case` strings in JSON. Treat every one as open: a value y
 must fall back to the least alarming rendering you have, never to a crash and never to "major
 outage".
 
-### The other three endpoints
+### The other four endpoints
 
 ```
 GET https://api.venta.gg/api/v1/status/incidents?limit=25&offset=0&kind=incident
 GET https://api.venta.gg/api/v1/status/incidents/VNT-4KQ7M2XB
+GET https://api.venta.gg/api/v1/status/uptime
 GET https://api.venta.gg/api/v1/status/feed.atom
 ```
 
-History and permalinks. Most clients need none of these - link to
+History, permalinks and the 90-day strip. Most clients need none of these - link to
 `https://status.venta.gg/incident?ref=...` instead of building an incident screen. Build one only if
 you want the timeline in-app.
+
+`uptime` is deliberately not part of the summary: it is twelve components times ninety days, only the
+status page draws it, and no client should be pulling that on a poll. If you show a per-component
+number in a settings screen, use `components[].uptime90d` from the summary you already have.
 
 ## 3. When to call it
 

@@ -72,9 +72,15 @@ afterwards from the console.
 | `Clusters` | The YARP cluster ids this component watches, as a string array. Empty = not automatically monitored (a component staff drive by hand). |
 | `Position` | Display order. |
 | `IsVisible` | Hidden components still collect samples; they just do not render. Lets us add a component and watch it for a week before showing it. |
-| `Status` | Current `ComponentStatus`, written by the detector, read by everything. |
+| `Status` | Current `ComponentStatus`. **Derived from the open incidents**, not written by whichever replica noticed - see §5. |
 | `StatusSince` | When it last changed. Drives "degraded for 14 minutes". |
-| Thresholds | `DegradedRate`, `OutageRate`, `MinimumVolume`, all nullable, falling back to the instance defaults in `EchoConfigurations`. A component that is noisy by nature gets tuned without moving everyone else. |
+| Thresholds | `DegradedRate`, `OutageRate`, `MinimumVolume`, all nullable, falling back to the instance defaults in `StatusOptions.FromEnvironment()`. A component that is noisy by nature gets tuned without moving everyone else. |
+
+Instance-wide thresholds come from the environment rather than from a settings table, the same way
+`GatewayRateLimitOptions.FromEnvironment()` works and for the same reason: these are knobs an
+operator turns while watching the page misbehave, and a value that needs a console round-trip to
+change is a value nobody changes at three in the morning. The per-component overrides above are
+decisions rather than emergencies, so those do live in the database.
 
 The seeded catalog, and the clusters each maps to:
 
@@ -213,6 +219,20 @@ Two-in-a-row to open and five-in-a-row to close, with a lower bar to close than 
 rolling one pod produces a single ugly window, and a status page that flaps is worse than one that is
 thirty seconds late.
 
+### A component is whatever the open incidents say it is
+
+**The local signal never writes a component's status.** It decides one thing: whether to open,
+escalate or close an *automatic incident*. The component status is then derived - on every replica,
+from the same rows - as the worst state claimed by any open incident that names it.
+
+This falls out of the multi-replica problem and is worth stating as a rule rather than as a
+consequence. Three gateways each see a slice of the traffic; if each wrote its own opinion straight
+onto the component, two of them disagreeing would flip it red and green every twenty seconds. Going
+through the incident table means the disagreement is settled once, by an index, and everything
+downstream reads a single answer. It also gives staff-declared incidents their effect for free: an
+administrator publishing "Major, affects messages" turns that component red without the detector
+having to agree.
+
 ### Opening, and not opening twice
 
 The gateway runs more than one replica, and each sees only its own traffic. Rather than build a
@@ -221,6 +241,19 @@ shared window, each replica evaluates independently and the **partial unique ind
 second insert conflicts and is swallowed. Consequence, stated so it is a choice and not a surprise:
 if one replica is unhealthy toward a backend and the others are fine, an incident still opens. That
 is the right bias for a status page.
+
+The insert happens in its own DbContext scope so that losing the race cannot roll back the component
+statuses and rollups computed in the same tick.
+
+### One rollup writer per tick
+
+The uptime rollup is the one write that must not happen on every replica: three of them each adding
+twenty seconds would record a minute of history per twenty seconds of wall clock, and the 90-day
+strip would show more than 100% accounted time. Whichever replica wins
+`pg_try_advisory_xact_lock` for that tick writes it and the others skip. It adds exactly one
+interval per successful tick rather than the wall-clock gap since that replica last ran - the lock
+moves around, and a replica that has not held it for an hour must not credit the whole hour to
+whatever state it sees now.
 
 A component cannot open a second generated incident within 30 minutes of its last one resolving; the
 detector reopens the previous incident and appends an update instead. Otherwise a service that dies
@@ -265,6 +298,7 @@ every client polls this, and it must not spend an anonymous caller's API budget.
 
 ```
 GET  /api/v1/status/summary
+GET  /api/v1/status/uptime
 GET  /api/v1/status/incidents?limit=&offset=&kind=
 GET  /api/v1/status/incidents/{reference}
 GET  /api/v1/status/feed.atom
@@ -273,6 +307,10 @@ GET  /api/v1/status/feed.atom
 `summary` is the one call the page and every client needs: indicator, components with current status
 and 90-day uptime, active incidents with their updates, active and upcoming maintenance, and the last
 seven resolved incidents. Shape is in the [frontend guide](./status-frontend-guide.md).
+
+`uptime` is the 90-bar strip, and it is a separate call rather than a field on the summary: twelve
+components times ninety days is a payload every client would poll every minute and only the status
+page ever draws.
 
 **It is served from an in-memory snapshot**, rebuilt by the probe every 20 seconds and on every staff
 write. So the page renders with zero database queries on the request path and keeps rendering if
@@ -288,29 +326,33 @@ mutation.
 
 ```
 GET    components                      staff
-PATCH  components/{id}                 admin      name, description, hint, order, visibility, thresholds
 POST   components                      admin
+PATCH  components/{id}                 admin      name, description, hint, order, visibility, thresholds
 GET    signals                         staff      live per-component rates, volumes, destination health
-GET    incidents?state=&kind=          staff
-POST   incidents                       admin      create (incident or maintenance)
+GET    incidents?kind=&openOnly=       staff      plus an `unconfirmed` count for the rail badge
 GET    incidents/{id}                  staff
-PATCH  incidents/{id}                  admin      title, impact, components, schedule
-POST   incidents/{id}/updates          admin      the timeline write; carries the new status
+POST   incidents                       admin      create (incident or maintenance)
+PATCH  incidents/{id}                  admin      title, impact, components, schedule - never the state
+POST   incidents/{id}/updates          admin      the timeline write; carries the new state
 POST   incidents/{id}/confirm          admin      take ownership of a generated incident
-POST   incidents/{id}/resolve          admin
 POST   incidents/{id}/retract          admin      hide from public reads; never deletes
 ```
 
-**Admin, not moderator, for every write.** Publishing to `status.venta.gg` is a public statement in
-venta's name, which is a different act from actioning a report; moderators read the views and cannot
-post. It is a one-line change if that turns out to be wrong operationally.
+There is no separate resolve endpoint. Resolving is `POST /updates` with the state set to `Resolved`,
+because a state change with no timeline entry would be the page changing its story with no record of
+having done so. `PATCH` deliberately cannot move the state for the same reason.
 
-In the console (`Echo/wwwroot/admin/`) this is one new rail item, `data-view="status"`, with the
-`admin-only` class the Federation and Audit items already use. Three panes: **Signals** (the live
-table, the technical view, with a "declare an incident" button that prefills from the component),
-**Incidents** (open at the top, generated-and-unconfirmed flagged), and **Components**. The incident
-editor is a title, an impact, a component multi-select, and a body box with the lifecycle state as a
-segmented control - posting is one action, not two.
+**Admin, not moderator, for every write.** Publishing to `status.venta.gg` is a public statement in
+venta's name, which is a different act from actioning a report. The rail item itself is *not*
+admin-only: moderators can read the signals and the incidents, which is what they need in order to
+answer "is it me or is it us" on a ticket. Every write control is hidden for them and refused by the
+server regardless. It is a one-line change if that turns out to be wrong operationally.
+
+In the console (`Echo/wwwroot/admin/`) this is one new rail item, `data-view="status"`, with three
+panes behind a segmented control: **Incidents** (open at the top, generated-and-unacknowledged
+badged), **Signals** (the live table, the technical view, with a "publish" button per row that
+prefills from the component), and **Components**. The publish form is a title, an impact, a component
+multi-select and a body box - posting is one action, not two.
 
 ## 8. The page
 
@@ -349,27 +391,59 @@ is why the page polls and why the summary snapshot is cheap. Do not add an anony
 
 `STATUS_DOMAIN`, added everywhere `ADMIN_DOMAIN` and `SUPPORT_DOMAIN` already appear:
 
-- `deploy/compose.yaml` (env passthrough on the gateway service) and the root `compose.yaml`
+- `deploy/compose.yaml` (env passthrough on the gateway service)
 - `deploy/install.sh` - `--status-domain` arg, prompt, default, `.env` write, Caddyfile block
-- `deploy/Install-VentaStack.ps1` - the same four
+- `deploy/Install-VentaStack.ps1` - `-StatusDomain` and the same four
 - The Caddy block is a copy of the support one: `reverse_proxy echo:8080` with `X-Forwarded-Proto`
-  and `X-Echo-Proxy-Auth`, Host preserved.
+  and `X-Echo-Proxy-Auth`, Host preserved. Nothing on that host may be put behind a gate - an outage
+  page that needs the outage to be over before it will load is worth nothing.
+
+| Variable | Default | |
+|---|---|---|
+| `STATUS_DOMAIN` | derived from `INSTANCE_URL` | hostname the status page is served on |
+| `STATUS_AUTO_DETECTION` | `true` | `0` leaves the page and console working and publishes nothing automatically |
+| `STATUS_PROBE_INTERVAL_SECONDS` | `20` | also the bucket width, so the two cannot drift apart |
+| `STATUS_MINIMUM_VOLUME` | `20` | requests needed before a rate is believed |
+| `STATUS_DEGRADED_RATE` | `0.05` | accepts `5` for five percent |
+| `STATUS_OUTAGE_RATE` | `0.25` | |
+| `STATUS_RECOVERY_RATE` | `0.02` | the lower edge of the dead band |
+| `STATUS_OPEN_SAMPLES` | `2` | consecutive bad windows before publishing |
+| `STATUS_RECOVERY_SAMPLES` | `5` | consecutive clean windows before resolving |
+| `STATUS_RETRACTION_SECONDS` | `120` | shorter than this and untouched, it is retracted |
+
+Migration `20260805094210_AddStatusAndIncidents` is **generated, not yet applied**. The gateway
+migrates on startup, so roll it to one replica for that deploy - same as the moderation one.
 
 DNS and the deployment side are being handled separately.
 
 ## 11. Tests
 
-- `Echo.Tests/Sites/SiteAssetPathTests.cs` and `SiteHostTests.cs` - add the status site to the
+`Echo.Tests/Status/`, all of it pure - no host, no database, no clock.
+
+- **`StatusDetectorTests`** - the decision rules. One bad window does not open an incident and two
+  do; a clean window between them resets the streak and a `Hold` does not; recovery needs more
+  consecutive windows than opening did; every-destination-unhealthy opens with zero traffic; partial
+  destination trouble with no traffic holds rather than recovering; below minimum volume a rate means
+  nothing; a component override replaces the instance threshold; `5` parses as five percent.
+- **`StatusMetricsTests`** - what is counted. 5xx counts, every 4xx counts as traffic and never as a
+  failure, aborted requests are not counted at all, clusters are separate, a component reads all of
+  its clusters as one window.
+- **`IncidentLifecycleTests`** - ownership and copy. Generated copy carries no digits and names no
+  internal service (the §5 rule, asserted rather than trusted); a staff update takes ownership and an
+  automatic one does not; updates accumulate; a reopen clears the resolution stamp and a second
+  resolve does not move the first; retraction hides without destroying; maintenance counts as up in
+  the rollup and a day with nothing recorded has no uptime rather than 100%.
+- **`StatusPayloadTests`** - the leak test and the catalog. No public DTO carries a staff-only field
+  (by reflection, so a field added later fails here); enums go over the wire snake_case; the
+  indicator takes the worst component and maintenance never wins over something broken; every proxy
+  cluster is watched by a component and every watched cluster exists; no component is named after a
+  service.
+- `Echo.Tests/Sites/SiteAssetPathTests.cs` and `SiteHostTests.cs` carry the status site in their
   `[TestCase]` lists, so its assets, icons and script are checked like the other two.
-- Detector unit tests over a fake clock and a synthetic bucket ring: opens after two bad windows and
-  not one; does not open below minimum volume; opens on all-destinations-unhealthy with zero traffic;
-  closes only after five clean windows; retracts under 120s; does **not** retract or resolve once
-  `Confirmed`; the replica-dedupe insert conflicts rather than throwing.
-- Controller tests pinning the public payload shapes, in the style of `test(moderation): pin the
-  request payloads the pages actually send`, plus a negative test asserting `DetectionDetail` and
-  staff fields appear in no public response.
-- An architecture-style test asserting every cluster in `ProxyConfig.GetClusters()` is watched by
-  exactly one seeded component.
+
+Not covered by a test, and worth knowing: the replica-dedupe insert conflict, the advisory-lock
+rollup writer, and the YARP-feature read in the metrics middleware all need a real Postgres and a
+real proxy pipeline. They are exercised by the E2E harness or not at all.
 
 ## 12. Out of scope
 

@@ -13,9 +13,11 @@ public class SiteHostTests
     /// <summary>The regression case.</summary>
     [TestCase("admin", "https://api.venta.gg", "admin.venta.gg")]
     [TestCase("support", "https://api.venta.gg", "support.venta.gg")]
+    [TestCase("status", "https://api.venta.gg", "status.venta.gg")]
     [TestCase("docs", "https://api.venta.gg", "docs.venta.gg")]
     [TestCase("admin", "https://chat.example.com", "admin.example.com")]
     [TestCase("support", "https://chat.example.com", "support.example.com")]
+    [TestCase("status", "https://chat.example.com", "status.example.com")]
     public void An_instance_on_a_subdomain_has_its_first_label_replaced(
         string label, string instanceUrl, string expected)
     {
@@ -25,8 +27,10 @@ public class SiteHostTests
     /// <summary>A bare registrable domain has nothing to replace, so the label is prepended.</summary>
     [TestCase("admin", "https://venta.gg", "admin.venta.gg")]
     [TestCase("support", "https://example.com", "support.example.com")]
+    [TestCase("status", "https://venta.gg", "status.venta.gg")]
     [TestCase("admin", "http://localhost:8080", "admin.localhost")]
     [TestCase("support", "http://localhost:8080", "support.localhost")]
+    [TestCase("status", "http://localhost:8080", "status.localhost")]
     public void A_bare_domain_gets_the_label_prepended(string label, string instanceUrl, string expected)
     {
         Assert.That(SiteHost.DeriveFrom(label, instanceUrl), Is.EqualTo(expected));

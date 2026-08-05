@@ -74,6 +74,12 @@ builder.Services.AddOpenIddict()
         options.AllowCustomFlow(SteamOpenIdService.SteamGrantType);
         options.AllowCustomFlow(QrLoginService.QrGrantType);
 
+        // The scopes a client may ask for.
+        options.RegisterScopes(
+            OpenIddictConstants.Scopes.Email,
+            OpenIddictConstants.Scopes.Profile,
+            OpenIddictConstants.Scopes.Roles);
+
         if (builder.Environment.IsProduction())
         {
 

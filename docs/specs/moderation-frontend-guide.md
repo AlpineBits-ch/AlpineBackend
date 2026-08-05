@@ -76,7 +76,7 @@ the user cannot proceed and retrying is not the answer.
 │  what happened, why, and a reference code.   │
 │                                              │
 │  If you think this is wrong, you can appeal  │
-│  once - a person reads every appeal.         │
+│  once.                                       │
 │                                              │
 │  [ Appeal this decision ]   [ Contact us ]   │
 │                                              │

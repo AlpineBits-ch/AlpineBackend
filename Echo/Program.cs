@@ -28,11 +28,14 @@ builder.AddErrorReporting();
 
 // Add services to the container.
 builder.Services.AddOpenApi();
-builder.Services.AddControllers();
+
+// Enums cross the wire as their names, not as integers.
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(
+            new System.Text.Json.Serialization.JsonStringEnumConverter()));
 
 builder.Services.AddGracefulShutdownHealthCheck();
-
-builder.Services.AddControllers();
 
 var redis = Env.Redis;
 

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Echo.Domain.Enums;
 
 namespace Echo.Tests.Sites;
 
@@ -89,10 +90,16 @@ public class SiteAssetPathTests
     }
 
     /// <summary>
+    /// Scopes Identity will accept: the two protocol scopes, plus the three it registers.
+    /// </summary>
+    private static readonly string[] AcceptedScopes =
+        ["openid", "offline_access", "email", "profile", "roles"];
+
+    /// <summary>
     /// The console may only ask for scopes the authorization server actually has.
     /// </summary>
     [Test]
-    public void The_console_requests_only_the_protocol_scopes()
+    public void The_console_requests_only_scopes_the_server_accepts()
     {
         var script = File.ReadAllText(Path.Combine(WebRoot, "admin", "app.js"));
 
@@ -106,12 +113,88 @@ public class SiteAssetPathTests
         {
             foreach (var scope in requested)
             {
-                Assert.That(scope.Split(' ', StringSplitOptions.RemoveEmptyEntries),
-                    Is.EquivalentTo(new[] { "openid", "offline_access" }),
-                    "Identity registers no scopes, so anything beyond the two protocol scopes is "
-                    + "rejected with invalid_scope before the client is consulted");
+                var scopes = scope.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                Assert.That(scopes, Is.SubsetOf(AcceptedScopes),
+                    "an unregistered scope is refused with invalid_scope before the client's own "
+                    + "permissions are consulted, so the sign-in fails outright");
+
+                Assert.That(scopes, Does.Contain("offline_access"),
+                    "without it there is no refresh token, and the console's session dies at the "
+                    + "first access-token expiry mid-triage");
             }
         });
+    }
+
+    /// <summary>The page scripts actually parse.</summary>
+    [TestCase("admin/app.js")]
+    [TestCase("support/app.js")]
+    [TestCase("assets/icons.js")]
+    public void Every_page_script_parses(string relativePath)
+    {
+        var script = Path.Combine(WebRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+        Assert.That(File.Exists(script), Is.True, $"{relativePath} is missing");
+
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo("node", $"--check \"{script}\"")
+        {
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+
+        try
+        {
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            Assert.Ignore($"node is not on PATH, so {relativePath} could not be parse-checked: {ex.Message}");
+            return;
+        }
+
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(milliseconds: 30_000);
+
+        Assert.That(process.ExitCode, Is.Zero, $"{relativePath} does not parse:\n{stderr}");
+    }
+
+    /// <summary>
+    /// The support form's categories are real <see cref="SupportTicketCategory"/> names.
+    /// </summary>
+    [Test]
+    public void The_support_form_offers_only_real_ticket_categories()
+    {
+        var html = Page("support");
+
+        var offered = Regex.Matches(html, "<option value=\"([A-Za-z]+)\"")
+            .Select(m => m.Groups[1].Value)
+            .Distinct()
+            .ToList();
+
+        Assert.That(offered, Is.Not.Empty, "the contact form must offer categories");
+
+        Assert.That(offered, Is.SubsetOf(Enum.GetNames<SupportTicketCategory>()),
+            "an option whose value is not a SupportTicketCategory member is a 400 on submit");
+    }
+
+    /// <summary>The console's reason list covers <see cref="ReportReason"/> exactly.</summary>
+    [Test]
+    public void The_console_offers_every_report_reason()
+    {
+        var script = File.ReadAllText(Path.Combine(WebRoot, "admin", "app.js"));
+
+        // The REASONS table: ['Spam', 'Spam or unsolicited advertising'], one per line.
+        var listed = Regex.Matches(script, @"\['([A-Za-z]+)',\s*'[^']+'\]")
+            .Select(m => m.Groups[1].Value)
+            .Distinct()
+            .ToList();
+
+        var reasons = Enum.GetNames<ReportReason>();
+
+        Assert.That(listed.Intersect(reasons), Is.EquivalentTo(reasons),
+            "every ReportReason must be offered, or it can never be chosen");
     }
 
     /// <summary>Every icon the pages ask for by name has a file behind it.</summary>

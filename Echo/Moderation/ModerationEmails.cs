@@ -38,7 +38,7 @@ public static class ModerationEmails
         body.Append(Paragraph(
             action.Kind == ModerationActionKind.Unban
                 ? "A moderator has reviewed your account and lifted the restriction on it. You can sign in again now."
-                : $"A moderator reviewed your account and took the action below. This was a decision made by a person, not automatically."));
+                : "A moderator reviewed your account and took the action below."));
 
         body.Append(Divider());
 
@@ -75,8 +75,8 @@ public static class ModerationEmails
             body.Append($"""
                 <div style="font-size:15px;font-weight:600;color:#ffffff;margin-bottom:8px;">If you think this is wrong</div>
                 <p style="font-size:14px;color:{Muted};line-height:1.6;margin:0 0 20px;">
-                  You can appeal this once. Tell us what you think we got wrong and a person will read it.
-                  Quote the reference above.
+                  You can appeal this once. Quote the reference above and tell us what you think
+                  we got wrong.
                 </p>
                 <a href="{Escape(appealUrl)}" style="display:inline-block;background:{accent};color:#0d1117;font-size:14px;font-weight:600;text-decoration:none;padding:11px 22px;border-radius:8px;">Appeal this decision</a>
                 <p style="font-size:12px;color:{Faint};line-height:1.6;margin:16px 0 0;">
@@ -125,7 +125,7 @@ public static class ModerationEmails
                 <div style="font-size:15px;font-weight:600;color:#ffffff;margin-bottom:8px;">This decision is final</div>
                 <p style="font-size:14px;color:{Muted};line-height:1.6;margin:0 0 14px;">
                   Each moderation decision can be appealed once, and this was that appeal. There is no
-                  further appeal, and submitting another one will not reach a different person.
+                  further appeal, and submitting another one will not get it looked at again.
                   {(permanent
                       ? "The restriction on your account has no end date."
                       : $"The restriction still ends on {action.ExpiresAt!.Value.UtcDateTime:d MMMM yyyy}, as originally stated.")}
@@ -150,7 +150,7 @@ public static class ModerationEmails
         var body = new StringBuilder();
 
         body.Append(Paragraph(
-            "We have your message. A person will read it and reply by email - most tickets are answered within a couple of days."));
+            "We have your message. We'll reply to this address, usually within a couple of days."));
 
         body.Append(Divider());
         body.Append(InfoRow("Subject", ticket.Subject));

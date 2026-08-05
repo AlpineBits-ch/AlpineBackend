@@ -167,7 +167,7 @@
         const box = el('div');
 
         box.append(el('h3', null, 'We got your message'));
-        box.append(el('p', 'lede small', 'A person will read it and reply by email.'));
+        box.append(el('p', 'lede small', "We'll reply to that address."));
 
         box.append(el('label', null, 'Your reference'));
         const ref = el('div', 'ref');
@@ -285,7 +285,7 @@
                     done.append(icon('info-circle'));
                     done.append(el('div', 'grow',
                         'Each decision can be appealed once, and this was that appeal. There is no '
-                        + 'further appeal - submitting another will not reach a different person.'));
+                        + 'further appeal - submitting another will not get it looked at again.'));
                     box.append(done);
                 }
             } else {

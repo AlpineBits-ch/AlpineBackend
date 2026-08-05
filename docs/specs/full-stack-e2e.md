@@ -368,12 +368,25 @@ special-casing whichever one exists this month.
    publishing PR images under a throwaway tag, or having the E2E run build the ten images itself
    (slow, roughly 10 to 15 minutes added). Nightly-against-`main` works today with neither. My
    suggestion is to start nightly-only and add PR gating later, if it earns it.
-2. **Guild creation and onboarding.** `docs/specs/guild-onboarding-parity.md` notes that accept now
-   requires a JSON body. Confirm whether creating a guild in the client drops the user into an
-   onboarding flow the suite has to click through.
-3. **Package access grants.** Nine manual UI grants are required before the first CI run can pull
-   anything. Until they are done the workflow will fail at `docker compose pull`, and it will fail
-   in a way that looks like a network problem rather than a permissions one.
+2. **Consent coverage.** The legal-consent dialog is live and mounted app-wide, but it cannot fire
+   in this suite: registration records consent for the then-current Terms and Privacy versions
+   (`CreateUserCommandHandler`, T1-10), so an account created seconds ago has nothing outstanding.
+   The dialog is the **upgrade** path. Covering it means publishing a new document version mid-run
+   and re-reading `/users/self`. Worth doing, not done.
+
+### Resolved
+
+- **Onboarding.** Confirmed: a fresh account meets up to three full-screen takeovers before it can
+  touch the shell - the interest picker (non-dismissable by design), device registration, and the
+  consent dialog. They are handled by one extensible table in `dismissBlockingOverlays()` rather
+  than special-cased. Master-key setup is deliberately **not** in that table: its "Not now" cancels
+  the action that raised it, so dismissing it would turn "the guild was not created" into a mystery.
+- **Package access.** The eight packages were made public, so no grants are needed. Both
+  arrangements were verified working against a real run; the workflow keeps its GHCR login so that
+  a package returning to private breaks nothing.
+- **Triggering.** Both product repos now dispatch on publish, and the nightly cron re-checks
+  `latest`. A missing dispatch token skips with a notice rather than reddening a good build, in
+  both repos.
 
 ## Storage
 

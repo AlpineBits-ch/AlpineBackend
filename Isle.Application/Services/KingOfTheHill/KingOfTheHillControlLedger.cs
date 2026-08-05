@@ -57,7 +57,7 @@ public sealed class KingOfTheHillControlLedger(IConnectionMultiplexer redis, ILo
             var currentHolder = await Db.StringGetAsync(HolderKey(instanceId));
             if (!currentHolder.HasValue || currentHolder != steam)
             {
-                // Either the zone was empty/contested last tick, or a different player held it — either
+                // Either the zone was empty/contested last tick, or a different player held it - either
                 // way this is a fresh held-alone streak starting now.
                 await Db.StringSetAsync(HolderKey(instanceId), steam, KeyTtl);
                 await Db.StringSetAsync(HolderSinceKey(instanceId), now, KeyTtl);
@@ -151,7 +151,7 @@ public sealed class KingOfTheHillControlLedger(IConnectionMultiplexer redis, ILo
     }
 
     /// <summary>
-    /// How many distinct players ever set foot in the zone this match, winner included — the basis for
+    /// How many distinct players ever set foot in the zone this match, winner included - the basis for
     /// the winner's held-the-hill bonus in <see cref="Isle.Api.Games.KingOfTheHill.KingOfTheHillMode.GetRewards"/>.
     /// </summary>
     public async Task<int> GetContestantCountAsync(string instanceId)

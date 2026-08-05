@@ -25,7 +25,7 @@ namespace Isle.Infrastructure.Sfu;
             var hasB = _tracks.TryGet(userIdB, out var trackB);
             var hasA = _tracks.TryGet(userIdA, out var trackA);
 
-            // Only ask a peer to pull a track that actually exists — pulling a
+            // Only ask a peer to pull a track that actually exists - pulling a
             // not-yet-published remote track makes Cloudflare reject with 425.
             if (hasB)
                 await _hub.Clients.User(userIdA)
@@ -46,7 +46,7 @@ namespace Isle.Infrastructure.Sfu;
         public async Task UnsubscribePair(string userIdA, string userIdB)
         {
             // Audibility is symmetric, so when one peer walks out of the other's 3x3 block (or
-            // leaves voice) the relationship ends on both sides — tell each to drop the other.
+            // leaves voice) the relationship ends on both sides - tell each to drop the other.
             await _hub.Clients.User(userIdA)
                 .SendAsync(SfuSocketEvents.PeerLeft, new PeerLeftPayload(userIdB));
             await _hub.Clients.User(userIdB)
@@ -67,7 +67,7 @@ namespace Isle.Infrastructure.Sfu;
 
         public async Task SendPeerPosition(string recipientUserId, string peerUserId, float x, float y, float z, float yaw, float vx, float vy, float vz, long timestampMs)
         {
-            // Reuses the PlayerPosition event so the client needs no new handler — it just
+            // Reuses the PlayerPosition event so the client needs no new handler - it just
             // receives one peer's position immediately on subscribe instead of waiting for the
             // peer's next throttled movement broadcast (which never comes if they're standing still).
             await _hub.Clients.User(recipientUserId)

@@ -35,7 +35,7 @@ public sealed class RegionMap
         regionId is null ? null : _regions.FirstOrDefault(r => r.Id == regionId);
 
     /// <summary>
-    /// Resolves a region by id, name or alias — the loose lookup <c>!questadmin</c> needs so an admin
+    /// Resolves a region by id, name or alias - the loose lookup <c>!questadmin</c> needs so an admin
     /// can type "swamps" instead of a generated id.
     /// </summary>
     public MapRegion? Find(string? idOrName)

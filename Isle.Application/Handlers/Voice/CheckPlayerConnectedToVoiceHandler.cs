@@ -19,7 +19,7 @@ public class CheckPlayerConnectedToVoiceHandler
     private static readonly TimeSpan VoiceGracePeriod = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    /// Kicking is disabled for now — we only nag players who aren't on voice, we never remove them.
+    /// Kicking is disabled for now - we only nag players who aren't on voice, we never remove them.
     /// </summary>
     private static readonly bool KickEnabled = false;
 
@@ -60,7 +60,7 @@ public class CheckPlayerConnectedToVoiceHandler
         {
             return null;
         }
-        // Grace period is up and they still aren't on voice — remove them from the server.
+        // Grace period is up and they still aren't on voice - remove them from the server.
         var now = DateTimeOffset.UtcNow;
         if (KickEnabled && now >= @event.KickAt)
         {
@@ -73,7 +73,7 @@ public class CheckPlayerConnectedToVoiceHandler
 
         if (!KickEnabled)
         {
-            // No deadline to respect — just keep reminding on the normal cadence for as long as they stay off voice.
+            // No deadline to respect - just keep reminding on the normal cadence for as long as they stay off voice.
             return @event.DelayedFor(ReminderInterval);
         }
 

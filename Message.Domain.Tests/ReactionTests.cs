@@ -40,7 +40,7 @@ public class ReactionTests
     [TestCase("☀️", TestName = "Sun_WithVS16")]
     [TestCase("⭐️", TestName = "Star_WithVS16")]
     [TestCase("✔️", TestName = "CheckMark_WithVS16")]
-    // Surrogate pairs — codepoints above U+FFFF need two UTF-16 chars (the "16-bit suckers")
+    // Surrogate pairs - codepoints above U+FFFF need two UTF-16 chars (the "16-bit suckers")
     // string.Length == 2 for these, but they must still be treated as a single emoji
     [TestCase("😀", TestName = "SurrogatePair_Smiley_0x1F600")]
     [TestCase("👍", TestName = "SurrogatePair_ThumbsUp_0x1F44D")]
@@ -93,7 +93,7 @@ public class ReactionTests
     [TestCase("", TestName = "EmptyString")]
     [TestCase(" ", TestName = "Space")]
     [TestCase("   ", TestName = "MultipleSpaces")]
-    // Plain ASCII — not emoji
+    // Plain ASCII - not emoji
     [TestCase("a", TestName = "SingleLetter")]
     [TestCase("A", TestName = "UppercaseLetter")]
     [TestCase("z", TestName = "LowercaseLetter")]
@@ -118,7 +118,7 @@ public class ReactionTests
     [TestCase("hello😀", TestName = "WordThenEmoji")]
     [TestCase("😀world", TestName = "EmojiThenWord")]
     [TestCase("😀 😀", TestName = "TwoEmojisWithSpace")]
-    // Two surrogate-pair emojis back-to-back — Length == 4, two grapheme clusters
+    // Two surrogate-pair emojis back-to-back - Length == 4, two grapheme clusters
     [TestCase("😀😀", TestName = "TwoSurrogatePairs_Identical")]
     [TestCase("😀👍", TestName = "TwoSurrogatePairs_Different")]
     [TestCase("🔥🎉", TestName = "TwoSurrogatePairs_FireParty")]

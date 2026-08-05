@@ -1,7 +1,7 @@
-# Notification settings — frontend integration guide
+# Notification settings - frontend integration guide
 
 Per-guild, per-category and per-channel notification levels and muting, plus DM muting. Backend
-work is done — this is what the client needs to build against it.
+work is done - this is what the client needs to build against it.
 
 **Guild channels now produce push notifications at all.** Before this, only DMs did: a mention in
 a server was invisible unless the app happened to be open. That is the main reason this exists.
@@ -13,7 +13,7 @@ https://api.venta.gg/api/v1/guild/...        (guild, category, channel settings)
 https://api.venta.gg/api/v1/messaging/...    (DM/group mute)
 ```
 
-Normal `Authorization: Bearer <token>`. Every route here acts on **the caller's own** settings —
+Normal `Authorization: Bearer <token>`. Every route here acts on **the caller's own** settings -
 there is no permission dimension and no way to read or change anyone else's.
 
 ---
@@ -35,7 +35,7 @@ channel override  →  category override  →  guild setting  →  default (AllM
 | `2` | `Nothing` | Never notify |
 
 **Mute is separate from level.** A mute is a temporary silence with an expiry; a level is a
-standing preference. They resolve *independently* — this is the part most likely to trip up a
+standing preference. They resolve *independently* - this is the part most likely to trip up a
 client implementation:
 
 - A channel override that only mutes does **not** reset the level inherited from the guild.
@@ -50,9 +50,9 @@ user wants "quiet unless someone actually pings me", that is `OnlyMentions`, not
 `suppressEveryone`, `suppressRoleMentions` and `mobilePush` live on the **guild** setting and have
 no per-channel equivalent. Don't build per-channel toggles for them.
 
-- `suppressEveryone` — drop `@everyone`/`@here` pings even at `OnlyMentions`
-- `suppressRoleMentions` — same for `@role`
-- `mobilePush: false` — never push to the phone; the in-app unread badge still updates
+- `suppressEveryone` - drop `@everyone`/`@here` pings even at `OnlyMentions`
+- `suppressRoleMentions` - same for `@role`
+- `mobilePush: false` - never push to the phone; the in-app unread badge still updates
 
 ---
 
@@ -62,7 +62,7 @@ no per-channel equivalent. Don't build per-channel toggles for them.
 GET /api/v1/guild/api/v1/users/me/notification-settings
 ```
 
-Returns one entry **per guild you're in**, including guilds you've never configured — those report
+Returns one entry **per guild you're in**, including guilds you've never configured - those report
 the effective defaults, so you never have to special-case "absent".
 
 ```json
@@ -82,7 +82,7 @@ the effective defaults, so you never have to special-case "absent".
 ]
 ```
 
-Note `"level": null` on an override — that means **inherit**, and is distinct from any concrete
+Note `"level": null` on an override - that means **inherit**, and is distinct from any concrete
 value. An override with `level: null` and a `mutedUntil` is a pure mute that keeps its inherited
 level for when the mute expires.
 
@@ -103,7 +103,7 @@ PUT /api/v1/guild/api/v1/guilds/{guildId}/notification-settings
 }
 ```
 
-**Every field is optional and omitting it means "leave alone".** This is a partial update — you
+**Every field is optional and omitting it means "leave alone".** This is a partial update - you
 never have to read-modify-write. Sending `{ "mobilePush": false }` alone changes only that.
 
 Mute semantics:
@@ -113,7 +113,7 @@ Mute semantics:
 | `muteMinutes: 60` | Muted until now + 60 minutes |
 | `muteMinutes: 0` (or negative) | Unmuted |
 | `muteMinutes: null` (or omitted) | Mute state untouched |
-| `muteForever: true` | Muted indefinitely — outranks `muteMinutes` if both are sent |
+| `muteForever: true` | Muted indefinitely - outranks `muteMinutes` if both are sent |
 
 "Muted forever" comes back as `mutedUntil: "9999-12-31T23:59:59+00:00"`. Render that as
 "until I turn it back on" rather than printing the date.
@@ -137,7 +137,7 @@ DELETE /api/v1/guild/api/v1/categories/{categoryId}/notification-settings
 { "level": 2, "muteMinutes": null, "muteForever": false }
 ```
 
-Here `level: null` is meaningful and **is** written — it sets the override back to "inherit" while
+Here `level: null` is meaningful and **is** written - it sets the override back to "inherit" while
 leaving any mute in place. That is different from the guild endpoint, where null means "don't
 touch". The distinction exists because "inherit" is a real state an override can be in.
 
@@ -158,7 +158,7 @@ PUT /api/v1/messaging/api/v1/conversations/{id}/notification-settings
 { "muteMinutes": 60, "muteForever": false }
 ```
 
-Same mute vocabulary as above. **No level** — "only mentions" is meaningless in a conversation
+Same mute vocabulary as above. **No level** - "only mentions" is meaningless in a conversation
 you're one of two people in. Returns `{ "conversationId": "...", "mutedUntil": "..." }`.
 
 A muted DM still delivers `conversation.MessageCreated` over the realtime connection so the unread
@@ -189,7 +189,7 @@ Two things the server already handles, so the client doesn't need to:
 ## Summary of client work
 
 1. Fetch `/users/me/notification-settings` on login and cache it; it's one call for everything.
-2. Implement the channel → category → guild → default resolution **client-side too** — you need it
+2. Implement the channel → category → guild → default resolution **client-side too** - you need it
    to render unread badges correctly (a muted channel should not bold), and the server won't tell
    you per-channel.
 3. Resolve level and mute independently. Do not treat an override as an all-or-nothing unit.

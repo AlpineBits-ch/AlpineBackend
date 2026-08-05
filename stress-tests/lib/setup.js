@@ -8,7 +8,7 @@ const USER_COUNT = parseInt(__ENV.TEST_USER_COUNT || '1000', 10);
 /**
  * Full test environment setup. Called once by k6 before VUs start.
  *
- * 1. Registers TEST_USER_COUNT users (idempotent — safe to re-run)
+ * 1. Registers TEST_USER_COUNT users (idempotent - safe to re-run)
  * 2. Admin user creates a shared test guild
  * 3. Creates a permanent invite
  * 4. All users join the guild
@@ -69,7 +69,7 @@ export function fullSetup() {
   };
 }
 
-/** Skip provisioning — read IDs from env, just mint tokens. */
+/** Skip provisioning - read IDs from env, just mint tokens. */
 function loadExistingEnvironment() {
   const guildId = __ENV.TEST_GUILD_ID;
   const channelId = __ENV.TEST_CHANNEL_ID;

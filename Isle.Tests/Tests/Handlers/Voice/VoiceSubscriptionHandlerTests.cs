@@ -79,7 +79,7 @@ public class VoiceSubscriptionHandlerTests
         await VoiceSubscriptionHandler.Handle(@event, _cluster, _sfu);
 
         // Literal values are mixed with Arg.Any of the same type (float), so every float position
-        // must be an explicit matcher — NSubstitute cannot disambiguate literals from matchers of the
+        // must be an explicit matcher - NSubstitute cannot disambiguate literals from matchers of the
         // same type within a single call otherwise.
         await _sfu.Received(1).SendPeerPosition("p1", "p2", Arg.Is<float>(1), Arg.Is<float>(1), Arg.Is<float>(1),
             Arg.Any<float>(), Arg.Any<float>(), Arg.Any<float>(), Arg.Any<float>(), Arg.Any<long>());

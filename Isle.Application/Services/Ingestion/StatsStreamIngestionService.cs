@@ -21,13 +21,13 @@ public sealed class StatsStreamIngestionService(
     protected override IAsyncEnumerable<StatsSnapshot> OpenStreamAsync(CancellationToken ct) =>
         statsStream.StreamAsync(ct);
 
-    // Not opted into voice — ignore.
+    // Not opted into voice - ignore.
     protected override bool IsRelevant(StatsSnapshot message) =>
         registry.TryGetPlayerId(message.Steam, out _);
 
     protected override async Task PublishAsync(StatsSnapshot message, IMessageBus bus, CancellationToken ct)
     {
-        // A fresh snapshot proves this player is still in-game — slide their voice TTL
+        // A fresh snapshot proves this player is still in-game - slide their voice TTL
         // (throttled internally, so this is a no-op most ticks and never a hot-path cost).
         await registry.TouchAsync(message.Steam);
 

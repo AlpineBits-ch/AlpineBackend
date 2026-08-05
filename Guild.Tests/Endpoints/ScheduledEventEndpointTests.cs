@@ -279,7 +279,7 @@ public class ScheduledEventEndpointTests
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // CancelEvent — soft-delete, not hard-delete
+    // CancelEvent - soft-delete, not hard-delete
     // ══════════════════════════════════════════════════════════════════════
 
     [Test]

@@ -7,7 +7,7 @@ public class QuestSpawnedEvent
 {
     public string QuestInstanceId { get; set; } = string.Empty;
 
-    /// <summary>The short id players see in chat — carried so a subscriber can match a run to what was announced.</summary>
+    /// <summary>The short id players see in chat - carried so a subscriber can match a run to what was announced.</summary>
     public string QuestInstanceFriendlyId { get; set; } = string.Empty;
 
     public string QuestId { get; set; } = string.Empty;
@@ -46,7 +46,7 @@ public class ResolveBountyDeathEvent
     public string QuestInstanceId { get; set; } = string.Empty;
 }
 
-/// <summary>A bounty closed — claimed, survived, or cancelled.</summary>
+/// <summary>A bounty closed - claimed, survived, or cancelled.</summary>
 public class BountyResolvedEvent
 {
     public string QuestInstanceId { get; set; } = string.Empty;

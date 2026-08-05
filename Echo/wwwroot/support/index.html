@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<meta name="description" content="Get help with your venta account, appeal a moderation decision, or check a support ticket." />
+<title>Support - venta</title>
+<link rel="stylesheet" href="/assets/venta.css" />
+<link rel="stylesheet" href="/support/support.css" />
+<link rel="icon" href="/assets/icons/venta-mark.svg" />
+</head>
+<body>
+
+<header class="masthead">
+  <a class="brand" href="/">
+    <i data-icon="venta-mark"></i>
+    <span>venta<span class="brand-sub">support</span></span>
+  </a>
+  <span class="masthead-meta mono">Replies in ~2 days · A person reads every message</span>
+</header>
+
+<main>
+
+  <!-- ── Triage ───────────────────────────────────────────────────────────
+       The three doors, as one control rather than three marketing cards.
+       Everyone arriving here already knows which situation they are in;
+       the page's only job at this point is to not make them read. -->
+  <section class="hero">
+    <p class="eyebrow mono">Support</p>
+    <h1>What do you need?</h1>
+
+    <div class="doors" role="tablist" aria-label="Support options">
+      <button class="door" role="tab" data-nav="contact" aria-selected="true">
+        <i data-icon="comment"></i>
+        <span class="door-title">Contact us</span>
+        <span class="door-sub">Something is broken, or you have a question</span>
+      </button>
+      <button class="door" role="tab" data-nav="appeal" aria-selected="false">
+        <i data-icon="shield"></i>
+        <span class="door-title">Appeal a decision</span>
+        <span class="door-sub">Your account was banned or suspended</span>
+      </button>
+      <button class="door" role="tab" data-nav="ticket" aria-selected="false">
+        <i data-icon="inbox"></i>
+        <span class="door-title">Check a ticket</span>
+        <span class="door-sub">You already wrote to us</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ── Contact ────────────────────────────────────────────────────────── -->
+  <section class="page" id="page-contact" data-active>
+    <div class="sheet">
+      <div class="sheet-rail mono">
+        <span class="rail-label">Reply by</span>
+        <span class="rail-value">Email</span>
+        <span class="rail-label">Typical wait</span>
+        <span class="rail-value">1-2 days</span>
+      </div>
+
+      <div class="sheet-body">
+        <h2>Write to us</h2>
+        <p class="lede">
+          Tell us what happened. Include names, times, and what you expected instead - the more
+          specific you are, the fewer rounds this takes.
+        </p>
+
+        <div id="contact-result"></div>
+
+        <form id="contact-form" autocomplete="on">
+          <div class="field">
+            <label for="c-email">Your email address</label>
+            <input id="c-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email" />
+            <p class="hint">This is where the reply goes. Use one you can read.</p>
+          </div>
+
+          <div class="row">
+            <div class="field">
+              <label for="c-category">What is this about?</label>
+              <select id="c-category" name="category">
+                <option value="Account">My account</option>
+                <option value="Technical">Something is broken</option>
+                <option value="Safety">Safety or harassment</option>
+                <option value="Privacy">Privacy or my data</option>
+                <option value="Billing">Billing</option>
+                <option value="Other" selected>Something else</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="c-subject">Subject</label>
+              <input id="c-subject" name="subject" required maxlength="200" placeholder="One line" />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="c-body">What happened?</label>
+            <textarea id="c-body" name="body" required maxlength="8000" rows="8"
+              placeholder="Start with what you were trying to do, then what happened instead."></textarea>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" type="submit" id="c-submit" data-label="Send">
+              <i data-icon="send"></i> Send
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Appeal ─────────────────────────────────────────────────────────── -->
+  <section class="page" id="page-appeal">
+    <div class="sheet">
+      <div class="sheet-rail mono">
+        <span class="rail-label">Appeals</span>
+        <span class="rail-value">One per decision</span>
+        <span class="rail-label">Read by</span>
+        <span class="rail-value">A person</span>
+      </div>
+
+      <div class="sheet-body">
+        <h2>Appeal a moderation decision</h2>
+        <p class="lede">
+          If your account was banned or suspended and you think we got it wrong, say why. Each
+          decision can be appealed once, so put everything in this one.
+        </p>
+
+        <div id="appeal-result"></div>
+
+        <form id="appeal-form">
+          <div class="field">
+            <label for="a-ref">Reference</label>
+            <input id="a-ref" name="reference" required placeholder="VNT-XXXXXXXX" class="code-input"
+              spellcheck="false" autocapitalize="characters" />
+            <p class="hint">The code in the email we sent, and in the message shown when you try to sign in.</p>
+          </div>
+
+          <div class="field">
+            <label for="a-email">Your email address</label>
+            <input id="a-email" name="email" type="email" required placeholder="you@example.com" autocomplete="email" />
+            <p class="hint">Use the address on the account. It is how the decision reaches you.</p>
+          </div>
+
+          <div class="field">
+            <label for="a-body">What did we get wrong?</label>
+            <textarea id="a-body" name="body" required maxlength="2000" rows="8"
+              placeholder="What context were we missing? What do you think was misread?"></textarea>
+            <p class="hint">Up to 2000 characters.</p>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" type="submit" id="a-submit" data-label="Submit appeal">
+              <i data-icon="send"></i> Submit appeal
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="sheet secondary">
+      <div class="sheet-body">
+        <h3>Already appealed?</h3>
+        <p class="lede small">
+          Check where it got to. You need the appeal reference and the address you filed it under.
+        </p>
+
+        <form id="appeal-status-form" class="inline-form">
+          <div class="field">
+            <label for="as-ref">Appeal reference</label>
+            <input id="as-ref" required placeholder="VNT-XXXXXXXX" class="code-input" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="as-email">Email address</label>
+            <input id="as-email" type="email" required placeholder="you@example.com" />
+          </div>
+          <button class="btn" type="submit"><i data-icon="search"></i> Check</button>
+        </form>
+
+        <div id="appeal-status-result"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Ticket ─────────────────────────────────────────────────────────── -->
+  <section class="page" id="page-ticket">
+    <div class="sheet">
+      <div class="sheet-rail mono">
+        <span class="rail-label">Needs</span>
+        <span class="rail-value">Reference + key</span>
+        <span class="rail-label">Both are in</span>
+        <span class="rail-value">Your first email</span>
+      </div>
+
+      <div class="sheet-body">
+        <h2>Open your ticket</h2>
+        <p class="lede">
+          Use the link from the email sent when you created the ticket. It carries the key that
+          opens it - we store only a hash of that key, so we cannot send you another one.
+        </p>
+
+        <div id="ticket-result"></div>
+
+        <form id="ticket-form" class="inline-form">
+          <div class="field">
+            <label for="t-ref">Ticket reference</label>
+            <input id="t-ref" required placeholder="VNT-XXXXXXXX" class="code-input" spellcheck="false" />
+          </div>
+          <div class="field">
+            <label for="t-token">Access key</label>
+            <input id="t-token" required placeholder="From your email" spellcheck="false" />
+          </div>
+          <button class="btn" type="submit"><i data-icon="inbox"></i> Open</button>
+        </form>
+      </div>
+    </div>
+
+    <div id="ticket-view" class="hidden"></div>
+  </section>
+
+  <!-- ── FAQ ──────────────────────────────────────────────────────────────
+       Placed after the forms, not before them: someone who came here to
+       write to us should not have to scroll past a wall of answers first.
+       Every answer ends in something to do. -->
+  <section class="faq" id="faq">
+    <div class="faq-head">
+      <p class="eyebrow mono">Answers</p>
+      <h2>Before you write</h2>
+      <p class="lede">Most of what reaches us is one of these.</p>
+    </div>
+
+    <div class="faq-list">
+
+      <details class="qa">
+        <summary><span>My account was banned. What happens now?</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            The email we sent says what the decision was, which rule it was about, and carries a
+            reference code. A person made that decision - it is not automatic.
+          </p>
+          <p>
+            You can appeal it once. Quote the reference, tell us what you think we misread, and a
+            different person reads it.
+          </p>
+          <p><button class="link-btn" data-nav="appeal">Appeal a decision →</button></p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>How long does an appeal take, and can I appeal twice?</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Appeals are read in the order they arrive, oldest first. You get the decision by email
+            at the address you filed under.
+          </p>
+          <p>
+            One appeal per decision. A declined appeal is final - filing again does not move you up
+            a queue, it just adds to it. If your circumstances genuinely change later, write to
+            support instead.
+          </p>
+          <p>
+            If an appeal is accepted, the restriction is lifted by a moderator as a second step, so
+            expect a short gap between the two emails.
+          </p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>I reported someone. What happened to it?</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Every report is read by a person. Reports about physical safety - threats, self-harm,
+            anything involving a minor - go to the front of the queue regardless of when they came in.
+          </p>
+          <p>
+            You can see the status of anything you reported in the app, under your account settings.
+            We do not tell you what specifically was decided about the other account: in a
+            harassment case, that would be a channel straight back to the person you reported.
+          </p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>Someone is harassing me right now.</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Block them in the app first - that stops them reaching you immediately, without waiting
+            on us. Then report them, so we can act on the account rather than just on your view of it.
+          </p>
+          <p>
+            If you cannot get into the app, write to us and pick <strong>Safety or harassment</strong>.
+            Those go to the top of the support queue.
+          </p>
+          <p>
+            If you are in immediate danger, contact your local emergency services. We are not one.
+          </p>
+          <p><button class="link-btn" data-nav="contact">Write to us →</button></p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>Can you read my messages?</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Direct messages are end-to-end encrypted. The server holds ciphertext and has no key for
+            it, so nobody here - moderators included - can read them.
+          </p>
+          <p>
+            That has a consequence worth knowing when you report a private message: we can only see
+            the copy your own app attaches to the report. A moderator is looking at what you say you
+            saw, and the console labels it that way. Messages in unencrypted channels we can read
+            directly.
+          </p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>I forgot my password.</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Use <strong>Forgot password</strong> on the sign-in screen. It sends a code to your
+            address; support cannot reset a password for you.
+          </p>
+          <p>
+            A password reset does not touch your messages, but it does invalidate the copy of your
+            encryption key that was sealed under the old password. Your recovery code is what opens
+            it afterwards - so have that to hand before you reset.
+          </p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>I lost my password <em>and</em> my recovery code.</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Your encrypted history cannot be recovered. Not by support, not by anyone - the key was
+            never held here in a form the server can open, which is the same property that stops us
+            reading your messages.
+          </p>
+          <p>
+            You can still regain the account itself through a password reset, and use it going
+            forward. What is gone is the ability to decrypt what came before.
+          </p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>I want my data, or I want my account deleted.</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            Both are in the app, under privacy settings: request a copy of your data, or start
+            deletion. Deletion runs after a grace period and is cancellable until it starts.
+          </p>
+          <p>
+            If you cannot get into the account - or you never had one and want to know what we hold
+            about you - write to us and pick <strong>Privacy or my data</strong>. We handle those on
+            a statutory clock.
+          </p>
+          <p><button class="link-btn" data-nav="contact">Write to us →</button></p>
+        </div>
+      </details>
+
+      <details class="qa">
+        <summary><span>I run my own venta server.</span><i data-icon="angle-down"></i></summary>
+        <div class="qa-body">
+          <p>
+            This page belongs to the instance you reached it on, and so does its moderation team.
+            If your account is on a different server, its operators are the ones who can help - this
+            queue cannot see accounts it does not host.
+          </p>
+          <p>
+            For running the software itself, the API reference and the deployment guide are the
+            place to start.
+          </p>
+          <p id="faq-docs-link"></p>
+        </div>
+      </details>
+
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span class="mono">venta support</span>
+  <span id="docs-link"></span>
+</footer>
+
+<script src="/assets/icons.js"></script>
+<script src="/support/app.js"></script>
+</body>
+</html>

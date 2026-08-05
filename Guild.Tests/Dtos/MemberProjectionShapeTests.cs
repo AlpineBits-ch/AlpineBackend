@@ -39,7 +39,7 @@ public class MemberProjectionShapeTests
         _ => null,
     };
 
-    /// <summary>A collection navigation — an IEnumerable that isn't one of the scalar types that
+    /// <summary>A collection navigation - an IEnumerable that isn't one of the scalar types that
     /// happen to implement it (string, byte[] for PublicKeyStore.Key).</summary>
     private static bool IsCollectionNavigation(MemberInfo member)
     {
@@ -64,7 +64,7 @@ public class MemberProjectionShapeTests
 
         Assert.That(offenders, Is.Empty,
             "SelfMemberDto's projection reaches a collection on another aggregate. That is what made "
-            + "GET /guilds/{id}/me 500 — keep every nested facet on this DTO scalar-only.");
+            + "GET /guilds/{id}/me 500 - keep every nested facet on this DTO scalar-only.");
     }
 
     [Test]

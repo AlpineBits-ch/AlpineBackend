@@ -5,7 +5,7 @@ namespace Isle.Tests.Helpers;
 
 /// <summary>
 /// A minimal auto-mocking <see cref="IServiceProvider"/> for exercising code that resolves an
-/// open-ended set of types via <see cref="ActivatorUtilities"/> — e.g. <c>HelpCommand</c>, which
+/// open-ended set of types via <see cref="ActivatorUtilities"/> - e.g. <c>HelpCommand</c>, which
 /// instantiates every registered chat command just to read its metadata.
 /// </summary>
 internal sealed class AutoMockServiceProvider : IServiceProvider
@@ -37,7 +37,7 @@ internal sealed class AutoMockServiceProvider : IServiceProvider
             return fake;
         }
 
-        // Concrete class: build it for real, recursing into this provider for its own dependencies —
+        // Concrete class: build it for real, recursing into this provider for its own dependencies -
         // exactly what a real DI container would do.
         return ActivatorUtilities.CreateInstance(this, serviceType);
     }

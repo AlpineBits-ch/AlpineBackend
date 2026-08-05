@@ -191,7 +191,7 @@ public static class IsleApplicationServiceCollectionExtensions
 
         // Re-drives the proximity subscription graph on a short interval so a dropped/mistimed
         // SubscribeMutual push converges instead of leaving one side deaf (the "I hear them, they
-        // see 0" asymmetry). Idempotent and symmetric — healthy subscriptions are untouched.
+        // see 0" asymmetry). Idempotent and symmetric - healthy subscriptions are untouched.
         services.AddHostedService<VoiceSubscriptionReconcileService>();
 
         return services;

@@ -1,10 +1,10 @@
-# MFA / 2FA (TOTP) — frontend integration guide
+# MFA / 2FA (TOTP) - frontend integration guide
 
 Backend support for authenticator-app-based two-factor authentication is done and live. Backup
 (recovery) codes are included. SMS/email-based 2FA is not part of this pass - authenticator app
 only (Google Authenticator, 1Password, Authy, etc.).
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call the
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call the
 Identity microservice directly.
 
 ## Enrollment flow (settings screen, while already logged in)

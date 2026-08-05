@@ -92,7 +92,7 @@ public class PlayerResolverTests
     public async Task ResolveAsync_NonCanonicalFriendlyIdLookingString_FallsBackToNameLookup()
     {
         // A string that happens to decode via sqids but doesn't round-trip must not be mistaken for a
-        // friendly id — it should fall through to the in-game-name lookup (and find nothing here).
+        // friendly id - it should fall through to the in-game-name lookup (and find nothing here).
         var result = await PlayerResolver.ResolveAsync(_context, "zzzzzz");
 
         Assert.That(result.Outcome, Is.EqualTo(PlayerResolver.ResolveOutcome.NotFound));

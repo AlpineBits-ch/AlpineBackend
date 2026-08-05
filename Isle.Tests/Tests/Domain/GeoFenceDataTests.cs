@@ -43,7 +43,7 @@ public class GeoFenceDataTests
     {
         var fence = Circle(new Vector3(1000, 1000, 0), 500);
 
-        // Same X,Y as a position well inside the zone, but 50,000 units up — a full 3D distance check
+        // Same X,Y as a position well inside the zone, but 50,000 units up - a full 3D distance check
         // would put this far outside the radius; the ground-plane check must not care about Z.
         Assert.That(fence.Contains(new Vector3(1000, 1000, 50000)), Is.True);
     }

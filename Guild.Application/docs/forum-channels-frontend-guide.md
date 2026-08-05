@@ -1,4 +1,4 @@
-# Forum channels — frontend integration guide
+# Forum channels - frontend integration guide
 
 > **Superseded in part by [forum-parity-frontend-guide.md](forum-parity-frontend-guide.md)**, which
 > adds tags, per-forum config, pinning/locking, and a filtered, paginated post list. The v1
@@ -16,7 +16,7 @@ used for text-channel threads, just parented to a Forum instead of a Text channe
   just a Text one - that's how you create a forum post.
 - `CreateThreadDto` gained an optional `content` field.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call the Guild
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call the Guild
 microservice directly. The gateway strips a leading `/guild` segment; the routes shown already
 include it.
 

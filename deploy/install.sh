@@ -54,6 +54,8 @@ UNINSTALL=false
 ARG_DOMAIN=""
 ARG_STORAGE_DOMAIN=""
 ARG_DOCS_DOMAIN=""
+ARG_ADMIN_DOMAIN=""
+ARG_SUPPORT_DOMAIN=""
 ARG_INSTANCE_NAME=""
 ARG_ACME_EMAIL=""
 ARG_TLS_MODE=""              # letsencrypt | local | external-proxy
@@ -73,6 +75,8 @@ Venta self-hosted installer (Linux)
   --domain <host>              public hostname for the API (e.g. chat.example.com)
   --storage-domain <host>      public hostname for attachments (default: storage.<domain>)
   --docs-domain <host>         public hostname for the API reference (default: docs.<domain>)
+  --admin-domain <host>        public hostname for the moderation console (default: admin.<domain>)
+  --support-domain <host>      public hostname for the support site (default: support.<domain>)
   --instance-name <name>       federation display name for this instance
   --acme-email <email>         contact address for Let's Encrypt
   --tls <mode>                 letsencrypt (default) | local | external-proxy
@@ -99,6 +103,8 @@ while [[ $# -gt 0 ]]; do
         --domain)             ARG_DOMAIN="$2"; shift 2 ;;
         --storage-domain)     ARG_STORAGE_DOMAIN="$2"; shift 2 ;;
         --docs-domain)        ARG_DOCS_DOMAIN="$2"; shift 2 ;;
+        --admin-domain)       ARG_ADMIN_DOMAIN="$2"; shift 2 ;;
+        --support-domain)     ARG_SUPPORT_DOMAIN="$2"; shift 2 ;;
         --instance-name)      ARG_INSTANCE_NAME="$2"; shift 2 ;;
         --acme-email)         ARG_ACME_EMAIL="$2"; shift 2 ;;
         --tls)                ARG_TLS_MODE="$2"; shift 2 ;;
@@ -291,6 +297,8 @@ if [[ "$REUSE_ENV" == false ]]; then
             [[ -n "$INSTANCE_DOMAIN" ]] || die "--domain is required for TLS mode '$TLS_MODE'"
             STORAGE_DOMAIN="$(sanitize "${ARG_STORAGE_DOMAIN:-$(ask 'Public hostname for attachments/avatars' "storage.$INSTANCE_DOMAIN")}")"
             DOCS_DOMAIN="$(sanitize "${ARG_DOCS_DOMAIN:-$(ask 'Public hostname for the API reference' "docs.$INSTANCE_DOMAIN")}")"
+            ADMIN_DOMAIN="$(sanitize "${ARG_ADMIN_DOMAIN:-$(ask 'Public hostname for the moderation console' "admin.$INSTANCE_DOMAIN")}")"
+            SUPPORT_DOMAIN="$(sanitize "${ARG_SUPPORT_DOMAIN:-$(ask 'Public hostname for the support site' "support.$INSTANCE_DOMAIN")}")"
             INSTANCE_URL="https://$INSTANCE_DOMAIN"
             STORAGE_PUBLIC_URL="https://$STORAGE_DOMAIN"
             ;;
@@ -397,6 +405,8 @@ fi
 # The gateway derives this itself when unset; setting it explicitly keeps the Caddyfile and the
 # gateway in agreement when the instance is not on a bare domain.
 : "${DOCS_DOMAIN:=${INSTANCE_DOMAIN:+docs.$INSTANCE_DOMAIN}}"
+: "${ADMIN_DOMAIN:=${INSTANCE_DOMAIN:+admin.$INSTANCE_DOMAIN}}"
+: "${SUPPORT_DOMAIN:=${INSTANCE_DOMAIN:+support.$INSTANCE_DOMAIN}}"
 : "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
 : "${USE_EXTERNAL_DB:=no}"
 : "${DATABASE_HOSTNAME:=postgres}"
@@ -540,6 +550,8 @@ TLS_MODE="$TLS_MODE"
 ACME_EMAIL="${ACME_EMAIL:-}"
 STORAGE_DOMAIN="${STORAGE_DOMAIN:-}"
 DOCS_DOMAIN="${DOCS_DOMAIN:-}"
+ADMIN_DOMAIN="${ADMIN_DOMAIN:-}"
+SUPPORT_DOMAIN="${SUPPORT_DOMAIN:-}"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # ── Images ───────────────────────────────────────────────────────────────────────────
@@ -727,6 +739,34 @@ $STORAGE_DOMAIN {
 # header - the docs exist only on this hostname, not under a path on the API domain - so this
 # block must preserve the Host and point at the same container as the API.
 $DOCS_DOMAIN {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$GATEWAY_PROXY_SECRET"
+	}
+}
+
+# The public support site: contact form, ban appeals, ticket lookup. Same container and the same
+# Host-header gating as the docs above. Reached by people who cannot sign in - a banned account
+# cannot get a token, which is the whole premise of an appeal - so nothing here may be put behind
+# authentication at the proxy.
+$SUPPORT_DOMAIN {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$GATEWAY_PROXY_SECRET"
+	}
+}
+
+# The moderation console. Also the same container - the console is a static page that calls the
+# API same-origin, which is what keeps it out of the CORS allowlist.
+#
+# Access is decided by the account's own staff tier, checked against the database on every
+# request, not by this block. If you want a second gate in front of it (an IP allowlist, mTLS,
+# basic auth), this is the right place for it - but do not add one to $SUPPORT_DOMAIN above.
+$ADMIN_DOMAIN {
 	encode zstd gzip
 
 	reverse_proxy echo:8080 {

@@ -1,10 +1,10 @@
-# Announcement channel cross-posting — frontend integration guide
+# Announcement channel cross-posting - frontend integration guide
 
 Backend support for Discord's "Follow Channel" + "Publish" mechanic is done and live.
 `ChannelType.Announcement` was already creatable (see the forum-channels guide, which mentions
 this in passing) - this adds the actual cross-posting behavior on top of it.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly. Guild endpoints (follow/unfollow) sit behind `/api/v1/guild/**`; the
 publish endpoint sits behind `/api/v1/messaging/**` (and, per the pre-existing quirk noted in the
 [message pinning guide](../../Messaging.Application/docs/message-pinning-frontend-guide.md),

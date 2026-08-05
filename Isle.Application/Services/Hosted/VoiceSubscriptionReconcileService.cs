@@ -19,7 +19,7 @@ public sealed class VoiceSubscriptionReconcileService(
     // real-world "why can't they hear me", cheap enough that the re-push fan-out is negligible.
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(5);
 
-    // Don't re-order a republish more than once per this window — a normal publish completes well
+    // Don't re-order a republish more than once per this window - a normal publish completes well
     // inside it, so a client that got the order and is acting on it isn't nagged again.
     private static readonly TimeSpan RepublishCooldown = TimeSpan.FromSeconds(20);
 
@@ -63,7 +63,7 @@ public sealed class VoiceSubscriptionReconcileService(
 
     /// <summary>
     /// Fires once, <see cref="StartupForceRepublishDelay"/> after this instance started, and orders
-    /// every player currently in the grid without a track to republish — no grace, no cooldown. A
+    /// every player currently in the grid without a track to republish - no grace, no cooldown. A
     /// backstop for the restart-split-brain scenario: it doesn't matter how the trackless state arose
     /// or whether the per-tick heuristic kept deferring it, this runs exactly once per process and
     /// clears it regardless.
@@ -126,7 +126,7 @@ public sealed class VoiceSubscriptionReconcileService(
 
         await OrderRepublishForForgottenTracks(players, sfu);
 
-        // Only push pairs this process hasn't already confirmed — see _pushedPairs doc comment for
+        // Only push pairs this process hasn't already confirmed - see _pushedPairs doc comment for
         // why we don't just re-blast every audible pair on every tick.
         var newPairs = pairs.Where(p => !_pushedPairs.Contains(p)).ToList();
 
@@ -170,7 +170,7 @@ public sealed class VoiceSubscriptionReconcileService(
         var ordered = 0;
         foreach (var userId in trackless)
         {
-            // Grace: only act on a player track-less across two ticks — skips fresh joiners mid-publish.
+            // Grace: only act on a player track-less across two ticks - skips fresh joiners mid-publish.
             if (!_tracklessLastTick.Contains(userId))
                 continue;
 

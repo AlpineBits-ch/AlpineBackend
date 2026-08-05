@@ -1,0 +1,278 @@
+/*
+ * Shared shell for the moderation console and the support site.
+ *
+ * Colours are Alpine's (src/app/models/theme.model.ts) so these pages look like the product rather
+ * than like a bolted-on admin panel. Light is first-class here, unlike the client: a moderation
+ * queue and a support form are read in daylight, on a laptop, by someone who did not choose the
+ * theme.
+ *
+ * No build step - see docs/specs/moderation-and-support.md §8.
+ */
+
+:root {
+    color-scheme: light dark;
+
+    /* Alpine brand */
+    --brand: #4B5BC4;
+    --brand-hover: #3E4EAE;
+    --brand-dim: #7E8AE0;
+
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --surface: #ffffff;
+    --raised: #f1f3f6;
+    --border: #e2e6ec;
+    --border-soft: #edf0f4;
+
+    --text: #14171d;
+    --muted: #5b6472;
+    --faint: #8892a0;
+
+    --ok: #197a52;
+    --ok-bg: #e6f4ec;
+    --warn: #8a6100;
+    --warn-bg: #fdf3dc;
+    --danger: #b3261e;
+    --danger-bg: #fbeae9;
+    --info: #1d5fa8;
+    --info-bg: #e7f0fb;
+
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(16, 20, 28, .06), 0 8px 24px rgba(16, 20, 28, .06);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0d1117;
+        --panel: #111520;
+        --surface: #161b27;
+        --raised: #1d2333;
+        --border: #252e42;
+        --border-soft: #1b2130;
+
+        --text: #e7eaee;
+        --muted: #98a1ae;
+        --faint: #6d7684;
+
+        --brand: #7E8AE0;
+        --brand-hover: #98a2ea;
+
+        --ok: #55d391;
+        --ok-bg: #12301f;
+        --warn: #e0b25c;
+        --warn-bg: #2e2514;
+        --danger: #ff8a80;
+        --danger-bg: #33191a;
+        --info: #7fbaff;
+        --info-bg: #14202e;
+
+        --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 30px rgba(0, 0, 0, .35);
+    }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+code, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: .92em;
+}
+
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 { margin: 0; letter-spacing: -.02em; font-weight: 620; }
+h1 { font-size: 22px; }
+h2 { font-size: 17px; }
+h3 { font-size: 14px; }
+
+p { margin: 0 0 14px; }
+
+/* ── Icons ──────────────────────────────────────────────────────────────────
+   The files carry no fill of their own, so they take the colour of whatever
+   they sit in. That is the entire reason they are injected rather than used as
+   <img>: an <img> cannot inherit currentColor. */
+[data-icon] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1em;
+    height: 1em;
+    flex: 0 0 auto;
+    vertical-align: -.125em;
+}
+
+[data-icon] svg {
+    width: 100%;
+    height: 100%;
+    fill: currentColor;
+    display: block;
+}
+
+/* The brand mark carries its own colours and must not be recoloured. */
+[data-icon="venta-mark"] svg { fill: none; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 550;
+    padding: 8px 15px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s, border-color .12s, color .12s;
+    white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) { background: var(--raised); border-color: var(--faint); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+
+.btn.primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+}
+.btn.primary:hover:not(:disabled) { background: var(--brand-hover); border-color: var(--brand-hover); }
+
+.btn.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 38%, transparent); }
+.btn.danger:hover:not(:disabled) { background: var(--danger-bg); }
+
+.btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover:not(:disabled) { background: var(--raised); color: var(--text); }
+
+.btn.sm { font-size: 13px; padding: 5px 11px; }
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+label {
+    display: block;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: .01em;
+}
+
+input, select, textarea {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    padding: 9px 11px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+}
+
+textarea { resize: vertical; min-height: 96px; line-height: 1.55; }
+
+input:focus, select:focus, textarea:focus {
+    outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+    outline-offset: -1px;
+    border-color: var(--brand);
+}
+
+input::placeholder, textarea::placeholder { color: var(--faint); }
+
+.field { margin-bottom: 16px; }
+.field .hint { font-size: 12px; color: var(--faint); margin-top: 6px; line-height: 1.5; }
+
+.row { display: flex; gap: 12px; }
+.row > * { flex: 1; min-width: 0; }
+
+/* ── Surfaces ───────────────────────────────────────────────────────────── */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+}
+
+.card-body { padding: 22px 24px; }
+
+.card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-soft);
+}
+
+/* ── Tags ───────────────────────────────────────────────────────────────── */
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--raised);
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.tag.ok { background: var(--ok-bg); color: var(--ok); }
+.tag.warn { background: var(--warn-bg); color: var(--warn); }
+.tag.danger { background: var(--danger-bg); color: var(--danger); }
+.tag.info { background: var(--info-bg); color: var(--info); }
+
+/* ── Feedback ───────────────────────────────────────────────────────────── */
+.notice {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start;
+    padding: 13px 15px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.55;
+    margin-bottom: 18px;
+    border: 1px solid transparent;
+}
+
+.notice [data-icon] { margin-top: .18em; font-size: 15px; }
+.notice.ok { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 22%, transparent); }
+.notice.warn { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 22%, transparent); }
+.notice.danger { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 22%, transparent); }
+.notice.info { background: var(--info-bg); color: var(--info); border-color: color-mix(in srgb, var(--info) 22%, transparent); }
+
+.empty {
+    text-align: center;
+    padding: 56px 20px;
+    color: var(--faint);
+}
+.empty [data-icon] { font-size: 30px; display: block; margin: 0 auto 12px; opacity: .5; }
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.small { font-size: 13px; }
+.tiny { font-size: 12px; }
+.nowrap { white-space: nowrap; }
+.grow { flex: 1; min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hstack { display: flex; align-items: center; gap: 8px; }
+.hidden { display: none !important; }
+.pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Long values (ids, references, evidence) must scroll inside their own box rather than
+   widening the page - a moderation queue on a laptop has no horizontal room to give. */
+.scroll-x { overflow-x: auto; max-width: 100%; }

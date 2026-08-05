@@ -56,7 +56,7 @@ public class QuestInstance : Aggregate<QuestInstance>, IPrefixedEntity
     public const string FriendlyIdPrefix = "Q-";
 
     /// <summary>
-    /// Assigned by a database sequence on insert — see the default in <c>MicroserviceContext</c>.
+    /// Assigned by a database sequence on insert - see the default in <c>MicroserviceContext</c>.
     /// </summary>
     public int FriendlyIdSeq { get; set; }
 

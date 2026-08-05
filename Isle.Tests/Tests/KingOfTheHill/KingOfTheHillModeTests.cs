@@ -124,7 +124,7 @@ public class KingOfTheHillModeTests
     public void GetRewards_WinnerWithZeroContestantsAtAll_ReturnsNoBonusRatherThanANegativeAmount()
     {
         // Nobody was ever recorded in the contestants set (contestants == 0), as opposed to the
-        // "winner with no other contestants" case where the winner themself makes it 1 — the
+        // "winner with no other contestants" case where the winner themself makes it 1 - the
         // Math.Max(0, contestants - 1) floor must hold here too, or this would compute a negative XP amount.
         var standing = new ParticipantStanding { PlayerId = "p1", Score = 0, Rank = 1, CustomMetrics = new() };
 

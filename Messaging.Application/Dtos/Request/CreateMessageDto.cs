@@ -19,7 +19,7 @@ public class CreateMessageDto
     // This should be user_ids
     public ICollection<string> Mentions { get; set; } = new List<string>();
 
-    // Role ids mentioned (e.g. @role) — expanded server-side into member ids for
+    // Role ids mentioned (e.g. @role) - expanded server-side into member ids for
     // unread/mention-count purposes; additive, older clients omitting this keep working.
     public ICollection<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }

@@ -28,7 +28,7 @@ export const wsConnectFailRate = new Rate('ws_connect_fail_rate');
 /** Time from MessagingHub connect to presence visible in GuildHub (ms) */
 export const presencePropagationMs = new Trend('presence_propagation_ms', true);
 
-/** Time from REST message POST to SignalR broadcast received (ms) — Wolverine lag proxy */
+/** Time from REST message POST to SignalR broadcast received (ms) - Wolverine lag proxy */
 export const wolverinePipelineMs = new Trend('wolverine_pipeline_ms', true);
 
 /** How often a message was NOT present immediately after POST (read-your-writes miss) */
@@ -45,5 +45,5 @@ export const rateLimitRejections = new Counter('rate_limit_rejections');
 /** Requests that received 5xx from any service (proxy or app error) */
 export const serverErrors = new Counter('server_errors');
 
-/** Track when P95 response time crosses the 500ms threshold — used in thresholds */
+/** Track when P95 response time crosses the 500ms threshold - used in thresholds */
 export const apiResponseMs = new Trend('api_response_ms', true);

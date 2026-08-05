@@ -1,0 +1,447 @@
+/*
+ * The support site.
+ *
+ * Direction: help desk, not marketing. Everyone who arrives here is already having a bad day -
+ * banned, locked out, harassed, or looking at something broken. So: no illustrations, no
+ * exclamation marks, no gradient hero. Narrow measure, quiet surfaces, and enough type discipline
+ * that the page reads as competent rather than cheerful.
+ *
+ * The character comes from the monospace counterpoint rather than from a display face. There is no
+ * webfont here on purpose - a self-hosted instance may have no route to a font CDN, and a support
+ * page that renders in Times because someone's firewall blocked Google is worse than one that never
+ * asked. So the system stack carries the body, and ui-monospace carries every code, label and piece
+ * of metadata. That monospace is also the product's own vernacular: the reference code is the thing
+ * this whole system hands people.
+ *
+ * The structural device is the left rail on each sheet - monospace metadata that states a real fact
+ * about the thing beside it ("Appeals · one per decision"), not a decorative 01/02/03.
+ */
+
+body {
+    background: var(--bg);
+    /* A single hairline of brand at the very top. The only ornament on the page. */
+    border-top: 3px solid var(--brand);
+}
+
+@media (prefers-color-scheme: dark) {
+    body { background: var(--bg); }
+}
+
+/* ── Masthead ───────────────────────────────────────────────────────────── */
+.masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 22px 28px 0;
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 17px;
+    font-weight: 640;
+    letter-spacing: -.02em;
+    color: var(--text);
+    text-decoration: none;
+}
+.brand:hover { text-decoration: none; }
+.brand [data-icon] { font-size: 26px; }
+
+.brand-sub {
+    color: var(--faint);
+    font-weight: 450;
+    margin-left: .45em;
+}
+
+.masthead-meta {
+    font-size: 11.5px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--faint);
+}
+
+@media (max-width: 700px) {
+    .masthead-meta { display: none; }
+}
+
+main {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+}
+
+/* ── Hero / triage ──────────────────────────────────────────────────────── */
+.hero { padding: 54px 0 34px; }
+
+.eyebrow {
+    font-size: 11.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin: 0 0 12px;
+    font-weight: 550;
+}
+
+.hero h1 {
+    font-size: clamp(30px, 5vw, 40px);
+    line-height: 1.08;
+    letter-spacing: -.035em;
+    font-weight: 660;
+    margin: 0 0 28px;
+}
+
+.doors {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+@media (max-width: 760px) {
+    .doors { grid-template-columns: 1fr; }
+}
+
+.door {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    font: inherit;
+    text-align: left;
+    padding: 20px 20px 21px;
+    background: var(--surface);
+    border: 0;
+    cursor: pointer;
+    color: var(--muted);
+    /* Border-box inset instead of a border, so the 3px selected marker cannot shift the row. */
+    box-shadow: inset 0 0 0 0 var(--brand);
+    transition: background .14s, color .14s, box-shadow .14s;
+}
+
+.door [data-icon] {
+    font-size: 17px;
+    margin-bottom: 7px;
+    color: var(--faint);
+    transition: color .14s;
+}
+
+.door-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -.01em;
+}
+
+.door-sub {
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--faint);
+}
+
+.door:hover { background: var(--raised); }
+.door:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.door[aria-selected="true"] {
+    background: var(--surface);
+    box-shadow: inset 0 -3px 0 0 var(--brand);
+}
+.door[aria-selected="true"] [data-icon] { color: var(--brand); }
+.door[aria-selected="true"] .door-title { color: var(--text); }
+
+@media (max-width: 760px) {
+    .door[aria-selected="true"] { box-shadow: inset 3px 0 0 0 var(--brand); }
+}
+
+/* ── Sheets ─────────────────────────────────────────────────────────────── */
+.page { display: none; }
+.page[data-active] { display: block; }
+
+.sheet {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 18px;
+}
+
+@media (max-width: 760px) {
+    .sheet { grid-template-columns: 1fr; }
+}
+
+/* The rail states a fact about the form beside it. It is the one structural flourish, and it earns
+   its place by carrying information the person would otherwise have to ask for. */
+.sheet-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 30px 22px;
+    background: var(--raised);
+    border-right: 1px solid var(--border-soft);
+    font-size: 11.5px;
+    line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+    .sheet-rail {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 2px 6px;
+        align-items: baseline;
+        padding: 14px 22px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-soft);
+    }
+    .sheet-rail .rail-label:not(:first-child) { margin-left: 14px; }
+}
+
+.rail-label {
+    color: var(--faint);
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.rail-value {
+    color: var(--muted);
+    margin-bottom: 14px;
+}
+.rail-value:last-child { margin-bottom: 0; }
+
+@media (max-width: 760px) {
+    .rail-value { margin-bottom: 0; }
+}
+
+.sheet-body { padding: 30px 32px 32px; min-width: 0; }
+
+@media (max-width: 560px) {
+    .sheet-body { padding: 24px 20px 26px; }
+}
+
+.sheet-body h2 {
+    font-size: 21px;
+    letter-spacing: -.025em;
+    margin-bottom: 8px;
+}
+
+.sheet-body h3 {
+    font-size: 15.5px;
+    letter-spacing: -.015em;
+    margin-bottom: 6px;
+}
+
+.sheet.secondary { grid-template-columns: 1fr; background: transparent; }
+.sheet.secondary .sheet-body { padding-top: 24px; padding-bottom: 26px; }
+
+.lede {
+    color: var(--muted);
+    font-size: 14.5px;
+    line-height: 1.62;
+    margin: 0 0 26px;
+    max-width: 58ch;
+}
+.lede.small { font-size: 13.5px; margin-bottom: 18px; }
+
+.hint {
+    font-size: 12.5px;
+    color: var(--faint);
+    line-height: 1.5;
+    margin: 7px 0 0;
+}
+
+.field { margin-bottom: 18px; }
+.actions { display: flex; justify-content: flex-end; margin-top: 24px; }
+
+.code-input {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    font-size: 15px;
+}
+.code-input::placeholder { letter-spacing: .18em; text-transform: none; }
+
+.inline-form {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+.inline-form .field { flex: 1 1 200px; margin-bottom: 0; }
+.inline-form .btn { flex: 0 0 auto; }
+
+/* ── The reference code, when we hand one back ──────────────────────────── */
+.ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 11px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: .22em;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    padding: 13px 18px;
+    border-radius: var(--radius);
+    margin: 4px 0 20px;
+    max-width: 100%;
+}
+.ref [data-icon] { font-size: 16px; color: var(--brand); letter-spacing: 0; }
+
+.ref.key {
+    font-size: 13px;
+    letter-spacing: .02em;
+    font-weight: 500;
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+/* ── Ticket thread ──────────────────────────────────────────────────────── */
+#ticket-view { margin-top: 4px; }
+
+.thread-head { margin-bottom: 18px; }
+.thread-head h2 { font-size: 19px; letter-spacing: -.02em; }
+.thread-meta {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--faint);
+    letter-spacing: .04em;
+    margin-top: 5px;
+}
+
+.thread { display: flex; flex-direction: column; gap: 12px; margin-bottom: 22px; }
+
+.msg {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 15px 17px;
+    background: var(--surface);
+}
+
+/* Support replies get the brand edge; the requester's own messages stay quiet. The asymmetry is
+   the whole point - you should be able to find the answer in a long thread at a glance. */
+.msg.them {
+    background: var(--raised);
+    border-color: var(--border-soft);
+    border-left: 3px solid var(--brand);
+}
+
+.msg-head {
+    display: flex;
+    align-items: baseline;
+    gap: 9px;
+    margin-bottom: 8px;
+}
+
+.msg-from {
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+.msg.them .msg-from { color: var(--brand); }
+
+.msg-time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--faint);
+}
+
+.msg-body { font-size: 14.5px; line-height: 1.62; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── FAQ ────────────────────────────────────────────────────────────────── */
+.faq {
+    margin-top: 64px;
+    padding-top: 44px;
+    border-top: 1px solid var(--border);
+}
+
+.faq-head { margin-bottom: 22px; }
+.faq-head h2 { font-size: 25px; letter-spacing: -.03em; margin-bottom: 8px; }
+.faq-head .lede { margin-bottom: 0; }
+
+.faq-list { border-top: 1px solid var(--border-soft); }
+
+.qa { border-bottom: 1px solid var(--border-soft); }
+
+.qa summary {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 17px 2px;
+    cursor: pointer;
+    list-style: none;
+    font-size: 15.5px;
+    font-weight: 550;
+    letter-spacing: -.012em;
+    color: var(--text);
+    transition: color .12s;
+}
+.qa summary::-webkit-details-marker { display: none; }
+.qa summary:hover { color: var(--brand); }
+.qa summary:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+.qa summary > span { flex: 1; min-width: 0; }
+.qa summary em { font-style: italic; }
+
+.qa summary [data-icon] {
+    font-size: 13px;
+    color: var(--faint);
+    transition: transform .18s ease, color .12s;
+}
+.qa[open] summary { color: var(--brand); }
+.qa[open] summary [data-icon] { transform: rotate(180deg); color: var(--brand); }
+
+.qa-body {
+    padding: 0 40px 22px 2px;
+    max-width: 66ch;
+}
+.qa-body p {
+    font-size: 14.5px;
+    line-height: 1.68;
+    color: var(--muted);
+    margin: 0 0 13px;
+}
+.qa-body p:last-child { margin-bottom: 0; }
+.qa-body strong { color: var(--text); font-weight: 600; }
+
+.link-btn {
+    font: inherit;
+    font-size: 14.5px;
+    font-weight: 550;
+    color: var(--brand);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+}
+.link-btn:hover { text-decoration: underline; }
+.link-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .qa summary [data-icon] { transition: none; }
+    * { animation-duration: .001ms !important; }
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+footer {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 26px 28px 52px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--faint);
+    letter-spacing: .04em;
+}
+footer a { color: var(--muted); }

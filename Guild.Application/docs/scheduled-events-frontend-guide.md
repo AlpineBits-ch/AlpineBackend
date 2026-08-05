@@ -1,10 +1,10 @@
-# Scheduled events — frontend integration guide
+# Scheduled events - frontend integration guide
 
 Backend support for guild scheduled events (Discord's "Events" tab equivalent) is done and live.
 **No reminder notifications are sent** in this pass (no "starts in 30 minutes" push) - see Known
 limitations before building UI that implies they exist.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly.
 
 ## Endpoints

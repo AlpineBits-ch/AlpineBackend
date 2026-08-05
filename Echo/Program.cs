@@ -1,11 +1,13 @@
 using AppEnvironment;
 using Echo.Docs;
+using Echo.Moderation;
 using Echo.Persistence;
 using Echo.Persistence.Persistance;
 using Echo.Proxy;
 using Echo.Realtime;
 using Echo.RateLimiter;
 using Echo.Sagas;
+using Echo.Sites;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -126,6 +128,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddHttpClient();
 builder.Services.AddVentaDocs();
 
+// Moderation console and support site.
+builder.Services.AddScoped<StaffAccess>();
+builder.Services.AddSingleton<ModerationMailer>();
+builder.Services.AddScoped<EmailService>();
+
 builder.Services.AddScoped<IGitHubClient>(s =>
 {
     var client = new GitHubClient(new ProductHeaderValue("AlpineUpdaterAPI"))
@@ -183,6 +190,9 @@ app.MapControllers();
 
 // Documentation site.
 app.MapVentaDocs();
+
+// The moderation console and the support site.
+app.MapVentaSites();
 
 app.MapReverseProxy();
 app.UseGracefulShutdownHealthCheck();

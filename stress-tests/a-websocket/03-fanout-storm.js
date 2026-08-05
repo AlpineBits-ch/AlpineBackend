@@ -1,12 +1,12 @@
 /**
- * A3 — Message Fan-Out Storm
+ * A3 - Message Fan-Out Storm
  *
  * Two concurrent k6 scenarios:
- *   sender    — 1 VU posts a channel message every SEND_INTERVAL_MS.
+ *   sender    - 1 VU posts a channel message every SEND_INTERVAL_MS.
  *               The message content encodes the send timestamp so receivers
  *               can measure end-to-end broadcast latency without clock sync.
  *
- *   receivers — USER_COUNT-1 VUs, all connected to the same guild's GuildHub,
+ *   receivers - USER_COUNT-1 VUs, all connected to the same guild's GuildHub,
  *               listening for the server-pushed message event.
  *
  * What to watch:

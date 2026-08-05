@@ -44,7 +44,7 @@ public sealed class BountyService(
     // --- Spree thresholds ---------------------------------------------------------------------
     // All three gates must pass.
 
-    /// <summary>Hard floor — nobody is marked below this many kills in the streak window.</summary>
+    /// <summary>Hard floor - nobody is marked below this many kills in the streak window.</summary>
     public const int MinKillsForSpree = 5;
 
     /// <summary>How far ahead of the runner-up the leader must be before they count as dominant.</summary>
@@ -70,7 +70,7 @@ public sealed class BountyService(
         new() { RewardType = RewardType.FullDiet, AppliesTo = RankRequirement.Winner },
         new() { RewardType = RewardType.FullHealth, AppliesTo = RankRequirement.Winner },
 
-        // A bare template must not leave the players who wore the target down with nothing — they are
+        // A bare template must not leave the players who wore the target down with nothing - they are
         // the reason the spree ended.
         new() { RewardType = RewardType.Xp, Amount = DefaultParticipationXp, AppliesTo = RankRequirement.AllParticipants },
         new() { RewardType = RewardType.HalfDiet, AppliesTo = RankRequirement.AllParticipants },
@@ -266,7 +266,7 @@ public sealed class BountyService(
         // This is the decision that says whether anyone gets credited with the kill, and it is made off
         // a heuristic, so it says out loud what it decided and on what evidence.
         logger.LogInformation("Resolving death of bounty {InstanceId}: last attacker {Steam}, last hit {Age} ago, " +
-                              "attribution window {Window} — treating as {Verdict}",
+                              "attribution window {Window} - treating as {Verdict}",
             instance.Id, lastAttacker?.SteamId ?? "(none)", sinceLastHit, PvpAttributionWindow,
             killedByPlayer ? "a player kill" : "natural causes");
 
@@ -288,7 +288,7 @@ public sealed class BountyService(
     }
 
     /// <summary>
-    /// The target went down to something that was not a player — drowned, starved, fell, broke a
+    /// The target went down to something that was not a player - drowned, starved, fell, broke a
     /// leg.
     /// </summary>
     private async Task<bool> CompleteOnNaturalCausesAsync(QuestInstance instance, CancellationToken ct)
@@ -310,7 +310,7 @@ public sealed class BountyService(
     }
 
     /// <summary>
-    /// Ends any open bounty on a player without paying anyone — they logged off, or an admin called it
+    /// Ends any open bounty on a player without paying anyone - they logged off, or an admin called it
     /// off. A death is not one of these: see <see cref="TryResolveOnDeathAsync"/>.
     /// </summary>
     public async Task<bool> CancelForPlayerAsync(string playerId, QuestInstanceState state, CancellationToken ct = default)
@@ -324,7 +324,7 @@ public sealed class BountyService(
 
         await EndAsync(instance, [], ct);
 
-        // Called off rather than survived, so nobody is paid — not the hunters, not the target.
+        // Called off rather than survived, so nobody is paid - not the hunters, not the target.
         await announcer.AnnounceBountyExpiredAsync(instance, participants: 0, ct);
 
         logger.LogInformation("Bounty {InstanceId} on {PlayerId} closed as {State}", instance.Id, playerId, state);
@@ -439,7 +439,7 @@ public sealed class BountyService(
         var steamIds = participants.Select(p => p.SteamId).ToList();
 
         // Grouped rather than keyed straight into a dictionary: nothing constrains steam_id to be unique
-        // across players, and a duplicate row would throw here — after the bounty has already been
+        // across players, and a duplicate row would throw here - after the bounty has already been
         // closed, so the hunt would end having paid nobody at all.
         var bySteam = steamIds.Count == 0
             ? new Dictionary<string, Player>()
@@ -490,7 +490,7 @@ public sealed class BountyService(
 
     /// <summary>Pays everyone the resolved bounty owes and tells them what they got.</summary>
     /// <param name="participantLead">
-    /// Opening clause of the participant whisper — the payout is the same on every path, what it
+    /// Opening clause of the participant whisper - the payout is the same on every path, what it
     /// means is not.
     /// </param>
     private async Task<Payout> PayOutAsync(
@@ -550,7 +550,7 @@ public sealed class BountyService(
     }
 
     /// <summary>
-    /// Pays the target for outlasting the bounty and tells them they made it — the only message
+    /// Pays the target for outlasting the bounty and tells them they made it - the only message
     /// that ever reaches them about the outcome, since the expiry broadcast is written for the
     /// lobby.
     /// </summary>
@@ -572,7 +572,7 @@ public sealed class BountyService(
         if (!string.IsNullOrWhiteSpace(target.SteamId))
         {
             // An empty payout means the granter found no live pawn to write to, so the whisper will not
-            // land either — but it costs nothing to send, and it must not claim rewards that never
+            // land either - but it costs nothing to send, and it must not claim rewards that never
             // happened.
             var body = granted.Count == 0
                 ? "You survived the bounty. The mark is gone and your colours are your own again."
@@ -610,7 +610,7 @@ public sealed class BountyService(
     }
 
     /// <summary>
-    /// The full reward table for a resolved bounty — every tier, not one player's share.
+    /// The full reward table for a resolved bounty - every tier, not one player's share.
     /// </summary>
     private async Task<IReadOnlyList<RewardConfig>> BuildClaimRewardsAsync(QuestInstance instance, CancellationToken ct)
     {
@@ -639,7 +639,7 @@ public sealed class BountyService(
         }
         catch (Exception ex)
         {
-            // The bounty stands even if the skin does not — the broadcast has already named them.
+            // The bounty stands even if the skin does not - the broadcast has already named them.
             logger.LogWarning(ex, "Could not apply bounty skin to {Steam}", steam);
         }
     }

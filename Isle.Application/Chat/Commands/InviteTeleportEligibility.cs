@@ -3,7 +3,7 @@ using Isle.Domain.Aggregates;
 namespace Isle.Api.Chat.Commands;
 
 /// <summary>
-/// Shared gate for invite teleports: the acting player must be a fresh spawn — at or under <see
+/// Shared gate for invite teleports: the acting player must be a fresh spawn - at or under <see
 /// cref="PlayerInvite.MaxGrowthForTeleport"/> growth and within <see
 /// cref="PlayerInvite.SpawnWindow"/> of spawning.
 /// </summary>

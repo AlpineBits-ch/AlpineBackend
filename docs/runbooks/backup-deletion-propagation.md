@@ -1,4 +1,4 @@
-# Runbook — deletion vs. backups
+# Runbook - deletion vs. backups
 
 Status: **decision required, and not yet made.** 2026-08-04.
 Owner: whoever operates the deployment (this cannot be decided in code).
@@ -14,14 +14,14 @@ Source requirement: `docs/specs/privacy.md`, T1-9, last bullet.
 Echo's account purge is complete and verified *in the live system*: `AccountDeletionSaga` fans
 `PurgeUserDataCommand` to all eight services and only finishes when every one has acknowledged
 (and now alerts if one never does). **Nothing in that path touches a backup.** A restore taken
-before the purge brings the account back — username, email, messages, IP addresses, all of it.
+before the purge brings the account back - username, email, messages, IP addresses, all of it.
 
 ## Why this is not a nice-to-have
 
 A restore that resurrects a purged account is processing personal data with no lawful basis, after
 the subject exercised their Art. 17 right and after we told them it was done. In practice it
 becomes a personal-data breach with a 72-hour notification clock (Art. 33) and it is discovered by
-the subject, not by us — the usual symptom is a deleted account receiving mail again. "The backup
+the subject, not by us - the usual symptom is a deleted account receiving mail again. "The backup
 was old" is not a defence; the backup being able to do that is the finding.
 
 The same applies, less obviously, to a **partial** restore: restoring one service's database from
@@ -36,12 +36,12 @@ one, which is neither.
 **A. Propagate deletion into backups.** Keep a durable log of purged subject ids (Identity's
 `IdentityAuditEvent` rows for `account.purged` already are one) and re-apply it after every
 restore, before the restored system is allowed to serve traffic or send mail. This is the only
-option if backups must be kept longer than the erasure SLA — e.g. because a finance or legal hold
+option if backups must be kept longer than the erasure SLA - e.g. because a finance or legal hold
 requires it. It costs a documented, rehearsed post-restore step; an unrehearsed one does not count.
 
 **B. Bound the backup retention window below the deletion SLA.** If every backup is destroyed
 within *N* days and the purge is guaranteed to have run within *N* days, no restorable copy can
-outlive an erasure. This is much cheaper, and it is the right answer for most deployments — but it
+outlive an erasure. This is much cheaper, and it is the right answer for most deployments - but it
 only works if the window is enforced by the storage (a lifecycle rule, a rotation script that
 actually deletes) rather than by intention, and if it is genuinely shorter than the SLA. Note the
 grace period counts: `ACCOUNT_DELETION_GRACE_PERIOD_SECONDS` defaults to 30 days *before* the purge
@@ -55,7 +55,7 @@ Nothing in this table has a retention policy today. Every row needs A or B writt
 | Surface | What it holds | Notes |
 |---|---|---|
 | PostgreSQL (all service DBs) | Identity accounts, guilds, social graph, audit log, sessions | The bulk of it. `ventactl backup` runs `pg_dumpall`. |
-| ScyllaDB | message history | Not covered by `ventactl backup` at all — snapshots, if any, are whatever the operator set up. |
+| ScyllaDB | message history | Not covered by `ventactl backup` at all - snapshots, if any, are whatever the operator set up. |
 | MinIO / S3 | attachments, avatars, **data-export archives** | Export archives are the densest personal-data objects in the system; they expire in 7 days live (`DATA_EXPORT_ARTIFACT_TTL_SECONDS`) and that expiry means nothing if a bucket backup keeps them. |
 | Redis (`redis_data` volume) | caches, presence, verification codes | Rebuildable. Safe to exclude from backups entirely, which is the cleanest answer. |
 | RabbitMQ (`rabbitmq_data`) + Wolverine envelope tables | in-flight messages, which carry message bodies and account ids | Restoring these can also *replay* traffic. Treat as data, not plumbing. |
@@ -68,7 +68,7 @@ unrelated to infrastructure backups despite the shared word.
 ## What the operator must actually do
 
 1. For each row above, choose A or B and write it down (see below). "We don't back that up" is a
-   valid answer — record it, because it is also the thing someone will silently change later.
+   valid answer - record it, because it is also the thing someone will silently change later.
 2. If B: make the window real. A lifecycle rule on the bucket, a `find -mtime +N -delete` in the
    rotation job, an actual retention setting on the backup product. Then confirm it by looking at
    what is on disk, not at the script.

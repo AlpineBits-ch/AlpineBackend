@@ -1,5 +1,5 @@
 /**
- * C4 — Write Amplification Under Message Storm
+ * C4 - Write Amplification Under Message Storm
  *
  * Simulates WRITER_VUS users each sending MSG_RATE messages per second.
  * At 1k users × 1 msg/s = 1,000 msg/s total.
@@ -16,8 +16,8 @@
  * This test finds where that amplification breaks first.
  *
  * Two concurrent scenarios:
- *   writers   — WRITER_VUS each posting messages at MSG_RATE/s
- *   monitors  — MONITOR_VUS polling message history to measure read latency
+ *   writers   - WRITER_VUS each posting messages at MSG_RATE/s
+ *   monitors  - MONITOR_VUS polling message history to measure read latency
  *               as write load increases (ScyllaDB read/write contention)
  *
  * What to watch:

@@ -49,7 +49,7 @@ internal sealed class TestIsleContext : MicroserviceContext
 
         // SQLite can't translate ORDER BY or <=/>= comparisons over a raw DateTimeOffset column
         // (its default text representation doesn't sort/compare correctly across offsets, and EF
-        // Core would rather throw than silently produce a wrong answer) — Postgres has no such
+        // Core would rather throw than silently produce a wrong answer) - Postgres has no such
         // restriction, so every entity here uses DateTimeOffset freely.
         configurationBuilder.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToTicksConverter>();
     }
@@ -59,7 +59,7 @@ internal sealed class TestIsleContext : MicroserviceContext
         base.OnModelCreating(modelBuilder);
 
         // StorageSlot.Mutations.Slots is a Dictionary<string,string>, mapped to Postgres' native hstore
-        // type by Npgsql's own convention in production — SQLite has no equivalent, so model validation
+        // type by Npgsql's own convention in production - SQLite has no equivalent, so model validation
         // fails for every test touching Player/Storage unless this is spelled out here.
         modelBuilder.Entity<StorageSlot>().OwnsOne(s => s.Mutations, m =>
         {
@@ -69,7 +69,7 @@ internal sealed class TestIsleContext : MicroserviceContext
         });
 
         // Player.FriendlyIdSeq/QuestInstance.FriendlyIdSeq default to `nextval('...')` off a
-        // Postgres sequence in production — SQLite has no sequence support at all, so both the
+        // Postgres sequence in production - SQLite has no sequence support at all, so both the
         // column default and the sequence itself have to go.
         modelBuilder.Entity<Player>().Property(p => p.FriendlyIdSeq).HasDefaultValueSql(null!).ValueGeneratedOnAdd().HasValueGenerator<SequentialIntGenerator>();
         modelBuilder.Entity<QuestInstance>().Property(i => i.FriendlyIdSeq).HasDefaultValueSql(null!).ValueGeneratedOnAdd().HasValueGenerator<SequentialIntGenerator>();

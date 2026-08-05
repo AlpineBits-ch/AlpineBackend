@@ -13,7 +13,7 @@ internal static class BridgeTestFactory
 
     /// <summary>
     /// A substitute wired so every action verb succeeds and every read verb returns an empty-ish
-    /// snapshot by default — enough for <c>RewardGranter</c> to have "no live pawn" behavior unless a
+    /// snapshot by default - enough for <c>RewardGranter</c> to have "no live pawn" behavior unless a
     /// test overrides a specific call.
     /// </summary>
     public static IBridgeClient CreateDefault()

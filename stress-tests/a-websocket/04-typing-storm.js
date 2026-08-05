@@ -1,5 +1,5 @@
 /**
- * A4 — Typing Indicator Storm
+ * A4 - Typing Indicator Storm
  *
  * CONCURRENCY VUs all connect to the same guild channel and invoke StartTyping
  * repeatedly. Each VU also listens for the typing broadcast back from the hub
@@ -102,7 +102,7 @@ export default function (data) {
       }
 
       // When the server broadcasts TYPING_EVENT_NAME to the group, every receiver
-      // (including the sender) sees it — use this as round-trip confirmation.
+      // (including the sender) sees it - use this as round-trip confirmation.
       if (frame.target === TYPING_EVENT_NAME) {
         // The broadcast carries the userId; if it matches us, record trip time.
         const userId = frame.arguments && frame.arguments[0] && frame.arguments[0].userId;

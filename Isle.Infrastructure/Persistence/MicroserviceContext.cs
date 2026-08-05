@@ -156,7 +156,7 @@ public class MicroserviceContext : DbContext
             // !questadmin end takes a friendly id, so this is a lookup key, not just a display field.
             instanceBuilder.HasIndex(instance => instance.FriendlyIdSeq).IsUnique();
 
-            // Every hot query is "what is open" — the director, both chat commands and the endpoints.
+            // Every hot query is "what is open" - the director, both chat commands and the endpoints.
             instanceBuilder.HasIndex(instance => new { instance.State, instance.Type });
             instanceBuilder.HasIndex(instance => instance.TargetPlayerId);
         });

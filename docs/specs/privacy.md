@@ -1,6 +1,6 @@
-# Privacy — settings, consent, and data rights
+# Privacy - settings, consent, and data rights
 
-Status: **specification**, 2026-08-04. Covers Tier 0–2 of the privacy audit.
+Status: **specification**, 2026-08-04. Covers Tier 0-2 of the privacy audit.
 
 The audit that produced this found that Echo stores three privacy flags and a DM-filter setting,
 exposes them read-only, and enforces none of them. Everything below either makes an advertised
@@ -12,10 +12,10 @@ control real or adds one a production social platform is expected to have.
 
 | Thing | Where | Reality |
 |---|---|---|
-| `PrivacySettings` `[Flags]` enum — `AllowDataCollection`, `AllowVoiceRecordedInClips`, `AllowDataUseForPersonalization` | `Identity.Domain/Enums/PrivacySettings.cs` | Persisted on `user_preferences`. **No write path, no read path.** Grep returns the enum declaration, the DbContext `MapEnum`, and the aggregate constructor. Nothing else. |
-| `DirectMessageSettings` — `FilterAll`/`FilterNonFriends`/`AllowAll` | `Identity.Domain/Enums/DirectMessageSettings.cs` | Same. Messaging hardcodes friends-only and leaves `// TODO: We have to check the users privacy bit settings here` at `ConversationEndpoints.cs:257` and `:578`. |
+| `PrivacySettings` `[Flags]` enum - `AllowDataCollection`, `AllowVoiceRecordedInClips`, `AllowDataUseForPersonalization` | `Identity.Domain/Enums/PrivacySettings.cs` | Persisted on `user_preferences`. **No write path, no read path.** Grep returns the enum declaration, the DbContext `MapEnum`, and the aggregate constructor. Nothing else. |
+| `DirectMessageSettings` - `FilterAll`/`FilterNonFriends`/`AllowAll` | `Identity.Domain/Enums/DirectMessageSettings.cs` | Same. Messaging hardcodes friends-only and leaves `// TODO: We have to check the users privacy bit settings here` at `ConversationEndpoints.cs:257` and `:578`. |
 | `RelationshipStatus.Blocked` | `Social.Domain/Enums/RelationshipStatus.cs:9` | In the enum and in the published OpenAPI. `FriendEndpoint.cs` implements create/accept/reject/revoke only. **Blocking does not exist.** |
-| `OnlineStatus.Hidden` | `Social.Domain/Enums/OnlineStatus.cs:6` | Settable, and honoured by `@here` fan-out. But `GuildController.cs:144` projects the raw cached status onto `MemberDto.Status`, and `guild.PresenceChanged` broadcasts the raw string — so peers can tell "invisible" from "offline". |
+| `OnlineStatus.Hidden` | `Social.Domain/Enums/OnlineStatus.cs:6` | Settable, and honoured by `@here` fan-out. But `GuildController.cs:144` projects the raw cached status onto `MemberDto.Status`, and `guild.PresenceChanged` broadcasts the raw string - so peers can tell "invisible" from "offline". |
 | `JsonSettings` | `UserController.cs:181-218` | Unvalidated, unbounded, unschema'd client blob. Nothing in it is enforced. |
 | `Tombstone()` | `ApplicationUser.cs:324` | Scrubs username/email/phone/bio/password/SteamId/JsonSettings/master key. **Leaves `BirthDate` and the entire `AgeVerification` value object.** `LoginSession` and `IdentityAuditEvent` rows keep IP + user-agent bound to the user id forever. |
 | Purge fan-out | `Echo/Sagas/AccountDeletion.cs:30` | Six participants. **Bots and Isle are not among them.** |
@@ -26,15 +26,15 @@ MLS/E2EE and device protection levels; federation instance blocking and the SSRF
 
 ---
 
-## 1. Foundation — `UserPrivacySettings`
+## 1. Foundation - `UserPrivacySettings`
 
-Everything in Tiers 0–2 depends on one owned, writable, cross-service-readable settings record.
+Everything in Tiers 0-2 depends on one owned, writable, cross-service-readable settings record.
 Build this first; nothing else can be built against a moving target.
 
 ### 1.1 Storage
 
 New entity `Identity.Domain/Entities/UserPrivacySettings.cs`, own table, 1:1 with
-`ApplicationUser` (FK `user_id`, unique). **Not** added to `UserPreferences` — that entity is
+`ApplicationUser` (FK `user_id`, unique). **Not** added to `UserPreferences` - that entity is
 projected wholesale through a Facet onto `GET /users/self`, and privacy settings need their own
 endpoint, their own defaults, and their own change events.
 
@@ -47,7 +47,7 @@ public class UserPrivacySettings : BaseEntity<UserPrivacySettings>, IPrefixedEnt
     public static string Prefix { get; } = "upvs";
     public string UserId { get; set; } = null!;
 
-    // ── Data use (consent; all default FALSE — opt-in, never opt-out) ──
+    // ── Data use (consent; all default FALSE - opt-in, never opt-out) ──
     public bool AllowDataCollection { get; set; }
     public bool AllowPersonalization { get; set; }
     public bool AllowVoiceRecordingInClips { get; set; }
@@ -110,7 +110,7 @@ One migration, `AddUserPrivacySettings`:
    - `DirectMessageSettings.AllowAll` → `DirectMessagePolicy.Everyone`;
      `FilterNonFriends` → `Friends`; `FilterAll` → `Nobody`
 3. **Leave the legacy columns in place.** Do not drop `user_preferences.privacy_settings` or
-   `.direct_message_settings` in this migration — clients still read them off `GET /users/self`.
+   `.direct_message_settings` in this migration - clients still read them off `GET /users/self`.
    Mark both `[Obsolete]` in the domain and schedule removal for a later release.
 
 `ApplicationUser.Create` and `CreateBot` must both mint a `UserPrivacySettings` row, exactly as
@@ -119,7 +119,7 @@ they already mint `UserPreferences` (see `ApplicationUser.cs:208` and `:265`, an
 `SaveChanges`).
 
 > Migrations in this repo are generated, not hand-written, except where a data move requires it.
-> The backfill here does require it — generate the schema migration, then hand-add the `UPDATE`
+> The backfill here does require it - generate the schema migration, then hand-add the `UPDATE`
 > statements. Do **not** run two `dotnet ef` processes concurrently against this project.
 
 ### 1.3 Public REST surface (Identity)
@@ -141,7 +141,7 @@ Every successful write:
 
 ### 1.4 Cross-service access
 
-Follow the existing request/response pattern exactly — see
+Follow the existing request/response pattern exactly - see
 `Identity.Contracts/Bus/Request/GetUserProtectionLevelRequest.cs` and its handler at
 `Identity.Application/Consumers/GetUserDevicesHandler.cs`.
 
@@ -158,14 +158,14 @@ public class GetUserPrivacySettingsResponse { public ICollection<UserPrivacySett
 public class UserPrivacySettingsChangedEvent { public string UserId { get; set; } = null!; public int Version { get; set; } }
 ```
 
-Batch by design (`UserIds`, not `UserId`) — every caller resolves policy for a set of people, and
+Batch by design (`UserIds`, not `UserId`) - every caller resolves policy for a set of people, and
 the per-user shape is what makes `ConversationEndpoints` do N sequential bus calls today.
 
 **Caching.** A `PrivacySettingsCache` in each consuming service, Redis-backed, keyed
 `privacy_settings:user_id:{id}`, invalidated by `UserPrivacySettingsChangedEvent`. Redis rather
 than in-memory: these are read on every DM send and every friend request, and a stale in-memory
 copy on one pod means a user's "block DMs" toggle silently doesn't apply on that pod. Fail
-**closed** — if the cache and the bus both fail, apply the restrictive default (`Friends` for DMs,
+**closed** - if the cache and the bus both fail, apply the restrictive default (`Friends` for DMs,
 `Nobody` for anything else), never `Everyone`.
 
 ### 1.5 Acceptance criteria
@@ -181,7 +181,7 @@ copy on one pod means a user's "block DMs" toggle silently doesn't apply on that
 
 ---
 
-## Tier 0 — make the existing surface real
+## Tier 0 - make the existing surface real
 
 ### T0-1 Writable preferences
 Covered by §1.3. Additionally: keep `GET /users/self` returning the legacy `userPreferences`
@@ -191,7 +191,7 @@ so a v1 client is unaffected.
 ### T0-2 Enforce the DM policy
 Replace both `// TODO: We have to check the users privacy bit settings here` sites
 (`Messaging.Application/Endpoints/ConversationEndpoints.cs:257`, `:578`) with a real check against
-the **recipient's** policy — the current code checks the *initiator's* friend list, which is the
+the **recipient's** policy - the current code checks the *initiator's* friend list, which is the
 wrong direction.
 
 Resolution order, per recipient:
@@ -204,11 +204,11 @@ Resolution order, per recipient:
 | `Nobody` | never |
 
 A blocked initiator is refused before policy is consulted. Existing conversations are not
-retroactively closed — a policy change governs *new* conversations and *new* one-to-one sends,
+retroactively closed - a policy change governs *new* conversations and *new* one-to-one sends,
 not membership of a group the user already joined.
 
 Return `403` with a machine-readable code (`recipient_dm_policy`, `blocked`), not the current
-`400 "User cannot be added to conversation if not friends"` — the client needs to distinguish
+`400 "User cannot be added to conversation if not friends"` - the client needs to distinguish
 "not allowed" from "malformed".
 
 Same check on the call-token path at `:578`.
@@ -226,7 +226,7 @@ Blocking is **one-directional and asymmetric**: A blocking B stops B from reachi
 visible to B as a distinct state (B sees the same thing as "not friends"). Blocking an existing
 friend removes the friendship. Blocking cancels any pending request in either direction.
 
-Enforcement points — a block must be honoured in all of them, or it is theatre:
+Enforcement points - a block must be honoured in all of them, or it is theatre:
 
 | Surface | Service | Behaviour |
 |---|---|---|
@@ -250,7 +250,7 @@ Purge: blocks referencing a purged user are deleted by Social's `PurgeUserDataCo
 unconditionally (`AppEnvironment/SentryInstance.cs`, each `Program.cs`).
 
 - Error/crash reporting is **service-operational** and stays on, but must carry no user identifier
-  unless `AllowDataCollection` is set — pseudonymize to a per-install random id otherwise, and
+  unless `AllowDataCollection` is set - pseudonymize to a per-install random id otherwise, and
   scrub `Email`, `UserName`, `PhoneNumber` and request bodies from every event and breadcrumb.
 - Product analytics and any personalization signal require `AllowPersonalization`. There is no
   such pipeline today; the gate must exist before one is added, so add the check point and a test
@@ -259,23 +259,23 @@ unconditionally (`AppEnvironment/SentryInstance.cs`, each `Program.cs`).
 If a flag cannot be honoured, delete it. A stored consent flag that gates nothing is worse than no
 flag: it is a false representation to the user.
 
-`SentryPrivacy.HasDataCollectionConsent` is the one hook, and every service must set it — a service
+`SentryPrivacy.HasDataCollectionConsent` is the one hook, and every service must set it - a service
 that leaves it unset is not "unconfigured", it is fail-closed-by-accident and will stay that way.
 Identity answers from its own table (`DataCollectionConsentSnapshot`). Social, Guild and Messaging
 have no table, so they answer from their existing Redis-backed `PrivacySettingsCache` through
-`AppEnvironment/TelemetryConsent.cs`, which resolves ahead of time on a 15-second loop — the SDK
+`AppEnvironment/TelemetryConsent.cs`, which resolves ahead of time on a 15-second loop - the SDK
 callback is synchronous and must never wait on Redis or on a bus call. Anything unresolved, stale
 or over the tracking cap answers "no consent".
 
 ### T0-5 Stop leaking `Hidden`
 Two sites, both in Guild:
-- `Guild.Application/Controllers/GuildController.cs:144` — projects the cached presence string
+- `Guild.Application/Controllers/GuildController.cs:144` - projects the cached presence string
   straight onto `MemberDto.Status`
-- `Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs` — broadcasts the raw status
+- `Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs` - broadcasts the raw status
 
 Introduce a single projection helper: **`Hidden` renders as `Offline` for every viewer except the
 user themselves.** `Hidden` must never appear on the wire to a third party. Apply it in Social's
-profile projections too. Keep the enum member — the leak is in the projection, not the model.
+profile projections too. Keep the enum member - the leak is in the projection, not the model.
 
 The `@here` fan-out already treats `Hidden` as absent (`MessageCreatedHandler.cs:178`); that
 behaviour is correct and must not change.
@@ -287,11 +287,11 @@ behaviour is correct and must not change.
 - Reject a non-object root with `400`
 - Cap nesting depth
 - Document it as **client-owned UI state with no server semantics**, and state explicitly that
-  nothing privacy-relevant may live there — anything that must be enforced belongs in §1.1
+  nothing privacy-relevant may live there - anything that must be enforced belongs in §1.1
 
 ---
 
-## Tier 1 — legal and compliance floor
+## Tier 1 - legal and compliance floor
 
 ### T1-7 Data export (GDPR Art. 15 / 20)
 Mirror the deletion architecture, which already solves the hard part.
@@ -309,7 +309,7 @@ GET  /api/v1/data-exports/{id}/download → 302 to a short-lived signed URL
 - `ExportUserDataSaga` in `Echo/Sagas/`, shaped exactly like `AccountDeletionSaga`: fan
   `ExportUserDataCommand` to every participant, collect `ExportUserDataResponse` fragments, assemble
 - Participants: identity, social, guild, messaging, federation, import, **bots, isle** (unlike the
-  deletion saga, which omits the last two — see T1-9)
+  deletion saga, which omits the last two - see T1-9)
 - Each service returns its own JSON fragment; the assembler writes one zip with a
   `manifest.json` naming each fragment's producing service and row counts
 - **Rate limit one request per user per 24h**, and expire the artifact after 7 days
@@ -324,11 +324,11 @@ answers, and a subject told their export is *ready* reasonably believes they rec
 |---|---|---|---|---|
 | `Ready` | yes | yes, until `ExpiresAt` | **yes** | Every participating service produced its section. |
 | `Partial` | yes | yes, until `ExpiresAt` | **no** | The archive was assembled and uploaded, but at least one service's section is absent. `missingServices` names them; `failureReason` says the same in one sentence. |
-| `Failed` | no | no — `409` | **no** | No archive was produced at all (assembly or upload threw). |
-| `Expired` | deleted | no — `410` | n/a | The seven-day window closed. The row survives; so does `missingServices`. |
+| `Failed` | no | no - `409` | **no** | No archive was produced at all (assembly or upload threw). |
+| `Expired` | deleted | no - `410` | n/a | The seven-day window closed. The row survives; so does `missingServices`. |
 
 - **`Partial` is decided by `AssembleUserDataExportCommandHandler`, from the fragments themselves.**
-  Any fragment carrying an `Error` is a service whose section is absent — whether it answered with a
+  Any fragment carrying an `Error` is a service whose section is absent - whether it answered with a
   failure, or whether `ExportUserDataSaga`'s deadline elapsed with it still silent and the saga wrote
   a stand-in fragment in its place (T1-9). Both are the same hole to the subject. No extra bus
   contract was needed: `AssembleUserDataExportCommand` already carried the errors.
@@ -339,13 +339,13 @@ answers, and a subject told their export is *ready* reasonably believes they rec
 - **A `Partial` does not consume the rate-limit window**, on the same reasoning as `Failed` plus one
   more: it is the only one of the two where the subject has been handed something that looks like an
   answer, so charging it would cost them a statutory day *and* leave them holding an incomplete
-  disclosure they were told to wait to re-request. The cost the limit guards is bounded here — an
+  disclosure they were told to wait to re-request. The cost the limit guards is bounded here - an
   archive missing whole services is by definition the cheap one, and it expires on the same clock.
 - **Client compatibility.** `Partial` is a new value in an existing string-valued field, so a client
   written before it existed sees an unrecognised status. Two consequences worth stating: a tolerant
   client (`status: string`) renders it as unknown and, if it gates its download button on
   `status === "Ready"`, hides a download the server would happily serve; a strict client with a
-  closed enum fails to parse the row. Both degrade *safely* — neither shows an incomplete export as
+  closed enum fails to parse the row. Both degrade *safely* - neither shows an incomplete export as
   complete, which is what keeping the status binary would have done for every client. The client fix
   is to treat `Ready` and `Partial` alike for download and to render `missingServices`.
   `missingServices` is always present and never null, including on `Ready`, where it is `[]`.
@@ -353,7 +353,7 @@ answers, and a subject told their export is *ready* reasonably believes they rec
   which is why it was made a string column in the first place. The only schema change is the
   `missing_services text[]` column (`20260804084416_AddDataExportMissingServices`).
 - Download is authenticated *and* the artifact key is unguessable; log every download as an
-  `IdentityAuditEvent` (`data-export.downloaded`) — an export is the single densest bundle of
+  `IdentityAuditEvent` (`data-export.downloaded`) - an export is the single densest bundle of
   personal data in the system and a stolen session downloading one must be visible, exactly as
   backup reads already are
 - The export must **not** contain other users' personal data: message bodies the user sent, yes;
@@ -374,7 +374,7 @@ modelled on the existing `AccountDeletionPurgeSweepService`.
 | User-set DM retention (`DmRetentionDays`) | opt-in, off by default | Messaging |
 
 Every TTL is an `AppEnvironment/Env.cs` setting with the default above. Scrubbing an IP must not
-delete the audit row — the event is the record, the IP is the incidental detail.
+delete the audit row - the event is the record, the IP is the incidental detail.
 
 ### T1-9 Complete the tombstone and the purge
 - `ApplicationUser.Tombstone()` must also clear `BirthDate` and reset `AgeVerification` to a
@@ -392,12 +392,12 @@ delete the audit row — the event is the record, the IP is the incidental detai
   deadline (`Env.SagaDeadlines`, one hour each by default). On expiry they log at `Error` naming the
   individual services that did not acknowledge, increment
   `echo.privacy_saga.deadline_exceeded{saga,service}` and raise a Sentry event. **A purge deadline
-  never marks the purge complete** — it re-arms and keeps alerting, because reporting an erasure
+  never marks the purge complete** - it re-arms and keeps alerting, because reporting an erasure
   that did not happen is worse than a visible stall; an export deadline does resolve the request,
   with an explicit error section per missing service, because a disclosure can say what it is
   missing. See the doc comments on `Echo/Sagas/AccountDeletion.cs` and `Echo/Sagas/ExportUserData.cs`.
-  A deadline-resolved export is reported as **`Partial`**, not `Ready` — see the terminal-state table
-  in T1-7 — so "the archive says what is missing" does not depend on anybody unzipping it.
+  A deadline-resolved export is reported as **`Partial`**, not `Ready` - see the terminal-state table
+  in T1-7 - so "the archive says what is missing" does not depend on anybody unzipping it.
 - Deletion must propagate into backups, or the retention window of backups must be documented and
   shorter than the deletion SLA. A restore that resurrects a purged account is a reportable breach.
   This is an operations decision that cannot be made in code and **has not been made**: see
@@ -424,7 +424,7 @@ POST /api/v1/legal/consents             → { documentType, version }
 - Publishing a new version leaves existing consents intact and marks the account as having an
   outstanding consent; the client is told via a `consentRequired` array on `GET /users/self`
 - Withdrawal of *optional* consent (T0-4 flags) is immediate and must not degrade core service.
-  Terms/Privacy are not withdrawable while the account is active — the withdrawal path there is
+  Terms/Privacy are not withdrawable while the account is active - the withdrawal path there is
   account deletion, and the client should say so
 
 ### T1-11 Minor protections
@@ -440,7 +440,7 @@ is what applies) and enforce **server-side**, not as a client default:
 - Explicit content filter floor of `UnknownSenders`
 
 A `PATCH` that would violate a floor returns `403 minor_restriction` naming the field. Re-evaluate
-on birthday rollover — a user who ages out gets the settings unlocked, not silently kept restricted.
+on birthday rollover - a user who ages out gets the settings unlocked, not silently kept restricted.
 
 ### T1-12 Legal document hosting
 There is no privacy policy or ToS anywhere in the repo.
@@ -449,7 +449,7 @@ Serve versioned documents (markdown in-repo, rendered) at public URLs, reference
 `LegalDocument.Url` and hashed into `ContentHash` so a silent edit is detectable.
 
 **Write placeholders with an explicit `<!-- LEGAL REVIEW REQUIRED -->` banner and a structural
-outline only.** Do not draft operative legal text — that is counsel's job, and a plausible-looking
+outline only.** Do not draft operative legal text - that is counsel's job, and a plausible-looking
 generated policy is worse than an obvious placeholder because it will ship.
 
 ### T1-13 DSR intake
@@ -463,11 +463,11 @@ PATCH  /api/v1/admin/dsr/{id}      → progress / close with disposition
 
 Admin-only, every action audited with the acting staff id. Types: `Access`, `Erasure`,
 `Rectification`, `Portability`, `Objection`. Track the statutory clock (30 days) and surface
-overdue items — an unanswered request is the violation, not a wrong answer.
+overdue items - an unanswered request is the violation, not a wrong answer.
 
 ---
 
-## Tier 2 — the controls users expect
+## Tier 2 - the controls users expect
 
 ### T2-14 Per-guild DM toggle
 Discord's most-used privacy control. New `GuildDirectMessagePreference` in Guild:
@@ -492,7 +492,7 @@ Enforce `FriendRequestPolicy` in `Social.Application/Endpoints/FriendEndpoint.cs
 | `ServerMembers` | ≥1 shared guild |
 | `Nobody` | never |
 
-`Everyone` is the default (matching Discord) — the block list is the escape hatch. Refuse with
+`Everyone` is the default (matching Discord) - the block list is the escape hatch. Refuse with
 `403 friend_request_policy`; do **not** leak *which* rule refused, and do not reveal whether the
 target exists.
 
@@ -508,10 +508,10 @@ to resolve a user from an email address or a phone number found none:
 
 | Area | Result |
 |---|---|
-| Identity `.Email` / `.NormalizedEmail` queries | login, password reset, email verification, registration uniqueness — all self-service flows about the **caller's own** account, none of them one person finding another |
+| Identity `.Email` / `.NormalizedEmail` queries | login, password reset, email verification, registration uniqueness - all self-service flows about the **caller's own** account, none of them one person finding another |
 | `AdminDsrController` | resolves `subjectEmail` → user id, admin-gated, result never returned to a non-staff caller. Staff tooling, not discovery |
 | `PhoneNumber` | **never queried at all.** There is a unique index on it and nothing reads it |
-| Contact import / address-book upload / friend-request-by-email / invite-by-email | do not exist — no route, DTO, handler or entity |
+| Contact import / address-book upload / friend-request-by-email / invite-by-email | do not exist - no route, DTO, handler or entity |
 | Guild invites | code-based only |
 | Import service | maps guild *structure* (categories/channels/roles). It performs no Discord-user → Echo-user matching of any kind and contains no reference to email or phone |
 | Federation | no WebFinger, no `acct:` handle, no actor resolution by handle |
@@ -521,7 +521,7 @@ So there was nothing to gate. **No endpoint was invented to justify the settings
 
 #### What was built instead
 
-`Social.Application/Services/UserDirectory.cs` — the single chokepoint for finding a user by
+`Social.Application/Services/UserDirectory.cs` - the single chokepoint for finding a user by
 anything a human typed. `FindAsync(DirectoryKey, value)` resolves *and* gates in one step:
 
 - `DirectoryKey` has one member per `Discoverable*` flag: `Username`, `Email`, `Phone`
@@ -531,8 +531,8 @@ anything a human typed. `FindAsync(DirectoryKey, value)` resolves *and* gates in
 - `FriendEndpoint`'s username lookup goes through it and nothing else does a raw identifier query
 
 The point is placement: someone adding email lookup later writes one line in `ResolveAsync` and gets
-`DiscoverableByEmail` applied whether or not they had heard of it. The alternative — leaving the
-flags unreferenced until a lookup appears — is how an ungated lookup ships.
+`DiscoverableByEmail` applied whether or not they had heard of it. The alternative - leaving the
+flags unreferenced until a lookup appears - is how an ungated lookup ships.
 
 Pinned by `Social.Tests/Services/UserDirectoryTests.cs`: the per-key flag table, an unknown key
 failing closed, email and phone resolving nothing *even with their flag switched on*, and
@@ -540,7 +540,7 @@ failing closed, email and phone resolving nothing *even with their flag switched
 
 #### Rules that hold
 
-- `DiscoverableByUsername` defaults **true** — an exact-username lookup is how people find each other
+- `DiscoverableByUsername` defaults **true** - an exact-username lookup is how people find each other
   here. `ByEmail`/`ByPhone` default **false** and are forced false for minors (T1-11)
 - A non-discoverable user and a nonexistent one produce the same `null` from the directory and the
   same `403 friend_request_policy` from the endpoint. Nothing distinguishes them in status or body
@@ -559,17 +559,17 @@ failing closed, email and phone resolving nothing *even with their flag switched
   architecture test for this yet; the guard is the class's placement and its doc comment
 - **Identity is not covered.** The equivalent chokepoint for a lookup added on Identity's side would
   have to live in Identity, and does not exist. Anyone adding a `GetUserByEmailRequest` must gate it
-  themselves — the flags are on the summary `GetUserPrivacySettingsRequest` already returns
+  themselves - the flags are on the summary `GetUserPrivacySettingsRequest` already returns
 - Unrelated but adjacent: `UserVerificationEndpoint` returned `202` for an unknown address and `400
   "User already verified"` for a known confirmed one, which is an email-existence oracle to any
   anonymous caller. It returns no identity, so it is not discoverability in this item's sense, but it
-  is the same class of leak `PasswordResetEndpoint` deliberately avoids. **Now fixed** — see
+  is the same class of leak `PasswordResetEndpoint` deliberately avoids. **Now fixed** - see
   "Anonymous account enumeration" below, which also closes the larger one on `/connect/token`
 
 ### T2-17 Profile field visibility
 
 Apply `MutualServersVisibility`, `MutualFriendsVisibility`, `ConnectionsVisibility`,
-`BirthdayVisibility` in `Social.Application/Controllers/ProfileController.cs` — in the
+`BirthdayVisibility` in `Social.Application/Controllers/ProfileController.cs` - in the
 `GET /{id}` and `GET /by-user/{id}` projections and in the bus handlers
 (`GetProfileByUserIdHandler`, `GetProfilesByUserIdsHandler`) so other services cannot route around
 them.
@@ -578,7 +578,7 @@ Do the filtering **in the projection**, never client-side: a field the viewer ma
 be in the payload at all.
 
 **Status: all four gates live and all four sourced.** `ProfileProjectionService` is the single seam;
-`ProfileVisibility.Project` is the single gate. A hidden field is not merely omitted from the body —
+`ProfileVisibility.Project` is the single gate. A hidden field is not merely omitted from the body -
 it is never *fetched*, so a bug in the projector cannot leak data the service never loaded.
 
 | Field | Source | Default |
@@ -587,7 +587,7 @@ it is never *fetched*, so a bug in the projector cannot leak data the service ne
 | `mutualServers` | Guild, `GetSharedGuildsRequest` | `Friends` |
 | `connections` | Identity, `GetUserConnectionsRequest` | `Friends` |
 | `birthday` | Identity, `GetUserBirthdaysRequest` | **`Nobody`** |
-| `activity` | nothing reports rich presence yet — enforcement point only (T2-19) | `ShareActivity` |
+| `activity` | nothing reports rich presence yet - enforcement point only (T2-19) | `ShareActivity` |
 
 #### Birthday
 
@@ -598,7 +598,7 @@ handled by `Identity.Application/Consumers/GetUserBirthdaysHandler.cs`. Batched 
 `BirthdayVisibility` stays at **`Nobody`** by default and must not be widened: a full date of birth
 is identity-theft-grade on its own and it is what the minor floors are derived from.
 
-**Two gates, not one.** Social applies the per-viewer gate — it is the only side that knows the
+**Two gates, not one.** Social applies the per-viewer gate - it is the only side that knows the
 reader's relation to the subject. Identity applies a viewer-*independent* floor on top: an account
 whose `BirthdayVisibility` is `Nobody` gets no answer at all, because there is no viewer for whom
 answering could be correct. That floor is strictly weaker than Social's gate, so the two cannot
@@ -622,8 +622,8 @@ Steam (`ApplicationUser.SteamId`) is the only link type that exists, and it is t
 **first** one: the field is a list of typed entries, not a `steamId` key, so a second provider is an
 additive change on both the bus contract and `ProfileConnectionDto`.
 
-A raw SteamID64 is a stable cross-platform correlation handle — it resolves to a public Steam
-profile, a friend list and a play history — so it sits behind `ConnectionsVisibility` like everything
+A raw SteamID64 is a stable cross-platform correlation handle - it resolves to a public Steam
+profile, a friend list and a play history - so it sits behind `ConnectionsVisibility` like everything
 else, never appears in the stranger or blocked projection, and gets the same viewer-independent
 `Nobody` floor in Identity as the birthday. An account with **no settings row** is refused outright,
 which is stricter than the shipped `Friends` default: a missing row means something unexpected
@@ -648,7 +648,7 @@ Enforce at the emit site in Messaging and Guild (`GuildTypingHandler`), not at t
 
 ### T2-20 Explicit content filter
 `ExplicitContentFilter` (`Off | UnknownSenders | Everyone`, default `UnknownSenders`) applied to DM
-attachments. Scan/classification integration is out of scope here — this spec adds the setting, the
+attachments. Scan/classification integration is out of scope here - this spec adds the setting, the
 enforcement point, and a pluggable `IMediaClassifier` with a no-op default, so the control exists
 and is honoured the moment a classifier is wired in.
 
@@ -662,11 +662,11 @@ fails closed, so the feature cannot ship without it.
 
 ### T2-22 User-set DM retention
 `DmRetentionDays` (null = forever). Messaging's retention sweep deletes the user's own messages
-older than the window. Applies to **messages the user sent**, in every conversation — deleting the
+older than the window. Applies to **messages the user sent**, in every conversation - deleting the
 other side's messages from their own history is not the user's right to exercise.
 
 ### T2-23 Push content privacy
-`HidePushContent` — when set, every push payload for that user carries no message body, author
+`HidePushContent` - when set, every push payload for that user carries no message body, author
 name, or channel name; only routing ids. The encrypted-message path already does this
 ("You have a new encrypted message"); reuse it.
 
@@ -685,7 +685,7 @@ name, or channel name; only routing ids. The encrypted-message path already does
    indistinguishable to the refused party wherever an enumeration oracle would otherwise exist.
 6. **Audit the sensitive ones.** Privacy-settings changes, export requests, export downloads, and
    DSR actions all write `IdentityAuditEvent` rows.
-7. **Tests per change: normal, edge, negative.** Negative cases here are the point — the test that
+7. **Tests per change: normal, edge, negative.** Negative cases here are the point - the test that
    matters is the one asserting a refusal.
 
 ## Anonymous account enumeration
@@ -703,7 +703,7 @@ callers with no account at all.
 | `GET api/v1/user/generate-verification-code` | `202` unknown, `200` known unverified, `400 "User already verified"` known verified | `202` for everything; mail sent only when there is something to send |
 | `GET api/v1/user/verify-email` | `202` unknown, `400` in three different wordings for known | `400` with one wording for every unusable code, unknown address included |
 | `POST api/v1/user/reset-password` | `400 "Invalid code"` unknown vs `400 "Invalid or expired code"` / `"Too many incorrect attempts"` known | `400` with one wording for all of them |
-| `GET api/v1/user/request-password-reset` | already uniform `202`, but only the *status* was — the send blocked the response on the account-exists branch | `202`, with the render and send moved off the request path |
+| `GET api/v1/user/request-password-reset` | already uniform `202`, but only the *status* was - the send blocked the response on the account-exists branch | `202`, with the render and send moved off the request path |
 | `POST api/v1/authentication/register` | `200 {userId}` for a free address, `400 "Email already exists"` for a taken one | `202` with a fixed body and no user id, for both. A taken address creates nothing and its owner is mailed a "someone tried to sign up" notice |
 
 Two things generalise from this:
@@ -730,7 +730,7 @@ Two things generalise from this:
 The last of the six, and the only one that needed a product decision rather than a patch: closing it
 changes the success contract. `POST api/v1/authentication/register` now answers **`202` with a fixed
 body** whether or not the address is taken, the `userId` is gone from the response entirely, and a
-taken address creates nothing at all — no user row, no password hash, and no T1-10 consent record
+taken address creates nothing at all - no user row, no password hash, and no T1-10 consent record
 against an account the caller does not own. The account holder is mailed instead of the caller: a
 "someone tried to sign up with your address" notice, or the verification code they are missing if
 their own account is still unverified. Client migration: `docs/specs/registration-contract-change.md`.
@@ -744,24 +744,24 @@ Three things this one adds to the list above:
 - **Sending mail on an anonymous route is a new weapon.** The endpoint now sends mail to an address
   the caller does not control, so without a cap it is a mail cannon aimed at anyone. `RegistrationNoticeThrottle`
   caps notices per address per 24h in the same Redis the one-time codes already live in, and the HTTP
-  response is identical whether or not a notice was actually sent — a caller that could see
+  response is identical whether or not a notice was actually sent - a caller that could see
   "throttled" would have the oracle back at a lower resolution
-- **The order of the surviving refusals is the fix.** Every refusal registration can still give — age
-  floor, taken username, malformed address — is decided *before* the address is looked up, so none of
+- **The order of the surviving refusals is the fix.** Every refusal registration can still give - age
+  floor, taken username, malformed address - is decided *before* the address is looked up, so none of
   them can be a function of whether it is registered. Checked in the other order, submitting a taken
   username (or an underage birth date) with the address you are probing answers `400` for a free
   address and `202` for a registered one, which is the same oracle wearing the fix as a disguise
 
-**Deliberately kept — a distinguishable "username already taken" (`400`).** Usernames are discoverable
+**Deliberately kept - a distinguishable "username already taken" (`400`).** Usernames are discoverable
 by design here: `DiscoverableByUsername` defaults true and username lookup is how friend requests are
 addressed, so "that name is taken" tells an attacker nothing an account holder cannot already
-establish, and it routes around no control T2-16 sets up. Email is the opposite — nothing in the
+establish, and it routes around no control T2-16 sets up. Email is the opposite - nothing in the
 product resolves one user's address for another, so registration would be the only place it leaked.
 The UX side decides it on its own: the server owns the username namespace, so a user who cannot be
 told "pick another" cannot proceed, and collapsing it into the uniform `202` would silently drop
 those registrations while telling the user to check an inbox that will never receive anything. The
 earlier fix that stopped a duplicate username echoing raw Postgres constraint text to anonymous
-callers still stands — the explicit check refuses with one fixed sentence and no database detail.
+callers still stands - the explicit check refuses with one fixed sentence and no database detail.
 
 ## Out of scope
 

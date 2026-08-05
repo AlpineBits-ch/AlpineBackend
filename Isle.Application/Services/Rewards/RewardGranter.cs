@@ -19,7 +19,7 @@ public sealed class RewardGranter(
 
     /// <summary>
     /// <c>getstats</c> reports nutrient levels but no maxima the way it does for hunger or thirst, so
-    /// the contract's 0..100 scale is the only ceiling on offer — the same one <c>setstats</c> documents,
+    /// the contract's 0..100 scale is the only ceiling on offer - the same one <c>setstats</c> documents,
     /// where <c>carb: 100</c> is a full bar.
     /// </summary>
     private const double NutrientMax = 100.0;
@@ -210,7 +210,7 @@ public sealed class RewardGranter(
         }
         catch (Exception ex)
         {
-            // Offline or no live pawn — same normal case as the vitals read.
+            // Offline or no live pawn - same normal case as the vitals read.
             logger.LogDebug(ex, "Could not read growth for {Steam}; skipping growth reward", steam);
             return null;
         }
@@ -236,7 +236,7 @@ public sealed class RewardGranter(
             return null;
         }
 
-        // An authored zero means "a slot", not "nothing" — a reward row that pays nothing is a typo.
+        // An authored zero means "a slot", not "nothing" - a reward row that pays nothing is a typo.
         var slots = Math.Max(1, amount);
 
         for (var i = 0; i < slots; i++)
@@ -246,8 +246,8 @@ public sealed class RewardGranter(
     }
 
     /// <summary>
-    /// Writes <paramref name="name"/> — a vital or a nutrient, both of which <c>setvital</c> takes
-    /// — up to <paramref name="fraction"/> of <paramref name="max"/>, skipping the write when the
+    /// Writes <paramref name="name"/> - a vital or a nutrient, both of which <c>setvital</c> takes
+    /// - up to <paramref name="fraction"/> of <paramref name="max"/>, skipping the write when the
     /// player is already at or above that.
     /// </summary>
     private async Task<bool> RaiseVitalAsync(
@@ -283,7 +283,7 @@ public sealed class RewardGranter(
     }
 
     /// <summary>
-    /// One read for the whole payout — the diet reward needs vitals and nutrients out of the same
+    /// One read for the whole payout - the diet reward needs vitals and nutrients out of the same
     /// snapshot, and a second <c>getstats</c> would only invite the two halves to disagree.
     /// </summary>
     private async Task<StatsSnapshot?> ReadSnapshotAsync(string steam, CancellationToken ct)
@@ -294,7 +294,7 @@ public sealed class RewardGranter(
         }
         catch (Exception ex)
         {
-            // Offline or no live pawn — normal, not an error worth escalating.
+            // Offline or no live pawn - normal, not an error worth escalating.
             logger.LogDebug(ex, "Could not read stats for {Steam}; skipping vital reward", steam);
             return null;
         }

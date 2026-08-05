@@ -247,7 +247,7 @@ public class SteamConfiguration
         ?? "https://api.venta.gg";
 
     /// <summary>
-    /// Public, browser-facing path Steam redirects back to — this MUST include the YARP gateway
+    /// Public, browser-facing path Steam redirects back to - this MUST include the YARP gateway
     /// prefix (/api/v1/identity), which the gateway strips before the request reaches the Identity
     /// service. The controller itself listens on /api/v1/authentication/steam/callback.
     /// </summary>
@@ -347,7 +347,7 @@ public class FederationConfiguration
 public class ApnsConfiguration
 {
     /// <summary>
-    /// Plain app bundle id — NOT the VoIP topic. dotAPNS's ApnsClient.GetTopic() appends ".voip"
+    /// Plain app bundle id - NOT the VoIP topic. dotAPNS's ApnsClient.GetTopic() appends ".voip"
     /// itself for ApplePushType.Voip pushes (CallPushService.SendVoipAsync), so a pre-suffixed
     /// value here would double up into "...voip.voip" and Apple would reject every push.
     /// </summary>
@@ -357,11 +357,11 @@ public class ApnsConfiguration
     public string AuthKeyBase64 { get; set; } = GetEnvironmentVariable("APNS_AUTH_KEY_BASE_64") ?? string.Empty;
 
     /// <summary>
-    /// A device's push token is only valid against the APNs gateway that issued it — a debug/
+    /// A device's push token is only valid against the APNs gateway that issued it - a debug/
     /// Xcode-run build (whose Runner.entitlements sets aps-environment=development) registers a
     /// sandbox token, and Apple's production gateway silently rejects those (BadDeviceToken) rather
     /// than delivering them. dotAPNS defaults every push to production
-    /// (ApplePush.SendToDevelopmentServer() must be called explicitly for sandbox) — see
+    /// (ApplePush.SendToDevelopmentServer() must be called explicitly for sandbox) - see
     /// CallPushService.SendVoipAsync.
     /// </summary>
     public bool UseSandbox { get; set; } =

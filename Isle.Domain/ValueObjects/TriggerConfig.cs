@@ -12,6 +12,6 @@ public class TriggerConfig
     // Zone-entry-based
     public int? MinPlayersToTrigger { get; set; }
 
-    // Admin-triggered needs no extra fields — presence of the command is enough
+    // Admin-triggered needs no extra fields - presence of the command is enough
 }
 

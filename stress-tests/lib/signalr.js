@@ -21,7 +21,7 @@ export const Hub = {
 };
 
 /**
- * SignalR negotiate — must be called before WebSocket connect.
+ * SignalR negotiate - must be called before WebSocket connect.
  * Returns the negotiate response JSON including connectionToken.
  */
 export function negotiate(baseUrl, hubPath, token, cookieJar) {

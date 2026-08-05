@@ -15,7 +15,7 @@ public class RoleUpdatedHandlerTests
     private const string GuildId = "guild-1";
     private const string RoleId = "role-1";
     private const string MemberId = "member-1"; // GuildMember.Id (prefixed entity ID)
-    private const string UserId = "user-1";     // GuildMember.UserId (auth identity — the cache key)
+    private const string UserId = "user-1";     // GuildMember.UserId (auth identity - the cache key)
 
     private string _dbName = null!;
     private FakeDistributedCache _cache = null!;
@@ -113,7 +113,7 @@ public class RoleUpdatedHandlerTests
         _cache.SetEntry(key1, "stale-1");
         _cache.SetEntry(key2, "stale-2");
 
-        // Role permissions updated — no specific member added or removed.
+        // Role permissions updated - no specific member added or removed.
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = null },
             _context, _service, new FakeMessageBus());

@@ -81,7 +81,7 @@ public static IReadOnlyList<Type> RegisteredTypes { get; } =
 ```
 
 3. If your command needs a dependency (e.g. a repository or service), just
-   add it as a constructor parameter — `ActivatorUtilities.CreateInstance`
+   add it as a constructor parameter - `ActivatorUtilities.CreateInstance`
    will resolve it from the DI container automatically.
 
 4. Optionally override `Cooldown` to opt into per-player rate limiting.

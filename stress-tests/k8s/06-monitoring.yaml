@@ -23,7 +23,7 @@ data:
       scrape_interval: 10s
       evaluation_interval: 10s
 
-    # k6 pushes metrics via remote_write — no scrape needed for k6 itself.
+    # k6 pushes metrics via remote_write - no scrape needed for k6 itself.
     # Uncomment if using pushgateway instead:
     # - job_name: k6
     #   static_configs:
@@ -184,7 +184,7 @@ spec:
     - port: 3000
       targetPort: 3000
 ---
-# Redis exporter — scrapes Redis INFO and exposes as Prometheus metrics
+# Redis exporter - scrapes Redis INFO and exposes as Prometheus metrics
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -226,7 +226,7 @@ spec:
   ports:
     - port: 9121
 ---
-# PgBouncer exporter — exposes SHOW STATS / SHOW POOLS as Prometheus metrics
+# PgBouncer exporter - exposes SHOW STATS / SHOW POOLS as Prometheus metrics
 apiVersion: apps/v1
 kind: Deployment
 metadata:

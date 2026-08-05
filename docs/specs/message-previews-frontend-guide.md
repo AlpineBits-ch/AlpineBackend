@@ -1,10 +1,10 @@
-# Link previews — frontend integration guide
+# Link previews - frontend integration guide
 
 Everything the client needs to render link previews. Written to be worked from independently: no
 backend reading required, and every field, event and endpoint is spelled out.
 
 Companion document: the bot-embed guide,
-[`message-embeds-frontend-guide.md`](../../Messaging.Application/docs/message-embeds-frontend-guide.md) —
+[`message-embeds-frontend-guide.md`](../../Messaging.Application/docs/message-embeds-frontend-guide.md) -
 this one supersedes its "not carried yet" list.
 
 ## URLs in this document
@@ -18,7 +18,7 @@ Two things about the paths look like typos and are not:
   segment before forwarding, and the Messaging service's own message routes also start with
   `/messaging`. Pre-existing, not new to this feature, and every shipped client already calls it
   that way. See the pinning and search guides for the same doubling.
-- **`previews` appears once.** That route is deliberately *not* rewritten — preview image URLs are
+- **`previews` appears once.** That route is deliberately *not* rewritten - preview image URLs are
   stored inside messages permanently, so the path is a fixed contract. Do not "correct" it by
   doubling the segment.
 
@@ -40,7 +40,7 @@ guild.MessageCreated / conversation.MessageCreated   embedsJson is null   ← re
 guild.MessageUpdated / conversation.MessageUpdated   embedsJson populated ← card appears
 ```
 
-Never hold a message back waiting for a preview — it may never come (the site is down, the link is
+Never hold a message back waiting for a preview - it may never come (the site is down, the link is
 a 404, previews are disabled on the instance). Render the message, then let the card animate in when
 the update lands. This is exactly how Discord behaves.
 
@@ -87,9 +87,9 @@ interface Embed {
   provider?: { name: string; url?: string };          // "YouTube", "example.com"
   author?: { name: string; url?: string; iconUrl?: string; proxyIconUrl?: string };
 
-  thumbnail?: EmbedMedia; // small, beside the text — also the poster frame for a video
+  thumbnail?: EmbedMedia; // small, beside the text - also the poster frame for a video
   image?: EmbedMedia;     // large, full-width below the text
-  video?: EmbedMedia;     // the in-app player. See §5 — read the security note before rendering.
+  video?: EmbedMedia;     // the in-app player. See §5 - read the security note before rendering.
 
   fields: { name: string; value: string; inline: boolean }[];  // bots only, ≤25
   footer?: { text: string; iconUrl?: string; proxyIconUrl?: string };
@@ -99,7 +99,7 @@ interface Embed {
 }
 
 interface EmbedMedia {
-  /** The origin's own URL. Do NOT render this directly — see §6. */
+  /** The origin's own URL. Do NOT render this directly - see §6. */
   url: string;
   /** Our re-hosted copy. Render this. Absent if the media was not fetched. */
   proxyUrl?: string;
@@ -107,7 +107,7 @@ interface EmbedMedia {
   width?: number;
   height?: number;
   contentType?: string;
-  /** BlurHash string — decode for a blurred placeholder while the image loads. See §7. */
+  /** BlurHash string - decode for a blurred placeholder while the image loads. See §7. */
   placeholder?: string;
   /** Which encoding `placeholder` uses. 1 = BlurHash. */
   placeholderVersion?: number;
@@ -119,7 +119,7 @@ have supplied nothing at all. A card with only a `provider.name` and a `url` is 
 
 **Everything in `title`, `description`, `author.name`, `provider.name` and `footer.text` is
 attacker-controlled text.** It arrives HTML-decoded, whitespace-collapsed, and stripped of control
-characters and bidi overrides — but it is still *text a stranger wrote*. Render it as text.
+characters and bidi overrides - but it is still *text a stranger wrote*. Render it as text.
 Never `innerHTML`, never a markdown pass that could resolve to an image or link, never a template
 that interpolates it into an attribute.
 
@@ -141,15 +141,19 @@ card does not need field rendering.
 
 ---
 
-## 5. In-app players — read this before shipping
+## 5. In-app players - read this before shipping
 
 When `video` is present, the card should render the thumbnail with a play button, and swap in an
 iframe pointed at `video.url` on click. Do **not** autoload the iframe: it is a third-party
 document and loading it on scroll leaks the viewer to the provider before they asked for anything.
 
 `video.url` is only ever produced from a server-side whitelist (YouTube, Vimeo, Twitch, Spotify) and
-is always built by the server from an extracted id — a page cannot choose it. **That does not remove
+is always built by the server from an extracted id - a page cannot choose it. **That does not remove
 your obligation to sandbox it.** Render it as:
+
+> The YouTube player URL is on `www.youtube-nocookie.com`, not `www.youtube.com`. Use `video.url`
+> as given; do not "correct" the host. Together with click-to-load, that combination is what our
+> Cookie Policy promises, so changing either one makes the published policy untrue.
 
 ```html
 <iframe
@@ -165,7 +169,7 @@ your obligation to sandbox it.** Render it as:
 Use `video.width` / `video.height` for the aspect ratio (16:9 for video providers, a short bar for
 Spotify audio). Do not hardcode 16:9.
 
-If you cannot sandbox — some native contexts cannot — render the card as a plain `link` with a
+If you cannot sandbox - some native contexts cannot - render the card as a plain `link` with a
 "watch on YouTube" affordance instead. A degraded card is fine; an unsandboxed third-party frame is
 not.
 
@@ -175,18 +179,18 @@ not.
 
 **Always render `proxyUrl` when it is present.** `url` is the third-party origin's own address, and
 loading it directly hands that origin the IP address, rough location and read time of every person
-who scrolls past the message — from a link one other person posted. `proxyUrl` is our re-hosted
+who scrolls past the message - from a link one other person posted. `proxyUrl` is our re-hosted
 copy and leaks nothing.
 
 ```ts
 const src = media.proxyUrl ?? media.url;   // fall back only if the proxy is absent
 ```
 
-`proxyUrl` arrives as a **fully-qualified absolute URL** — `https://api.venta.gg/api/v1/previews/media/{hash}`
-— so drop it straight into `src`. Do not prepend a base URL, and do not rewrite the path.
+`proxyUrl` arrives as a **fully-qualified absolute URL** - `https://api.venta.gg/api/v1/previews/media/{hash}`
+- so drop it straight into `src`. Do not prepend a base URL, and do not rewrite the path.
 
 It is unauthenticated (an `<img>` tag carries no token), immutable, and served with a week-long
-cache — so no cache-busting and no `Authorization` header. Keep `url` for an "open original"
+cache - so no cache-busting and no `Authorization` header. Keep `url` for an "open original"
 affordance.
 
 ---
@@ -197,7 +201,7 @@ affordance.
 slot until the real image loads, sized by `width`/`height`. This is what stops a card from reflowing
 the message list when its image arrives.
 
-`placeholderVersion` is `1` for BlurHash. **Check it** — if you see a version you do not recognise,
+`placeholderVersion` is `1` for BlurHash. **Check it** - if you see a version you do not recognise,
 skip the placeholder and show a neutral background rather than feeding it to a decoder.
 
 Libraries: `blurhash` (npm), `BlurHashKit` (Swift), `blurhash-android`, `flutter_blurhash`.
@@ -209,7 +213,7 @@ Libraries: `blurhash` (npm), `BlurHashKit` (Swift), `blurhash-android`, `flutter
 
 ## 8. Removing a preview
 
-The ✕ on a card. **This is message state, not a per-viewer preference** — dismissing a preview
+The ✕ on a card. **This is message state, not a per-viewer preference** - dismissing a preview
 removes it for everyone who can see the message, which is the whole point of the feature.
 
 ```http
@@ -223,17 +227,17 @@ Content-Type: application/json
 Response `202 { "messageId": "...", "suppressed": true }`. Everyone in the channel receives a
 `*.MessageUpdated` with the embeds gone and `flags` carrying bit 2.
 
-**Who may call it** — show the ✕ only to these people, or you will render a button that 403s:
+**Who may call it** - show the ✕ only to these people, or you will render a button that 403s:
 
 - the message's author, always;
 - anyone with the `DeleteAnyMessage` permission in that channel;
 - in a DM, the author only.
 
 **Undo** is the same call with `{ "suppress": false }`. It clears the flag and re-queues the
-unfurl, so the card comes back a moment later via another `MessageUpdated` — do not expect it in
+unfurl, so the card comes back a moment later via another `MessageUpdated` - do not expect it in
 the response.
 
-**Sender-side opt-out**: wrapping a URL in angle brackets — `<https://example.com>` — sends it
+**Sender-side opt-out**: wrapping a URL in angle brackets - `<https://example.com>` - sends it
 without ever generating a preview. Worth surfacing in a composer tooltip; it is what Discord users
 already expect.
 
@@ -255,14 +259,14 @@ that never had one.
 
 ---
 
-## 10. `editedAt` vs `updatedAt` — the "(edited)" marker
+## 10. `editedAt` vs `updatedAt` - the "(edited)" marker
 
 **Render "(edited)" from `editedAt`, never from `updatedAt`.**
 
 | Field | Meaning |
 |---|---|
 | `editedAt` | When the **author** last changed the text. `null` if never. |
-| `updatedAt` | When the row was last written — including by a preview attaching, or a pin. |
+| `updatedAt` | When the row was last written - including by a preview attaching, or a pin. |
 
 If you drive the marker off `updatedAt`, every message containing a link will label itself as edited
 a second after it is posted, by nobody. That is the specific bug this split exists to prevent.
@@ -284,7 +288,7 @@ need to suppress an animation or a re-scroll for a non-author update.
 - [ ] Player iframes sandboxed, lazy, click-to-load.
 - [ ] ✕ shown only to author / `DeleteAnyMessage` holders; state driven by the `SUPPRESS_EMBEDS` bit.
 - [ ] "(edited)" driven by `editedAt`.
-- [ ] Missing fields degrade gracefully — a card with only a URL still renders.
+- [ ] Missing fields degrade gracefully - a card with only a URL still renders.
 - [ ] Encrypted DMs show no previews at all (see below) and no broken placeholder.
 
 ---
@@ -295,6 +299,6 @@ need to suppress an animation or a re-scroll for a non-author update.
   the URL. Do not show a spinner waiting for a card that is never coming.
 - **No previews on bot messages that already carry their own embeds.** Matches Discord.
 - **No previews when the instance operator has turned them off.** Self-hosters can disable preview
-  generation entirely. There is no client-visible signal for this — it looks identical to a link
+  generation entirely. There is no client-visible signal for this - it looks identical to a link
   that failed to unfurl, which is intentional. Do not build a "previews are disabled" state.
 - **No preview for a link inside a code block or code span.**

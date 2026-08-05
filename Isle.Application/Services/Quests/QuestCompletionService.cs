@@ -144,7 +144,7 @@ public sealed class QuestCompletionService(
 
         if (!await context.TryCloseQuestAtomicallyAsync(instance, QuestInstanceState.Completed, killerPlayerId, ct))
         {
-            // The expiry sweep got there first — the kill landed within a tick of the clock running out.
+            // The expiry sweep got there first - the kill landed within a tick of the clock running out.
             logger.LogInformation("Hunt {InstanceId} was already closed when {KillerId}'s kill arrived; not paid",
                 instance.Id, killerPlayerId);
             return false;
@@ -287,7 +287,7 @@ public sealed class QuestCompletionService(
         var steamIds = present.Select(p => p.SteamId).ToList();
 
         // Grouped rather than keyed straight into a dictionary, for the reason BountyService.RankAsync
-        // documents: nothing constrains steam_id to be unique, and a duplicate would throw here — after
+        // documents: nothing constrains steam_id to be unique, and a duplicate would throw here - after
         // the quest had already been closed, so it would end having paid nobody at all.
         var bySteam = (await context.Players
                 .AsNoTracking()
@@ -322,7 +322,7 @@ public sealed class QuestCompletionService(
     }
 
     /// <summary>
-    /// Pays everyone the resolved quest owes and whispers each of them what they got — nothing else
+    /// Pays everyone the resolved quest owes and whispers each of them what they got - nothing else
     /// ever would, since the broadcast is written for the lobby.
     /// </summary>
     private async Task<Payout> PayOutAsync(
@@ -344,7 +344,7 @@ public sealed class QuestCompletionService(
             var granted = await rewards.GrantAsync(visitor.Player.Id, rewardTable, visitor.Rank, ct);
             if (granted.Count == 0)
             {
-                // Qualified but paid nothing — almost always the granter finding no live pawn, because
+                // Qualified but paid nothing - almost always the granter finding no live pawn, because
                 // the player logged off or died between their last sample and the clock running out.
                 // They are not counted as paid, and they get no whisper claiming they were.
                 logger.LogInformation("Quest {InstanceId}: {PlayerId} qualified at {Rank} but received nothing",
@@ -384,7 +384,7 @@ public sealed class QuestCompletionService(
     }
 
     /// <summary>
-    /// The full reward table for a resolved quest — every tier, not one player's share.
+    /// The full reward table for a resolved quest - every tier, not one player's share.
     /// </summary>
     private async Task<IReadOnlyList<RewardConfig>> BuildRewardsAsync(QuestInstance instance, CancellationToken ct)
     {

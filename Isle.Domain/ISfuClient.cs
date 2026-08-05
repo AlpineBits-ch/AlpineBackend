@@ -8,7 +8,7 @@ public interface ISfuClient
 
     Task SubscribeMutual(string userIdA, string userIdB);
 
-    /// <summary>Tells both peers to drop each other — one walked out of the other's audible block, or left voice.</summary>
+    /// <summary>Tells both peers to drop each other - one walked out of the other's audible block, or left voice.</summary>
     Task UnsubscribePair(string userIdA, string userIdB);
 
     /// <summary>Orders one client to re-run its Cloudflare session/track publish.</summary>
@@ -20,6 +20,6 @@ public interface ISfuClient
     /// <summary>Pushes a player their own world position + facing + velocity, so the client can place peers relative to itself.</summary>
     Task SendSelfPosition(string userId, float x, float y, float z, float yaw, float vx, float vy, float vz, long timestampMs);
 
-    /// <summary>Sends one peer's current position + velocity to a single recipient — seeds a newly-audible or reconnecting peer.</summary>
+    /// <summary>Sends one peer's current position + velocity to a single recipient - seeds a newly-audible or reconnecting peer.</summary>
     Task SendPeerPosition(string recipientUserId, string peerUserId, float x, float y, float z, float yaw, float vx, float vy, float vz, long timestampMs);
 }

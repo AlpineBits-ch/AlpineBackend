@@ -8,7 +8,7 @@ public static class BountyMarkerSkin
     private static readonly SkinCustomizer Default = new()
     {
         BodyColor = SkinColor.FromHex("4A4136"),        // damp bark
-        MarkingsColor = SkinColor.FromHex("6E2B20"),    // dried blood — the tell, at conversational range
+        MarkingsColor = SkinColor.FromHex("6E2B20"),    // dried blood - the tell, at conversational range
         FlankColor = SkinColor.FromHex("3B342B"),       // deeper, sits down into shadow
         UnderbellyColor = SkinColor.FromHex("57503F"),  // ordinary countershading, nothing pale
         Detail1Color = SkinColor.FromHex("7A3527"),     // rust, same story as the markings

@@ -9,7 +9,7 @@ public sealed class VoicePlayerRegistry(IConnectionMultiplexer redis, ILogger<Vo
     private const string SteamToPlayerPrefix = "isle:voice:s2p:";
     private const string PlayerToSteamPrefix = "isle:voice:p2s:";
     private static readonly TimeSpan Ttl = TimeSpan.FromHours(2);
-    // Don't re-bump a steamId's TTL more than once per this window — keeps the hot path off Redis.
+    // Don't re-bump a steamId's TTL more than once per this window - keeps the hot path off Redis.
     private static readonly TimeSpan TouchThrottle = TimeSpan.FromMinutes(5);
 
     private readonly ConcurrentDictionary<string, string> _steamToPlayer = new(); // steamId -> playerId
@@ -47,7 +47,7 @@ public sealed class VoicePlayerRegistry(IConnectionMultiplexer redis, ILogger<Vo
 
         try
         {
-            // Both writes are pipelined on the multiplexer — one logical round trip.
+            // Both writes are pipelined on the multiplexer - one logical round trip.
             var s2p = Db.StringSetAsync(SteamToPlayerPrefix + steamId, playerId, Ttl);
             var p2s = Db.StringSetAsync(PlayerToSteamPrefix + playerId, steamId, Ttl);
             await Task.WhenAll(s2p, p2s);
@@ -98,7 +98,7 @@ public sealed class VoicePlayerRegistry(IConnectionMultiplexer redis, ILogger<Vo
     public async Task TouchAsync(string steamId)
     {
         if (!_steamToPlayer.TryGetValue(steamId, out var playerId))
-            return; // not a voice participant — nothing to keep alive
+            return; // not a voice participant - nothing to keep alive
 
         var now = DateTimeOffset.UtcNow;
         if (_lastTouch.TryGetValue(steamId, out var last) && now - last < TouchThrottle)

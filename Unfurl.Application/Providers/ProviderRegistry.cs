@@ -38,7 +38,7 @@ public static class ProviderRegistry
 
         return host switch
         {
-            "youtube.com" or "m.youtube.com" or "music.youtube.com" => YouTube(url),
+            "youtube.com" or "m.youtube.com" or "music.youtube.com" or "youtube-nocookie.com" => YouTube(url),
             "youtu.be" => YouTubeShort(url),
             "vimeo.com" or "player.vimeo.com" => Vimeo(url),
             "twitch.tv" => Twitch(url),
@@ -70,9 +70,13 @@ public static class ProviderRegistry
     {
         if (string.IsNullOrWhiteSpace(id) || !YouTubeId.IsMatch(id)) return null;
 
+        // youtube-nocookie.com, not youtube.com: it is the same player on the same infrastructure,
+        // but it does not set YouTube's advertising and personalisation cookies unless the viewer
+        // actually starts playback, and it does not attach what they watched here to their Google
+        // profile for ad targeting.
         return new ProviderMatch(
             "YouTube", "https://www.youtube.com", EmbedTypes.Video,
-            $"https://www.youtube.com/embed/{id}", 1280, 720,
+            $"https://www.youtube-nocookie.com/embed/{id}", 1280, 720,
             string.Format(YouTubeThumbnail, id));
     }
 

@@ -1,0 +1,441 @@
+/*
+ * The moderation console.
+ *
+ * A working tool, not a page: three columns (rail, list, detail), everything scrolls in its own
+ * pane, nothing reflows when a row is opened. Dense but not cramped - a moderator reads dozens of
+ * rows in a sitting, and the queue's job is to make the worst one findable in a glance.
+ *
+ * Shares the token set with the support site (venta.css) so the two look like one system, but the
+ * layout is deliberately the opposite shape: support is a narrow reading column, this is a
+ * three-pane workbench.
+ */
+
+body { overflow: hidden; }
+
+/* ── Sign-in ────────────────────────────────────────────────────────────── */
+.gate {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: var(--bg);
+    z-index: 100;
+}
+
+.gate-card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 30px 30px 26px;
+}
+
+.gate-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 26px;
+}
+.gate-head [data-icon] { font-size: 34px; }
+.gate-head h1 { font-size: 20px; letter-spacing: -.03em; }
+
+.gate-host {
+    font-size: 11.5px;
+    color: var(--faint);
+    letter-spacing: .04em;
+    margin-top: 2px;
+}
+
+.btn.block { width: 100%; justify-content: center; margin-top: 6px; }
+
+.gate-foot {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.code-input {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: .3em;
+    font-size: 16px;
+}
+
+/* ── Shell ──────────────────────────────────────────────────────────────── */
+#app {
+    display: grid;
+    grid-template-columns: 216px minmax(0, 1fr);
+    height: 100vh;
+}
+
+#app:has(.detail:not(.hidden)) {
+    grid-template-columns: 216px minmax(0, 1fr) minmax(380px, 460px);
+}
+
+@media (max-width: 1180px) {
+    #app:has(.detail:not(.hidden)) { grid-template-columns: 216px minmax(0, 1fr); }
+    /* Below this width the detail pane covers the list rather than squeezing it - a 300px queue
+       column is a queue nobody can read. */
+    .detail:not(.hidden) {
+        position: fixed;
+        inset: 0 0 0 216px;
+        z-index: 40;
+    }
+}
+
+@media (max-width: 720px) {
+    #app { grid-template-columns: 60px minmax(0, 1fr); }
+    .rail-item span, .rail-brand span, .who { display: none; }
+    .rail-item { justify-content: center; }
+    .detail:not(.hidden) { inset: 0 0 0 60px; }
+}
+
+.scroller { overflow-y: auto; overscroll-behavior: contain; }
+
+/* ── Rail ───────────────────────────────────────────────────────────────── */
+.rail {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    min-height: 0;
+}
+
+.rail-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    height: 56px;
+    flex: 0 0 56px;
+    font-weight: 640;
+    font-size: 14.5px;
+    letter-spacing: -.02em;
+    border-bottom: 1px solid var(--border-soft);
+}
+.rail-brand [data-icon] { font-size: 22px; }
+
+.rail-nav { flex: 1; padding: 10px 8px; display: flex; flex-direction: column; gap: 1px; min-height: 0; }
+
+.rail-item {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    font: inherit;
+    font-size: 14px;
+    width: 100%;
+    padding: 9px 11px;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    text-align: left;
+    transition: background .12s, color .12s;
+}
+.rail-item [data-icon] { font-size: 15px; }
+.rail-item span { flex: 1; }
+.rail-item:hover { background: var(--raised); color: var(--text); }
+.rail-item:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.rail-item[aria-current="page"] {
+    background: color-mix(in srgb, var(--brand) 14%, transparent);
+    color: var(--brand);
+    font-weight: 560;
+}
+
+.badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--raised);
+    color: var(--muted);
+}
+.badge:empty { display: none; }
+.badge.hot { background: var(--danger-bg); color: var(--danger); }
+
+.rail-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 12px 14px;
+    border-top: 1px solid var(--border-soft);
+}
+.who { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.who-name { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who-role { font-size: 10.5px; color: var(--faint); letter-spacing: .1em; text-transform: uppercase; }
+
+/* ── Main ───────────────────────────────────────────────────────────────── */
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px;
+    height: 56px;
+    flex: 0 0 56px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+}
+.topbar h2 { font-size: 16px; letter-spacing: -.02em; }
+.topbar-tools { flex: 1; display: flex; align-items: center; gap: 8px; justify-content: flex-end; min-width: 0; }
+.topbar-tools select, .topbar-tools input {
+    width: auto;
+    font-size: 13px;
+    padding: 6px 10px;
+}
+.topbar-tools input[type="search"] { min-width: 220px; }
+
+/* ── Lists ──────────────────────────────────────────────────────────────── */
+.rows { display: flex; flex-direction: column; }
+
+.rw {
+    display: grid;
+    grid-template-columns: 4px minmax(0, 1fr) auto;
+    gap: 0 14px;
+    align-items: center;
+    padding: 0;
+    border-bottom: 1px solid var(--border-soft);
+    background: none;
+    border-left: 0; border-right: 0; border-top: 0;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+    width: 100%;
+    transition: background .1s;
+}
+.rw:hover { background: var(--raised); }
+.rw:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rw[aria-selected="true"] { background: color-mix(in srgb, var(--brand) 9%, transparent); }
+
+/* The priority stripe. Four pixels doing the work a coloured badge would do worse: it is
+   readable in peripheral vision while scrolling, which is how a queue is actually scanned. */
+.rw-mark { align-self: stretch; background: transparent; }
+.rw-mark.critical { background: var(--danger); }
+.rw-mark.high { background: var(--warn); }
+.rw-mark.normal { background: color-mix(in srgb, var(--muted) 35%, transparent); }
+
+.rw-main { padding: 13px 0; min-width: 0; }
+.rw-side { padding: 13px 18px 13px 0; display: flex; align-items: center; gap: 8px; }
+
+.rw-title {
+    font-size: 14px;
+    font-weight: 550;
+    letter-spacing: -.008em;
+    margin-bottom: 3px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.rw-sub {
+    font-size: 12.5px;
+    color: var(--faint);
+    line-height: 1.45;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.rw-time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--faint);
+    white-space: nowrap;
+}
+
+.list-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px 40px;
+    font-size: 12.5px;
+    color: var(--faint);
+}
+
+/* ── Detail ─────────────────────────────────────────────────────────────── */
+.detail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+}
+
+.detail-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px 0 18px;
+    height: 56px;
+    flex: 0 0 56px;
+    border-bottom: 1px solid var(--border);
+}
+.detail-head h2 { flex: 1; font-size: 15px; letter-spacing: -.02em; }
+
+.pane { padding: 18px 18px 60px; }
+
+.block {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 15px 16px;
+    margin-bottom: 14px;
+}
+
+.block > h3 {
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    margin-bottom: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.kv { display: grid; grid-template-columns: 108px minmax(0, 1fr); gap: 7px 12px; font-size: 13px; }
+.kv dt { color: var(--faint); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+
+.quote {
+    font-size: 13.5px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--raised);
+    border-radius: 9px;
+    padding: 12px 14px;
+}
+
+.evidence {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    white-space: pre;
+    overflow-x: auto;
+    background: var(--raised);
+    border-radius: 9px;
+    padding: 12px 14px;
+    max-height: 320px;
+}
+
+.timeline { display: flex; flex-direction: column; gap: 10px; }
+.event {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    font-size: 13px;
+    align-items: start;
+}
+.event [data-icon] { font-size: 13px; color: var(--faint); margin-top: .25em; }
+.event .when {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--faint);
+    display: block;
+    margin-top: 1px;
+}
+.event.struck { opacity: .55; }
+.event.struck .what { text-decoration: line-through; }
+
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── Overview tiles ─────────────────────────────────────────────────────── */
+.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+    gap: 12px;
+    padding: 18px;
+}
+
+.tile {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 15px 16px 16px;
+}
+.tile-label {
+    font-size: 11px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    margin-bottom: 7px;
+}
+.tile-value { font-size: 26px; font-weight: 640; letter-spacing: -.035em; line-height: 1; }
+.tile.alert .tile-value { color: var(--danger); }
+.tile.warn .tile-value { color: var(--warn); }
+
+.section-head {
+    padding: 22px 18px 4px;
+    font-size: 11.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+.modal-host { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(9, 12, 18, .58); }
+
+.modal {
+    position: relative;
+    width: 100%;
+    max-width: 480px;
+    max-height: 88vh;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 24px 26px 22px;
+}
+.modal h2 { font-size: 18px; letter-spacing: -.025em; margin-bottom: 6px; }
+.modal .lede { font-size: 13.5px; color: var(--muted); line-height: 1.55; margin-bottom: 20px; }
+.modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
+/* ── Toasts ─────────────────────────────────────────────────────────────── */
+.toasts {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 380px;
+}
+
+.toast {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 15px;
+    border-radius: 11px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    font-size: 13.5px;
+    line-height: 1.5;
+    animation: rise .16s ease-out;
+}
+.toast [data-icon] { margin-top: .16em; }
+.toast.ok [data-icon] { color: var(--ok); }
+.toast.danger [data-icon] { color: var(--danger); }
+.toast.info [data-icon] { color: var(--info); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .toast { animation: none; }
+    * { transition-duration: .001ms !important; }
+}

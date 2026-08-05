@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Venta / Echo self-hosted installer - Windows.
 
@@ -35,6 +35,8 @@ param(
     [string]$Domain,
     [string]$StorageDomain,
     [string]$DocsDomain,
+    [string]$AdminDomain,
+    [string]$SupportDomain,
     [string]$InstanceName,
     [string]$AcmeEmail,
     [ValidateSet('letsencrypt', 'local', 'external-proxy')]
@@ -275,6 +277,12 @@ if (-not $ReuseEnv) {
             $Config['DOCS_DOMAIN'] = Format-EnvValue (
                 Get-Setting -Preset $DocsDomain -Prompt 'Public hostname for the API reference' `
                             -Default "docs.$($Config['INSTANCE_DOMAIN'])")
+            $Config['ADMIN_DOMAIN'] = Format-EnvValue (
+                Get-Setting -Preset $AdminDomain -Prompt 'Public hostname for the moderation console' `
+                            -Default "admin.$($Config['INSTANCE_DOMAIN'])")
+            $Config['SUPPORT_DOMAIN'] = Format-EnvValue (
+                Get-Setting -Preset $SupportDomain -Prompt 'Public hostname for the support site' `
+                            -Default "support.$($Config['INSTANCE_DOMAIN'])")
             $Config['INSTANCE_URL']       = "https://$($Config['INSTANCE_DOMAIN'])"
             $Config['STORAGE_PUBLIC_URL'] = "https://$($Config['STORAGE_DOMAIN'])"
         }
@@ -290,6 +298,8 @@ if (-not $ReuseEnv) {
             $Config['INSTANCE_DOMAIN']    = Format-EnvValue (Read-Answer 'Address other machines reach this host on' $lanIp)
             $Config['STORAGE_DOMAIN']     = $Config['INSTANCE_DOMAIN']
             $Config['DOCS_DOMAIN']        = ''
+            $Config['ADMIN_DOMAIN']       = ''
+            $Config['SUPPORT_DOMAIN']     = ''
             $Config['INSTANCE_URL']       = "http://$($Config['INSTANCE_DOMAIN']):8080"
             $Config['STORAGE_PUBLIC_URL'] = "http://$($Config['INSTANCE_DOMAIN']):9000"
         }
@@ -371,7 +381,7 @@ if (-not $ReuseEnv) {
 $Defaults = @{
     INSTANCE_NAME = 'Venta'; INSTANCE_DOMAIN = ''; TLS_MODE = 'local'; ACME_EMAIL = ''
     INSTANCE_URL = 'http://127.0.0.1:8080'; STORAGE_DOMAIN = ''; STORAGE_PUBLIC_URL = 'http://127.0.0.1:9000'
-    DOCS_DOMAIN = ''
+    DOCS_DOMAIN = ''; ADMIN_DOMAIN = ''; SUPPORT_DOMAIN = ''
     USE_EXTERNAL_DB = 'no'; DATABASE_HOSTNAME = 'postgres'; DATABASE_PORT = '5432'
     DATABASE_USERNAME = 'postgres'; DATABASE_PASSWORD = (New-Secret 24)
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
@@ -533,6 +543,8 @@ TLS_MODE="$($Config['TLS_MODE'])"
 ACME_EMAIL="$($Config['ACME_EMAIL'])"
 STORAGE_DOMAIN="$($Config['STORAGE_DOMAIN'])"
 DOCS_DOMAIN="$($Config['DOCS_DOMAIN'])"
+ADMIN_DOMAIN="$($Config['ADMIN_DOMAIN'])"
+SUPPORT_DOMAIN="$($Config['SUPPORT_DOMAIN'])"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # -- Images ---------------------------------------------------------------------------
@@ -729,6 +741,34 @@ $($Config['STORAGE_DOMAIN']) {
 # header - the docs exist only on this hostname, not under a path on the API domain - so this
 # block must preserve the Host and point at the same container as the API.
 $($Config['DOCS_DOMAIN']) {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
+	}
+}
+
+# The public support site: contact form, ban appeals, ticket lookup. Same container and the same
+# Host-header gating as the docs above. Reached by people who cannot sign in - a banned account
+# cannot get a token, which is the whole premise of an appeal - so nothing here may be put behind
+# authentication at the proxy.
+$($Config['SUPPORT_DOMAIN']) {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
+	}
+}
+
+# The moderation console. Also the same container - the console is a static page that calls the
+# API same-origin, which is what keeps it out of the CORS allowlist.
+#
+# Access is decided by the account's own staff tier, checked against the database on every
+# request, not by this block. If you want a second gate in front of it (an IP allowlist, mTLS,
+# basic auth), this is the right place for it - but do not add one to the support host above.
+$($Config['ADMIN_DOMAIN']) {
 	encode zstd gzip
 
 	reverse_proxy echo:8080 {

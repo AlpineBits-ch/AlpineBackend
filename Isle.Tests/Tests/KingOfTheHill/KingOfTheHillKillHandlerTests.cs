@@ -76,7 +76,7 @@ public class KingOfTheHillKillHandlerTests
     public async Task Handle_MatchRunningButNoCurrentHolder_GrantsNoReward()
     {
         await _stateStore.WriteAsync(new KothMatchState("def", "instance", DateTime.UtcNow, []));
-        // Ledger has no holder — nobody has been sole occupant yet.
+        // Ledger has no holder - nobody has been sole occupant yet.
 
         await HandleAsync(_killer.Id, _victim.Id);
 
@@ -125,7 +125,7 @@ public class KingOfTheHillKillHandlerTests
 
         await HandleAsync(_killer.Id, _victim.Id);
 
-        // The XP figure is formatted with "N0" against the current culture (varies by machine/CI —
+        // The XP figure is formatted with "N0" against the current culture (varies by machine/CI -
         // e.g. a thousands separator isn't always a comma), so match on content, not exact digits.
         await _bridge.Received(1).DmAsync(
             Arg.Is<string>(text => text.Contains("Took the hill's holder down") && text.Contains("XP")),

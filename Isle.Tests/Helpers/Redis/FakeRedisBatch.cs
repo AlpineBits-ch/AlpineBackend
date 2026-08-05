@@ -11,7 +11,7 @@ internal sealed partial class FakeRedisBatch(FakeRedisStore store) : IBatch
     private readonly FakeRedisDatabase _inner = new(store);
 
     private static NotImplementedException NotSupported([System.Runtime.CompilerServices.CallerMemberName] string? member = null) =>
-        new($"FakeRedisBatch does not implement '{member}' — add it if a ledger under test starts using it.");
+        new($"FakeRedisBatch does not implement '{member}' - add it if a ledger under test starts using it.");
 
     public void Execute()
     {

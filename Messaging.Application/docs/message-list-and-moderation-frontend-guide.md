@@ -1,8 +1,8 @@
-# Message list & moderation — frontend integration guide
+# Message list & moderation - frontend integration guide
 
 Three changes to the message surface: slowmode is now enforced, moderators can delete others'
 messages (individually and in bulk), and message history can be paged by cursor. Backend work is
-done — this is what the client needs to build against it.
+done - this is what the client needs to build against it.
 
 ## Base URL
 
@@ -16,7 +16,7 @@ Normal `Authorization: Bearer <token>`.
 
 ## 1. Slowmode is now enforced
 
-`Channel.slowModeSeconds` has been settable and displayable for a long time and did **nothing** —
+`Channel.slowModeSeconds` has been settable and displayable for a long time and did **nothing** -
 it was never read on the send path. It is now enforced.
 
 `POST /api/v1/messaging` can return:
@@ -29,7 +29,7 @@ Content-Type: application/json
 ```
 
 `retry_after` is **seconds as a decimal**, from the server's own clock. Use it directly for the
-countdown rather than computing from `slowModeSeconds` locally — the two drift.
+countdown rather than computing from `slowModeSeconds` locally - the two drift.
 
 ### What the client should do
 
@@ -43,7 +43,7 @@ as the fallback for when local state was wrong (another device, a clock differen
 - Any member with `ManageChannel` or `ManageAnyThread` in that channel.
 
 The server decides this; the client can't compute it from the channel alone. If you want to skip
-the composer cooldown for moderators, check those permissions — but a wrong guess only costs a
+the composer cooldown for moderators, check those permissions - but a wrong guess only costs a
 recoverable 429, so erring toward showing the cooldown is safe.
 
 ### Ordering note
@@ -63,7 +63,7 @@ not remove another member's message at all, through any endpoint. It now allows 
 anyone with `DeleteAnyMessage` in that channel.
 
 No request change. But the client should now show "Delete" in the message context menu for
-moderators, not just authors — that option previously would have 403'd.
+moderators, not just authors - that option previously would have 403'd.
 
 DMs are unchanged: no channel means no permission to check, so author-only still applies.
 
@@ -82,25 +82,25 @@ Requires `DeleteAnyMessage`. Max **100** ids per call; over that is a `400`.
 ```
 
 **Check `deleted` against what you sent.** Ids that don't exist, or that belong to a different
-channel, are silently skipped — the permission check covered one channel, so ids from elsewhere
+channel, are silently skipped - the permission check covered one channel, so ids from elsewhere
 are not acted on. A partial result is normal and not an error; reconcile your local state against
 the returned `messageIds` rather than assuming everything you asked for went.
 
-Every id must be in `channelId`. Mixed-channel batches are not supported — split them.
+Every id must be in `channelId`. Mixed-channel batches are not supported - split them.
 
 ### Realtime
 
 Two events fire for a bulk delete, and you want the aggregate one:
 
 ```js
-// One per message — the same event a single delete has always emitted.
+// One per message - the same event a single delete has always emitted.
 connection.on("guild.MessageDeleted", ({ messageId, channelId }) => { ... })
 
 // One per bulk call. Prefer this: it removes a whole range in a single UI update.
 connection.on("guild.MessagesBulkDeleted", ({ guildId, channelId, messageIds, actorUserId }) => { ... })
 ```
 
-If you handle both, deduplicate — every id appears in both. Handling only the aggregate is fine
+If you handle both, deduplicate - every id appears in both. Handling only the aggregate is fine
 and simpler.
 
 ---
@@ -146,7 +146,7 @@ If no cursor is supplied the old path runs unchanged, so migration can be per-ca
 
 ### Stale cursors
 
-An anchor that doesn't exist — deleted message, wrong channel — returns an **empty array**, not an
+An anchor that doesn't exist - deleted message, wrong channel - returns an **empty array**, not an
 error. Treat empty-with-a-cursor as "your cursor is stale, re-fetch from the top" rather than
 "you've reached the end".
 

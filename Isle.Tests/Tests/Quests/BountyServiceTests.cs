@@ -374,7 +374,7 @@ public class BountyServiceTests
     [Test]
     public async Task TryResolveOnDeath_LastAttackerBelowParticipationThreshold_StillCountsAsAPlayerKill()
     {
-        // LastAttackerAsync deliberately ignores MinDamageForParticipation — a nibble that finished off
+        // LastAttackerAsync deliberately ignores MinDamageForParticipation - a nibble that finished off
         // an already-wounded target still makes the death a player kill, not a natural-causes one.
         await AddBountyTemplateAsync();
         var target = await AddPlayerAsync("steam_target");

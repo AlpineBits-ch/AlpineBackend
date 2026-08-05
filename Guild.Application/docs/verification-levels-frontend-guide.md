@@ -1,11 +1,11 @@
-# Guild verification levels — frontend integration guide
+# Guild verification levels - frontend integration guide
 
 Backend support for gating who can join a guild based on how established their account is (mirrors
 Discord's verification levels) is done and live. **v1 gates joining only** - it does not restrict
 already-joined members from sending messages, and there's no periodic re-check. See Known
 limitations.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly.
 
 ## Levels

@@ -18,7 +18,7 @@ public sealed class QuestDirector(
     RegionMap regions,
     ILogger<QuestDirector> logger)
 {
-    /// <summary>Instances allowed to be open at once (bounties excluded — they are targeted, not placed).</summary>
+    /// <summary>Instances allowed to be open at once (bounties excluded - they are targeted, not placed).</summary>
     public const int MaxConcurrentQuests = 2;
 
     /// <summary>A region used by one of the last N spawns is penalised, so quests do not pile into one corner.</summary>

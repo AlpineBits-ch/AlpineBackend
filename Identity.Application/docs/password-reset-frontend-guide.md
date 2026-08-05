@@ -1,17 +1,17 @@
-# Password reset — frontend integration guide
+# Password reset - frontend integration guide
 
 Backend support for a "forgot password" flow is done and live. It mirrors the existing
 email-verification-code flow exactly - same short-code-over-email UX, different cache key and
 email template, so if you've already built a code-entry screen for signup verification, this is
 largely the same component with different copy.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call the
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call the
 Identity microservice directly.
 
 ## Flow
 
 1. User enters their email/username on a "Forgot password?" screen.
-2. `GET https://api.venta.gg/api/v1/identity/user/request-password-reset?email={email}` — always
+2. `GET https://api.venta.gg/api/v1/identity/user/request-password-reset?email={email}` - always
    returns `202 Accepted`, whether or not that email/username has an account. Don't infer
    account existence from the response; this is deliberate (avoids leaking which emails are
    registered).
@@ -25,9 +25,9 @@ Identity microservice directly.
    ```
    - `200 OK` on success - password is changed immediately, no further step needed. Prompt them to
      log in again with the new password (existing sessions are not force-logged-out by this).
-   - `400 Bad Request` with `"Invalid or expired code"` — wrong code, expired code, or unknown
+   - `400 Bad Request` with `"Invalid or expired code"` - wrong code, expired code, or unknown
      account (same message either way, again to avoid leaking account existence).
-   - `400 ValidationProblem` (standard ASP.NET shape, `errors.newPassword: string[]`) — the new
+   - `400 ValidationProblem` (standard ASP.NET shape, `errors.newPassword: string[]`) - the new
      password failed the server's password policy (length/complexity). Render these messages
      directly; they're already user-facing ("Passwords must have at least one non alphanumeric
      character.", etc.).

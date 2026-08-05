@@ -105,7 +105,7 @@ public class BountyKillHandlerTests
         await HandleAsync(player.Id, player.Id);
 
         Assert.That(await _streaks.GetAsync(player.Id), Is.EqualTo(0));
-        // The bounty on the "victim" must still be open — a self-kill claims nothing.
+        // The bounty on the "victim" must still be open - a self-kill claims nothing.
         Assert.That(await _bounties.FindOpenBountyAsync(player.Id), Is.Not.Null);
     }
 

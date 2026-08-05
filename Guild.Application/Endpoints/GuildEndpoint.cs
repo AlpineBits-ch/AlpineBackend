@@ -86,7 +86,7 @@ public class GuildEndpoint
         var guild = await ctx.Guilds.FirstOrDefaultAsync(g => g.Id == id);
         if (guild is null) return Results.NotFound();
 
-        // Only the owner may delete the guild — matches Discord (no delegated "ManageGuild"
+        // Only the owner may delete the guild - matches Discord (no delegated "ManageGuild"
         // holder can do this, since it's irreversible and destroys everyone's data).
         if (guild.OwnerId != userId) return Results.Forbid();
 
@@ -99,8 +99,8 @@ public class GuildEndpoint
         ctx.Guilds.Remove(guild);
         await ctx.SaveChangesAsync();
 
-        // Resolved from the DB (not presence), so any client currently connected —
-        // even idle/backgrounded — gets the eviction event immediately.
+        // Resolved from the DB (not presence), so any client currently connected -
+        // even idle/backgrounded - gets the eviction event immediately.
         await hub.Clients.Users(memberUserIds).SendAsync("guild.GuildDeleted", new { GuildId = id });
 
         return Results.NoContent();

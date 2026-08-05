@@ -8,7 +8,7 @@ namespace Isle.Tests.Tests.Services.Hosted;
 /// <summary>
 /// <see cref="QuestDirectorService"/> is a thin dispatcher: every tick it unconditionally opens a
 /// DI scope and delegates straight to <c>QuestCompletionService</c>, <c>BountyService</c>,
-/// <c>QuestDirector</c> and <c>QuestSpawner</c> — each already has its own dedicated test fixture
+/// <c>QuestDirector</c> and <c>QuestSpawner</c> - each already has its own dedicated test fixture
 /// (QuestCompletionServiceTests, BountyServiceTests, QuestDirectorTests) covering the real decision
 /// logic.
 /// </summary>

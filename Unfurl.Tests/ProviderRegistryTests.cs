@@ -17,6 +17,7 @@ public class ProviderRegistryTests
     [TestCase("https://www.youtube.com/shorts/dQw4w9WgXcQ")]
     [TestCase("https://www.youtube.com/live/dQw4w9WgXcQ")]
     [TestCase("https://www.youtube.com/embed/dQw4w9WgXcQ")]
+    [TestCase("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ")]
     public void Match_YouTubeUrlForms_AllResolveToTheSamePlayer(string url)
     {
         var match = ProviderRegistry.Match(new Uri(url));
@@ -26,8 +27,25 @@ public class ProviderRegistryTests
         {
             Assert.That(match!.ProviderName, Is.EqualTo("YouTube"));
             Assert.That(match.EmbedType, Is.EqualTo(EmbedTypes.Video));
-            Assert.That(match.PlayerUrl, Is.EqualTo("https://www.youtube.com/embed/dQw4w9WgXcQ"));
+            Assert.That(match.PlayerUrl, Is.EqualTo("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
             Assert.That(match.ThumbnailUrl, Does.Contain("dQw4w9WgXcQ"));
+        });
+    }
+
+    /// <summary>The player must stay on the no-cookie host.</summary>
+    [Test]
+    public void Match_YouTube_PlayerIsOnTheNoCookieHost()
+    {
+        var match = ProviderRegistry.Match(new Uri("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+
+        Assert.Multiple(() =>
+        {
+            // Exactly "www.youtube-nocookie.com".
+            Assert.That(new Uri(match!.PlayerUrl).Host, Is.EqualTo("www.youtube-nocookie.com"));
+
+            // The card's "open on YouTube" affordance still points at the real site - only the
+            // embedded frame moves.
+            Assert.That(match.ProviderUrl, Is.EqualTo("https://www.youtube.com"));
         });
     }
 
@@ -158,7 +176,8 @@ public class ProviderRegistryTests
 
         var allowedHosts = new[]
         {
-            "www.youtube.com", "player.vimeo.com", "player.twitch.tv", "clips.twitch.tv", "open.spotify.com",
+            "www.youtube-nocookie.com", "player.vimeo.com", "player.twitch.tv", "clips.twitch.tv",
+            "open.spotify.com",
         };
 
         foreach (var sample in samples)

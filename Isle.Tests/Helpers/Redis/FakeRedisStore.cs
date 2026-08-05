@@ -4,7 +4,7 @@ namespace Isle.Tests.Helpers.Redis;
 
 /// <summary>
 /// In-memory backing store shared by <see cref="FakeRedisDatabase"/> and its batch, so a batched write
-/// is visible immediately to the same fake "connection" — real enough for the ledgers under test, which
+/// is visible immediately to the same fake "connection" - real enough for the ledgers under test, which
 /// never rely on genuine pipelining/atomicity, only on the end state after <c>await Task.WhenAll(...)</c>.
 /// </summary>
 internal sealed class FakeRedisStore
@@ -14,7 +14,7 @@ internal sealed class FakeRedisStore
     public ConcurrentDictionary<string, ConcurrentDictionary<string, double>> SortedSets { get; } = new();
     public ConcurrentDictionary<string, ConcurrentDictionary<string, bool>> Sets { get; } = new();
 
-    // TTLs are tracked but never actually expire anything in tests — nothing under test asserts on
+    // TTLs are tracked but never actually expire anything in tests - nothing under test asserts on
     // expiry timing, only that an expire call was issued without throwing.
     public ConcurrentDictionary<string, TimeSpan> Expirations { get; } = new();
 

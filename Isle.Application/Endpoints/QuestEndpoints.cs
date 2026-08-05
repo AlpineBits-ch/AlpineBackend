@@ -83,7 +83,7 @@ public static class QuestEndpoints
         return instances.Select(Project).ToList();
     }
 
-    /// <summary>The region table with live headcounts — the data a map overlay needs.</summary>
+    /// <summary>The region table with live headcounts - the data a map overlay needs.</summary>
     [WolverineGet("/api/v1/world/regions")]
     public static IReadOnlyList<MapRegionDto> Regions(
         [NotBody] RegionMap regions, [NotBody] PopulationHeatmap heatmap) =>

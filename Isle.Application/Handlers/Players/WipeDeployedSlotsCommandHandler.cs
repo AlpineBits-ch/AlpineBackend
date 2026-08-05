@@ -8,7 +8,7 @@ namespace Isle.Api.Handlers.Players;
 public class WipeDeployedSlotsCommandHandler(MicroserviceContext context, ILogger<WipeDeployedSlotsCommandHandler> logger)
 {
     /// <summary>
-    /// A dino tied to a deployed storage slot just died — issue the wipe so the slot frees up for a
+    /// A dino tied to a deployed storage slot just died - issue the wipe so the slot frees up for a
     /// new dino.
     /// </summary>
     public static WipeDeployedSlotsCommand Handle(UserDiedOnIsleServerEvent @event) =>

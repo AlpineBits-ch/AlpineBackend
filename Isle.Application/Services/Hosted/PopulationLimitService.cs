@@ -62,7 +62,7 @@ public sealed class PopulationLimitService(
             counts[species] = counts.GetValueOrDefault(species) + 1;
         }
 
-        // Build against the FULL roster, not just the species that have a configured cap —
+        // Build against the FULL roster, not just the species that have a configured cap -
         // UpdatePlayables is authoritative: anything we don't include is implicitly disabled.
         var desired = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         foreach (var species in Species.All)

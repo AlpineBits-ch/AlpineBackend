@@ -1,5 +1,5 @@
 /**
- * A2 — Idle Connection Sustain
+ * A2 - Idle Connection Sustain
  *
  * Holds USER_COUNT concurrent SignalR connections for 10 minutes with periodic
  * VoiceHeartbeat calls. Reveals:
@@ -22,7 +22,7 @@ import { wsConnectFailRate, wsUnexpectedDisconnects } from '../lib/metrics.js';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
 const USER_COUNT = parseInt(__ENV.TEST_USER_COUNT || '1000', 10);
 const SUSTAIN_MS = parseInt(__ENV.SUSTAIN_MS || `${10 * 60 * 1000}`, 10); // 10 min default
-const HEARTBEAT_INTERVAL_MS = 30_000; // every 30s — well within the 90s TTL
+const HEARTBEAT_INTERVAL_MS = 30_000; // every 30s - well within the 90s TTL
 
 export const options = {
   scenarios: {
@@ -70,7 +70,7 @@ export default function (data) {
         try {
           socket.send(invokeFrame('VoiceHeartbeat', []));
         } catch {
-          // Socket may have closed — setInterval callback fires async
+          // Socket may have closed - setInterval callback fires async
         }
       }, HEARTBEAT_INTERVAL_MS);
     },

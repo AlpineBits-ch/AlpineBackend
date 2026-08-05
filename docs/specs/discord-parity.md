@@ -1,10 +1,10 @@
-# Discord Parity Assessment — venta.gg backend
+# Discord Parity Assessment - venta.gg backend
 
 Snapshot taken 2026-07-30 against `main` (`c1c3f39`). Scope: this repository only (backend).
 Client-side behaviour is out of scope except where the backend cannot support it.
 
 Every claim below is anchored to a file. "Missing" means no domain field, no endpoint, and no
-handler — not "not exposed yet".
+handler - not "not exposed yet".
 
 ---
 
@@ -22,12 +22,12 @@ handler — not "not exposed yet".
 | Read state & typing | **On par** |
 | Voice channels & 1:1 calls | **On par** for core; missing Discord's voice knobs |
 | Onboarding / welcome screen / rules | **On par** |
-| Scheduled events, templates, emojis | **Enhance** — shallow versions |
-| AutoMod | **Enhance** — 2 rules vs Discord's 6 trigger types |
-| Webhooks | **Enhance** — executable, but auth-gated and tokenless so no external integration can call it |
-| Search | **Enhance** — single-channel, no filters |
-| Bot platform | **Enhance** — commands only, no components |
-| Presence / activities | **Missing** — status enum only |
+| Scheduled events, templates, emojis | **Enhance** - shallow versions |
+| AutoMod | **Enhance** - 2 rules vs Discord's 6 trigger types |
+| Webhooks | **Enhance** - executable, but auth-gated and tokenless so no external integration can call it |
+| Search | **Enhance** - single-channel, no filters |
+| Bot platform | **Enhance** - commands only, no components |
+| Presence / activities | **Missing** - status enum only |
 | Notification settings | **Missing** entirely |
 | Polls, stickers, soundboard, stage | **Missing** entirely |
 | Message components (buttons/menus/modals) | **Missing** entirely |
@@ -48,7 +48,7 @@ Text, Voice, Forum, Media, Announcement, Thread (`Guild.Domain/Enums/ChannelType
 resolution Discord uses: `@everyone` role → role union → guild-level member allow/deny
 (`GuildMember.AllowPermissions`/`DenyPermissions`) → category overwrite → channel overwrite.
 Role hierarchy is enforced by position comparison with the owner short-circuited to
-`int.MaxValue` (`GuildPermissionService.GetHighestRolePositionAsync`, lines 561–614). Results
+`int.MaxValue` (`GuildPermissionService.GetHighestRolePositionAsync`, lines 561-614). Results
 are cached per guild/channel/user in Redis with targeted invalidation.
 
 **Moderation.** Ban/unban with reason, kick, timeout (`GuildMember.MutedUntil`, which strips
@@ -67,10 +67,10 @@ stored as JSON, and system messages with randomized localized variants
 
 **Threads & forums.** Threads under Text and Forum parents, archive/lock/pin, tag vocabulary
 with `RequireTag`, forum config (layout, sort order, default slowmode), keyset paging, and a
-periodic auto-archive sweep with a snapshotted window (`Channel.AutoArchiveMinutes` — the
+periodic auto-archive sweep with a snapshotted window (`Channel.AutoArchiveMinutes` - the
 comment there correctly explains why deriving it would drift).
 
-**Announcements.** Channel follows plus `POST /messaging/{messageId}/publish` — Discord's
+**Announcements.** Channel follows plus `POST /messaging/{messageId}/publish` - Discord's
 crosspost model, implemented.
 
 **Voice.** Cloudflare SFU-backed guild voice with self/server mute, self/server deafen, move
@@ -83,27 +83,27 @@ multi-device takeover, and CallKit/VoIP + FCM push.
 
 **Bot platform basics.** A Discord-wire-compatible gateway (`/api/discord/v10/gateway`), REST
 v10 subset, OAuth2 authorize/install, slash command registration (global + guild), and
-interaction callback/followup. Real `discord.js` clients connect — the payload classes carry
+interaction callback/followup. Real `discord.js` clients connect - the payload classes carry
 notes on the exact fields discord.js dereferences unconditionally.
 
 ---
 
-## 3. Must be enhanced — exists but is shallow or non-functional
+## 3. Must be enhanced - exists but is shallow or non-functional
 
-### 3.1 Webhooks are not reachable by external integrations — highest-value gap
+### 3.1 Webhooks are not reachable by external integrations - highest-value gap
 
-There *is* an execute endpoint — `POST /api/v1/webhooks/{webhookId}`
+There *is* an execute endpoint - `POST /api/v1/webhooks/{webhookId}`
 (`Guild.Application/Endpoints/WebhookEndpoint.cs:88`), which posts via `CreateMessageCommand`
 with `AuthorIdType.Webhook`. But it is unusable for the case webhooks exist to serve:
 
 - **It sits under the class-level `[Authorize]`**, so it requires a logged-in venta user. GitHub,
   Grafana, CI and every status-page integration have no account and cannot call it.
 - **`WebhookConfig` has no token.** The webhook id alone is the only identifier, and it is handed
-  out in the management list response — there is no credential to give an external system.
+  out in the management list response - there is no credential to give an external system.
 - **The path and body are venta-specific.** Discord integrations post to `/api/webhooks/{id}/{token}`;
   nothing existing points at this shape.
 - **Embeds are accepted and dropped.** `WebhookRequestDto.Embeds` is populated by the caller and
-  never read — the handler sets `Content` only, so rich payloads arrive blank.
+  never read - the handler sets `Content` only, so rich payloads arrive blank.
 - `AuthorId` is set to the caller-supplied `UserName` string rather than the webhook id, so the
   message author is an unresolvable free-text value.
 
@@ -111,7 +111,7 @@ Also missing: avatar override per execution, webhook types (`Guild.Domain/Enums/
 exists but `WebhookConfig` has no `Type` field), and `ManageWebhooks` as a permission (it
 currently reuses `ManageChannel`).
 
-### 3.2 Message components — bots cannot build UIs
+### 3.2 Message components - bots cannot build UIs
 
 `InteractionPayload.Type` is hardcoded to `2` (APPLICATION_COMMAND) and the file states
 "no components/autocomplete, per the slash commands only v1 scope decision". Missing: buttons,
@@ -121,14 +121,14 @@ component-driven; commands-only support caps the ecosystem hard.
 
 ### 3.3 Ephemeral responses are accepted and silently ignored
 
-`InteractionResponseDataPayload.Flags` documents flag 64 as "accepted but not enforced in v1 —
+`InteractionResponseDataPayload.Flags` documents flag 64 as "accepted but not enforced in v1 -
 posts as a normal channel message". Every bot that replies "only you can see this" leaks into the
 channel. This needs a per-recipient message visibility concept in Messaging, not just a flag.
 
 ### 3.4 Slowmode is stored but never enforced
 
 `Channel.SlowModeSeconds` is settable, imported from Discord (`RateLimitPerUser`), seeded onto
-forum posts from `ForumConfig.DefaultThreadSlowModeSeconds`, and returned in DTOs — but grepping
+forum posts from `ForumConfig.DefaultThreadSlowModeSeconds`, and returned in DTOs - but grepping
 the whole solution finds no read of it on the send path. `MessagingEndpoints.CreateMessage`
 checks permissions and automod, never slowmode. Currently a no-op setting.
 
@@ -143,13 +143,13 @@ Any member of any guild can ping everyone. This is an abuse vector, not just a p
 `GuildAutoModConfig` = blocked word list + messages-per-interval. Discord has six trigger types
 (keyword, regex, spam, keyword-preset, mention-spam, member-profile), multiple actions per rule
 (block / timeout / alert-channel), and exempt roles and channels. There is no rule collection at
-all here — one config row per guild, no exemptions, so moderators are caught by their own filter.
+all here - one config row per guild, no exemptions, so moderators are caught by their own filter.
 
 ### 3.7 Message pagination is offset-based
 
 `MessagingController.NormalizePaging` takes `offset`/`limit`. Discord uses `before`/`after`/
 `around` message-id cursors. Offset paging over Scylla drifts as messages arrive, and `around`
-is what "jump to message" and permalink navigation need — neither is expressible today.
+is what "jump to message" and permalink navigation need - neither is expressible today.
 
 ### 3.8 Search is single-scope
 
@@ -165,14 +165,14 @@ regardless of what it asked for. Also: no RESUME (session replay) and `shards` i
 
 ### 3.10 Thin implementations
 
-- **Scheduled events** — no recurrence, no cover image, no entity-type distinction beyond
+- **Scheduled events** - no recurrence, no cover image, no entity-type distinction beyond
   location-vs-voice-channel, RSVP is interested-only (no yes/maybe/no).
-- **Emojis** — create/list/delete only, no rename; no role-restricted emoji; no
+- **Emojis** - create/list/delete only, no rename; no role-restricted emoji; no
   `UseExternalEmojis` permission.
-- **Bans** — no message purge on ban (Discord's `delete_message_seconds`), no temporary bans.
-- **Audit log** — `Metadata` is a free-form JSON blob; there's no structured old/new change set,
+- **Bans** - no message purge on ban (Discord's `delete_message_seconds`), no temporary bans.
+- **Audit log** - `Metadata` is a free-form JSON blob; there's no structured old/new change set,
   and no reason header propagated from the acting request.
-- **Group DMs** — `POST /conversations` creates, `DELETE` removes; there is no add-member,
+- **Group DMs** - `POST /conversations` creates, `DELETE` removes; there is no add-member,
   remove-member, leave, rename, or icon. Additionally members must all be friends
   (`ConversationEndpoints.cs`, the `befriendedUserIds` check), which is stricter than Discord and
   blocks the normal "add a stranger from the game to the group" flow.
@@ -181,7 +181,7 @@ regardless of what it asked for. Also: no RESUME (session replay) and `shards` i
 
 ## 4. Missing entirely
 
-### 4.1 Notification settings — the largest product-level hole
+### 4.1 Notification settings - the largest product-level hole
 
 There is no per-guild or per-channel notification level (all messages / only mentions / nothing),
 no mute-with-duration, no suppress-`@everyone`, no suppress-role-mentions, no mobile-push
@@ -227,12 +227,12 @@ Present enum covers the essentials, but Discord additionally has, and this doesn
 `CreatePrivateThreads` (only a single `CreateThreads`), `ViewGuildInsights`,
 `ManageGuildExpressions`.
 
-Bits 50–62 are free, so this is additive — but each unused bit is a check that currently
+Bits 50-62 are free, so this is additive - but each unused bit is a check that currently
 resolves to a coarser permission than an admin expects.
 
 ### 4.6 Nicknames
 
-`GuildMember.Nickname` is `init`-only and there is no endpoint to change it — not for yourself,
+`GuildMember.Nickname` is `init`-only and there is no endpoint to change it - not for yourself,
 not for a moderator changing someone else's. It's set at join from the profile username and
 frozen. Per-guild avatars and banners don't exist either.
 
@@ -245,7 +245,7 @@ roles / role connections. `Role` is name + description + color + position + perm
 
 Only public threads exist. No `ThreadMember` list, no join/leave/add/remove thread, no thread
 member count, no "invitable" flag. `Channel.cs` documents that threads resolve permissions
-identically to the parent — correct for public threads, but it means private threads can't be
+identically to the parent - correct for public threads, but it means private threads can't be
 layered on without a new resolution path.
 
 ### 4.9 Guild-level settings and assets
@@ -258,20 +258,20 @@ rules-channel and public-updates-channel designation, system channel flags, vani
 ### 4.10 Discovery and client organization
 
 No server discovery/browse directory, no vanity invite URLs, no guild widget, no guild insights.
-No guild folders or client-side guild ordering — conversations have `ReorderConversationsDto`,
+No guild folders or client-side guild ordering - conversations have `ReorderConversationsDto`,
 guilds have no equivalent.
 
 ### 4.11 Member management at scale
 
 No prune / inactive-member cleanup. No member-list gateway streaming (Discord's lazy
-`GUILD_MEMBERS` chunking) — `GET /guilds/{id}/members` is a plain paged list, which will not hold
+`GUILD_MEMBERS` chunking) - `GET /guilds/{id}/members` is a plain paged list, which will not hold
 up on a 50k-member guild.
 
 ### 4.12 Deliberate non-goals (listed for completeness)
 
 Boosts, Nitro/premium tiers, entitlements/SKUs, monetization, and shops. `InteractionPayload`
 already hardcodes `entitlements: []` with a note that the project has no monetization concept.
-Not a defect — but note that Discord ties several *functional* limits to boost level (emoji
+Not a defect - but note that Discord ties several *functional* limits to boost level (emoji
 slots, upload size, audio bitrate), so an equivalent tiering mechanism may be wanted eventually.
 
 ---
@@ -280,19 +280,19 @@ slots, upload size, audio bitrate), so an equivalent tiering mechanism may be wa
 
 Worth stating explicitly, because parity work shouldn't erode these.
 
-- **End-to-end encryption** — MLS groups with device key packages, epochs, pending welcomes, and
+- **End-to-end encryption** - MLS groups with device key packages, epochs, pending welcomes, and
   per-device key management (`Identity.Domain`, `Conversation.MlsGroupId`/`MlsEpoch`). Discord
   has nothing comparable.
-- **Federation** — instance handshake, canonical-ID/shadow-entity materialization, event
+- **Federation** - instance handshake, canonical-ID/shadow-entity materialization, event
   backfill, defederation (`Federation.*`).
-- **Wiki** — full page/category/revision model with 9 dedicated permission bits.
-- **Guild kinds & feature modules** — `GuildKind` × `GuildFeatures` lets one product serve
+- **Wiki** - full page/category/revision model with 9 dedicated permission bits.
+- **Guild kinds & feature modules** - `GuildKind` × `GuildFeatures` lets one product serve
   communities, households, teams, study groups and events with per-guild module gating.
-- **Household modules** — lists, chores with rotation, shared ledger with settlement suggestions,
+- **Household modules** - lists, chores with rotation, shared ledger with settlement suggestions,
   pantry with expiry, consent-based decisions. Modeled as channel types so they inherit
   permissions, ordering and unread state for free.
-- **Self-hosting** — AGPL, Docker Compose, no cloud dependency for the core path.
-- **Auth breadth** — QR login, Steam OpenID, MFA with recovery codes, multi-device sessions.
+- **Self-hosting** - AGPL, Docker Compose, no cloud dependency for the core path.
+- **Auth breadth** - QR login, Steam OpenID, MFA with recovery codes, multi-device sessions.
 
 ---
 
@@ -300,25 +300,25 @@ Worth stating explicitly, because parity work shouldn't erode these.
 
 Ranked by (user-visible impact) × (effort), highest value first.
 
-**Tier 1 — correctness and abuse, do first (small changes, real exposure)**
+**Tier 1 - correctness and abuse, do first (small changes, real exposure)**
 1. Gate `@everyone`/`@here` behind a new `MentionEveryone` permission (§3.5).
 2. Enforce `SlowModeSeconds` on the send path (§3.4).
 3. Add `ManageRoles` and `ManageWebhooks` as distinct bits (§4.5).
 
-**Tier 2 — unblocks whole product areas**
+**Tier 2 - unblocks whole product areas**
 4. Notification settings: per-guild/per-channel level + mute, wired into push (§4.1).
 5. Webhook tokens + an anonymous, Discord-shaped execute path (§3.1).
 6. Nickname endpoints + `ChangeNickname`/`ManageNicknames` (§4.6).
 7. Bulk message delete (§4.3).
 
-**Tier 3 — ecosystem and scale**
+**Tier 3 - ecosystem and scale**
 8. Message components: buttons, select menus, modals, autocomplete (§3.2).
 9. Ephemeral message visibility (§3.3).
 10. Cursor pagination (`before`/`after`/`around`) for messages (§3.7).
 11. Gateway intent filtering + RESUME (§3.9).
 12. Guild-wide search with filters (§3.8).
 
-**Tier 4 — feature breadth**
+**Tier 4 - feature breadth**
 13. AutoMod rule collections with exemptions (§3.6).
 14. Presence: custom status, then activities (§4.2).
 15. Role hoist/mentionable/icons (§4.7).

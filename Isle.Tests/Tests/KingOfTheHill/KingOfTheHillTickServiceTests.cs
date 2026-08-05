@@ -80,7 +80,7 @@ public class KingOfTheHillTickServiceTests
 
         // Simulate the holder having already held the zone alone for longer than the win threshold by
         // ticking repeatedly isn't practical in real time, so seed the ledger directly via many ticks
-        // isn't either — instead drive it through the public surface with a stale first tick and confirm
+        // isn't either - instead drive it through the public surface with a stale first tick and confirm
         // the streak accumulates monotonically towards the threshold rather than asserting the full
         // 3 minutes here (covered by KingOfTheHillControlLedgerTests's streak tests instead).
         await _tick.TickAsync(_instance);
@@ -105,7 +105,7 @@ public class KingOfTheHillTickServiceTests
     [Test]
     public async Task TickAsync_PlayerExactlyOnTheZoneRadius_CountsAsInside()
     {
-        // Definition's zone is centered on ZoneCenter with radius 500 — a point exactly 500 units out
+        // Definition's zone is centered on ZoneCenter with radius 500 - a point exactly 500 units out
         // is the Contains boundary case (<=), and the tick service must agree with GeoFenceData on it.
         _roster.Replace([Entry("steam_1", ZoneCenter + new Vector3(500, 0, 0))]);
 
@@ -122,7 +122,7 @@ public class KingOfTheHillTickServiceTests
         await _tick.TickAsync(_instance); // first tick: steam_1 becomes the holder
 
         // Backdate the holder's "since" timestamp past the real 3-minute threshold directly in the
-        // fake store — waiting 3 real minutes in a unit test isn't practical, and this is the one test
+        // fake store - waiting 3 real minutes in a unit test isn't practical, and this is the one test
         // that actually exercises the HeldAloneToWin branch rather than just asserting it hasn't fired yet.
         var since = DateTimeOffset.UtcNow - KingOfTheHillTickService.HeldAloneToWin - TimeSpan.FromSeconds(5);
         _store.Strings[$"isle:koth:holdersince:{_instance.InstanceId}"] = since.ToUnixTimeMilliseconds().ToString();

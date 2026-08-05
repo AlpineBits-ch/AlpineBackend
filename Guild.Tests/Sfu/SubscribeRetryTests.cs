@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Guild.Tests.Sfu;
 
 /// <summary>
-/// <see cref="CloudflareService.SubscribeTracksAsync"/> — the retry that covers the window between
+/// <see cref="CloudflareService.SubscribeTracksAsync"/> - the retry that covers the window between
 /// a publisher being announced and that publisher actually sending.
 /// </summary>
 [TestFixture]

@@ -23,7 +23,7 @@ internal sealed class ChatAutoMockServiceProvider : IServiceProvider, IServiceSc
     public IServiceScope CreateScope() => this;
     public void Dispose()
     {
-        // Nothing owns real resources here — overrides that need disposal are torn down by the test.
+        // Nothing owns real resources here - overrides that need disposal are torn down by the test.
     }
 
     public object? GetService(Type serviceType)

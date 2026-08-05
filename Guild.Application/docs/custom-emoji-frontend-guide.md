@@ -1,4 +1,4 @@
-# Custom guild emoji — frontend integration guide
+# Custom guild emoji - frontend integration guide
 
 Backend support for per-guild custom emoji, usable as message reactions, is done and live.
 Custom emoji in message *content* (inline `:pepega:` rendering while typing) is not part of this
@@ -6,7 +6,7 @@ pass - see Known limitations.
 
 ## Managing a guild's emoji
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly. Guild endpoints sit behind the gateway's `/api/v1/guild/**` prefix,
 Messaging endpoints behind `/api/v1/messaging/**` - both shown in full below.
 

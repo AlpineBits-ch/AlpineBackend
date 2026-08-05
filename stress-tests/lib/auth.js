@@ -4,7 +4,7 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
 const CLIENT_ID = __ENV.CLIENT_ID || 'echo';
 const TEST_PASSWORD = __ENV.TEST_PASSWORD || 'EchoTest1!';
 const USER_PREFIX = __ENV.USER_PREFIX || 'echotest';
-// Registration endpoint — adjust if the Identity service differs
+// Registration endpoint - adjust if the Identity service differs
 const REGISTER_URL = __ENV.REGISTER_URL || `${BASE_URL}/api/v1/identity/authentication/register`;
 
 /**
@@ -30,7 +30,7 @@ export function getToken(username, password) {
 }
 
 /**
- * Register a test user. Idempotent — 409 Conflict is treated as success.
+ * Register a test user. Idempotent - 409 Conflict is treated as success.
  * Adjust the body shape to match your Identity register endpoint.
  */
 export function registerUser(index) {

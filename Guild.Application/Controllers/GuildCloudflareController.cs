@@ -223,14 +223,14 @@ public class GuildCloudflareController(
                 {
                     logger.LogWarning(
                         "ExchangeParticipantJoined: publisher {UserId} not found in channel {ChannelId}'s cached "
-                        + "participants — their own CfSessionId never got saved", UserId, channelId);
+                        + "participants - their own CfSessionId never got saved", UserId, channelId);
                 }
             }, CacheOptions, ct);
 
         if (voiceState is null)
         {
             logger.LogWarning(
-                "ExchangeParticipantJoined: no cached ChannelVoiceState for channel {ChannelId} — {UserId}'s "
+                "ExchangeParticipantJoined: no cached ChannelVoiceState for channel {ChannelId} - {UserId}'s "
                 + "publish will notify nobody", channelId, UserId);
             return;
         }

@@ -3,7 +3,7 @@
 # At 10k users, consider switching to Redis Sentinel (3 nodes, 1 primary + 2 replicas).
 # At 100k users, use Redis Cluster (6 nodes minimum: 3 primaries + 3 replicas).
 # The SignalR backplane uses pub/sub which in Cluster mode requires all nodes
-# to subscribe to every channel — use Redis Cluster with client-side routing
+# to subscribe to every channel - use Redis Cluster with client-side routing
 # or a Redis Cluster-aware SignalR backplane library.
 #
 # Memory sizing at 1k users:
@@ -22,17 +22,17 @@ metadata:
 data:
   redis.conf: |
     # Max memory with LRU eviction for cache entries
-    # Do NOT evict pub/sub related keys — those are not cache keys
+    # Do NOT evict pub/sub related keys - those are not cache keys
     maxmemory 2gb
     maxmemory-policy allkeys-lru
 
     # Enable keyspace notifications for monitoring (optional, slight CPU cost)
     notify-keyspace-events ""
 
-    # Disable RDB persistence during load tests — reduces I/O noise
+    # Disable RDB persistence during load tests - reduces I/O noise
     save ""
 
-    # AOF off — we don't need durability for ephemeral test state
+    # AOF off - we don't need durability for ephemeral test state
     appendonly no
 
     # Tune for high-throughput

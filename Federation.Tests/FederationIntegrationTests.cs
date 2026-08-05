@@ -99,7 +99,7 @@ public class FederationIntegrationTests
         Env.Federation.PrivateKey            = _instanceAPrivateKey;
         Env.GeneralConfiguration.InstanceUrl = InstanceAHost;
 
-        // Instance B's provider — we subscribe to its received-event hook.
+        // Instance B's provider - we subscribe to its received-event hook.
         _serverBProvider = new VentaFederationProvider(new VentaDomainResolver());
         _serverBProvider.OnFederatedEventReceived += e => _received.Add(e);
 

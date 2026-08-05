@@ -1,5 +1,5 @@
 /**
- * B3 — Wolverine Inbox/Outbox Pipeline Lag
+ * B3 - Wolverine Inbox/Outbox Pipeline Lag
  *
  * Measures end-to-end latency of the Wolverine event pipeline under load:
  *   REST POST message → ScyllaDB write + Wolverine journal write (PostgreSQL)
@@ -15,12 +15,12 @@
  * increasing the visible lag.
  *
  * Two scenarios run concurrently:
- *   senders   — N VUs each posting 1 message/sec
- *   listeners — N VUs each connected to GuildHub listening for broadcasts
+ *   senders   - N VUs each posting 1 message/sec
+ *   listeners - N VUs each connected to GuildHub listening for broadcasts
  *
  * What to watch:
  *  - wolverine_pipeline_ms P95/P99: should stay under 1s at normal load
- *  - How lag grows as sender VU count doubles — should be linear on RabbitMQ,
+ *  - How lag grows as sender VU count doubles - should be linear on RabbitMQ,
  *    but if it's super-linear the bottleneck is the PostgreSQL journal
  *  - RabbitMQ queue depth for the messaging handler queue
  *

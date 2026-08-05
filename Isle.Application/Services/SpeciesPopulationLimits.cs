@@ -7,7 +7,7 @@ namespace Isle.Api.Services;
 /// </summary>
 public sealed class SpeciesPopulationLimits
 {
-    /// <summary>Sentinel cap meaning "no limit — always playable".</summary>
+    /// <summary>Sentinel cap meaning "no limit - always playable".</summary>
     public const int Unlimited = -1;
 
     /// <summary>Species short name (see <see cref="Species"/>) → max concurrent alive.</summary>

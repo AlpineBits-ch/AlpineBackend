@@ -1,4 +1,4 @@
-# RabbitMQ 3-node cluster — plain StatefulSet, no operator required.
+# RabbitMQ 3-node cluster - plain StatefulSet, no operator required.
 #
 # Peer discovery uses the official rabbitmq_peer_discovery_k8s plugin
 # which reads Endpoints from the Kubernetes API. The RBAC objects below
@@ -73,7 +73,7 @@ data:
   enabled_plugins: |
     [rabbitmq_management,rabbitmq_peer_discovery_k8s,rabbitmq_prometheus].
 ---
-# Headless service — required for DNS-based pod hostname resolution
+# Headless service - required for DNS-based pod hostname resolution
 # used by the peer discovery plugin.
 apiVersion: v1
 kind: Service

@@ -1,9 +1,9 @@
-# Message search — frontend integration guide
+# Message search - frontend integration guide
 
 Backend support for searching message history within a single channel or conversation is done and
 live. There is no cross-channel/global search in this pass - see Known limitations.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly. `messaging` legitimately appears twice in a row in the path below (gateway
 service prefix + the Messaging service's own route base) - same pre-existing quirk noted in the
 [message pinning guide](message-pinning-frontend-guide.md).

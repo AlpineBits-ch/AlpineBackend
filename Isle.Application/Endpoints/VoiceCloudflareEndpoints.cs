@@ -37,7 +37,7 @@ public class VoiceCloudflareEndpoints
             return Results.BadRequest("Join voice before opening a Cloudflare session.");
 
         // T2-19, re-checked rather than inferred from the registry entry. /voice/join is the primary
-        // gate, but a registration can outlive the consent that created it — the entry carries a 2h
+        // gate, but a registration can outlive the consent that created it - the entry carries a 2h
         // TTL and survives socket drops by design, so a revocation that lands between join and
         // session creation would otherwise be honoured only on the next join.
         if (!await consent.MayCaptureAsync(userId, ct))
@@ -101,7 +101,7 @@ public class VoiceCloudflareEndpoints
             tracks.Publish(userId, body.CfSessionId, "audio");
 
             // Seed the (re)connecting client from the warm grid state so a stationary player is
-            // placed immediately — no waiting for the next throttled stats snapshot, and no need to
+            // placed immediately - no waiting for the next throttled stats snapshot, and no need to
             // move/rejoin.
             if (cluster.TryGetPosition(userId, out var self))
                 await sfu.SendSelfPosition(userId, self.X, self.Y, self.Z, self.Yaw,

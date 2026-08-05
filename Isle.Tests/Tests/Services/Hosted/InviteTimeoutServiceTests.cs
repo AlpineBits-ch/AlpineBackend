@@ -13,7 +13,7 @@ namespace Isle.Tests.Tests.Services.Hosted;
 /// <summary>
 /// <see cref="InviteTimeoutService"/>'s loop delays for <c>Interval</c> (20s) before every tick, so
 /// a short-lived <c>StartAsync</c>/<c>StopAsync</c> lifecycle test would never actually run
-/// <c>ExpireStaleInvitesAsync</c> — it would only ever exercise the cancellation path.
+/// <c>ExpireStaleInvitesAsync</c> - it would only ever exercise the cancellation path.
 /// </summary>
 [TestFixture]
 public class InviteTimeoutServiceTests

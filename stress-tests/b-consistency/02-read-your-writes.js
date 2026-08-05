@@ -1,5 +1,5 @@
 /**
- * B2 — Read-Your-Writes Consistency (ScyllaDB)
+ * B2 - Read-Your-Writes Consistency (ScyllaDB)
  *
  * Each VU:
  *   1. POSTs a message to a channel (writes to ScyllaDB via Messaging service)
@@ -13,7 +13,7 @@
  * What to watch:
  *  - read_your_writes_misses: ideally 0. >0 means ScyllaDB is not providing
  *    read-your-writes at the configured consistency level under load.
- *  - api_response_ms for the POST and GET pair — rising latency indicates
+ *  - api_response_ms for the POST and GET pair - rising latency indicates
  *    ScyllaDB write pressure compressing read windows
  *  - Miss rate change as VU count scales: reveals consistency level vs load trade-off
  */
@@ -26,7 +26,7 @@ import { readYourWritesMisses, apiResponseMs } from '../lib/metrics.js';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
 const USER_COUNT = parseInt(__ENV.TEST_USER_COUNT || '500', 10);
 const TEST_DURATION_S = parseInt(__ENV.TEST_DURATION_S || '180', 10);
-// How many messages to fetch after write — a smaller page reduces read latency
+// How many messages to fetch after write - a smaller page reduces read latency
 // but also reduces the chance of seeing the new message in time
 const PAGE_SIZE = parseInt(__ENV.PAGE_SIZE || '20', 10);
 

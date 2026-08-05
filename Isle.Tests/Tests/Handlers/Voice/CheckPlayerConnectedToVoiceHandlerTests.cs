@@ -157,7 +157,7 @@ public class CheckPlayerConnectedToVoiceHandlerTests
     [Test]
     public async Task HandleEnsureConnected_GracePeriodExpired_NeverKicksAndKeepsReminding()
     {
-        // Kicking is currently disabled — an expired deadline just means another reminder.
+        // Kicking is currently disabled - an expired deadline just means another reminder.
         var player = await AddPlayerAsync("steam_regular");
         var @event = new EnsurePlayerConnectedToVoiceEvent
         {

@@ -17,11 +17,11 @@ public class PlayerVoiceState
     public float VelY { get; set; }
     public float VelZ { get; set; }
 
-    // Server unix time (ms) of the last position sample — the reference the client
+    // Server unix time (ms) of the last position sample - the reference the client
     // extrapolates from, and the divisor for the velocity derivation above.
     public long LastUpdateUnixMs { get; set; }
 
-    // Last position actually broadcast for spatialization — separate from
+    // Last position actually broadcast for spatialization - separate from
     // PosX/PosY above, which track raw position for cell-membership purposes.
     public float LastEmittedX { get; set; }
     public float LastEmittedY { get; set; }

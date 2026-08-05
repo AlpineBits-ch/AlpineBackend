@@ -88,7 +88,7 @@ public sealed class BountyDispatcher(
         }, KillfeedGracePeriod);
     }
 
-    /// <summary>Closes an open bounty with no payout — the target logged off, or an admin called it off.</summary>
+    /// <summary>Closes an open bounty with no payout - the target logged off, or an admin called it off.</summary>
     public async Task EndForSteamAsync(string steamId, QuestInstanceState state, CancellationToken ct)
     {
         if (await ResolvePlayerIdAsync(steamId, ct) is not { } playerId)

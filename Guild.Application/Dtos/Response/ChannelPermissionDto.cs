@@ -16,7 +16,7 @@ public partial class ChannelPermissionDto
 }
 
 /// <summary>
-/// An overwrite reduced to its scoping ids and its allow/deny masks — no Channel, Category, Role or
+/// An overwrite reduced to its scoping ids and its allow/deny masks - no Channel, Category, Role or
 /// Guild object hanging off it.
 /// </summary>
 [Facet(typeof(ChannelPermission),

@@ -192,7 +192,7 @@ public class KingOfTheHillCompletionServiceTests
         await _context.SaveChangesAsync();
 
         // Strictly decreasing solo-tick counts per player, ticked one at a time so nobody contests
-        // anybody else — deliberately never tied, so ranking never depends on the FirstCreditedAt
+        // anybody else - deliberately never tied, so ranking never depends on the FirstCreditedAt
         // tiebreak's millisecond resolution (covered on its own in KingOfTheHillControlLedgerTests).
         for (var i = 0; i < 4; i++) await _ledger.ApplyPresenceAsync(instance.InstanceId, ["steam_1"]);
         for (var i = 0; i < 3; i++) await _ledger.ApplyPresenceAsync(instance.InstanceId, ["steam_2"]);
@@ -226,7 +226,7 @@ public class KingOfTheHillCompletionServiceTests
     [Test]
     public async Task ResolveAsync_StandingWithNoRegisteredPlayerRow_IsSkippedWithoutThrowing()
     {
-        // GetStandings already filters unregistered steam ids out before PayOutAsync ever sees them —
+        // GetStandings already filters unregistered steam ids out before PayOutAsync ever sees them -
         // this exercises the fully-empty-standings path end to end rather than assuming that holds.
         var instance = await SpawnRunningMatchAsync();
         await _ledger.ApplyPresenceAsync(instance.InstanceId, ["steam_unregistered"]);

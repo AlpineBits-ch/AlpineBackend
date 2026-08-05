@@ -19,7 +19,7 @@ public sealed class PlayerPresenceManager(IConnectionMultiplexer redis, ILogger<
 
     // ---- writes (write-through to Redis) -------------------------------------------------------
 
-    /// <summary>Mark a player online (write-through) and (re)set the sliding 2h TTL. Idempotent — also used to refresh.</summary>
+    /// <summary>Mark a player online (write-through) and (re)set the sliding 2h TTL. Idempotent - also used to refresh.</summary>
     public async Task AddPlayerIdAsync(string playerId)
     {
         _playerIds[playerId] = 0;

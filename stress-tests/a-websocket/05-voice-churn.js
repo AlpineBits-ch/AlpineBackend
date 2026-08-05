@@ -1,5 +1,5 @@
 /**
- * A5 — Voice State Churn
+ * A5 - Voice State Churn
  *
  * VOICE_USERS VUs connect to GuildHub and rapidly toggle mute/deafen/camera state.
  * Each state change hits Redis (read-modify-write on the voice state hash) and

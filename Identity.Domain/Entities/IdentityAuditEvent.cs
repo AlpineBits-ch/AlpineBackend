@@ -59,6 +59,17 @@ public static class IdentityAuditActions
 
     /// <summary>An export archive was downloaded.</summary>
     public const string DataExportDownloaded = "data-export.downloaded";
+
+    /// <summary>
+    /// The account's sign-in status was changed by staff through the moderation console.
+    /// </summary>
+    public const string ModerationStatusChanged = "moderation.status-changed";
+
+    /// <summary>
+    /// The account's staff tier changed - <c>UserType</c> moved between Default, Moderator and
+    /// Admin.
+    /// </summary>
+    public const string StaffRoleChanged = "moderation.role-changed";
 }
 
 public class CreateIdentityAuditEventParams

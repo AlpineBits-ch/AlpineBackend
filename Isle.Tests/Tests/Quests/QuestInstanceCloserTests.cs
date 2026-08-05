@@ -64,7 +64,7 @@ public class QuestInstanceCloserTests
         var firstClose = await _context.TryCloseQuestAtomicallyAsync(instance, QuestInstanceState.Completed, firstPlayer.Id, CancellationToken.None);
         Assert.That(firstClose, Is.True);
 
-        // A second attempt against the same now-closed row — the conditional UPDATE matches nothing.
+        // A second attempt against the same now-closed row - the conditional UPDATE matches nothing.
         var secondClose = await _context.TryCloseQuestAtomicallyAsync(instance, QuestInstanceState.Expired, secondPlayer.Id, CancellationToken.None);
 
         Assert.That(secondClose, Is.False);

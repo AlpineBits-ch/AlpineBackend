@@ -1,5 +1,5 @@
 /**
- * A1 — Connection Ramp
+ * A1 - Connection Ramp
  *
  * Measures raw SignalR connection establishment under increasing concurrency.
  * Each VU: authenticate → negotiate → WebSocket connect → handshake → hold 5s → disconnect.
@@ -26,7 +26,7 @@ export const options = {
       startVUs: 0,
       stages: [
         { duration: '60s', target: USER_COUNT },
-        { duration: '120s', target: USER_COUNT }, // sustain — watch for steady-state failures
+        { duration: '120s', target: USER_COUNT }, // sustain - watch for steady-state failures
         { duration: '30s', target: 0 },
       ],
       gracefulRampDown: '10s',
@@ -86,7 +86,7 @@ export default function (data) {
     console.error(`Connect failed VU ${__VU}: ${e}`);
   }
 
-  // Brief pause before next iteration — simulates user think time and prevents
+  // Brief pause before next iteration - simulates user think time and prevents
   // all VUs from hammering auth simultaneously on reconnect.
   sleep(Math.random() * 2 + 1);
 }

@@ -66,7 +66,7 @@ public class ConversationPermissionServiceTests
     private static string CacheKey(string userId) =>
         "messaging:conversation-permissions:" + userId;
 
-    // ══════════════════════════════════════════════════════════════════════════ HasPermission —
+    // ══════════════════════════════════════════════════════════════════════════ HasPermission -
     // membership checks ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -172,7 +172,7 @@ public class ConversationPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // GetPermissionsForUser — guard clauses
+    // GetPermissionsForUser - guard clauses
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -190,7 +190,7 @@ public class ConversationPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // GetPermissionsForUser — database queries
+    // GetPermissionsForUser - database queries
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -242,7 +242,7 @@ public class ConversationPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // GetPermissionsForUser — caching behavior
+    // GetPermissionsForUser - caching behavior
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -379,7 +379,7 @@ public class ConversationPermissionServiceTests
         };
         _cache.SetEntry(CacheKey(UserId), JsonSerializer.Serialize(fakePerms));
 
-        // No DB rows — if HasPermission hits the DB it would return false.
+        // No DB rows - if HasPermission hits the DB it would return false.
         var result = await _service.HasPermission(UserId, "cached-conv");
 
         Assert.That(result, Is.True,

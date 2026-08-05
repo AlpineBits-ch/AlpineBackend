@@ -115,7 +115,7 @@ public class VentaFederationProviderTests
         [Test]
         public async Task ResolveServerUrl_ValidFederatedId_ReturnsUri()
         {
-            // Format: localId:domain.com — resolver prepends https://
+            // Format: localId:domain.com - resolver prepends https://
             var result = await _resolver.ResolveServerUrlAsync(
                 "channel:remote.example.com",
                 new FederationProtocolVersion("venta", 0, 1));
@@ -413,10 +413,10 @@ public class VentaFederationProviderTests
         {
             var members = new[]
             {
-                "localUser1",                           // local — no POST
-                "localUser2",                           // local — no POST
-                Id.User(Domain),                        // federated — POST
-                Id.User("other.example.com")            // federated — POST
+                "localUser1",                           // local - no POST
+                "localUser2",                           // local - no POST
+                Id.User(Domain),                        // federated - POST
+                Id.User("other.example.com")            // federated - POST
             };
 
             await _provider.CreateConversationAsync("conv-local-id", members, "usr_test:sender.example.com", default);

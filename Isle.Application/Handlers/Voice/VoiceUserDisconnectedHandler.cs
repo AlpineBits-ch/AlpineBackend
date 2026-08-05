@@ -19,11 +19,11 @@ public class VoiceUserDisconnectedHandler
         VoiceCluster cluster,
         ISfuClient sfu)
     {
-        // Skip chat-only / non-voice users — nothing to tear down.
+        // Skip chat-only / non-voice users - nothing to tear down.
         if (!registry.TryGetSteamId(message.UserId, out _))
             return;
 
-        // Not publishing (no live media to invalidate) — leave grid + registry untouched.
+        // Not publishing (no live media to invalidate) - leave grid + registry untouched.
         if (!tracks.TryGet(message.UserId, out _))
             return;
 

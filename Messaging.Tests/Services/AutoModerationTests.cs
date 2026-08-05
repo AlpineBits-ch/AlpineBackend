@@ -14,7 +14,7 @@ namespace Messaging.Tests.Services;
 public class AutoModerationTests
 {
     // ══════════════════════════════════════════════════════════════════════════
-    // ContainsBlockedWord — whole-word, case-insensitive match
+    // ContainsBlockedWord - whole-word, case-insensitive match
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -71,7 +71,7 @@ public class AutoModerationTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // IsRateLimitedAsync — fixed window per channel+user
+    // IsRateLimitedAsync - fixed window per channel+user
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -129,7 +129,7 @@ public class AutoModerationTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // CheckAsync — the bus/cache-dependent wrapper (config cache hit vs. miss)
+    // CheckAsync - the bus/cache-dependent wrapper (config cache hit vs. miss)
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]

@@ -1,9 +1,9 @@
-# Privacy & account controls — frontend integration guide
+# Privacy & account controls - frontend integration guide
 
 Everything the client needs to build against the privacy workstream (`docs/specs/privacy.md`).
 Backend is done and tested; this is the client-side work.
 
-Registration changed shape too — that has its own document,
+Registration changed shape too - that has its own document,
 [`registration-contract-change.md`](./registration-contract-change.md). Read this one first.
 
 ## Base URL and the path rule
@@ -20,7 +20,7 @@ segment **after** `/api/v1`:
 | `/api/v1/privacy-settings` (identity) | `/api/v1/identity/privacy-settings` |
 | `/api/v1/relationships` (social) | `/api/v1/social/relationships` |
 | `/api/v1/guilds/{id}/privacy` (guild) | `/api/v1/guild/guilds/{id}/privacy` |
-| `/connect/token` (identity) | `/connect/token` — pass-through, **no** service segment |
+| `/connect/token` (identity) | `/connect/token` - pass-through, **no** service segment |
 
 > Some older guides under `Guild.Application/docs/` show a doubled form like
 > `/api/v1/guild/api/v1/guilds/...`. **That is wrong and 404s.** The rule above is pinned by
@@ -28,11 +28,11 @@ segment **after** `/api/v1`:
 
 Normal `Authorization: Bearer <token>` throughout unless stated otherwise.
 
-**All enums below serialize as strings**, not integers — send `"Friends"`, not `1`.
+**All enums below serialize as strings**, not integers - send `"Friends"`, not `1`.
 
 ---
 
-## 0. Breaking changes — do these first
+## 0. Breaking changes - do these first
 
 Ordered by how loudly they fail.
 
@@ -50,7 +50,7 @@ Ordered by how loudly they fail.
 
 ---
 
-## 1. Privacy settings — the core
+## 1. Privacy settings - the core
 
 ```http
 GET   /api/v1/identity/privacy-settings
@@ -102,19 +102,19 @@ Enum values:
 
 ### PATCH semantics
 
-**Every field optional; omitted means "leave alone".** Never read-modify-write — send only what
+**Every field optional; omitted means "leave alone".** Never read-modify-write - send only what
 changed.
 
 - Unknown field → `400`
-- `dmRetentionDays: null` **is meaningful** — it clears the window (keep forever). It is not treated
+- `dmRetentionDays: null` **is meaningful** - it clears the window (keep forever). It is not treated
   as an omission.
 - `dmRetentionDays` capped at `3650`; `0` or negative → `400`
 - A PATCH whose values all equal current state is a **no-op**: no `version` bump, no event. Don't
-  use `version` changing as your "save succeeded" signal — use the `200`.
+  use `version` changing as your "save succeeded" signal - use the `200`.
 
 `version` increments on every real write. Use it to detect a change made from another device.
 
-### Minors — read this before building the settings screen
+### Minors - read this before building the settings screen
 
 Accounts under the age of majority (18 by default) have **server-enforced floors**. Six fields are
 restricted:
@@ -128,7 +128,7 @@ A PATCH violating a floor returns:
 { "code": "minor_restriction", "field": "allowPersonalization", "message": "..." }
 ```
 
-with `403`. **A mixed PATCH containing one refused field applies none of it** — it is all-or-nothing.
+with `403`. **A mixed PATCH containing one refused field applies none of it** - it is all-or-nothing.
 
 **The critical part:** floors are also **clamped on read**. A minor's `GET` returns the floored
 values, not what is stored. So a naive `GET` → toggle one thing → `PATCH` **round-trip will 403**,
@@ -148,7 +148,7 @@ DELETE /api/v1/social/relationships/{userId}/block     → 204   (idempotent)
 GET    /api/v1/social/relationships/blocked?limit=&cursor=
 ```
 
-`{userId}` is the **Identity user id** — the same id `/api/v1/social/profiles/by-user/{id}` takes.
+`{userId}` is the **Identity user id** - the same id `/api/v1/social/profiles/by-user/{id}` takes.
 
 ```json
 {
@@ -165,12 +165,12 @@ Keyset paging, default 50, max 100. A malformed cursor is `400`.
 **Semantics you must reflect in the UI:**
 
 - Blocking is **one-directional and invisible to the blocked party.** They see the same thing as
-  "not friends". Never surface "you have been blocked" — the server deliberately never tells you.
+  "not friends". Never surface "you have been blocked" - the server deliberately never tells you.
 - **Blocking an existing friend removes the friendship**, and both sides receive
   `social.FriendRemoved`. The blocked party's client must handle that as an ordinary un-friending,
   or it strands on a phantom friend.
 - Blocking cancels pending requests in either direction.
-- Unblocking **deletes** the record — the pair can befriend again afterwards.
+- Unblocking **deletes** the record - the pair can befriend again afterwards.
 
 ---
 
@@ -200,13 +200,13 @@ Body:
 | `privacy_lookup_unavailable` | **503** | Couldn't reach the policy data | **Retry.** Not a permission error. |
 
 **`blocked` is only ever returned to the blocker.** If the *recipient* blocked you, the code is
-`recipient_dm_policy` — identical to a Friends-only refusal. That is deliberate; do not try to infer
+`recipient_dm_policy` - identical to a Friends-only refusal. That is deliberate; do not try to infer
 the difference.
 
 `POST /api/v1/messaging` is a **new** refusal point for 1:1 DMs. A send that previously always
 succeeded can now `403`/`503`. Group sends are not re-evaluated.
 
-Existing conversations are not retroactively closed — a policy change governs new conversations and
+Existing conversations are not retroactively closed - a policy change governs new conversations and
 new one-to-one sends only.
 
 ---
@@ -222,7 +222,7 @@ PUT /api/v1/guild/guilds/{guildId}/privacy      { "allowDirectMessages": false }
 [{ "guildId": "gild_...", "allowDirectMessages": false, "isOverride": true, "updatedAt": "..." }]
 ```
 
-`GET` returns **stored overrides only** — guilds absent from the list are using the global
+`GET` returns **stored overrides only** - guilds absent from the list are using the global
 `directMessagePolicy`. `PUT` returns `404` if you aren't a member.
 
 This is what makes `directMessagePolicy: "FriendsAndServerMembers"` meaningful: a shared server only
@@ -230,12 +230,12 @@ admits a DM if the recipient hasn't disabled DMs *for that server*.
 
 ---
 
-## 5. Presence — `Hidden` no longer leaks
+## 5. Presence - `Hidden` no longer leaks
 
 `OnlineStatus.Hidden` (invisible) is now projected as `Offline` to **everyone except the user
 themselves**, in both member lists and `guild.PresenceChanged`.
 
-- **You** still see your own real status — your status picker keeps working.
+- **You** still see your own real status - your status picker keeps working.
 - **Others** never see `Hidden` on the wire.
 
 Any client branch handling `Hidden` for a non-self member is now dead code. `@here` already treated
@@ -263,7 +263,7 @@ DELETE /api/v1/identity/legal/consents/{documentType}
 ]
 ```
 
-Always present, never null, `[]` is normal. **Non-empty means the user must be prompted** — a new
+Always present, never null, `[]` is normal. **Non-empty means the user must be prompted** - a new
 document version was published. Registration already records consent for the then-current versions,
 so this only fires on a version bump.
 
@@ -273,7 +273,7 @@ so this only fires on a version bump.
 { "code": "consent_not_withdrawable", "deleteAccount": "...", "optionalConsents": [...] }
 ```
 
-Terms and Privacy can't be withdrawn while the account is active — the withdrawal path is account
+Terms and Privacy can't be withdrawn while the account is active - the withdrawal path is account
 deletion, and the response tells you where to send them. Optional consents (the data-use toggles in
 §1) are withdrawn by PATCHing privacy settings instead, and take effect immediately.
 
@@ -303,12 +303,12 @@ Statuses: `Pending` → `Running` → `Ready` | `Partial` | `Failed`, plus `Expi
 | Status | Download | Show |
 |---|---|---|
 | `Ready` | `302` to a signed URL | Download button |
-| `Partial` | **`302` — works** | Download button **plus** a warning naming `missingServices` |
+| `Partial` | **`302` - works** | Download button **plus** a warning naming `missingServices` |
 | `Failed` | `409` | `failureReason` |
 | `Expired` | `410` | Offer to request again |
 
 **Gate your download button on `Ready` OR `Partial`.** A client checking `status === "Ready"` hides
-a download the server would happily serve. `Partial` means some services didn't return their data —
+a download the server would happily serve. `Partial` means some services didn't return their data -
 `missingServices` lists which, and `failureReason` says the same in a sentence, so a client written
 before `Partial` existed still shows something true.
 
@@ -316,7 +316,7 @@ Other behaviour:
 
 - **One request per user per 24h** → `429` with `retryAfterSeconds` and a `Retry-After` header.
   `Failed` and `Partial` exports **don't** count against it.
-- Artifacts expire after 7 days. `expiresAt` is populated once ready — show it, don't let the user
+- Artifacts expire after 7 days. `expiresAt` is populated once ready - show it, don't let the user
   discover it on a failed download.
 - The `302` target is short-lived (~5 min). Follow it immediately; don't cache or share it.
 - Every download is audited server-side.
@@ -346,12 +346,12 @@ X-RateLimit-Limit / -Remaining / -Reset-After
 ```
 
 - **`retry_after` is fractional.** Parse as a float. An int parser breaks.
-- **`global` is `true`** — this genuinely is one bucket spanning all routes, so back off *all*
+- **`global` is `true`** - this genuinely is one bucket spanning all routes, so back off *all*
   requests, not just the one route.
 - `X-RateLimit-Limit` reflects the bucket that rejected you (100 or 40).
 
 Implement exponential backoff honouring `retry_after`. Bursts are absorbed by the reserve, but a
-cold app start across many guilds is the realistic risk — batch where you can.
+cold app start across many guilds is the realistic risk - batch where you can.
 
 ---
 
@@ -368,7 +368,7 @@ Returns `403` when the user has `allowPositionalVoiceCapture: false`:
 ```
 
 Also enforced on `/api/v1/isle/voice/cf/session` and `/api/v1/isle/voice/cf/tracks/new` (the latter
-only when publishing a local audio track — listening is unaffected).
+only when publishing a local audio track - listening is unaffected).
 
 **Revocation is immediate.** Turning the setting off mid-session tears the session down server-side:
 the user is unregistered and their published track dropped. Handle a live session ending without a
@@ -385,31 +385,31 @@ subject's visibility setting:
 { "mutualFriends": [...], "mutualServers": [...], "connections": [...], "birthday": "...", "activity": {...} }
 ```
 
-**A field you may not see is absent from the payload entirely** — not null, not empty. Code for
+**A field you may not see is absent from the payload entirely** - not null, not empty. Code for
 absence; never assume a key exists.
 
-- `mutualFriends`, `mutualServers` — live
-- `connections` — linked external accounts, `{ type, externalId, displayName?, verified }`. Steam is
+- `mutualFriends`, `mutualServers` - live
+- `connections` - linked external accounts, `{ type, externalId, displayName?, verified }`. Steam is
   the only type today; treat it as a list so more can be added.
-- `birthday`, `activity` — gates are live, but **no data source is wired yet**, so these are always
+- `birthday`, `activity` - gates are live, but **no data source is wired yet**, so these are always
   absent for now. Build for them; don't wait on them.
 
 Friend requests (`POST /api/v1/social/relationships`) refuse with `403 { "code": "friend_request_policy" }`
 for *all* of: no such user, not discoverable, they blocked you, and their policy excludes you. That
-is deliberate — do not try to distinguish them, and show one neutral message.
+is deliberate - do not try to distinguish them, and show one neutral message.
 
 ---
 
 ## Client work summary
 
-1. **Settings screen** for §1 — send only changed fields; handle `minor_restriction`; disable
+1. **Settings screen** for §1 - send only changed fields; handle `minor_restriction`; disable
    restricted controls for minors rather than letting them fail.
 2. **Block/unblock UI** + blocked list; handle `social.FriendRemoved` on the blocked side.
-3. **Refusal handling** for §3 — distinguish 403 codes from `503` (retry).
+3. **Refusal handling** for §3 - distinguish 403 codes from `503` (retry).
 4. **Per-guild DM toggle** in server settings.
 5. **Drop `Hidden` handling** for non-self members.
 6. **Consent prompt** driven by `consentRequired` on `/users/self`.
-7. **Data export screen** — poll, treat `Partial` as downloadable, surface `missingServices`.
+7. **Data export screen** - poll, treat `Partial` as downloadable, surface `missingServices`.
 8. **429 backoff** honouring fractional `retry_after` and `global`.
-9. **Registration flow** — see the separate document; `userId` is gone.
+9. **Registration flow** - see the separate document; `userId` is gone.
 10. **Optional-field absence** everywhere in §10.

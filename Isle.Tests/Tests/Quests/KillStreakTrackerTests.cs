@@ -84,7 +84,7 @@ public class KillStreakTrackerTests
     {
         await _tracker.RegisterKillAsync("player_1");
 
-        // Backdate the last-kill timestamp past the 20-minute window directly in the fake store —
+        // Backdate the last-kill timestamp past the 20-minute window directly in the fake store -
         // this is the one test that actually exercises PruneAsync's drop path, not just its absence.
         var staleSeconds = DateTimeOffset.UtcNow.Subtract(KillStreakTracker.Window).AddMinutes(-1).ToUnixTimeSeconds();
         _store.SortedSets["isle:spree:last"]["player_1"] = staleSeconds;

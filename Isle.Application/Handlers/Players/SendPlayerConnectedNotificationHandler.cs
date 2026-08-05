@@ -15,7 +15,7 @@ public class SendPlayerConnectedNotificationHandler(IHubContext<EchoRealtimeHub>
     {
         if (string.IsNullOrWhiteSpace(@event.UserId))
         {
-            logger.LogDebug("Player {PlayerId} joined with no linked account — nowhere to route the socket message",
+            logger.LogDebug("Player {PlayerId} joined with no linked account - nowhere to route the socket message",
                 @event.PlayerId);
             return;
         }

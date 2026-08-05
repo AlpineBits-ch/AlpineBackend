@@ -1,4 +1,4 @@
-# Venta Federation Protocol — Specification
+# Venta Federation Protocol - Specification
 
 Protocol identifier: `venta/v0.1`
 
@@ -41,7 +41,7 @@ contains a scheme (e.g. `https://...`) it is used as-is.
 
 Federated entities keep their **origin-assigned local ID as their identifier on both sides**.
 Echo's IDs (KSUIDs) are already globally unique for practical purposes, so there is no separate
-ID-mapping table per message/channel/user — the `<id>:<domain>` form exists only for
+ID-mapping table per message/channel/user - the `<id>:<domain>` form exists only for
 **cross-instance routing** (which host to send an event to, or which host an inbound event's
 sender came from), never as a second identity a receiver has to reconcile against a first.
 
@@ -58,13 +58,13 @@ Concretely:
   set) for the remote party, so a normal local `Relationship` row can reference it exactly like
   any other profile.
 - A federated message keeps its origin `MessageId`, but its `AuthorId` is stored in **full
-  federated form** (`<id>:<domain>`), not stripped — this is what lets a client visually
+  federated form** (`<id>:<domain>`), not stripped - this is what lets a client visually
   distinguish a remote author, and what lets outbound wiring recognize "this content already came
   from federation" (see [Split-brain and conflict resolution](#split-brain-and-conflict-resolution)).
 
 `FederatedServerId`/`OriginInstanceId` fields predate this specific implementation pass (they
 were added across `GuildMember`, `Profile`, `ConversationMember`, and `ApplicationUser` in an
-earlier, incomplete federation attempt) — this pass is what actually populates and reads them.
+earlier, incomplete federation attempt) - this pass is what actually populates and reads them.
 
 ---
 
@@ -81,7 +81,7 @@ Before two instances can exchange events they must mutually register each other.
 | `Status`             | `Pending`, `Active`, `Suspended`, `Defederated`, or `Blocked` |
 | `DefederationReason` | Optional reason string when status is Defederated   |
 
-`Host` is unique (enforced by a DB index) — nothing else about an instance disambiguates it, and
+`Host` is unique (enforced by a DB index) - nothing else about an instance disambiguates it, and
 without this a race between an inbound handshake and a concurrently-initiated outbound one could
 create two rows for the same remote host (see [Split-brain](#split-brain-and-conflict-resolution)).
 
@@ -167,11 +167,11 @@ Verification: reject the event if `IsValid(instance)` returns false.
 
 The receiver applies checks in this order:
 
-1. Deserialize body — 400 on malformed JSON
-2. Look up `payload.Host` in registered instances — 400 if unknown
-3. Check instance status is `Active` — 403 otherwise
-4. Verify Ed25519 signature — 400 on invalid signature
-5. Check `payload.ProtocolVersion == "venta/v0.1"` — exception if mismatched
+1. Deserialize body - 400 on malformed JSON
+2. Look up `payload.Host` in registered instances - 400 if unknown
+3. Check instance status is `Active` - 403 otherwise
+4. Verify Ed25519 signature - 400 on invalid signature
+5. Check `payload.ProtocolVersion == "venta/v0.1"` - exception if mismatched
 6. Pass to `IFederationProvider.HandleInboundEventAsync`
 
 ---
@@ -197,7 +197,7 @@ All events share a common base:
 | Field              | Type       | Description                                               |
 |--------------------|------------|-------------------------------------------------------------|
 | `$eventType`       | string     | JSON type discriminator (see event catalogue below)       |
-| `host`             | string     | Sender's instance URL — set automatically when signing    |
+| `host`             | string     | Sender's instance URL - set automatically when signing    |
 | `protocolVersion`  | string     | Always `"venta/v0.1"`                                     |
 | `eventId`          | string     | UUID, globally unique per event                           |
 | `previousEventIds` | string[]   | Parent event IDs in the causal DAG                        |
@@ -207,7 +207,7 @@ All events share a common base:
 | `originServerTime` | DateTime   | Wall-clock time on the sending server (informational)     |
 
 `senderId` is threaded all the way from each domain service's own "who did this" data
-(`AuthorId`, `UserId`, etc.) through `IFederationProvider`'s outbound methods — earlier versions
+(`AuthorId`, `UserId`, etc.) through `IFederationProvider`'s outbound methods - earlier versions
 of this provider never actually populated it (every outbound call left it as `""`), which this
 pass fixed. A few flows still can't supply a real actor id because the *local* domain event that
 triggers them doesn't carry one (conversation edit/delete, member-added/removed) - those go out
@@ -298,7 +298,7 @@ arrives).
 ## Outbound wiring
 
 `IFederationProvider`'s outbound methods (`SendMessageAsync`, `JoinChannelAsync`, etc.) were
-fully implemented but **never called from anywhere** before this pass — no domain service
+fully implemented but **never called from anywhere** before this pass - no domain service
 published into federation at all. Each domain now has a small `Federation.Application/Bus/Outbound/*`
 handler class subscribing to that domain's existing cross-service Wolverine bus contracts:
 
@@ -314,18 +314,18 @@ is the shared helper both Messaging and Guild's outbound handlers use for the gu
 
 ### Known outbound gaps
 
-- **Social's own "add friend" flow only supports targeting a local username today** — there is no
+- **Social's own "add friend" flow only supports targeting a local username today** - there is no
   way for a user to actually address a federated user id, so `SocialOutboundHandlers` is wired
   correctly but structurally unreachable until that UX exists. This is a `Social.Application`
   product gap, not a federation wiring one.
-- **`conversationEdited` has no local trigger** — `Messaging.Application` has no
+- **`conversationEdited` has no local trigger** - `Messaging.Application` has no
   edit/rename endpoint for conversations at all yet.
-- **Channel reactions don't fan out to Guild at all today**, federated or not — Messaging never
+- **Channel reactions don't fan out to Guild at all today**, federated or not - Messaging never
   publishes `ReactionCreatedEvent`/`RemovedEvent` for channel-scoped reactions (only DM
   conversation reactions get a realtime push). `MessagingOutboundHandlers`' reaction subscriptions
   are correct but currently unreachable for the same reason. Pre-existing gap, not introduced by
   federation wiring.
-- **`senderId` is empty for a few flows** — see the Event Structure section above.
+- **`senderId` is empty for a few flows** - see the Event Structure section above.
 
 ---
 
@@ -333,7 +333,7 @@ is the shared helper both Messaging and Guild's outbound handlers use for the gu
 
 Previously, `VentaFederationProvider.HandleInboundEventAsync` resolved the DAG correctly but the
 "ready to apply" events were published as `FederationInboundEventReady`, which **had no
-subscriber anywhere** — a successfully received and verified event was recorded and then silently
+subscriber anywhere** - a successfully received and verified event was recorded and then silently
 dropped.
 
 `InboundEventDispatcher` now turns each DAG-resolved `FederationEvent` into a typed
@@ -342,7 +342,7 @@ that are addressed to this instance, recovering the plain canonical id) and publ
 Guild/Messaging/Social.Application each have a `Bus/Federation/*MaterializationHandlers.cs`
 subscribing to their domain's commands, writing shadow rows **directly via EF/the message
 repository, bypassing the normal endpoints** (`InviteEndpoint`, `MemberEndpoint`,
-`FriendshipEndpoints`, etc.) that those endpoints would otherwise use — this is what prevents an
+`FriendshipEndpoints`, etc.) that those endpoints would otherwise use - this is what prevents an
 outbound/inbound echo loop: a federation-originated change never re-triggers the bus event its
 own domain's outbound handler subscribes to.
 
@@ -354,17 +354,17 @@ existing realtime-hub-push/bots-notification fan-out for free) is guarded explic
 content just arrived via federation and doesn't need to go back out.
 
 Materialization is idempotent by natural business key (e.g. `GuildId + UserId` already exists →
-no-op), not by `EventId` — the DAG service already deduplicates by `EventId` before a
+no-op), not by `EventId` - the DAG service already deduplicates by `EventId` before a
 materialization command is ever published, so the handlers only need to be safe against Wolverine's
 at-least-once bus delivery redelivering the same already-applied command, which a business-key
 check on unique/queryable state handles.
 
 ### Known inbound gaps
 
-- **`guildJoinRequest` has no handler** — there is no existing approval workflow for a remote user
+- **`guildJoinRequest` has no handler** - there is no existing approval workflow for a remote user
   asking to join one of our guilds (guilds are joined via invite codes only today). A real gap,
   not something to improvise an approval UX for as part of this pass.
-- **No display-name enrichment** — a materialized shadow `GuildMember`/`Profile` uses the
+- **No display-name enrichment** - a materialized shadow `GuildMember`/`Profile` uses the
   federated user id itself as a placeholder username, since none of these events carry a display
   name in-band. `IFederationProvider.GetUserProfileAsync` already exists and is wired to
   `Social.Application`'s real profile lookup - the natural next step is calling it during
@@ -380,7 +380,7 @@ Concrete gaps found during this pass, and what each one's resolution actually is
    [Backfill / recovery](#backfill--recovery) below (the alternative to losing that history).
 
 2. **Outbound delivery wasn't durable.** `VentaFederationProvider` used to fire the POST and
-   ignore the response entirely — a non-2xx (remote `Suspended`, a transient network blip, the
+   ignore the response entirely - a non-2xx (remote `Suspended`, a transient network blip, the
    remote restarting) silently dropped the event forever, even though the local DAG tip had
    already advanced, permanently orphaning that branch on the remote side. Fixed: every outbound
    `FederatedEventRecord` now tracks `Delivered`/`Attempts`/`TargetHost`, and
@@ -390,23 +390,23 @@ Concrete gaps found during this pass, and what each one's resolution actually is
 3. **Concurrent conflicting terminal state** (e.g. both instances toggle the same member's ban
    status close together, before either side's event naturally merges the branches). **Policy:**
    highest `depth` wins; ties broken by the lexicographically greatest `eventId`. This is the
-   normative rule — materialization handlers should apply it whenever a conflicting write is
+   normative rule - materialization handlers should apply it whenever a conflicting write is
    possible, rather than "whichever write physically lands last," which is a real race today.
    *Implementation note:* this pass wires the core materialization paths (idempotent create/no-op
    on existing state), but does not yet implement the depth/eventId comparison inside every
-   handler for the genuinely-conflicting-update case (e.g. simultaneous ban+unban) — that's the
+   handler for the genuinely-conflicting-update case (e.g. simultaneous ban+unban) - that's the
    next hardening step once real multi-instance traffic exercises it.
 
 4. **Duplicate `FederationInstance` rows from racing handshakes.** Fixed by a unique index on
    `Host`. Whichever handshake commits first wins; a second concurrent one for the same host is a
    constraint violation the handshake endpoint should treat as "already registered, treat as a
    re-handshake" rather than a hard failure (the current endpoint doesn't yet catch this
-   specifically — worth a follow-up if the race is observed in practice, since a unique-constraint
+   specifically - worth a follow-up if the race is observed in practice, since a unique-constraint
    violation surfacing as a raw 500 is not a great failure mode even though it can't corrupt data).
 
 5. **Status-transition precedence.** `Defederated`/`Blocked` always wins over any concurrent event
    processing. Checked both inbound (`FederationEndpoint`, pre-existing) and now outbound too
-   (`VentaFederationProvider.SendEventAsync`, new in this pass — previously there was no outbound
+   (`VentaFederationProvider.SendEventAsync`, new in this pass - previously there was no outbound
    status check at all).
 
 ---
@@ -419,7 +419,7 @@ Concrete gaps found during this pass, and what each one's resolution actually is
 - On failure (non-2xx or a thrown exception), `Attempts` increments and the record stays eligible
   for retry.
 - `FederationOutboundRetryService` (a `BackgroundService`) sweeps every 30 seconds for
-  `!Delivered && Attempts < 10`, re-signs (fresh signature each attempt — the payload, including
+  `!Delivered && Attempts < 10`, re-signs (fresh signature each attempt - the payload, including
   `EventId`/`Depth`/`PreviousEventIds`, is unchanged since those were stamped once at creation)
   and re-POSTs.
 - An event that exhausts 10 attempts stays `Delivered = false` indefinitely, visible via direct
@@ -434,13 +434,13 @@ against the event's origin host and re-run the response through its own DAG reso
 the gap without waiting on GC to drop it.
 
 Access requires the caller to be a registered `Active` instance (checked via the same
-`X-Federated-Host` header convention), not a full signature challenge — a backfill response only
+`X-Federated-Host` header convention), not a full signature challenge - a backfill response only
 re-serves events that instance already received and verified once through the normal signed path,
 so proving authenticity a second time isn't necessary, only proving the caller is a real
 federation partner and not an open scrape target.
 
-**This is the serving side only.** The receiving side — detecting "this buffered event has been
-stuck long enough, go pull its scope from `record.Host`" and actually calling this endpoint — is
+**This is the serving side only.** The receiving side - detecting "this buffered event has been
+stuck long enough, go pull its scope from `record.Host`" and actually calling this endpoint - is
 not wired up automatically yet. A real follow-up, not a hidden gap: the endpoint exists and works,
 nothing calls it proactively yet.
 
@@ -451,7 +451,7 @@ nothing calls it proactively yet.
 - **Signing**: Ed25519, per-event, over the full payload. Verified against the sender's
   registered public key on every inbound event.
 - **Replay protection**: relies on `EventId` uniqueness (a `FederatedEventRecord` with that id
-  already `Applied` is a no-op). There is no timestamp-window check — a captured, valid signed
+  already `Applied` is a no-op). There is no timestamp-window check - a captured, valid signed
   event could in principle be replayed indefinitely without one, though replaying an already-
   applied event is harmless (dedup), and any event's *DAG position* means a replayed old event
   can't retroactively change already-resolved state. A timestamp window is still worth adding as
@@ -477,7 +477,7 @@ nothing calls it proactively yet.
 ## Versioning
 
 `ProtocolVersion` is checked for exact equality (`"venta/v0.1"`) on every inbound event and at
-handshake time — there is no negotiation. A future `venta/v0.2` would need either:
+handshake time - there is no negotiation. A future `venta/v0.2` would need either:
 - A transition period where both versions are accepted and translated, or
 - A per-instance negotiated version stored alongside `FederationInstance` (established once at
   handshake, renegotiated only via a fresh handshake).

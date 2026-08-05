@@ -163,7 +163,7 @@ public class QuestCompletionServiceTests
         var instance = await SpawnAsync(QuestType.Exploration, "region_a", TimeSpan.FromMinutes(-1));
         await AddPlayerAsync("steam_visitor");
 
-        // One tick short of QuestCompletionService.RequiredPresenceTicks (2) — the dwell bar isn't cleared.
+        // One tick short of QuestCompletionService.RequiredPresenceTicks (2) - the dwell bar isn't cleared.
         await _ledger.CreditPresenceAsync(instance.Id, ["steam_visitor"]);
 
         await _service.ResolveDueQuestsAsync();

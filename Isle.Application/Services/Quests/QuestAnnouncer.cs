@@ -100,7 +100,7 @@ public sealed class QuestAnnouncer(IBridgeClient bridge, ILogger<QuestAnnouncer>
     public Task AnnounceQuestExpiredAsync(QuestInstance instance, CancellationToken ct = default) =>
         BroadcastAsync($"Quest ended: {instance.Title} went unclaimed.", ct);
 
-    /// <summary>Global chat, everyone online. Never throws — a dropped announcement must not roll back the quest that caused it.</summary>
+    /// <summary>Global chat, everyone online. Never throws - a dropped announcement must not roll back the quest that caused it.</summary>
     public async Task BroadcastAsync(string message, CancellationToken ct = default)
     {
         try

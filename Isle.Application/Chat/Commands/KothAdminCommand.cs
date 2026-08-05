@@ -26,7 +26,7 @@ public class KothAdminCommand(
         };
     }
 
-    /// <summary>!kothadmin start — bypasses the trigger gate, same as !questadmin spawn. Cooldown still applies.</summary>
+    /// <summary>!kothadmin start - bypasses the trigger gate, same as !questadmin spawn. Cooldown still applies.</summary>
     private async Task<string> StartAsync()
     {
         if (await stateStore.ReadAsync() is not null)
@@ -40,7 +40,7 @@ public class KothAdminCommand(
         return $"Started King of the Hill (instance {instance.InstanceId}).";
     }
 
-    /// <summary>!kothadmin end — cancels the running match, no payout, no history row.</summary>
+    /// <summary>!kothadmin end - cancels the running match, no payout, no history row.</summary>
     private async Task<string> EndAsync()
     {
         var cancelled = await completion.CancelAsync();

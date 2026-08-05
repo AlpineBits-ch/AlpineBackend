@@ -4,7 +4,7 @@ using StackExchange.Redis;
 namespace Isle.Api.Services.Quests;
 
 /// <summary>One player's contribution to bringing a marked target down.</summary>
-/// <param name="SteamId">The attacker, unresolved — the ledger never touches the database.</param>
+/// <param name="SteamId">The attacker, unresolved - the ledger never touches the database.</param>
 /// <param name="Damage">Total damage they dealt to the target over the life of the bounty.</param>
 /// <param name="LastHitAt">When they last connected, used to tell a kill from a coincidence.</param>
 public sealed record BountyParticipation(string SteamId, double Damage, DateTimeOffset LastHitAt);

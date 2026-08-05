@@ -113,7 +113,7 @@ public class RoleEndpoint()
         if (roles.Count != roleIds.Count)
             return Results.BadRequest("One or more roles not found in this guild.");
 
-        // Every role being repositioned must be one the actor already outranks —
+        // Every role being repositioned must be one the actor already outranks -
         // otherwise a ManagePermissions holder could reorder a role above their own.
         foreach (var roleId in roleIds)
         {

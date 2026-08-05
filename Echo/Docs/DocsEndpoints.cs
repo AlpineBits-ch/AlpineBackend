@@ -1,4 +1,5 @@
 using AppEnvironment;
+using Echo.Sites;
 using Microsoft.Extensions.FileProviders;
 
 namespace Echo.Docs;
@@ -9,55 +10,19 @@ namespace Echo.Docs;
 public static class DocsEndpoints
 {
     /// <summary>The docs hostname.</summary>
-    public static string Host =>
-        Normalise(Environment.GetEnvironmentVariable("DOCS_DOMAIN"))
-        ?? DeriveFrom(Env.GeneralConfiguration.InstanceUrl);
+    public static string Host => SiteHost.Resolve(Label, DomainVariable);
+
+    public const string Label = "docs";
+
+    public const string DomainVariable = "DOCS_DOMAIN";
 
     /// <summary>
     /// Reduces a configured value to the bare hostname the Host header will actually carry.
     /// </summary>
-    public static string? Normalise(string? configured)
-    {
-        var value = configured?.Trim();
-        if (string.IsNullOrEmpty(value)) return null;
-
-        if (value.Contains("://", StringComparison.Ordinal))
-        {
-            return Uri.TryCreate(value, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host)
-                ? uri.Host.ToLowerInvariant()
-                : null;
-        }
-
-        // Bare host, possibly with a port or a trailing slash.
-        value = value.TrimEnd('/');
-
-        var slash = value.IndexOf('/');
-        if (slash > 0) value = value[..slash];
-
-        var colon = value.LastIndexOf(':');
-        if (colon > 0 && int.TryParse(value[(colon + 1)..], out _)) value = value[..colon];
-
-        return value.Length == 0 ? null : value.ToLowerInvariant();
-    }
+    public static string? Normalise(string? configured) => SiteHost.Normalise(configured);
 
     /// <summary>Turns the instance URL into the hostname the documentation lives on.</summary>
-    public static string DeriveFrom(string? instanceUrl)
-    {
-        // A misconfigured InstanceUrl must not take the gateway down at startup.
-        if (!Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri)) return "docs.localhost";
-
-        var host = uri.Host;
-        if (host.StartsWith("docs.", StringComparison.OrdinalIgnoreCase)) return host;
-
-        var labels = host.Split('.');
-
-        // A bare registrable domain (venta.gg) or a single label (localhost) gets a prefix; an
-        // address gets one too, because there is nothing sensible to derive from it.
-        if (labels.Length < 3 || System.Net.IPAddress.TryParse(host, out _)) return $"docs.{host}";
-
-        // Already a subdomain: replace its first label. api.venta.gg -> docs.venta.gg.
-        return string.Join('.', labels.Skip(1).Prepend("docs"));
-    }
+    public static string DeriveFrom(string? instanceUrl) => SiteHost.DeriveFrom(Label, instanceUrl);
 
     public static IServiceCollection AddVentaDocs(this IServiceCollection services)
     {

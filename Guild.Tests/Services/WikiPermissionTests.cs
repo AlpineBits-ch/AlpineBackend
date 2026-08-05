@@ -286,7 +286,7 @@ public class WikiPermissionTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Isolation — non-wiki permissions do not grant wiki access
+    // Isolation - non-wiki permissions do not grant wiki access
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -306,7 +306,7 @@ public class WikiPermissionTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Multiple roles — wiki permissions combined via OR
+    // Multiple roles - wiki permissions combined via OR
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]

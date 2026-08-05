@@ -39,7 +39,7 @@ three match a textual search for `SendAsync` and none of them are hub sends.
 **Follow indirection.** Some sends take the event name as a parameter of a fan-out helper, and the
 Social handlers nest two levels deep, so resolution iterates to a fixpoint. Some endpoints are
 one-line forwarders to a shared private helper (`PermissionOverwriteEndpoint` has eight). Skipping
-either would silently drop 40 events and 20 endpoints — silently, because the output would still
+either would silently drop 40 events and 20 endpoints - silently, because the output would still
 look complete.
 
 ## Reading the output
@@ -48,7 +48,7 @@ The run reports `unresolved` counts and lists them. **A non-zero count is a hole
 documentation, not noise.** As of the last run: 0 unresolved realtime sends, 1 endpoint caveat
 (`FederationHandshakeEndpoint` uses `Results.StatusCode` with a computed code, recorded as 200).
 
-It also reports **shape conflicts** — one event name sent with two different payload shapes. These
+It also reports **shape conflicts** - one event name sent with two different payload shapes. These
 are client-facing bugs rather than documentation problems: a typed client cannot deserialise both.
 There are currently 6.
 
@@ -59,6 +59,6 @@ a camelCase policy and none of the four `AddJsonProtocol` registrations override
 ships as `channelId`.
 
 One caveat the generator flags but cannot fix: enums serialise as strings wherever a
-`JsonStringEnumConverter` is registered — Guild, Isle, Messaging and Social — but the gateway's own
+`JsonStringEnumConverter` is registered - Guild, Isle, Messaging and Social - but the gateway's own
 `AddSignalR()` has no converter, so an enum's representation depends on which process serialised the
 message. That is a real inconsistency in the product, not just in the docs.

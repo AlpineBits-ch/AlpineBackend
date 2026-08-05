@@ -502,6 +502,12 @@ services:
       # gateway and the Caddyfile must agree on the name. Left empty the gateway derives
       # docs.<instance host> itself, which is what the installers configure Caddy for.
       DOCS_DOMAIN: "${DOCS_DOMAIN:-}"
+      # The moderation console and the public support site, same mechanism as the docs above:
+      # served by this container, gated on the Host header, and derived as admin.<instance host>
+      # and support.<instance host> when left empty. Whatever is set here has to match the
+      # Caddyfile, or the gateway serves nothing on that name and says so in its log.
+      ADMIN_DOMAIN: "${ADMIN_DOMAIN:-}"
+      SUPPORT_DOMAIN: "${SUPPORT_DOMAIN:-}"
       # Reverse-proxy trust. Deliberately NOT in x-app-env: the whole point of the secret is
       # that only the gateway knows it, and putting it in the shared block would hand it to all
       # eight backend services - the exact outcome the gateway strips the header to prevent.

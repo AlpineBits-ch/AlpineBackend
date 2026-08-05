@@ -1,5 +1,5 @@
 /**
- * C1 — YARP Gateway Throughput Ceiling
+ * C1 - YARP Gateway Throughput Ceiling
  *
  * Finds the maximum sustainable HTTP request rate through the YARP reverse proxy
  * before P95 latency exceeds the 500ms budget. Uses a realistic mix of read-heavy
@@ -14,8 +14,8 @@
  *
  * What to watch:
  *  - api_response_ms P95 crossing 500ms → throughput ceiling found
- *  - server_errors (5xx) — indicates backend overload, not proxy overload
- *  - rate_limit_rejections (429) — may trigger at 100 req/min/user;
+ *  - server_errors (5xx) - indicates backend overload, not proxy overload
+ *  - rate_limit_rejections (429) - may trigger at 100 req/min/user;
  *    set TEST_USER_COUNT high enough that no single user exceeds 100/min
  */
 import http from 'k6/http';
@@ -76,7 +76,7 @@ export default function (data) {
   const r = Math.random();
 
   if (r < 0.30) {
-    // Guild info — lightweight, hits PostgreSQL cache
+    // Guild info - lightweight, hits PostgreSQL cache
     group('guild_info', () => {
       const start = Date.now();
       const res = http.get(`${BASE_URL}/api/v1/guild/${guildId}`, { headers });
@@ -84,7 +84,7 @@ export default function (data) {
       track(res);
     });
   } else if (r < 0.55) {
-    // Channel list — moderate, JOIN query on roles/permissions
+    // Channel list - moderate, JOIN query on roles/permissions
     group('channel_list', () => {
       const start = Date.now();
       const res = http.get(`${BASE_URL}/api/v1/guild/${guildId}/channels`, { headers });
@@ -92,7 +92,7 @@ export default function (data) {
       track(res);
     });
   } else if (r < 0.80) {
-    // Message history — heaviest, hits ScyllaDB time-series read
+    // Message history - heaviest, hits ScyllaDB time-series read
     group('message_history', () => {
       const start = Date.now();
       const res = http.get(
@@ -103,7 +103,7 @@ export default function (data) {
       track(res);
     });
   } else {
-    // Social profile — cross-service call (Guild → Social via Wolverine)
+    // Social profile - cross-service call (Guild → Social via Wolverine)
     group('social_profile', () => {
       const start = Date.now();
       const res = http.get(`${BASE_URL}/api/v1/social/profile/me`, { headers });

@@ -9,7 +9,7 @@ namespace Isle.Tests.Helpers.Redis;
 internal sealed partial class FakeRedisDatabase(FakeRedisStore store) : IDatabase
 {
     private static NotImplementedException NotSupported([System.Runtime.CompilerServices.CallerMemberName] string? member = null) =>
-        new($"FakeRedisDatabase does not implement '{member}' — add it if a ledger under test starts using it.");
+        new($"FakeRedisDatabase does not implement '{member}' - add it if a ledger under test starts using it.");
 
     // --- Strings ---------------------------------------------------------------------------------
 
@@ -28,7 +28,7 @@ internal sealed partial class FakeRedisDatabase(FakeRedisStore store) : IDatabas
     }
 
     /// <summary>
-    /// StackExchange.Redis 3.x's modern conditional-write overload — the classic <c>(TimeSpan?,
+    /// StackExchange.Redis 3.x's modern conditional-write overload - the classic <c>(TimeSpan?,
     /// When)</c> form above is what the ledgers were written against, but overload resolution for a
     /// plain 3-arg call can land here instead depending on the exact compiled call shape, so this
     /// needs the same real behaviour.
@@ -147,7 +147,7 @@ internal sealed partial class FakeRedisDatabase(FakeRedisStore store) : IDatabas
         return Task.FromResult(true);
     }
 
-    /// <summary>The classic <see cref="When"/>-based sibling of the overload above — see the note on
+    /// <summary>The classic <see cref="When"/>-based sibling of the overload above - see the note on
     /// <c>StringSetAsync(Expiration, ValueCondition, ...)</c> for why both need real behaviour.</summary>
     public Task<bool> SortedSetAddAsync(RedisKey key, RedisValue member, double score, When when, CommandFlags flags = CommandFlags.None) =>
         SortedSetAddAsync(key, member, score, SortedSetWhen.Always, flags);

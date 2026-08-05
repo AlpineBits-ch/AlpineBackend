@@ -33,7 +33,7 @@ public sealed class KingOfTheHillAnnouncer(
     public Task AnnounceCancelledAsync(CancellationToken ct = default) =>
         BroadcastAsync("King of the Hill has been called off.", ct);
 
-    /// <summary>Global chat, everyone online. Never throws — a dropped announcement must not roll back the match that caused it.</summary>
+    /// <summary>Global chat, everyone online. Never throws - a dropped announcement must not roll back the match that caused it.</summary>
     public async Task BroadcastAsync(string message, CancellationToken ct = default)
     {
         try

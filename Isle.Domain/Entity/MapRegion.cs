@@ -23,7 +23,7 @@ public sealed class MapRegion
 
     /// <summary>
     /// Fallback extent for regions whose <see cref="Polygon"/> is a point or a line rather than a
-    /// closed shape — every sanctuary below is a single marker coordinate.
+    /// closed shape - every sanctuary below is a single marker coordinate.
     /// </summary>
     public float Radius { get; init; }
 

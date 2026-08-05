@@ -34,7 +34,7 @@ public sealed class KingOfTheHillTickService(
         await instance.Behavior.OnTickAsync(instance, DateTime.UtcNow - instance.StartedAt);
 
         // Cheap and low-cardinality (one line per 30s tick of a running match), but this is the only
-        // place that ever sees who the zone check actually matched — the last time ticks silently
+        // place that ever sees who the zone check actually matched - the last time ticks silently
         // credited nobody the whole match, there was nothing in the logs to say why.
         logger.LogInformation("KOTH {InstanceId} tick: {Count} in zone: {SteamIds}",
             instance.InstanceId, steamIdsInZone.Count, string.Join(", ", steamIdsInZone));

@@ -1,5 +1,5 @@
 /**
- * B1 — Event Propagation Latency (UserActiveEvent)
+ * B1 - Event Propagation Latency (UserActiveEvent)
  *
  * Measures how long it takes for a presence change (user connecting to MessagingHub)
  * to become visible to other services. The flow is:
@@ -93,7 +93,7 @@ export default function (data) {
     durationMs: PROPAGATION_TIMEOUT_MS + 3000,
 
     onOpen: (_socket) => {
-      // Observer is connected — now trigger the presence change from the subject
+      // Observer is connected - now trigger the presence change from the subject
       triggerTs = Date.now();
 
       // Connect subject to MessagingHub (fires UserActiveEvent on server)

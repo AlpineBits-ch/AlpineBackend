@@ -9,8 +9,8 @@ namespace Isle.Tests.Tests.Services.Hosted;
 
 /// <summary>
 /// <see cref="QuestProgressService"/>'s guard clauses (stale/never-populated roster; roster
-/// unchanged since the last credit) are cheap to exercise directly — they never touch the DI scope
-/// at all — via the `internal` <c>SafeTickAsync</c>.
+/// unchanged since the last credit) are cheap to exercise directly - they never touch the DI scope
+/// at all - via the `internal` <c>SafeTickAsync</c>.
 /// </summary>
 [TestFixture]
 public class QuestProgressServiceTests
@@ -40,7 +40,7 @@ public class QuestProgressServiceTests
     {
         _roster.Replace([]); // fresh (just updated) and never credited before -> should attempt a tick
 
-        // QuestCompletionService isn't registered in this scope, so resolving it throws — caught
+        // QuestCompletionService isn't registered in this scope, so resolving it throws - caught
         // and logged by SafeTickAsync's own try/catch.
         var scopedProvider = Substitute.For<IServiceProvider>();
         scopedProvider.GetService(typeof(QuestCompletionService)).Returns((object?)null);

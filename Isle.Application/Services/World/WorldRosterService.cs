@@ -45,7 +45,7 @@ public sealed class WorldRosterService(
 
                 // RCON's Location.X/Y come back transposed relative to true Unreal world X/Y (the axes
                 // players read off their own in-game coordinate display, and what zone/region data is
-                // authored in) — confirmed by comparing a live roster entry against a known real position.
+                // authored in) - confirmed by comparing a live roster entry against a known real position.
                 var position = player.Location is { } location
                     ? new Vector3((float)location.Y, (float)location.X, (float)location.Z)
                     : Vector3.Zero;

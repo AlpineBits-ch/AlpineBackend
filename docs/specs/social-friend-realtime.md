@@ -27,7 +27,7 @@ Nothing new to connect to. These arrive on the existing hub:
 | `social.FriendRemoved` | `POST /api/v1/relationships/{id}/revoke` | both parties |
 
 `revoke` is the single endpoint behind both "cancel the request I sent" and "unfriend", so
-`social.FriendRemoved` covers both — distinguish them by the status you had before the event, if you
+`social.FriendRemoved` covers both - distinguish them by the status you had before the event, if you
 care.
 
 The actor gets the event too. That is deliberate: it is what keeps a user's *other* devices in sync,
@@ -48,7 +48,7 @@ Every one of the four events carries the same object:
 }
 ```
 
-`status` is one of `PendingIncoming`, `PendingOutgoing`, `Friends`, `None` — a **string**, not an
+`status` is one of `PendingIncoming`, `PendingOutgoing`, `Friends`, `None` - a **string**, not an
 integer.
 
 The important detail: a relationship is stored as two mirrored rows, one owned by each user, and
@@ -57,7 +57,7 @@ receive *different* `relationshipId` and `status` values for the same event. You
 work out which of the two rows is yours, and you can never be handed a row id you aren't allowed to
 act on.
 
-Worked example — A sends a request to B:
+Worked example - A sends a request to B:
 
 | | A receives | B receives |
 |---|---|---|
@@ -71,14 +71,14 @@ Worked example — A sends a request to B:
   relationship is already in the target state, so a double-tapped accept, a client retry or two
   devices racing produce one event, not two. Repeating the HTTP call is safe and still returns
   success.
-- Accepting a relationship that was already rejected or removed is refused with `400` — a dead
+- Accepting a relationship that was already rejected or removed is refused with `400` - a dead
   request cannot be revived into a friendship without a fresh one.
 - Federated (cross-instance) friend requests emit the same four events to the local user. Only the
   local half of a federated relationship exists on this instance, so exactly one side is notified.
 - Pushes are emitted after the transaction commits, so a client that reacts by re-fetching
   `GET /api/v1/relationships` will see the new state.
 
-Handling events idempotently client-side is still recommended — the transport is at-least-once
+Handling events idempotently client-side is still recommended - the transport is at-least-once
 across a reconnect.
 
 ## Migration

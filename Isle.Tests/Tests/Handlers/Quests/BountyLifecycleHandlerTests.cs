@@ -197,7 +197,7 @@ public class BountyLifecycleHandlerTests
         var freshInstance = await _bounties.StartAsync(player.Id, TimeSpan.FromMinutes(20));
 
         // A death event carrying the id of the bounty that was open when the player died, which has
-        // since been replaced by a new one — must not resolve the new (unrelated) bounty.
+        // since been replaced by a new one - must not resolve the new (unrelated) bounty.
         var @event = new ResolveBountyDeathEvent { PlayerId = player.Id, QuestInstanceId = staleInstance!.Id };
 
         await BountyDeathResolutionHandler.Handle(@event, _bounties, NullLogger<BountyDeathResolutionHandler>.Instance, CancellationToken.None);

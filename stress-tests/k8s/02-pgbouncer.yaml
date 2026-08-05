@@ -1,4 +1,4 @@
-# PgBouncer in transaction pooling mode — mirrors production setup.
+# PgBouncer in transaction pooling mode - mirrors production setup.
 #
 # Transaction pooling allows one PostgreSQL server connection to serve many
 # application-side clients because the server connection is held only for the

@@ -169,7 +169,7 @@ public class ThreadEndpointTests
         Assert.That(_bus.Published.OfType<ThreadCreatedForBots>().Any(e => e.ParentChannelId == parent.Id), Is.True);
     }
 
-    // ══════════════════════════════════════════════════════════════════════ CreateThreadAsync —
+    // ══════════════════════════════════════════════════════════════════════ CreateThreadAsync -
     // forum tags ══════════════════════════════════════════════════════════════════════
 
     private async Task<ForumTag> SeedTag(string forumId, string name, bool moderated = false)

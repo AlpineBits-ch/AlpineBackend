@@ -1,4 +1,4 @@
-# Server templates — frontend integration guide
+# Server templates - frontend integration guide
 
 Backend support for snapshotting a guild's category/channel/role structure into a reusable
 template, and creating a new guild from one, is done and live. **Permission overwrites, member
@@ -6,7 +6,7 @@ data, and messages are never captured** - a template is structure only (names, t
 descriptions, positions, and each role's permission bitmask), matching Discord's own template
 scope.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly.
 
 ## Creating a template from an existing guild

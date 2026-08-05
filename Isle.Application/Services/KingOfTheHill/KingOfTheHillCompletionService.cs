@@ -60,7 +60,7 @@ public sealed class KingOfTheHillCompletionService(
         });
     }
 
-    /// <summary>Cancels the running match with no payout and no <c>GameModeRun</c> row — used by <c>!kothadmin end</c>.</summary>
+    /// <summary>Cancels the running match with no payout and no <c>GameModeRun</c> row - used by <c>!kothadmin end</c>.</summary>
     public async Task<bool> CancelAsync(CancellationToken ct = default)
     {
         var marker = await stateStore.ReadAsync();
@@ -98,7 +98,7 @@ public sealed class KingOfTheHillCompletionService(
                     : RankRequirement.AllParticipants;
 
             // The definition's own tiered rows, plus whatever mode-specific bonus this standing earns
-            // (e.g. KOTH's held-the-hill bonus) — the bonus is pre-computed for this exact standing, so
+            // (e.g. KOTH's held-the-hill bonus) - the bonus is pre-computed for this exact standing, so
             // it is granted as-is rather than filtered through RewardGranter.Applies a second time.
             var rewardRows = rewardTable
                 .Where(r => RewardGranter.Applies(r, rank))
@@ -111,7 +111,7 @@ public sealed class KingOfTheHillCompletionService(
             var granted = await rewards.GrantAsync(standing.PlayerId, rewardRows, ct);
             if (granted.Count == 0)
             {
-                // Placed but paid nothing — almost always the granter finding no live pawn, because the
+                // Placed but paid nothing - almost always the granter finding no live pawn, because the
                 // player logged off between their last sample and the match resolving.
                 logger.LogInformation("KOTH {InstanceId}: {PlayerId} placed {Rank} but received nothing",
                     instance.InstanceId, standing.PlayerId, standing.Rank);

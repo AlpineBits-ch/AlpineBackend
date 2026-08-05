@@ -8,7 +8,7 @@ public class KothMatchStartedEvent
     public DateTime StartedAt { get; set; }
 }
 
-/// <summary>A match resolved — by timeout, or by someone holding the hill alone long enough to win early.</summary>
+/// <summary>A match resolved - by timeout, or by someone holding the hill alone long enough to win early.</summary>
 public class KothMatchResolvedEvent
 {
     public string DefinitionId { get; set; } = string.Empty;
@@ -21,7 +21,7 @@ public class KothMatchResolvedEvent
     public List<string> PaidPlayerIds { get; set; } = [];
 }
 
-/// <summary>A match was called off before it resolved (<c>!kothadmin end</c>) — no payout, no <c>GameModeRun</c> row.</summary>
+/// <summary>A match was called off before it resolved (<c>!kothadmin end</c>) - no payout, no <c>GameModeRun</c> row.</summary>
 public class KothMatchCancelledEvent
 {
     public string DefinitionId { get; set; } = string.Empty;

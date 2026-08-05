@@ -13,7 +13,7 @@ public class KingOfTheHillKillHandler
 {
     /// <summary>
     /// Fixed rather than template-authored: there is no <see cref="RankRequirement"/> tier for "killed
-    /// the holder", so this has nowhere in <c>GameModeDefinition.Rewards</c> to live — same reasoning as
+    /// the holder", so this has nowhere in <c>GameModeDefinition.Rewards</c> to live - same reasoning as
     /// <c>BountyService.DefaultClaimRewards</c>.
     /// </summary>
     private static readonly RewardConfig[] HolderKillRewards =

@@ -107,7 +107,7 @@ public class HouseholdServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Chore rotation — the fairness ledger
+    // Chore rotation - the fairness ledger
     // ══════════════════════════════════════════════════════════════════════════
 
     /// <summary>The behaviour that separates this from a plain rota: the next turn goes to

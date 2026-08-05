@@ -24,7 +24,7 @@ public sealed class WorldCleanupService(
             var wipeAt = NextFullHour(now);
             var announceAt = wipeAt - AnnounceLead;
 
-            // Started inside the warning window — can't give a full 2-minute heads-up, so aim
+            // Started inside the warning window - can't give a full 2-minute heads-up, so aim
             // at the following hour instead of firing a truncated warning.
             if (announceAt <= now)
             {
@@ -67,7 +67,7 @@ public sealed class WorldCleanupService(
         }
         catch (Exception ex)
         {
-            // Can't read population — fall back to running the cleanup rather than silently stalling it.
+            // Can't read population - fall back to running the cleanup rather than silently stalling it.
             logger.LogWarning(ex, "Could not read server population; running scheduled cleanup anyway");
         }
 

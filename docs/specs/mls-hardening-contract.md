@@ -1,4 +1,4 @@
-# MLS Hardening — Cross-Repo API Contract (v1)
+# MLS Hardening - Cross-Repo API Contract (v1)
 
 **This file is the coordination point for three repos working in parallel.** Echo implements it;
 Alpine and venta-mobile code against it. Nobody changes a shape here without updating this file.
@@ -25,7 +25,7 @@ Deletes **every** `UserKeyPackage` for the device, including the last-resort one
 already-consumed rows (they are dead either way). Does **not** touch the device row, push tokens,
 or sessions. Idempotent.
 
-**Client obligation — both clients, non-negotiable:** every code path that clears local MLS state
+**Client obligation - both clients, non-negotiable:** every code path that clears local MLS state
 must call this *first*, then re-register, then run the normal replenish. Specifically:
 
 - Alpine: `main-page.component.ts:272-278` (the wipe-on-parse-error path) and the logout wipe.
@@ -41,7 +41,7 @@ differs, and when it does, purge that device's key packages as above and return
 
 ## B. Conversation-scoped MLS join requests (plan P0-2, root cause R2)
 
-Mirror the channel routes exactly, reusing `MlsJoinRequestService` verbatim — it is already
+Mirror the channel routes exactly, reusing `MlsJoinRequestService` verbatim - it is already
 context-agnostic. `contextId == conversationId`.
 
 ```
@@ -58,7 +58,7 @@ Authorization is conversation membership instead of `ViewChannel`.
 ### Approval threshold for conversations
 
 `MlsJoinRequestService.RequiredApprovalsFor` currently returns 2, relaxed to 1 when only one actor
-has been seen. For a **conversation** the threshold is **always 1** — a DM has two humans and
+has been seen. For a **conversation** the threshold is **always 1** - a DM has two humans and
 requiring two approvals deadlocks it. Add an explicit context-kind parameter rather than inferring
 it from actor count.
 
@@ -66,7 +66,7 @@ Also fix, in the same change: the `AddMlsGenerations` backfill wrote `activated_
 and the empty string is counted as a real actor by `RequiredApprovalsFor`. Treat null/empty as
 "no actor".
 
-### Discovery — how a new device knows to ask
+### Discovery - how a new device knows to ask
 
 Client-driven; no new server push required for the happy path.
 
@@ -76,7 +76,7 @@ for a conversation, the client:
 1. lists its conversations,
 2. calls the existing `GET /api/v1/conversations/{id}/mls/state`,
 3. for each conversation reporting encrypted **where it holds no local group**, submits a join
-   request (idempotent — resubmitting an open request returns the existing one).
+   request (idempotent - resubmitting an open request returns the existing one).
 
 ### Notifying the approver
 
@@ -89,7 +89,7 @@ conversation.MlsJoinRequest   → { contextId, conversationId, requestId, reques
 ```
 
 Delivered to all conversation members except the requester. Clients surface it as
-*"<name> added a new device — approve?"*, showing the signature-key fingerprint for out-of-band
+*"<name> added a new device - approve?"*, showing the signature-key fingerprint for out-of-band
 comparison.
 
 Whether a request can be satisfied **without** a human tapping approve is governed by the
@@ -122,11 +122,11 @@ Fix in the same change: the write-once guard at `UserController.cs:45-48` compar
 `user.EncryptedMasterKey?.Version == dto.Version`, which silently permits overwriting the wrapped
 master key with a *different* version. Require re-auth and write an audit row.
 
-#### C.1.1 The master key must be wrapped twice — password reset otherwise destroys it
+#### C.1.1 The master key must be wrapped twice - password reset otherwise destroys it
 
 `PasswordResetEndpoint.ResetPassword` (`Identity.Application/Endpoints/PasswordResetEndpoint.cs:73`)
 calls `manager.ResetPasswordAsync(...)` and **never touches `EncryptedMasterKey`**. The envelope
-stays wrapped under Argon2(old password) — a password the user has, by definition of a reset,
+stays wrapped under Argon2(old password) - a password the user has, by definition of a reset,
 forgotten. Every backup blob, and the account identity key of §H.2, become permanently unopenable,
 silently, at the exact moment the user is trying to recover their account.
 
@@ -147,21 +147,21 @@ Both wrappings are stored; the server holds only ciphertext and KDF parameters. 
 - **Password reset** invalidates `wrapped_password` only. The client re-derives the master key from
   the recovery code and re-wraps it under the new password. Nothing is lost.
 - **Password change** (user knows the old password) re-wraps in place, no recovery code needed.
-- **Losing both** the password and the recovery code is unrecoverable — state this in the UI at
+- **Losing both** the password and the recovery code is unrecoverable - state this in the UI at
   setup time, before the user can proceed, not in a help article.
 
 The recovery code is generated at encryption setup, shown once, and the user must confirm it. It is
 the *only* credential that survives a password reset, which is precisely why §H.7 requires it for
-`VerifiedDevices` — and why `TrustedSignIn` accounts should be strongly encouraged to save one too.
+`VerifiedDevices` - and why `TrustedSignIn` accounts should be strongly encouraged to save one too.
 
-#### C.1.2 Recovery code format — **authoritative, supersedes §K.7**
+#### C.1.2 Recovery code format - **authoritative, supersedes §K.7**
 
 The two clients implemented different alphabets, which silently breaks cross-client recovery. This
 subsection is the single source of truth; §K.7 is superseded where it disagrees.
 
 | | Value |
 |---|---|
-| Alphabet | `23456789ABCDEFGHJKMNPQRSTUVWXYZ` — **31 symbols, exactly** |
+| Alphabet | `23456789ABCDEFGHJKMNPQRSTUVWXYZ` - **31 symbols, exactly** |
 | Length | 32 characters, eight groups of four, joined with `-` |
 | Entropy | ~158.5 bits |
 | Generation | **Rejection sampling**: draw a byte, discard if `b >= 248`, else `alphabet[b % 31]` |
@@ -170,7 +170,7 @@ subsection is the single source of truth; §K.7 is superseded where it disagrees
 
 **What went wrong, so it does not recur.** Mobile appended `*` as a 32nd symbol purely so that
 `b & 0x1f` would be uniform. That is sound reasoning about bias and the wrong trade here: `*` is
-punctuation in a string a human copies off paper under stress, and — decisively — it is not in
+punctuation in a string a human copies off paper under stress, and - decisively - it is not in
 Alpine's alphabet, so Alpine's validator rejects any mobile-generated code containing it. Alpine's
 validator then does `else { input.to_string() }`, feeding the *unnormalised* input to the KDF. The
 result is not "invalid code"; it is a **different key, silently**, during the one operation the
@@ -184,7 +184,7 @@ loop is bounded in practice; this is not a hot path.
 1. Use the 31-symbol alphabet above. Mobile removes `*` and replaces masking with rejection
    sampling.
 2. Make normalisation **total**: strip, uppercase, validate, and on failure return a typed error
-   that the UI renders as *"that code isn't valid"*. A silent fallback to raw input is forbidden —
+   that the UI renders as *"that code isn't valid"*. A silent fallback to raw input is forbidden -
    it converts a recoverable typo into unrecoverable data loss with no diagnostic.
 3. Never apply recovery-code normalisation to a **password**. Passwords are case-sensitive and may
    contain anything; both clients already guard this, keep it.
@@ -202,8 +202,8 @@ loop is bounded in practice; this is not a hot path.
 >     return Ok(new PutRecoveryKeyResultDto { Version = current.Version });   // BackupController.cs
 > ```
 >
-> That branch never writes `RecoveryCodeWrappedMasterKey`. So an existing account — every account
-> in the field, all of which have only the password wrapping — cannot add the second one:
+> That branch never writes `RecoveryCodeWrappedMasterKey`. So an existing account - every account
+> in the field, all of which have only the password wrapping - cannot add the second one:
 >
 > - **Same version** → `200 OK`, nothing stored. The client would show the user a recovery code
 >   that opens nothing, while telling them they are now protected. Worse than not offering it.
@@ -212,7 +212,7 @@ loop is bounded in practice; this is not a hot path.
 >   should be orphaned. This is the opposite of what a user asking for more safety expects.
 >
 > **Required fix:** allow a same-version write when it only *adds* `RecoveryCodeWrappedMasterKey`
-> to an account that has none. It is purely additive — same key, same version, no blob affected.
+> to an account that has none. It is purely additive - same key, same version, no blob affected.
 > Keep the early return for the genuinely idempotent case (both wrappings already present and
 > unchanged).
 >
@@ -231,7 +231,7 @@ appearing to work until the first restore attempt fails.
 
 ```
 PUT api/v1/devices/client/{deviceId}/backup
-  Content-Type: application/octet-stream          (opaque ciphertext — server never parses it)
+  Content-Type: application/octet-stream          (opaque ciphertext - server never parses it)
   Headers: X-Backup-Version, X-Backup-Recovery-Key-Version, If-Match: <etag>
   → 200 { blobId, version, etag, sizeBytes, updatedAt }
   → 409 etag mismatch | → 412 recoveryKeyVersion mismatch | → 413 over cap
@@ -249,7 +249,7 @@ It needs new columns: `Version`, `RecoveryKeyVersion`, `SizeBytes`, `UpdatedAt`,
 
 **Server rules:**
 
-1. `{deviceId}` must be a device of the caller **and equal the validated `X-Device-Id`** — a
+1. `{deviceId}` must be a device of the caller **and equal the validated `X-Device-Id`** - a
    compromised web session must not be able to read the desktop's blob.
 2. Every **read** writes an audit row and pushes `identity.BackupRead` to the owner's other
    devices. Backup exfiltration must be visible.
@@ -269,7 +269,7 @@ POST api/v1/backup/transfers/{id}/claim       → the ciphertext, then hard-dele
 
 ---
 
-## D. Backup envelope format (both clients — must match byte for byte)
+## D. Backup envelope format (both clients - must match byte for byte)
 
 ```jsonc
 { "v": 1,
@@ -297,18 +297,18 @@ used across both Rust engines. File extension `.venta-keys`.
 
 > **The envelope's `p: 4` is not the same as the master key's `p: 1`, and that is intentional.**
 > `ApplicationUser.EncryptedMasterKey` uses Argon2id with **one** lane over the same `m`/`t`; this
-> envelope uses four. They are separate KDF uses that merely share a shape — do **not** "align"
+> envelope uses four. They are separate KDF uses that merely share a shape - do **not** "align"
 > them, because doing so would orphan every blob already written under the other value.
 >
 > This is safe only because **both formats are self-describing and both readers derive from the
 > declared parameters, never from a compiled-in constant.** `EncryptedMasterKey` carries
 > `argon2_iterations`/`argon2_memory`/`argon2_parallelism`; this envelope carries `kdf.m/t/p`. Any
 > implementation that hardcodes either set on the *reading* side is wrong, and will fail only on a
-> cross-device or cross-version restore — the exact moment recovery matters. Alpine pins this with
+> cross-device or cross-version restore - the exact moment recovery matters. Alpine pins this with
 > `declared_kdf_parameters_are_the_ones_actually_used` (`src-tauri/src/crypto/mls.rs`), which
 > perturbs each declared parameter in turn and asserts the import then fails.
 
-**Restore rules — enforced in code, not documentation:**
+**Restore rules - enforced in code, not documentation:**
 
 | Situation | Behaviour |
 |---|---|
@@ -319,7 +319,7 @@ used across both Rust engines. File extension `.venta-keys`.
 The discriminator is **the device id alone**. An earlier draft of this table also allowed the
 `engine` import when "the engine holds no groups", which was wrong: a genuinely new device always
 has an empty engine, so that clause collapsed the two rows into one and would have cloned ratchet
-state onto every new device — precisely what §D exists to prevent.
+state onto every new device - precisely what §D exists to prevent.
 
 Same-device recovery (reinstall, restore to a replacement handset) must therefore **adopt the
 backup's `deviceId` before importing**, not after. This is required independently of the rule
@@ -353,7 +353,7 @@ mls_import_backup(blob, passphrase, expectedUserId, currentDeviceId)
 keys-only one without re-deriving the decision. The registry and cache come back out for the host
 to write into its own stores.
 
-**This changes no bytes in the envelope** — it is a host/engine split, not a format change. Alpine
+**This changes no bytes in the envelope** - it is a host/engine split, not a format change. Alpine
 implements exactly the above (`src-tauri/src/crypto/mls.rs`); mobile must match the *envelope*, not
 necessarily the parameter list, since its host layer differs.
 
@@ -377,10 +377,10 @@ Exclude `messageCache` from the cloud target by default; offer it only on the lo
 | **E2** | Remove-**proposals** must not travel the commit channel. Server: do not advance `active.Epoch` for a proposal. Clients: do not count a proposal toward `applied` when deciding whether to keep paging. | all three |
 | **E3** | Concurrent commit now returns **409 `MlsEpochConflictDto`** instead of 500. Clients already retry on 409; no client change needed beyond removing any 500-specific handling. | Echo |
 | **E4** | Commit publish is **idempotent**. If a client re-publishes a commit it already sent (matched on `senderDeviceId` + `generation` + `epoch` + payload hash), the server returns 200 with the stored row rather than 409. This is what lets a client recover from a lost response instead of discarding a staged commit and forking itself off the group. | all three |
-| **E5** | `GET /api/v1/conversations/welcomes` **requires** `deviceId`. The legacy no-`deviceId` branch is removed — it consumed welcomes across *all* of a user's devices, which is unrecoverable loss. Alpine must delete `conversation.service.ts:24-26`. | Echo, Alpine |
+| **E5** | `GET /api/v1/conversations/welcomes` **requires** `deviceId`. The legacy no-`deviceId` branch is removed - it consumed welcomes across *all* of a user's devices, which is unrecoverable loss. Alpine must delete `conversation.service.ts:24-26`. | Echo, Alpine |
 | **E6** | `POST /api/v1/conversations/welcomes/ack` is scoped by `(UserId, DeviceId)`, not `UserId` alone. `deviceId` becomes required. | Echo, both clients |
-| **E7** | Conversation creation validates reachability **per device**, not per user. New response field `unreachableDevices: [{ userId, deviceId }]`, and creation is **rejected** if any member has an unreachable device unless the caller passes `?allowPartialDeviceCoverage=true`. Alpine currently creates anyway and merely displays the list — it must now either block or pass the flag explicitly. | Echo, Alpine |
-| **E8** | Channel commits now fan out. New push `conversation.MlsCommit` is emitted for channel contexts too (it previously went to nobody). Clients must not assume a channel commit push implies conversation membership — switch on `contextId`. | Echo, both clients |
+| **E7** | Conversation creation validates reachability **per device**, not per user. New response field `unreachableDevices: [{ userId, deviceId }]`, and creation is **rejected** if any member has an unreachable device unless the caller passes `?allowPartialDeviceCoverage=true`. Alpine currently creates anyway and merely displays the list - it must now either block or pass the flag explicitly. | Echo, Alpine |
+| **E8** | Channel commits now fan out. New push `conversation.MlsCommit` is emitted for channel contexts too (it previously went to nobody). Clients must not assume a channel commit push implies conversation membership - switch on `contextId`. | Echo, both clients |
 | **E9** | `DeviceRemoved` gains a consumer: the removed device is proposed out of every group it holds a leaf in, and members are nudged to commit the removal. Clients must handle being removed (surface it, stop offering to send, offer re-link). | all three |
 | **E10** | `GET .../mls/commits` never returns commits from a different generation when the generation is unspecified and none is active. | Echo |
 
@@ -400,7 +400,7 @@ Each repo owns its side. Two are **shared** and must agree:
 
 ---
 
-## G. Protection levels — two-tier device admission
+## G. Protection levels - two-tier device admission
 
 Requiring a human to approve every device is correct for a threat model that includes a hostile
 server, and wrong as a default: it strands people who reinstall an app at 2am with no second device
@@ -412,21 +412,21 @@ to hand. So admission is governed by an account-level **protection level**.
 | Defends against a malicious or compromised **server** | ✅ | ✅ |
 | Defends against a network attacker | ✅ | ✅ |
 | Defends against someone who knows your **password** | ❌ | ✅ |
-| Recovery if you lose every device | Password | Recovery code only — **no password reset can restore E2EE** |
-| Last-resort key package (reusable) | Permitted | **Disabled** — no forward-secrecy loss on join |
+| Recovery if you lose every device | Password | Recovery code only - **no password reset can restore E2EE** |
+| Last-resort key package (reusable) | Permitted | **Disabled** - no forward-secrecy loss on join |
 | Cloud backup of engine state | Permitted | Requires the recovery code; off by default |
 
-Names are the user-facing strings. If you prefer different wording, change it in one place here —
+Names are the user-facing strings. If you prefer different wording, change it in one place here -
 but keep the *mechanism* names `TrustedSignIn` / `VerifiedDevices` as the enum values.
 
 ### G.1 What makes `TrustedSignIn` more than "trust the server"
 
-The naive version of auto-approval — the server says a device belongs to you, so an existing device
-adds it — hands the server exactly the power MLS exists to remove. Do not build that.
+The naive version of auto-approval - the server says a device belongs to you, so an existing device
+adds it - hands the server exactly the power MLS exists to remove. Do not build that.
 
 Instead, **the joining device must prove possession of the account master key**, which is
 Argon2id-derived from the password and which the server holds only in wrapped form
-(`ApplicationUser.EncryptedMasterKey` — ciphertext, salt, IV and KDF parameters, no plaintext).
+(`ApplicationUser.EncryptedMasterKey` - ciphertext, salt, IV and KDF parameters, no plaintext).
 
 Flow:
 
@@ -436,7 +436,7 @@ Flow:
    `POST /api/v1/conversations/{conversationId}/mls/join-requests/{requestId}/challenge`.
 3. The joining device signs `challenge || requesterDeviceId || signatureKeyFingerprint` with a key
    derived from the master key (HKDF, info `"venta.device-admission.v1"`) and submits the proof.
-4. The existing device verifies the proof **locally** — it holds the master key too — and only then
+4. The existing device verifies the proof **locally** - it holds the master key too - and only then
    mints the Add commit.
 
 The server relays but cannot forge: it never holds the master key, so it cannot produce a valid
@@ -464,7 +464,7 @@ Auto-approval is silent *admission*, never silent *notification*:
 
 The protection level must **not** be a plain server-side boolean. If it were, the server could
 silently downgrade a `VerifiedDevices` account to `TrustedSignIn` and then auto-admit its own
-device — defeating the whole tier.
+device - defeating the whole tier.
 
 - The level is stored as an **assertion signed by the user's identity key**, and every client
   independently enforces the last validly-signed level it has seen. An unsigned or
@@ -489,7 +489,7 @@ theirs.
 
 - A conversation surfaces each participant's level.
 - A `VerifiedDevices` user gets a warning banner when a `TrustedSignIn` participant admits a new
-  device — informational, not blocking. Blocking would make the strict tier unusable for anyone
+  device - informational, not blocking. Blocking would make the strict tier unusable for anyone
   whose friends haven't opted in, which is how security settings end up switched off.
 - Never silently degrade a strict user's guarantees to match a peer's.
 
@@ -498,7 +498,7 @@ theirs.
 - New accounts: `TrustedSignIn`.
 - Existing accounts at rollout: `TrustedSignIn`, with an in-app prompt explaining both levels.
 - The settings UI must state the password-strength limitation of `TrustedSignIn` in plain language,
-  and must warn — with an explicit confirmation — that `VerifiedDevices` means **losing every
+  and must warn - with an explicit confirmation - that `VerifiedDevices` means **losing every
   device and the recovery code is unrecoverable data loss**.
 
 ### G.6 Test obligations
@@ -525,8 +525,8 @@ journey a cloud backup exists to serve:
 > "I dropped my only phone in a lake. I bought a new one. Get me back into my conversations."
 
 With no device of yours online, nobody can verify your proof. A peer could approve you, but a peer
-can only take the *server's* word that the device is yours — which is precisely the trust we are
-refusing to grant. **As specified in §B–§G alone, full-loss recovery deadlocks.**
+can only take the *server's* word that the device is yours - which is precisely the trust we are
+refusing to grant. **As specified in §B-§G alone, full-loss recovery deadlocks.**
 
 ### H.2 The account identity key
 
@@ -549,7 +549,7 @@ Uploaded alongside the device's key packages and served with them. Certificates 
 
 **What this buys:** any peer can verify offline that a device genuinely belongs to an account,
 without that account having a device online, and without trusting the server. The server cannot
-mint a certificate — it never holds the private half.
+mint a certificate - it never holds the private half.
 
 ### H.3 Recovery journeys
 
@@ -560,13 +560,13 @@ mint a certificate — it never holds the private half.
 | **New device, all old devices gone** | **This section.** Restore the account identity key from backup, self-issue a device certificate, **external-commit** into each group, peers validate the certificate. Skip `engine`. |
 | **Lost devices *and* recovery credential** | Unrecoverable by design. Say so in the UI before the user opts into `VerifiedDevices`. |
 
-The third row uses `rejoinGroup` — external commit — which is **already implemented and
+The third row uses `rejoinGroup` - external commit - which is **already implemented and
 Rust-tested on both clients with zero call sites**, and the server already stores per-generation
 `MlsGroupInfo`, refreshed on every commit. The primitive exists; it needs wiring, not building.
 
 ### H.4 External commits are not a free pass
 
-Anyone holding `GroupInfo` can external-commit into a group — **including the server**, which
+Anyone holding `GroupInfo` can external-commit into a group - **including the server**, which
 stores it. So an external commit must never be self-authorising:
 
 1. On observing an external commit from an unrecognised leaf, every member's client fetches the
@@ -575,14 +575,14 @@ stores it. So an external commit must never be self-authorising:
    pinned one → the client immediately proposes removing that leaf** and surfaces a security
    warning naming the account.
 3. Under `VerifiedDevices`, a valid certificate is still not sufficient for a *new* account
-   identity key — a rotated identity key requires explicit re-verification, the same way Signal
+   identity key - a rotated identity key requires explicit re-verification, the same way Signal
    requires re-verifying a changed safety number.
 
 This is what keeps the recovery path from becoming a server-side backdoor into every group.
 
 ### H.5 Identity-key rotation
 
-Rotation is a security event, not a routine one — it invalidates every peer's pinning.
+Rotation is a security event, not a routine one - it invalidates every peer's pinning.
 
 - Requires the recovery credential (not just a logged-in session).
 - Signed by the **outgoing** key where possible, so peers can verify continuity automatically.
@@ -600,19 +600,19 @@ lake happens.
 - **Setup is part of enabling encryption**, not buried in settings. The user picks a passphrase or
   is given a generated recovery code, and must confirm it once.
 - Surface **last backup time** in settings, and warn when it is stale (>7 days).
-- `mls_state.json` grows monotonically (plan items A-H7 / M-B7 make this worse — fix those first,
+- `mls_state.json` grows monotonically (plan items A-H7 / M-B7 make this worse - fix those first,
   or the 16 MiB cap will be hit by dead key packages). Prune consumed key-package private keys
   before serialising.
 - The **message cache is opt-in** for the cloud target and clearly labelled as plaintext message
   history sealed under one credential. It is the single most sensitive thing in the envelope and
-  also the thing users most want restored — so make the tradeoff explicit rather than deciding for
+  also the thing users most want restored - so make the tradeoff explicit rather than deciding for
   them.
 
 ### H.7 Interaction with protection levels
 
 | | `TrustedSignIn` | `VerifiedDevices` |
 |---|---|---|
-| Recovery credential | Account password (server holds the wrapped envelope) | **Recovery code only** — server-assisted password reset cannot restore E2EE |
+| Recovery credential | Account password (server holds the wrapped envelope) | **Recovery code only** - server-assisted password reset cannot restore E2EE |
 | Cloud backup of `engine` | On by default | Off by default; requires the recovery code |
 | Message cache in cloud | Opt-in | Opt-in, with a second confirmation |
 | External-commit rejoin | Certificate validated automatically | Certificate validated **and** a peer re-verifies the safety number |
@@ -634,7 +634,7 @@ lake happens.
 
 ---
 
-## I. Rollout and backward compatibility — **read before implementing §B, §E, §G or §H**
+## I. Rollout and backward compatibility - **read before implementing §B, §E, §G or §H**
 
 There are clients in the field. Several rules in this document are breaking changes, and at least
 one of them, applied naively, is catastrophic. Nothing in §B/§E/§G/§H may ship without the
@@ -657,7 +657,7 @@ policy, not by client version:
 
 - The phase is served by `GET api/v1/identity/mls-policy` → `{ certificateEnforcement, minClientVersion, ... }`,
   cached with a short TTL, and **defaults to `Observe`** when unreachable or unparsable.
-- An *invalid* certificate is always at least a warning, at every phase — that case cannot occur
+- An *invalid* certificate is always at least a warning, at every phase - that case cannot occur
   by accident, only by forgery.
 - Advance to `Enforce` only when telemetry shows certificate coverage above ~99% of active devices.
   Put the actual coverage number behind an admin endpoint so the decision is made on data.
@@ -671,7 +671,7 @@ appear when an upgraded client next unlocks.
 
 - On unlock, an upgraded client checks for an identity key; if absent, generates one, wraps it,
   uploads the public half, and issues certificates for **its own** device.
-- It cannot issue certificates for the user's *other* devices — those devices self-issue when they
+- It cannot issue certificates for the user's *other* devices - those devices self-issue when they
   next upgrade and unlock. Expect a long tail; this is why §I.1 exists.
 - Until an account has an identity key, it is treated as `Observe` regardless of global policy, and
   `VerifiedDevices` cannot be enabled (the UI must explain why rather than failing opaquely).
@@ -680,11 +680,11 @@ appear when an upgraded client next unlocks.
 
 | Change | Naive version breaks | Required approach |
 |---|---|---|
-| **§E5** welcome fetch requires `deviceId` | Old clients call without it and get nothing — or worse, keep consuming across devices | **Split the fix from the break.** Immediately make the legacy branch **non-consuming** (this alone removes the data loss, which is the actual bug). Keep serving it. Require `deviceId` only after `minClientVersion` is met. |
+| **§E5** welcome fetch requires `deviceId` | Old clients call without it and get nothing - or worse, keep consuming across devices | **Split the fix from the break.** Immediately make the legacy branch **non-consuming** (this alone removes the data loss, which is the actual bug). Keep serving it. Require `deviceId` only after `minClientVersion` is met. |
 | **§E6** ack scoped by `(UserId, DeviceId)` | Old clients ack without `deviceId` and silently no-op, so welcomes are never cleared | When `deviceId` is absent, ack only welcomes whose `DeviceId` matches the caller's validated `X-Device-Id`; if that is also absent, reject with a clear error rather than acking broadly. |
 | **§E7** per-device reachability rejects creation | Old clients cannot pass the new override flag and lose the ability to create encrypted conversations | Default to **permissive + telemetry** during transition: create, return `unreachableDevices`, and count it. Flip to rejecting once clients that understand the flag are the overwhelming majority. |
 | **§A** `POST api/v1/devices` purges key packages on identity rotation | An old client that re-registers with an unchanged key must not be purged | Purge **only** when `identityPublicKey` actually differs from the stored value. Unchanged key → unchanged behaviour. |
-| **§B** conversation join requests | Old clients never submit one, so their new devices stay stranded | Acceptable — that is today's behaviour, not a regression. Do not attempt a server-side shim. |
+| **§B** conversation join requests | Old clients never submit one, so their new devices stay stranded | Acceptable - that is today's behaviour, not a regression. Do not attempt a server-side shim. |
 | **§G** protection level | Old clients cannot verify the signed assertion | They ignore it and behave as `TrustedSignIn`, which is the default anyway. **Do not** let an old client's ignorance downgrade a `VerifiedDevices` account: enforcement lives on the upgraded clients, and the account cannot enter `VerifiedDevices` until every active device reports support. |
 
 ### I.4 Client capability reporting
@@ -696,14 +696,14 @@ POST api/v1/devices  { ..., capabilities: ["mls.device-cert.v1", "mls.join-reque
                                            "mls.protection-level.v1", "mls.backup.v1"] }
 ```
 
-The server uses this — not a version string — to decide whether an account may enable
+The server uses this - not a version string - to decide whether an account may enable
 `VerifiedDevices`, and to compute the coverage telemetry that gates §I.1. `GET api/v1/devices`
 returns each device's capabilities so clients can explain *which* device is holding an upgrade back.
 
 ### I.5 Wire compatibility for the message-content fix (§E1)
 
 The mobile base64 fix changes what mobile *reads*, not what anyone *writes*, and the send path is
-already consistent across clients. So there is no dual-format window and no migration — an
+already consistent across clients. So there is no dual-format window and no migration - an
 upgraded mobile client immediately reads messages that older ones could not, including historical
 ones still within ratchet reach. **Do not add a heuristic that sniffs whether content is
 single- or double-encoded**; the encoding is deterministic per transport (REST/socket double,
@@ -712,8 +712,8 @@ push single) and a sniffer would silently misparse ciphertext that happens to lo
 ### I.6 Database migrations
 
 Five unapplied MLS migrations already exist; this work adds more. Apply Identity before Messaging.
-Every new migration must be **additive and nullable** — new columns on `UserDeviceBackup`,
-`identity_public_key`, `device_certificate`, `protection_level`, `capabilities` — so a rollback to
+Every new migration must be **additive and nullable** - new columns on `UserDeviceBackup`,
+`identity_public_key`, `device_certificate`, `protection_level`, `capabilities` - so a rollback to
 the previous application version leaves a working database. No column drops in this release.
 
 Before deploying, run the check already flagged in the plan:
@@ -723,7 +723,7 @@ SELECT count(*) FROM conversations WHERE encryption_state = 'encrypted' AND mls_
 ```
 
 **"Additive and nullable" is not sufficient on its own, and did not hold.** Two migrations in this
-release add no columns but *widen indexes* — `user_device_backups` from one row per device to a
+release add no columns but *widen indexes* - `user_device_backups` from one row per device to a
 versioned history, `mls_commits` to a partial unique index that excludes proposals, and
 `member_devices.device_id` from globally unique to a plain lookup. Every one of those is additive in
 the column sense and still made its scaffolded `Down()` unrunnable: each recreated the narrow unique
@@ -732,7 +732,7 @@ aborted half-applied on any database that had been written to.
 
 **Required of every migration that widens a uniqueness constraint:** the `Down()` must explicitly
 delete the rows that no longer fit, before the constraint is restored and before any column it
-selects on is dropped. That deletion is lossy and must be commented as such at the call site — a
+selects on is dropped. That deletion is lossy and must be commented as such at the call site - a
 rollback that silently discards backup history is worse than one that fails, but only if the loss is
 written down where the person running it will read it. Both migrations in this release now do this;
 neither did when the rollback obligation above was first written.
@@ -741,7 +741,7 @@ neither did when the rollback obligation above was first written.
 
 1. **Server** with everything defaulted to compatible: `certificateEnforcement = Observe`,
    permissive reachability, non-consuming legacy welcome fetch, all new endpoints live but unused.
-   Old clients are unaffected — verify that explicitly.
+   Old clients are unaffected - verify that explicitly.
 2. **Clients** ship the base64 fix, failure surfacing, key-package reset, atomic persistence, and
    identity-key + certificate *generation*. No enforcement yet.
 3. **Soak.** Watch certificate coverage, undecryptable-message rate, and welcome-join failure rate.
@@ -749,7 +749,7 @@ neither did when the rollback obligation above was first written.
 5. **Flip** `certificateEnforcement` to `Warn`, then `Enforce`, on coverage data.
 6. **Then** tighten `deviceId` requirements and reachability rejection.
 
-Steps 1–2 alone fix the reported bug. Nothing after step 3 should be rushed to catch a release.
+Steps 1-2 alone fix the reported bug. Nothing after step 3 should be rushed to catch a release.
 
 ### I.8 Test obligations
 
@@ -768,9 +768,9 @@ Steps 1–2 alone fix the reported bug. Nothing after step 3 should be rushed to
 
 ---
 
-## J. Backend implementation notes — shapes that differ from §A–§I
+## J. Backend implementation notes - shapes that differ from §A-§I
 
-Echo's backend is implemented. Everything in §A–§I is honoured unless listed here. **These are the
+Echo's backend is implemented. Everything in §A-§I is honoured unless listed here. **These are the
 concrete shapes the clients must code against** where the sections above were underspecified, or
 where implementing them needed a field the spec did not name.
 
@@ -779,24 +779,24 @@ where implementing them needed a field the spec did not name.
 | Shape | Added | Why |
 |---|---|---|
 | `PUT api/v1/backup/recovery-key` body | `password` | §C.1 requires re-authentication; the password is the only thing the server can actually verify. |
-| `PUT api/v1/backup/recovery-key` body | `recoveryCodeWrapping: { kdf, iterations, memoryKiB, parallelism, salt, iv, cipherText, publicVerifier? }` | §C.1.1's second wrapping of the **same** master key. Optional on the wire so clients can roll out in two steps, but an account without it is one password reset away from losing every backup blob and its account identity key. Required to enter `VerifiedDevices` and to put engine state in the cloud. Both wrappings share the top-level `version` — they wrap the same bytes. |
+| `PUT api/v1/backup/recovery-key` body | `recoveryCodeWrapping: { kdf, iterations, memoryKiB, parallelism, salt, iv, cipherText, publicVerifier? }` | §C.1.1's second wrapping of the **same** master key. Optional on the wire so clients can roll out in two steps, but an account without it is one password reset away from losing every backup blob and its account identity key. Required to enter `VerifiedDevices` and to put engine state in the cloud. Both wrappings share the top-level `version` - they wrap the same bytes. |
 | `PUT api/v1/devices/client/{id}/backup` | request header `X-Backup-Includes-Engine: true` | The blob is opaque, so the server cannot tell whether it carries engine state. §H.7 gates engine state in the cloud for `VerifiedDevices`; the client has to declare it. |
-| `GET .../backup` | response header `X-Backup-Stale: true` | §H.8's "a stale backup is reported, not silently restored". Set when the blob's recovery-key version is behind the account's current envelope. The blob is still served — it may be the only copy. |
+| `GET .../backup` | response header `X-Backup-Stale: true` | §H.8's "a stale backup is reported, not silently restored". Set when the blob's recovery-key version is behind the account's current envelope. The blob is still served - it may be the only copy. |
 | `GET .../backup/meta`, `GET api/v1/devices/backups` | `isStale` | The same signal in the metadata shape. |
-| `GET api/v1/backup/recovery-key` | `recoveryCodeWrapping`, `passwordWrappingInvalidatedAt`, `encryptedHistoryRecoverable` | §C.1.1. `encryptedHistoryRecoverable: false` is a **completed loss** — a reset invalidated the password wrapping and there was no recovery-code wrapping. Surface it as such, not as a warning about the future. |
-| `POST api/v1/user/reset-password` response | `masterKeyRewrapRequired`, `encryptedHistoryRecoverable` | Was a bare `Ok()`. §C.1.1: the reset just made the password wrapping undecryptable, and the client has to be told to re-wrap from the recovery code on next unlock — or told that it is already too late. |
+| `GET api/v1/backup/recovery-key` | `recoveryCodeWrapping`, `passwordWrappingInvalidatedAt`, `encryptedHistoryRecoverable` | §C.1.1. `encryptedHistoryRecoverable: false` is a **completed loss** - a reset invalidated the password wrapping and there was no recovery-code wrapping. Surface it as such, not as a warning about the future. |
+| `POST api/v1/user/reset-password` response | `masterKeyRewrapRequired`, `encryptedHistoryRecoverable` | Was a bare `Ok()`. §C.1.1: the reset just made the password wrapping undecryptable, and the client has to be told to re-wrap from the recovery code on next unlock - or told that it is already too late. |
 | `POST api/v1/users/master` response | `version`, `hasRecoveryCodeWrapping`, `encryptedHistoryRecoverable` | Was a bare `Ok()`. This legacy route writes the **password wrapping only**, so a client that uses it exclusively has an account one reset can destroy and no other way to discover that. |
 | `PUT api/v1/identity/protection-level` body | `password`, `deviceId` | Password on downgrade only (§G.3). `deviceId` lands in the audit row and the broadcast, so a device can tell "I did this" from "something did this". |
 | `POST .../mls/join-requests` body | `deviceName` | Display only, so the approval prompt can say "Alice's new phone" rather than an opaque id. Nothing is authorized on it. |
-| `conversation.MlsJoinRequest` push | `signatureKeyFingerprint`, `requiresManualApproval` | The fingerprint is what a human compares out of band. The flag is the server's published verdict — see J.4. |
+| `conversation.MlsJoinRequest` push | `signatureKeyFingerprint`, `requiresManualApproval` | The fingerprint is what a human compares out of band. The flag is the server's published verdict - see J.4. |
 | `MlsJoinRequestDto` | `requiresManualApproval` | The same verdict on the review-queue read. |
 | `POST .../mls/commits` body | `isProposal` | §E2 needs a wire flag: the server has to be told a payload is a proposal in order not to advance the epoch for it. |
 | `MlsCommitResponseDto` | `isProposal` | So a client can honour "do not count a proposal toward `applied`" without guessing. |
-| `MlsCommitPublishedDto` | `isProposal`, `duplicate` | `duplicate: true` is the §E4 idempotent replay. The publish succeeded — **keep** the merged state; do not treat it as a lost race. |
+| `MlsCommitPublishedDto` | `isProposal`, `duplicate` | `duplicate: true` is the §E4 idempotent replay. The publish succeeded - **keep** the merged state; do not treat it as a lost race. |
 | `AckWelcomesDto` | `deviceId` | §E6. Falls back to `X-Device-Id`; with neither, 400 rather than a silent no-op. |
 | `ConversationDto` (creation response only) | `unreachableDevices: [{ userId, deviceId, deviceName }]` | §E7. Added to the existing shape rather than wrapped in a new envelope, so clients already reading a `ConversationDto` off this response keep working. |
 | `POST api/v1/devices` response | `identityRotated` | §A. Otherwise the same device fields at the top level as before. |
-| `DeviceTokenResponse` (`/consume-tokens`) | `certificate`, `certificateExpiresAt`, `certificateIdentityKeyVersion`, `isLastResort` | §H.2 — the certificate travels *with* the key package, so the server cannot pair one device's package with another's certificate. `isLastResort` warns that the joining leaf has no forward secrecy from that point back. |
+| `DeviceTokenResponse` (`/consume-tokens`) | `certificate`, `certificateExpiresAt`, `certificateIdentityKeyVersion`, `isLastResort` | §H.2 - the certificate travels *with* the key package, so the server cannot pair one device's package with another's certificate. `isLastResort` warns that the joining leaf has no forward secrecy from that point back. |
 
 ### J.2 Routes the spec named only in prose
 
@@ -807,7 +807,7 @@ POST   /api/v1/conversations/{id}/mls/join-requests/{requestId}/challenge
          body { challenge: <32 bytes b64> }
          → { challengeId, requestId, challenge, issuedByDeviceId, expiresAt, answered }
 GET    /api/v1/conversations/{id}/mls/join-requests/{requestId}/challenge
-         requester only — the outstanding nonce
+         requester only - the outstanding nonce
 POST   /api/v1/conversations/{id}/mls/join-requests/{requestId}/proof
          body { challengeId, proof: b64 }    requester only, single use
 GET    /api/v1/conversations/{id}/mls/join-requests/{requestId}/proof
@@ -827,7 +827,7 @@ GET api/v1/users/{userId}/identity-key
       → 404 when the account has not published one
 PUT api/v1/users/identity-key
       body { publicKey, version, rotationSignature?, password?, deviceId? }
-      password required on BOTH paths — first publication and rotation alike
+      password required on BOTH paths - first publication and rotation alike
 PUT api/v1/devices/client/{deviceId}/certificate
       body { certificate, issuedAt, expiresAt, identityKeyVersion }
 GET api/v1/users/{userId}/devices/{deviceId}/certificate
@@ -841,14 +841,14 @@ GET api/v1/users/{userId}/devices/{deviceId}/certificate
 > **Corrected 2026-08-02.** This block previously said *"first publication needs no password; rotation
 > does"*. That was true when it was written and is now wrong, deliberately: §L closed first
 > publication as a critical. Whoever publishes first is who every peer TOFU-pins and what every device
-> certificate chains to — the same power a rotation confers, acquired for less and invisibly — and per
+> certificate chains to - the same power a rotation confers, acquired for less and invisibly - and per
 > §I.2 no account in the field has a key, so *every* account was one stolen session token away from
 > having its cryptographic identity chosen by somebody else. `AccountIdentityKeyEndpoint.Put` requires
 > the password on both paths, writes the same audit row on both, and broadcasts both with
 > `isFirstPublication` set so a client can word the notification correctly.
 >
 > **The consequence is real and is accepted.** An identity key can only be established while the
-> client holds the account password, i.e. at sign-in — a cold start cannot mint one. §G's rollout
+> client holds the account password, i.e. at sign-in - a cold start cannot mint one. §G's rollout
 > therefore advances at sign-in rate rather than at launch rate, and §I.1's coverage number climbs
 > correspondingly slowly. That is the intended trade: the alternative is a land-grab window on an
 > unauthenticated-in-practice credential, and there is no third option, because the server cannot
@@ -872,13 +872,13 @@ did not spell out:
 
 | `version` vs stored | Operation | Orphans blobs? |
 |---|---|---|
-| Lower | Refused | — |
-| **Equal** | **Additive**: writes `recoveryCodeWrapping` against the master key already stored. This is the §C.1.2 retrofit path, and also covers regenerating a recovery code. | **Never** — blobs bind to the version and the version does not move. `orphanedBlobDeviceIds` is always empty. |
-| Higher | Rotation: replaces the master key. | Yes — returns 409 with the affected device ids unless `?acknowledgeOrphans=true`. |
+| Lower | Refused | - |
+| **Equal** | **Additive**: writes `recoveryCodeWrapping` against the master key already stored. This is the §C.1.2 retrofit path, and also covers regenerating a recovery code. | **Never** - blobs bind to the version and the version does not move. `orphanedBlobDeviceIds` is always empty. |
+| Higher | Rotation: replaces the master key. | Yes - returns 409 with the affected device ids unless `?acknowledgeOrphans=true`. |
 
 At the same version the **password wrapping is not rewritten**, and submitting a `cipherText` that
 differs from the stored one is a 400. Different bytes under an unchanged version is either a re-wrap
-under a new password — which `rewrap-password` exists for — or a different master key masquerading as
+under a new password - which `rewrap-password` exists for - or a different master key masquerading as
 the same one, which would make every blob at that version unopenable while claiming nothing changed.
 The server cannot distinguish them, so it refuses rather than guessing.
 
@@ -897,8 +897,8 @@ POST api/v1/backup/recovery-key/rewrap-password
       → 409 when version != the stored version
 ```
 
-The client reaches this by unlocking from the recovery code — the only credential a reset leaves
-intact — and re-sealing the **same** master key under the new password. `version` is unchanged, so
+The client reaches this by unlocking from the recovery code - the only credential a reset leaves
+intact - and re-sealing the **same** master key under the new password. `version` is unchanged, so
 every backup blob stays readable; this is a re-wrap, not a rotation.
 
 > **Corrected 2026-08-02.** This paragraph previously read *"There is deliberately no password check:
@@ -908,9 +908,9 @@ every backup blob stays readable; this is a re-wrap, not a rotation.
 > The first half was a critical: nothing verified that the submitted wrapping sealed the master key at
 > all, so the route destroyed the account's master key on a bare session token and then cleared the
 > invalidation stamp, leaving the account reporting itself healthy. The second half named a proof the
-> code never performed — `publicVerifier` was in §C.1's envelope and nothing generated or checked it.
+> code never performed - `publicVerifier` was in §C.1's envelope and nothing generated or checked it.
 >
-> As implemented: **a credential is required** — the account password, *or* the single-use
+> As implemented: **a credential is required** - the account password, *or* the single-use
 > `rewrapTicket` minted by the password reset that invalidated the wrapping, which is what keeps the
 > recovery path from depending on the thing that was just reset. **And** `passwordWrapping.publicVerifier`
 > is required and compared against the stored one (§L.11 fixes its derivation, so both clients produce
@@ -920,7 +920,7 @@ every backup blob stays readable; this is a re-wrap, not a rotation.
 ### J.3 Realtime events the server emits
 
 ```
-conversation.MlsCommit             also emitted for channel contexts (§E8) — switch on contextId
+conversation.MlsCommit             also emitted for channel contexts (§E8) - switch on contextId
 conversation.MlsJoinRequest        conversation join request submitted (§B)
 conversation.MlsDeviceRemoved      a removed device's leaf must be committed out (§E9)
 conversation.MlsDeviceAdmitted     a device joined the group (§G.2 timeline event)
@@ -938,8 +938,8 @@ Stated plainly, because a client that assumes otherwise is building on sand.
 1. **The 24h auto-admission limit (§G.2.3).** The server holds no group keys; only a member's client
    can produce an Add commit, and only that client can decline to. So the server decides the budget,
    publishes the verdict as `requiresManualApproval` on the join request, and records how the budget
-   was spent. Clients must honour it. The budget counts *devices*, not requests — one handset joining
-   five conversations is one admission — and the requesting device is excluded from its own count.
+   was spent. Clients must honour it. The budget counts *devices*, not requests - one handset joining
+   five conversations is one admission - and the requesting device is excluded from its own count.
 2. **`ProtectionLevel` as served by the server.** The enum column is a cache, so the server can answer
    "may this be auto-admitted" without asking a client. The authority is the signed assertion.
    Clients verify that and fail closed to `VerifiedDevices` when they cannot; they must not treat the
@@ -949,7 +949,7 @@ Stated plainly, because a client that assumes otherwise is building on sand.
 
 - **It never validates an admission proof, or a device certificate's signature.** It holds neither the
   account master key nor the account identity private key. `POST api/v1/devices` and
-  `PUT .../certificate` check certificate *structure and expiry only*, and reject malformed uploads —
+  `PUT .../certificate` check certificate *structure and expiry only*, and reject malformed uploads -
   but a certificate the server accepted is not a certificate anyone should trust.
 - **It does not choose the admission nonce.** A server-chosen nonce could be one it had precomputed a
   signature against.
@@ -960,13 +960,13 @@ Stated plainly, because a client that assumes otherwise is building on sand.
 
 ---
 
-## K. venta-mobile implementation notes — mechanisms the spec named but did not fix
+## K. venta-mobile implementation notes - mechanisms the spec named but did not fix
 
 **Read this before implementing §G or §H on Alpine.** Where §G/§H named a
 mechanism in prose but not a concrete construction, mobile had to choose one, and
 the two clients must agree byte for byte or every proof and certificate is
-mutually unverifiable. Everything here is *additive* — nothing already agreed in
-§A–§J changed.
+mutually unverifiable. Everything here is *additive* - nothing already agreed in
+§A-§J changed.
 
 Implemented in `packages/venta_mls/rust/src/mls.rs`; Alpine mirrors into
 `src-tauri/src/crypto/mls.rs`.
@@ -980,8 +980,8 @@ tagged_payload(label, fields) = label || len(f0) || f0 || len(f1) || f1 || ...
 ```
 
 with each length a **4-byte big-endian** `u32`. The length prefixes are not
-decoration: plain concatenation is ambiguous — `("ab","c")` and `("a","bc")`
-produce identical bytes — so an attacker who can move a byte from one field into
+decoration: plain concatenation is ambiguous - `("ab","c")` and `("a","bc")`
+produce identical bytes - so an attacker who can move a byte from one field into
 the next can make one signature vouch for two different statements.
 
 | Purpose | Label | Fields, in order |
@@ -998,19 +998,19 @@ on a decoding before it can verify.
 
 - **Device certificate** and **protection-level assertion**: Ed25519 over the
   account identity key, via `OpenMlsCrypto::sign` / `verify_signature`. No new
-  crate — the same primitive the rest of the engine uses.
+  crate - the same primitive the rest of the engine uses.
 - **Admission proof**: **HMAC-SHA256**, keyed by
   `HKDF-SHA256(ikm = accountMasterKey, salt = none, info = "venta.device-admission.v1", L = 32)`.
 
   Symmetric rather than a signature because both parties are devices of the *same*
   account and both hold the master key, which is what §G.1 step 4 ("verifies the
-  proof locally — it holds the master key too") already implies. A derived key
+  proof locally - it holds the master key too") already implies. A derived key
   rather than the master key itself so a leaked proof cannot be turned back into
   the key that unwraps the backup envelope. Verified with `verify_slice`, which is
   constant time; comparing the base64 strings would not be.
 
 §G.3 said the protection level is "signed by the user's identity key" without
-naming one — this system had no per-user key at the time. §H.2 introduced exactly
+naming one - this system had no per-user key at the time. §H.2 introduced exactly
 that, so the assertion is signed by the **account identity key**, which also gives
 its rotation the ceremony §H.5 already defines.
 
@@ -1024,7 +1024,7 @@ that have no identity key yet (§I.2 says that is every existing account):
 ```
 
 Without it a restored handset can issue no device certificate, so under §H.4
-every peer would propose removing its leaf — which makes it the field the
+every peer would propose removing its leaf - which makes it the field the
 full-loss recovery journey actually turns on.
 
 `MlsBackupImportResult` also returns `signingPublicKey` / `signingPrivateKey`.
@@ -1036,7 +1036,7 @@ exactly like lost keys. Alpine may ignore both fields.
 ### K.4 Two engine-shape divergences Alpine should be aware of
 
 1. **`read_only` is a field on `MlsState`, not an absent `state_path`.** Alpine's
-   `save_to_disk` errors when `state_path` is `None`, which is right — but mobile
+   `save_to_disk` errors when `state_path` is `None`, which is right - but mobile
    has a legitimate no-save mode for the iOS notification-service extension, a
    *separate process* that must never write a stale copy over what the app
    committed. "Deliberately not saving" and "never initialised" need opposite
@@ -1050,7 +1050,7 @@ exactly like lost keys. Alpine may ignore both fields.
 
 ### K.5 Admission-proof routes
 
-Mobile's `MlsApi` already matches §J.2 exactly — `POST`/`GET` challenge,
+Mobile's `MlsApi` already matches §J.2 exactly - `POST`/`GET` challenge,
 `POST`/`GET` proof, per context. No deviation; noted so Alpine can copy the
 call shapes rather than re-deriving them.
 
@@ -1071,7 +1071,7 @@ Same reasoning Alpine applied, and the same conclusion.
   per-context by the access banner rather than at launch across the conversation
   list.
 
-### K.7 Dual-wrapped master key — mobile's construction (§C.1.1)
+### K.7 Dual-wrapped master key - mobile's construction (§C.1.1)
 
 > **The recovery-code format in this section is superseded by §C.1.2 and §K.8.**
 > The 32-symbol alphabet and the masking described below are exactly what broke
@@ -1092,7 +1092,7 @@ groups of four (`XXXX-XXXX-…`), 160 bits:
 23456789ABCDEFGHJKMNPQRSTUVWXYZ*
 ```
 
-No `I`, `L`, `O`, `0` or `1` — those are the pairs people transcribe wrongly, and
+No `I`, `L`, `O`, `0` or `1` - those are the pairs people transcribe wrongly, and
 a code that fails because of a misread character fails at the one moment its owner
 has nothing else to try. Exactly 32 symbols so each character is 5 bits and
 masking (`byte & 0x1f`) is uniform; a `%` over a non-power-of-two alphabet would
@@ -1103,8 +1103,8 @@ whitespace and `-`, then upper-case. Case and grouping are presentation, not
 secret material. Both `setup_master_key` and every unwrap normalise, so the code
 as *displayed* and the code as *typed* derive the same key.
 
-**Wrapping.** Both wrappings use the master-key Argon2 parameters — m=65536, t=3,
-**p=1** — each with its own 16-byte salt and 12-byte IV, over AES-256-GCM. They
+**Wrapping.** Both wrappings use the master-key Argon2 parameters - m=65536, t=3,
+**p=1** - each with its own 16-byte salt and 12-byte IV, over AES-256-GCM. They
 seal identical bytes and share the top-level `version`.
 
 Rust surface, all additive:
@@ -1123,8 +1123,8 @@ never the caller's.
 
 **Client rule mobile enforces, worth mirroring:** `VerifiedDevices` is refused
 while `MasterKeyStatus != ready`. §H.7 names the recovery code as that tier's only
-recovery credential — a server-assisted password reset explicitly cannot restore
-E2EE — so entering it without a recovery-code wrapping promises a recovery path
+recovery credential - a server-assisted password reset explicitly cannot restore
+E2EE - so entering it without a recovery-code wrapping promises a recovery path
 that does not exist, and the first password reset would be silent, total loss.
 `TrustedSignIn` is still allowed, since its credential is the password.
 
@@ -1134,22 +1134,22 @@ that does not exist, and the first password reset would be silent, total loss.
 > constants. Aligning them orphans every key and blob already written under the
 > other value. Mobile pins this with `declared_kdf_parameters_are_the_ones_actually_used`
 > and `declared_master_key_parameters_are_the_ones_actually_used`, which perturb
-> each of `m`/`t`/`p` and assert the read then fails — both were verified to fail
+> each of `m`/`t`/`p` and assert the read then fails - both were verified to fail
 > against a deliberately hardcoded reader.
 
-### K.8 §C.1.2 applied on venta-mobile — supersedes K.7's recovery-code section
+### K.8 §C.1.2 applied on venta-mobile - supersedes K.7's recovery-code section
 
 K.7's recovery-code paragraph is **withdrawn**; §C.1.2 is authoritative. What
 changed on this side, and what Alpine can rely on:
 
 | | Now |
 |---|---|
-| Alphabet | `23456789ABCDEFGHJKMNPQRSTUVWXYZ` — 31 symbols. `*` **removed**. |
+| Alphabet | `23456789ABCDEFGHJKMNPQRSTUVWXYZ` - 31 symbols. `*` **removed**. |
 | Generation | Rejection sampling: draw a byte, discard if `>= 248`, else `alphabet[b % 31]` |
 | Length | 32 characters, eight groups of four, `-` joined (~158.5 bits) |
 | Normalisation | Strip whitespace and `-`, uppercase, validate length and alphabet |
 | Invalid input | `Err("RecoveryCodeInvalid: …")`, surfaced to Dart as `MlsErrorKind.recoveryCodeInvalid`. **Never** falls back to raw input. |
-| Passwords | Structurally cannot reach normalisation — `unlock` takes `password` and `recoveryCode` as separate parameters and only the latter is normalised. No detect-or-passthrough branch exists to get wrong. |
+| Passwords | Structurally cannot reach normalisation - `unlock` takes `password` and `recoveryCode` as separate parameters and only the latter is normalised. No detect-or-passthrough branch exists to get wrong. |
 
 `normalize_recovery_code` returns `Result<String, String>` rather than `String`.
 That is a signature change on a shared function; Alpine's equivalent should make
@@ -1176,7 +1176,7 @@ already consumes it and prints a loud `SKIPPED` until it lands, so the moment
 Alpine checks the file in the assertion goes live with no change here.
 
 **Retrofit write.** `addRecoveryCode` writes at the **same version** and sends the
-stored `passwordWrapping` back **byte-identical to what `GET` returned** — never
+stored `passwordWrapping` back **byte-identical to what `GET` returned** - never
 re-encrypted, since a fresh IV would change the ciphertext and now earn a 400. It
 then **re-reads and verifies** the wrapping actually landed, throwing
 `RecoveryCodeNotStoredException` rather than showing a code the server did not
@@ -1185,13 +1185,13 @@ store. Pinned by `sends the stored password wrapping back byte-identical` and
 
 ---
 
-## L. Security-review corrections — **supersedes §A–§K wherever they disagree**
+## L. Security-review corrections - **supersedes §A-§K wherever they disagree**
 
 Three independent adversarial reviews (2026-08-01) found that several sections above are not merely
-unimplemented but **wrong as specified** — implementing them faithfully would still produce a
+unimplemented but **wrong as specified** - implementing them faithfully would still produce a
 vulnerability. Full findings in `mls-security-findings.md`. This section is authoritative.
 
-### L.1 The master key is random, not password-derived — §G.1 is WRONG
+### L.1 The master key is random, not password-derived - §G.1 is WRONG
 
 §G.1 states the account master key is "Argon2id-derived from the password." **It is not.** Per
 §C.1.1 and the code it is `random(32)`, wrapped twice under password- and recovery-code-derived keys.
@@ -1202,13 +1202,13 @@ HKDF-derived subkey of a uniformly random key leaks nothing crackable. Anyone im
 written would build that oracle. Corrected wording: *"proof of possession of the account master key,
 a random 32-byte secret the server never holds in unwrapped form."*
 
-### L.2 Certificates must bind to the leaf — §K.1's rationale is WRONG
+### L.2 Certificates must bind to the leaf - §K.1's rationale is WRONG
 
 §K.1 justifies signing the device signature key as the base64 *string* "so neither side has to agree
 on a decoding before it can verify." That rationale produced a critical bug: the verifier validates
 the certificate against **the certificate's own self-reported fields**, never against the leaf under
 examination. Certificates are public, so a server replays any genuine certificate for the account
-against a leaf it injected and verification passes — at full enforcement, at 100% coverage.
+against a leaf it injected and verification passes - at full enforcement, at 100% coverage.
 
 **Required:** the verifier MUST extract the signature key from the MLS leaf's credential, re-encode
 it, and compare against the certificate's `deviceSignatureKey`; and MUST compare the certificate's
@@ -1216,17 +1216,17 @@ it, and compare against the certificate's `deviceSignatureKey`; and MUST compare
 invalid regardless of signature validity. Signing raw bytes rather than the base64 string is the
 cleaner fix; either way the comparison is mandatory.
 
-The certificate payload MUST also include `userId` — without it the object makes no self-contained
+The certificate payload MUST also include `userId` - without it the object makes no self-contained
 statement about whose device it is, and `ClientDeviceId` is unique only per user.
 
-### L.3 Who approves a conversation join request — §G.1 and §B contradict each other
+### L.3 Who approves a conversation join request - §G.1 and §B contradict each other
 
 §G.1 requires the verifier to be **the requester's own other device** (the only party holding the
 master key). §B and the implementation make approval **peer-based**, forbid self-approval, and
 exclude `KeyPackage` from `MlsJoinRequestDto`. The two sets are disjoint, so the ceremony is
 structurally unreachable and, as specified, unimplementable.
 
-**Resolution — there are two distinct flows and the contract must name both:**
+**Resolution - there are two distinct flows and the contract must name both:**
 
 1. **Own-device admission** (a user adding their own second device). The audience for
    `conversation.MlsJoinRequest` MUST include the requester's *other* devices; approval by a
@@ -1234,7 +1234,7 @@ structurally unreachable and, as specified, unimplementable.
    bytes. This is the only flow in which the §G admission proof is meaningful.
 
    **It takes two calls, and the client has to know that.** The push deliberately carries no
-   `KeyPackage` — it goes to every member of the conversation, and a notification is not the place to
+   `KeyPackage` - it goes to every member of the conversation, and a notification is not the place to
    hand a leaf's key material to peers who have not decided to admit it. The requester's other
    devices fetch the bytes from `GET .../mls/join-requests`, which returns `KeyPackage` only on
    requests from the calling user's own account. A client that treats the push as sufficient will
@@ -1243,7 +1243,7 @@ structurally unreachable and, as specified, unimplementable.
    be asked to. Peer approval rests on the device certificate (§L.2) plus out-of-band fingerprint
    comparison, and `requiresManualApproval` is always true.
 
-### L.4 Nonce freshness — §J.2's rationale is insufficient
+### L.4 Nonce freshness - §J.2's rationale is insufficient
 
 §J.2 says the verifier "never has to trust the server's account of *what* was signed." That is a
 statement about payload binding, not freshness, and both clients consequently verify against a
@@ -1254,7 +1254,7 @@ reject any proof whose challenge bytes are not byte-identical to its own record,
 against its **own** clock. Server-side single-use and windowing are worthless against a malicious
 server and MUST NOT be relied on.
 
-### L.5 Certificate enforcement must not be entirely server-gated — §I.1 is too permissive
+### L.5 Certificate enforcement must not be entirely server-gated - §I.1 is too permissive
 
 §I.1's "never let a client infer the phase from its own version" is right for the
 *missing-certificate* case and wrong as a blanket rule: it hands a malicious server the off switch
@@ -1271,7 +1271,7 @@ for the only defence against external-commit injection.
 §I.1 must also state plainly that while enforcement is `Observe` there is **no** defence against
 server external-commit injection, and that no hostile-server claim may be made until `Enforce`.
 
-### L.6 Protection level needs a monotonic floor — §G.3 is under-specified
+### L.6 Protection level needs a monotonic floor - §G.3 is under-specified
 
 "Every client independently enforces the last validly-signed level it has seen" is unimplementable
 without a version floor, and both clients duly omitted one, so a replayed older assertion verifies
@@ -1280,22 +1280,22 @@ and lowers the stored level.
 **Required:** clients MUST persist the highest `version` ever seen per account and MUST reject any
 lower-versioned assertion as tampering, regardless of signature validity. A 200 with an absent or
 unparsable assertion MUST fail closed to the remembered level (or `VerifiedDevices` when there is
-none) — never to `TrustedSignIn`. A fresh device treats the first successfully-verified assertion as
+none) - never to `TrustedSignIn`. A fresh device treats the first successfully-verified assertion as
 its floor and warns on any subsequent decrease.
 
 Also: `PutProtectionLevelDto` MUST carry `UpdatedAt` and the server MUST store the client's value
 verbatim. Today the server stamps its own, so the signed payload can never be reconstructed and **no
 assertion can ever verify**.
 
-### L.7 `X-Device-Id` must be bound to the session — §C.2 rule 1 is unenforced
+### L.7 `X-Device-Id` must be bound to the session - §C.2 rule 1 is unenforced
 
-§C.2 rule 1 requires a "validated `X-Device-Id`". No such validation exists — the header is compared
+§C.2 rule 1 requires a "validated `X-Device-Id`". No such validation exists - the header is compared
 to a path parameter, never to the session. The JWT carries `session_id` and `LoginSession` has a
 `DeviceId`.
 
 **Required:** resolve the device from the session's `LoginSession.DeviceId` and treat the header as
 untrusted input. Every per-device rule in §C.2 depends on this. Audit rows and `identity.BackupRead`
-MUST record the **session-derived** device id, never the header — otherwise the forensic trail is
+MUST record the **session-derived** device id, never the header - otherwise the forensic trail is
 attacker-controlled.
 
 **And a migration story, which this requirement does not get for free.** `LoginSession.DeviceId` is
@@ -1305,13 +1305,13 @@ transfer routes away from those callers on deploy day. Three answers were consid
 
 - **Backfill.** Not possible. Nothing on a session identifies a device except `DeviceName` and
   `UserAgent`, both free text; inferring from them would bind sessions to the wrong handset and hand
-  one device another's backup — the C2 outcome, arriving by migration instead of by header.
+  one device another's backup - the C2 outcome, arriving by migration instead of by header.
 - **A grace window on session age.** Rejected, and it is the worst of the three: it re-opens C2 in
   full for the length of the window, for stolen sessions equally with legitimate ones, and fails
   *open* on a clock. Availability must not be bought by making the gate temporarily absent.
 - **An explicit re-bind that costs a credential.** Implemented, as
   `POST api/v1/devices/client/{deviceId}/bind-session`. Binding a session to an *existing* device row
-  is exactly the move a stolen session would make, so the account password is what distinguishes it —
+  is exactly the move a stolen session would make, so the account password is what distinguishes it -
   the same trade `/connect/token` already makes, where the password grant will bind a fresh session
   to any named device on the same evidence. Re-binding an already-bound session is refused, and the
   bind is audited as `session.device-bound`.
@@ -1319,19 +1319,19 @@ transfer routes away from those callers on deploy day. Three answers were consid
 The refusal MUST name the remedy. A bare 403 on a route that worked yesterday gives the client
 nothing to act on, and the fix is not one it can infer.
 
-### L.8 `publicVerifier` must be implemented or removed — §C.1
+### L.8 `publicVerifier` must be implemented or removed - §C.1
 
 §C.1 lists `publicVerifier` in the envelope, and §J.2 cites "producing a valid wrapping is itself the
 proof" as the safety property of `rewrap-password`. Nothing generates or checks it, so that property
 does not exist and the route is an unauthenticated destructive write.
 
-**Required:** either implement it — a value derived from the master key that the server can compare
+**Required:** either implement it - a value derived from the master key that the server can compare
 across wrappings, giving both a real proof for `rewrap-password` and a cross-check that the two
-wrappings seal the same key — or delete the field and require a real credential on that route. A dead
+wrappings seal the same key - or delete the field and require a real credential on that route. A dead
 verifier field that the spec cites as the mechanism is worse than no field at all.
 
-**Implemented, with one honest gap.** The server cannot derive the value — it never sees the master
-key — so it can only ever compare what an earlier write stored, and no account in the field has one.
+**Implemented, with one honest gap.** The server cannot derive the value - it never sees the master
+key - so it can only ever compare what an earlier write stored, and no account in the field has one.
 Three rules make it real rather than decorative:
 
 1. **`PUT backup/recovery-key` MUST require `publicVerifier` on a first write or a rotation.** That
@@ -1374,44 +1374,44 @@ may state it unconditionally until the field is universal.
   rotation is not a revocation mechanism, because it invalidates every peer's pin.
 - **KDF parameters read from a blob header MUST be clamped** (suggest m ≤ 1 GiB, t ≤ 10, p ≤ 16).
   Unbounded values are a denial of service on the recovery path. *(Weak parameters do not make a
-  stolen blob crackable — that fails closed. The exposure is resource exhaustion only.)*
+  stolen blob crackable - that fails closed. The exposure is resource exhaustion only.)*
 - **Message content rendered in an encrypted context MUST come from the decryptor**, and the
   displayed author MUST be the authenticated `senderIdentity`, never a server-supplied `authorId`.
   Server-supplied encryption state MUST NOT be able to downgrade a context to cleartext.
 
-### L.10 Widening a uniqueness constraint — §I.6's rule is right twice and wrong once
+### L.10 Widening a uniqueness constraint - §I.6's rule is right twice and wrong once
 
 §I.6 requires that the `Down()` of any migration widening a uniqueness constraint "must explicitly
 delete the rows that no longer fit". That is correct for the two migrations it names and wrong for
 the one it does not.
 
-- `AddMlsIdentityKeysBackupAndProtectionLevel` — `user_device_backups`, one row per device to a
+- `AddMlsIdentityKeysBackupAndProtectionLevel` - `user_device_backups`, one row per device to a
   versioned history. Delete: the surplus rows are **superseded versions of the same device's own
   blob**. Narrowing the schema costs the history and nothing else, and only the newest version would
   ever have been restored from.
-- `AddMlsProposalsAdmissionChallengesAndDeviceIndex` — `mls_commits` and `member_devices`. Delete,
+- `AddMlsProposalsAdmissionChallengesAndDeviceIndex` - `mls_commits` and `member_devices`. Delete,
   same reasoning.
-- `ConsolidateDeviceConcepts` — `user_devices.client_device_id`, globally unique to unique per
+- `ConsolidateDeviceConcepts` - `user_devices.client_device_id`, globally unique to unique per
   `(user_id, client_device_id)`. **Do not delete.** The surplus row is *another account's device*.
   Deleting it destroys that user's device row, cascades to their push tokens and their backup blobs,
-  and leaves the surviving account holding an id it does not exclusively own — which is the C2
+  and leaves the surviving account holding an id it does not exclusively own - which is the C2
   outcome arriving by migration rather than by header. §I.6 omitted this migration entirely, which is
   how its broken `Down()` survived the review that fixed the other two.
 
 **Corrected rule.** The `Down()` must be runnable against data the `Up()` made legal. Where the rows
 that no longer fit are redundant *within one owner*, delete them and comment the loss at the call
-site. Where they belong to **different** owners, restore the index **non-unique** and warn — the old
+site. Where they belong to **different** owners, restore the index **non-unique** and warn - the old
 uniqueness is not recoverable without destroying data that was never the migration's to destroy, and
 a rollback that refuses to run is the failure §I.6 exists to prevent, not a safe default.
 
 **Test obligation.** Neither failure is visible on an empty database and neither is visible to the
 InMemory provider, which ignores unique indexes. Any migration in this class needs a rollback test
-against real Postgres that seeds exactly the rows the `Up()` started permitting —
+against real Postgres that seeds exactly the rows the `Up()` started permitting -
 `Identity.Tests/Migrations/MigrationRollbackPostgresTests.cs`.
 
 ---
 
-### L.11 `publicVerifier` — the normative derivation
+### L.11 `publicVerifier` - the normative derivation
 
 §L.8 requires the server to hold a `publicVerifier` and names the gap of accounts that have none. It
 never said how to compute one, and the consequence is that **no client derives it**: Alpine declares
@@ -1421,7 +1421,7 @@ or rotating write without it (`BackupController.cs:344`, `:537`). A server-side 
 client can satisfy is not a security mechanism; it is an outage waiting on a deploy.
 
 Two clients each inventing a derivation is the failure mode this project has already lived through
-once — the recovery-code alphabet differed between repos by a single `*` and silently produced a
+once - the recovery-code alphabet differed between repos by a single `*` and silently produced a
 wrong key. So the construction is fixed here, once, and neither client may vary it.
 
 **Normative construction.**
@@ -1438,14 +1438,14 @@ publicVerifier = base64_std_pad(
 ```
 
 - `info` is exact and ASCII, including the version suffix. Any change to the derivation takes a new
-  suffix, never a silent redefinition — an account's stored verifier must stay comparable for the
+  suffix, never a silent redefinition - an account's stored verifier must stay comparable for the
   life of its master key.
 - Base64 is standard alphabet **with** padding, matching every other base64 field in §C and §D.
 - Derive it in the **engine** (Rust), beside the wrapping code, and return it alongside both
   wrappings. Deriving it in TypeScript or Dart puts the master key in the host language on a path
   that §K.3 otherwise keeps inside the engine.
 
-**Why HKDF of the master key and not of a wrapping.** The value must be identical across a re-wrap —
+**Why HKDF of the master key and not of a wrapping.** The value must be identical across a re-wrap -
 that is its entire purpose, proving a `rewrap-password` seals *the same key*. Anything derived from a
 wrapping changes with the salt and nonce and would fail on the first legitimate re-wrap. Anything
 derived from the password is an offline password oracle for whoever reads the row, which is the §L.1
@@ -1458,7 +1458,7 @@ to unwrap anything.
 
 **Emit it on:** both wrappings of a first write, both wrappings of a rotation, and the
 `passwordWrapping` of `rewrap-password`. The two wrappings of one master key MUST carry the same
-value — Echo rejects a mismatch (`:199`) precisely because differing verifiers mean the two wrappings
+value - Echo rejects a mismatch (`:199`) precisely because differing verifiers mean the two wrappings
 do not seal the same key.
 
 **Migration.** Accounts that already have key material have no stored verifier. Echo backfills on the
@@ -1477,13 +1477,13 @@ the air.
 **The failure.** **venta-mobile** registers a random 32-byte placeholder as its `identityPublicKey`
 on first launch and republishes its *real* MLS signing key once it has minted an MLS identity
 (`device_id_service.dart:78-82`, `mls_session_manager.dart:81`). On every mobile install that
-predates MLS, the next `POST api/v1/devices` therefore carries a genuinely different key — a §A
-rotation — and §L.7 gated rotation on proving "self". A session created before the device row existed
+predates MLS, the next `POST api/v1/devices` therefore carries a genuinely different key - a §A
+rotation - and §L.7 gated rotation on proving "self". A session created before the device row existed
 has `DeviceId == null` and no way to acquire one except the password, so the gate could never be
 passed: **400 on every launch, permanently**, swallowed by the client's best-effort registration. Not
 an encoding artifact; the key really does change, exactly once, by design of that client.
 
-> **Corrected 2026-08-02 — the placeholder is mobile-only.** This section previously said "a shipped
+> **Corrected 2026-08-02 - the placeholder is mobile-only.** This section previously said "a shipped
 > client", which reads as all of them and was taken that way. Alpine has **never** sent a placeholder:
 > it registers the real MLS signing key from the start and re-registers with the same stored key
 > (`device-identity.service.ts:ensureRegistered`, which reads `alpine_mls_{deviceId}_pub` and sends
@@ -1498,39 +1498,39 @@ an encoding artifact; the key really does change, exactly once, by design of tha
 when **no session has ever been bound to it, it holds no encrypted backup, and it is neither end of a
 live device-to-device transfer**. Those three are an enumeration of everything being a device grants,
 not a heuristic for "looks new". A row created by the request that is asking satisfies all three, so
-the first-launch case needs no special case. Revoked sessions count as claims — a revoked session is
+the first-launch case needs no special case. Revoked sessions count as claims - a revoked session is
 still proof the row was some real handset's.
 
 Registration claims the row on both paths, rotating and not, and the rotation gate is satisfied by
 having claimed it. Everything else is unchanged: `bind-session` still costs the password, still
 refuses to *re*-bind a session, and `ResetKeyPackages` / `RemoveDevice` are untouched.
 
-**Still stopped.** A stolen session token cannot appoint itself an established device — one some
+**Still stopped.** A stolen session token cannot appoint itself an established device - one some
 session has already been, or that holds a backup, or that is mid-transfer. That is C2 and it is the
 property `BindSession_WithoutThePassword_ChangesNothing` states.
 
 **Conceded, deliberately.** A row nobody has ever been and that holds nothing is first-come,
-first-served among the account's own unbound sessions — trust on first use. A token stolen before the
+first-served among the account's own unbound sessions - trust on first use. A token stolen before the
 real handset's next launch can take that row, which locks the real device out of its own per-device
 routes until the user pays the password on `bind-session`, and makes the thief the recipient of any
 backup that device later writes. The window is per row and closes the first time anybody claims it,
 which every legitimate launch does. It is accepted because refusing it is worse in the same
-direction: the row then stays unclaimed *indefinitely* — the device cannot re-register at all — so
+direction: the row then stays unclaimed *indefinitely* - the device cannot re-register at all - so
 the same window stays open forever while the honest user is prompted for a password on every launch.
 
 Note that "the caller sent the matching identity key" is **not** usable as evidence here:
 `GET api/v1/devices` returns every device's `clientDeviceId` and `identityPublicKey` to any session
 token, so echoing them back proves nothing an attacker did not already hold.
 
-### L.13 Gateway prefixes are stripped — internal routes must not repeat them
+### L.13 Gateway prefixes are stripped - internal routes must not repeat them
 
 `/api/v1/{service}/{**rest}` is forwarded as `/api/v1/{**rest}`, so an endpoint whose own template
 begins with its service segment is reachable only at `/api/v1/{service}/{service}/...` and 404s at
 the path clients actually call. Four Identity routes shipped that way:
 `identity/mls-policy`, `identity/admin/mls-certificate-coverage` and both halves of
-`identity/protection-level`. Consequences: **the certificate-enforcement kill switch was inert** —
+`identity/protection-level`. Consequences: **the certificate-enforcement kill switch was inert** -
 and silently, because a client that cannot read the policy correctly defaults to `Observe`, which is
-also what a healthy fleet looks like — and **protection level did not exist over the wire at all**.
+also what a healthy fleet looks like - and **protection level did not exist over the wire at all**.
 Federation had the mirror-image problem: `/api/v1/federation/events` is a *protocol* path a remote
 instance is told to post to, and the gateway was stripping the segment out of it.
 
@@ -1540,7 +1540,7 @@ so no peer change). `Domain.Tests/Routing/GatewayRouteContractTests` now reads b
 reflection and fails the build on any recurrence. `messaging` is allowlisted: it is a resource name
 as well as a service name, and the doubled public path is what every shipped client calls.
 
-Unit and single-service integration tests cannot catch this class of bug — they call the internal
+Unit and single-service integration tests cannot catch this class of bug - they call the internal
 path. The mismatch exists only in the seam between the two route tables.
 
 ### L.14 Device coverage is reported on every path that forms a group, not only on creation
@@ -1552,21 +1552,21 @@ which is one key package per **active device that still had one**. A device with
 `unreachableDevices` instead of a token and is simply absent from the group. Nothing later adds it.
 
 That answer is correct and the reporting around it was not. Three gaps, all producing the same
-user-visible symptom — the same account reads a thread on one handset and sees nothing on the other,
+user-visible symptom - the same account reads a thread on one handset and sees nothing on the other,
 with no error anywhere:
 
 1. **`POST /api/v1/conversations` never checked the creator's own devices.** `Members` does not
-   contain the caller — the server appends them separately — so the per-device reachability scan,
+   contain the caller - the server appends them separately - so the per-device reachability scan,
    which exists precisely to catch "the laptop is in and the phone is not", skipped the one account
    most likely to notice. Starting an encrypted DM from your phone could hand you a conversation your
    own desktop could never read, reported as a clean success. The scan now includes the caller, with
-   the **creating device** excluded by `X-Device-Id` — it holds the group directly and has no Welcome
+   the **creating device** excluded by `X-Device-Id` - it holds the group directly and has no Welcome
    by construction. With no header the caller's devices are left out of the scan rather than reported
    wholesale; every shipped client stamps it.
 
 2. **`POST .../mls/commits` reported nothing.** Adding somebody is a roster row and then an Add
    commit, and the second step is where a device goes missing. `MlsCommitPublishedDto` now carries
-   `unreachableDevices`, scoped to **the users this commit welcomes** — the set being admitted.
+   `unreachableDevices`, scoped to **the users this commit welcomes** - the set being admitted.
    Devices already holding a leaf in the generation (an earlier Welcome, or a commit they published)
    and the publisher's own device are excluded, so an ordinary update or removal commit reports
    nothing and the signal does not become noise.
@@ -1580,7 +1580,7 @@ Every skip is also logged as a warning by `MlsDeviceCoverageService`, naming use
 is visible to an operator even when the client discards the field.
 
 **Clients must surface all three.** A device in these lists cannot read the context and its owner
-gets no error of their own — the message simply fails to decrypt, which is indistinguishable from the
+gets no error of their own - the message simply fails to decrypt, which is indistinguishable from the
 conversation being broken.
 
 > **The part that strands devices permanently, and it is client-side.** A device that registers or
@@ -1588,11 +1588,11 @@ conversation being broken.
 > The designed repair is §B's conversation join request, which exists server-side and has to be driven
 > by a client. Until it is, the reports above tell somebody a device is stranded but nothing gets it
 > back in, and a "re-link device" affordance that only re-fetches commits is offering a remedy that
-> cannot work — catching up on commits cannot create a leaf that was never added.
+> cannot work - catching up on commits cannot create a leaf that was never added.
 >
 > Alpine has this in hand (relink now submits a join request, plus a launch-time admission sweep,
 > both unreleased at the time of writing); venta-mobile has `requestAccessWhereMissing` built but not
-> called at launch. Current state per repo lives in `mls-remaining-work.md` §2c — check there rather
+> called at launch. Current state per repo lives in `mls-remaining-work.md` §2c - check there rather
 > than treating this paragraph as the status.
 >
 > Server-side, a coverage *read* route was considered and deliberately not added: the server cannot
@@ -1603,8 +1603,8 @@ conversation being broken.
 
 #### L.14.1 A device with no row cannot be reported, and there is no signal that one exists
 
-Coverage is computed from `user_devices`. A device that **never completed registration** — or
-registered and then failed before uploading key packages — appears in neither `deviceTokens` nor
+Coverage is computed from `user_devices`. A device that **never completed registration** - or
+registered and then failed before uploading key packages - appears in neither `deviceTokens` nor
 `unreachableDevices`, so the sender sees complete coverage and creates the conversation cleanly. This
 is the same silent exclusion arriving from the other side: not a device skipped for want of a key
 package, but one the server has no record of.
@@ -1617,10 +1617,10 @@ refuses the write outright:
 
 | Candidate | Why there is nothing to find |
 |---|---|
-| `LoginSession.DeviceId` | FK to `UserDevice.Id`, `OnDelete: SetNull`. `ConnectController.CreateSession` looks the client id up and stores **null** when no row matches — "an unknown id is ignored rather than rejected, because a first login necessarily happens before the device can be registered". The client device id is not retained anywhere. |
+| `LoginSession.DeviceId` | FK to `UserDevice.Id`, `OnDelete: SetNull`. `ConnectController.CreateSession` looks the client id up and stores **null** when no row matches - "an unknown id is ignored rather than rejected, because a first login necessarily happens before the device can be registered". The client device id is not retained anywhere. |
 | `UserPushToken.DeviceId` | FK to `UserDevice.Id`, `OnDelete: Cascade`. `UserController.UpsertPushTokenAsync` resolves, logs a warning on a miss, and stores **null** rather than losing the token. |
 | `UserDeviceBackup.DeviceId` | Non-nullable FK, `OnDelete: Cascade`. A blob for an unknown device cannot be written at all. |
-| `UserBackupTransfer.TargetDeviceId` | A raw client device id with no FK — but `BackupController` refuses the create unless it resolves to one of the caller's devices. |
+| `UserBackupTransfer.TargetDeviceId` | A raw client device id with no FK - but `BackupController` refuses the create unless it resolves to one of the caller's devices. |
 | `IdentityAuditEvent.ClientDeviceId` | Free text, and it **outlives the device row on purpose**. An id here with no row means the device was *removed*, which is the opposite of never registered. |
 
 What is left is `DeviceId IS NULL` on sessions and push tokens, and that is **not** evidence of a
@@ -1628,11 +1628,11 @@ missing device. §L.7 already established that null is the ordinary state for ev
 that plumbing and every client that does not send the id; the push-token column is nullable for the
 same documented reason, because registering a push token before an MLS device is correct ordering,
 not a failure. Treating null as "you may be missing a device" would fire on a large fraction of
-accounts, permanently, for reasons with nothing to do with MLS — a warning that is always on is a
+accounts, permanently, for reasons with nothing to do with MLS - a warning that is always on is a
 warning nobody reads, and it is worse than the silence it replaces.
 
 **So no such warning is emitted, and none should be added on this evidence.** The honest position is
 that peer-side detection of an unregistered device is impossible here: a device the server has never
 seen is indistinguishable from a device that does not exist. The remedy is not a better sender-side
-guess but the repair path above — once the device does register, §B lets it ask its way in, and that
+guess but the repair path above - once the device does register, §B lets it ask its way in, and that
 works regardless of how long it was invisible.

@@ -1,7 +1,7 @@
 # Self-hosting Venta / Echo
 
-One command brings up the whole federated stack — nine services, their infrastructure, and
-a TLS-terminating reverse proxy — and keeps it running across reboots.
+One command brings up the whole federated stack - nine services, their infrastructure, and
+a TLS-terminating reverse proxy - and keeps it running across reboots.
 
 | Host | Installer |
 | --- | --- |
@@ -40,7 +40,7 @@ identity guild messaging social federation bots  import  isle
 **Services.** `identity` (accounts, OpenIddict tokens), `guild` (servers, channels, roles),
 `messaging` (messages, attachments, calls), `social` (profiles, friends), `federation`
 (cross-instance events), `bots` (Discord-compatible bot API + gateway), `import` (Discord
-import), `isle` (game-server integration, optional), and `echo` — the gateway, which is not
+import), `isle` (game-server integration, optional), and `echo` - the gateway, which is not
 just a reverse proxy: it also hosts the realtime SignalR hub and the cross-service sagas
 that complete user registration.
 
@@ -50,7 +50,7 @@ Wolverine bus every service shares), ScyllaDB (message store, optional), MinIO (
 storage, optional).
 
 Each service applies its own EF Core migrations at startup, so there is no separate
-migration step — the installer never needs `dotnet ef`.
+migration step - the installer never needs `dotnet ef`.
 
 ---
 
@@ -105,7 +105,7 @@ Unattended:
 
 ### Re-running
 
-Safe and idempotent. Existing secrets in `deploy/.env` are kept — in particular the
+Safe and idempotent. Existing secrets in `deploy/.env` are kept - in particular the
 **Ed25519 federation keypair**, which identifies this instance to every peer it has
 already shaken hands with. Pass `--reconfigure` / `-Reconfigure` to answer the questions
 again (secrets still survive), and `--uninstall` / `-Uninstall` to stop the stack and
@@ -121,7 +121,7 @@ remove the boot hook while keeping all data.
 | `external-proxy` | you already run nginx/Traefik/HAProxy | binds the gateway to `127.0.0.1:8080` and MinIO to `127.0.0.1:9000` and prints what to forward |
 | `local` | LAN or development | publishes the gateway on `:8080` and MinIO on `:9000`, no TLS |
 
-Federation requires a publicly reachable HTTPS endpoint — remote instances fetch
+Federation requires a publicly reachable HTTPS endpoint - remote instances fetch
 `/.well-known/federation` and post signed events to `/api/v1/federation/events`.
 
 ### Why `INSTANCE_URL` must resolve inside the containers
@@ -184,7 +184,7 @@ start, and `postgres-init` creates any database a newly added service needs.
    route.
 
 Federated identifiers are `<localId>:<domain>`, so keep `INSTANCE_URL` stable. Changing it
-after peering — or regenerating the federation keypair — invalidates every existing
+after peering - or regenerating the federation keypair - invalidates every existing
 relationship. The protocol itself is documented in
 `Federation.Application/docs/federation-protocol.md`.
 
@@ -205,16 +205,16 @@ The installer leaves the optional integrations blank and the stack runs without 
 | `STEAM_WEB_API_KEY` | Steam login still works (the key is only for profile enrichment) |
 | `SENTRY_URL` | no error reporting |
 | `ISLE_*` | only read when the `isle` profile is enabled |
-| `GATEWAY_PROXY_SECRET` | forwarded headers are ignored and **every anonymous caller on the internet shares one rate-limit bucket** — see below |
+| `GATEWAY_PROXY_SECRET` | forwarded headers are ignored and **every anonymous caller on the internet shares one rate-limit bucket** - see below |
 | `GATEWAY_TRUSTED_PROXIES` | nothing, unless you are using it instead of the secret |
 
 After editing, apply with `ventactl up`.
 
-### `GATEWAY_PROXY_SECRET` — how the gateway identifies a caller
+### `GATEWAY_PROXY_SECRET` - how the gateway identifies a caller
 
 The gateway rate-limits per caller. A signed-in caller is identified by the user id in their
-token; everyone else is identified by their IP address. But the gateway is never the edge —
-Caddy (or your own proxy) terminates TLS and forwards over the container network — so the
+token; everyone else is identified by their IP address. But the gateway is never the edge -
+Caddy (or your own proxy) terminates TLS and forwards over the container network - so the
 address the gateway sees on the socket is the *proxy*, identical for every caller alive. The
 real address is in `X-Forwarded-For`, and a header can be forged, so the gateway will only
 believe it when something vouches for it.
@@ -227,8 +227,8 @@ it never reaches any of the eight backend services.
 
 **Why a secret rather than a list of proxy addresses.** There is also
 `GATEWAY_TRUSTED_PROXIES`, a comma-separated list of addresses or CIDR ranges whose forwarded
-headers are believed. Either mechanism is sufficient — the chain is trusted if the secret
-matches **or** the peer is on the list — but the secret is the recommended one, because
+headers are believed. Either mechanism is sufficient - the chain is trusted if the secret
+matches **or** the peer is on the list - but the secret is the recommended one, because
 container addresses are reassigned whenever the stack restarts and cloud load balancers rotate
 theirs. An allowlist that has gone stale does not fail loudly: it simply stops matching, the
 gateway quietly falls back to the peer address, and every anonymous caller collapses into one
@@ -245,7 +245,7 @@ that predate this variable are in exactly that state until the installer is re-r
 **Never give it a fixed or shared value.** A default secret is published wherever it is written
 down, which makes it precisely as useful as no secret. If you set it by hand, generate one
 (`openssl rand -hex 32`) and put the same value on the gateway and the proxy. It is trimmed
-before comparison, so a trailing newline in `.env` is harmless — but a value that is *only*
+before comparison, so a trailing newline in `.env` is harmless - but a value that is *only*
 whitespace is treated as unset and warned about, never as a blank secret that matches a blank
 header.
 
@@ -255,20 +255,20 @@ header.
 prints the line to add; for reference:
 
 ```nginx
-# nginx — inside the location block that proxy_passes to the gateway
+# nginx - inside the location block that proxy_passes to the gateway
 proxy_set_header X-Echo-Proxy-Auth "<GATEWAY_PROXY_SECRET from deploy/.env>";
 ```
 
 Use a *set*, not an append: it must overwrite any copy the client sent. (The gateway refuses a
 multi-valued header anyway, but the failure mode of that is a client forcing itself onto the
 shared bucket, which is worth avoiding.) The repository's top-level `nginx.conf`, used for
-local/dev fronting rather than by these installers, does **not** set the header — add the line
+local/dev fronting rather than by these installers, does **not** set the header - add the line
 above to its `location /` block if you rate-limit behind it.
 
 ### Rate limits
 
 The gateway allows **50 requests per second per signed-in user**, with a 100-request burst
-reserve, across all proxied routes combined — the same shape as Discord's global limit, so a
+reserve, across all proxied routes combined - the same shape as Discord's global limit, so a
 client library written against Discord already backs off correctly. Anonymous (IP-partitioned)
 callers get **20 per second with a 40-request reserve**: signing in, registering and refreshing
 a token do not fan out the way a logged-in client's first paint does, and an address is the
@@ -280,11 +280,11 @@ JSON body. Note that this limit is **newly enforced**: it was configured but nev
 earlier builds, so callers that were previously unlimited will now see 429s.
 
 There is deliberately **no tighter bucket on credential routes** (`/connect/token`, password
-reset, registration) — brute-force protection for those is not implemented.
+reset, registration) - brute-force protection for those is not implemented.
 
 ### Storage URLs
 
-Attachment URLs are path-style — `{STORAGE_PUBLIC_URL}/{bucket}/{key}` — so whatever
+Attachment URLs are path-style - `{STORAGE_PUBLIC_URL}/{bucket}/{key}` - so whatever
 serves the storage hostname must expose the bucket at the root path. The bundled Caddy
 site does exactly that. Pointing `STORAGE_PUBLIC_URL` at a CDN in front of MinIO works as
 long as the path shape is preserved.
@@ -311,7 +311,7 @@ every user out; losing the federation key breaks every peering.
 ## Troubleshooting
 
 **A service restarts in a loop.** `ventactl logs <service>`. Almost always PostgreSQL,
-RabbitMQ or (for `messaging`) ScyllaDB not being reachable yet — Scylla can take two
+RabbitMQ or (for `messaging`) ScyllaDB not being reachable yet - Scylla can take two
 minutes to open its CQL port on first boot, and `messaging` retries until it does.
 
 **Certificates are not issued.** Both hostnames must resolve to this host and port 80 must
@@ -322,7 +322,7 @@ shows the ACME exchange.
 back to a development certificate that is regenerated on every start. Re-run the installer.
 
 **`401` on every request in a fresh install.** The services could not reach
-`{INSTANCE_URL}/.well-known/openid-configuration` — see the section above on why that URL
+`{INSTANCE_URL}/.well-known/openid-configuration` - see the section above on why that URL
 must resolve from inside the containers.
 
 **Health checks never turn green.** The probe is `deploy/healthcheck.sh`, mounted into each

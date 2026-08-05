@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>venta - Moderation</title>
+<link rel="stylesheet" href="/assets/venta.css" />
+<link rel="stylesheet" href="/admin/admin.css" />
+<link rel="icon" href="/assets/icons/venta-mark.svg" />
+</head>
+<body>
+
+<!-- ── Sign in ───────────────────────────────────────────────────────────
+     Ordinary password grant against /connect/token with client_id=echo, same
+     as the desktop client. There is no separate staff credential: one account,
+     one password, and the tier comes from the account's own row. -->
+<div id="gate" class="gate">
+  <form class="gate-card" id="signin-form">
+    <div class="gate-head">
+      <i data-icon="venta-mark"></i>
+      <div>
+        <h1>Moderation</h1>
+        <p class="mono gate-host" id="gate-host"></p>
+      </div>
+    </div>
+
+    <div id="signin-error"></div>
+
+    <div class="field">
+      <label for="g-user">Email or username</label>
+      <input id="g-user" required autocomplete="username" />
+    </div>
+
+    <div class="field">
+      <label for="g-pass">Password</label>
+      <input id="g-pass" type="password" required autocomplete="current-password" />
+    </div>
+
+    <div class="field hidden" id="mfa-field">
+      <label for="g-mfa">Authentication code</label>
+      <input id="g-mfa" class="code-input" inputmode="numeric" autocomplete="one-time-code"
+        placeholder="000000" />
+      <p class="hint">From your authenticator app, or one of your recovery codes.</p>
+    </div>
+
+    <button class="btn primary block" type="submit" id="g-submit" data-label="Sign in">
+      <i data-icon="lock"></i> Sign in
+    </button>
+
+    <p class="hint gate-foot">
+      Staff accounts only. Your tier is read from your account on every request, so a demotion
+      takes effect immediately.
+    </p>
+  </form>
+</div>
+
+<!-- ── Console ─────────────────────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <aside class="rail">
+    <div class="rail-brand">
+      <i data-icon="venta-mark"></i>
+      <span>Moderation</span>
+    </div>
+
+    <nav class="rail-nav">
+      <button data-view="queue" class="rail-item" aria-current="page">
+        <i data-icon="flag"></i> <span>Reports</span> <em class="badge" id="badge-reports"></em>
+      </button>
+      <button data-view="appeals" class="rail-item">
+        <i data-icon="shield"></i> <span>Appeals</span> <em class="badge" id="badge-appeals"></em>
+      </button>
+      <button data-view="tickets" class="rail-item">
+        <i data-icon="inbox"></i> <span>Support</span> <em class="badge" id="badge-tickets"></em>
+      </button>
+      <button data-view="users" class="rail-item">
+        <i data-icon="users"></i> <span>Accounts</span>
+      </button>
+      <button data-view="stats" class="rail-item">
+        <i data-icon="chart-bar"></i> <span>Overview</span>
+      </button>
+      <button data-view="federation" class="rail-item admin-only hidden">
+        <i data-icon="external-link"></i> <span>Federation</span>
+      </button>
+      <button data-view="audit" class="rail-item admin-only hidden">
+        <i data-icon="history"></i> <span>Audit log</span>
+      </button>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="who">
+        <span class="who-name" id="who-name"></span>
+        <span class="who-role mono" id="who-role"></span>
+      </div>
+      <button class="btn ghost sm" id="sign-out" title="Sign out"><i data-icon="sign-out"></i></button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h2 id="view-title">Reports</h2>
+      <div class="topbar-tools" id="view-tools"></div>
+      <button class="btn ghost sm" id="refresh" title="Refresh"><i data-icon="refresh"></i></button>
+    </header>
+
+    <div class="scroller" id="view"></div>
+  </main>
+
+  <!-- Detail pane. Slides in beside the list rather than replacing it: triage is a
+       list-then-item loop, and losing your place in the queue on every open is the
+       thing that makes a console tiring to work. -->
+  <aside class="detail hidden" id="detail">
+    <header class="detail-head">
+      <h2 id="detail-title">Detail</h2>
+      <button class="btn ghost sm" id="detail-close"><i data-icon="times"></i></button>
+    </header>
+    <div class="scroller" id="detail-body"></div>
+  </aside>
+
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<!-- Modal host. One at a time, dismissed on Escape and on backdrop click. -->
+<div id="modal-host" class="modal-host hidden">
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal" role="dialog" aria-modal="true" id="modal"></div>
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/admin/app.js"></script>
+</body>
+</html>

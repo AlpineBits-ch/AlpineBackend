@@ -11,6 +11,6 @@ public enum QuestInstanceState
     /// <summary>The window closed with nobody fulfilling it.</summary>
     Expired,
 
-    /// <summary>Ended early — target left, admin closed it, server restarted.</summary>
+    /// <summary>Ended early - target left, admin closed it, server restarted.</summary>
     Cancelled
 }

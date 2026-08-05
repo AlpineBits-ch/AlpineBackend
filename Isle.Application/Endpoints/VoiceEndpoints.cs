@@ -48,12 +48,12 @@ public static class VoiceMembershipEndpoints
             .FirstOrDefaultAsync(ct);
 
         if (player is null || string.IsNullOrEmpty(player.SteamId))
-            return Results.BadRequest("Player is not fully linked (missing userId/steamId mapping) — cannot join voice.");
+            return Results.BadRequest("Player is not fully linked (missing userId/steamId mapping) - cannot join voice.");
 
         // T2-19. This registration is the whole trigger for positional capture: StatsStreamIngestion
         // ignores position snapshots for anyone it cannot resolve here, so refusing means no cluster
         // membership, no audibility, no SFU position broadcast and no publishable track. Fails closed
-        // — an unresolvable setting refuses.
+        // - an unresolvable setting refuses.
         if (!await consent.MayCaptureAsync(userId, ct))
             return PositionalVoiceRefused();
 
@@ -61,7 +61,7 @@ public static class VoiceMembershipEndpoints
         // pushes address the right connection.
         await registry.RegisterAsync(userId, player.SteamId);
 
-        // No cluster membership yet — that begins the moment a StatsStream
+        // No cluster membership yet - that begins the moment a StatsStream
         // snapshot for this steamId arrives (see PositionIngestionService).
         return Results.NoContent();
     }

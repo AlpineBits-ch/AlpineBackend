@@ -38,7 +38,7 @@ public class ChannelVoiceState
     public static string GetHeartbeatCacheKey(string userId) => $"voice:heartbeat:{userId}";
 }
 
-// HTTP response DTO — omits cfSessionId/audioTrackName so clients
+// HTTP response DTO - omits cfSessionId/audioTrackName so clients
 // discover them only via ParticipantJoined events (prevents pulling
 // remote tracks before pushing local, which causes Cloudflare 425).
 public record VoiceStateResponse(

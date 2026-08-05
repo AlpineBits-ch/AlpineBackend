@@ -78,7 +78,7 @@ public class FederationDagTests
 
         await _dag.RecordAndResolveAsync(a);
 
-        var rC = await _dag.RecordAndResolveAsync(c);  // C arrives before B — buffered
+        var rC = await _dag.RecordAndResolveAsync(c);  // C arrives before B - buffered
         Assert.That(rC, Is.Empty, "C must be buffered while B is missing");
 
         var rB = await _dag.RecordAndResolveAsync(b);  // B arrives, unblocks C

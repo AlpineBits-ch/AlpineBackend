@@ -421,7 +421,7 @@ public class GuildPermissionService(
 
         var channelPermissions = new List<GuildChannelPermission>(channels.Count);
 
-        // Threads have no independent overwrites in this pass — resolve them in a second
+        // Threads have no independent overwrites in this pass - resolve them in a second
         // pass so their parent (processed in the loop below) is already computed.
         var nonThreadChannels = channels.Where(c => c.Type != ChannelType.Thread || c.ParentChannelId == null).ToList();
         var threadChannels = channels.Where(c => c.Type == ChannelType.Thread && c.ParentChannelId != null).ToList();
@@ -545,7 +545,7 @@ public class GuildPermissionService(
 
     private static Permissions ExpandImpliedPermissions(Permissions p)
     {
-        // Superadmin short-circuits everything — no need to enumerate.
+        // Superadmin short-circuits everything - no need to enumerate.
         if (p.HasFlag(Permissions.Superadmin))
             return p | ~Permissions.None;
 

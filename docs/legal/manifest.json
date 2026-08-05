@@ -26,10 +26,22 @@
       "file": "privacy-2026-08-04.md"
     },
     {
+      "documentType": "Privacy",
+      "version": "2026-08-05",
+      "effectiveAt": "2026-08-05T00:00:00Z",
+      "file": "privacy-2026-08-05.md"
+    },
+    {
       "documentType": "Cookies",
       "version": "2025-05-17",
       "effectiveAt": "2025-05-17T00:00:00Z",
       "file": "cookies-2025-05-17.md"
+    },
+    {
+      "documentType": "Cookies",
+      "version": "2026-08-05",
+      "effectiveAt": "2026-08-05T00:00:00Z",
+      "file": "cookies-2026-08-05.md"
     }
   ]
 }

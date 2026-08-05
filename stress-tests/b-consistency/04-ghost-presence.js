@@ -1,5 +1,5 @@
 /**
- * B4 — Ghost Presence Window
+ * B4 - Ghost Presence Window
  *
  * Measures how long a user remains "online" in the system after their
  * SignalR connection is abruptly terminated (no clean disconnect).
@@ -109,7 +109,7 @@ export default function (data) {
       const preRes = http.get(presenceUrl, { headers: authHeaders });
       const isOnline = presenceIsOnline(preRes);
       if (!isOnline) {
-        // User never appeared online — skip measurement
+        // User never appeared online - skip measurement
         socket.close();
         return;
       }
@@ -140,7 +140,7 @@ export default function (data) {
   sleep(2);
 }
 
-/** Parse presence response — adjust to match your actual presence API response shape. */
+/** Parse presence response - adjust to match your actual presence API response shape. */
 function presenceIsOnline(res) {
   if (res.status !== 200) return false;
   try {

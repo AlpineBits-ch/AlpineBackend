@@ -12,8 +12,8 @@ using TheIsleEvrimaRconClient.Extensions.Models;
 namespace Isle.Tests.Tests.Services.Hosted;
 
 /// <summary>
-/// <see cref="PopulationLimitService"/> has no <c>IServiceScopeFactory</c> dependency at all — it only
-/// needs <see cref="IRconGateway"/> and <see cref="SpeciesPopulationLimits"/> — so its per-tick logic
+/// <see cref="PopulationLimitService"/> has no <c>IServiceScopeFactory</c> dependency at all - it only
+/// needs <see cref="IRconGateway"/> and <see cref="SpeciesPopulationLimits"/> - so its per-tick logic
 /// (<c>EnforceAsync</c>, made `internal` for this) can be driven directly without any DI plumbing.
 /// </summary>
 [TestFixture]
@@ -31,7 +31,7 @@ public class PopulationLimitServiceTests
         _sentPlayables = [];
 
         // The UpdatePlayables call is `rcon.ExecuteAsync(client => client.SendCommandAsync(cmd, playables))`
-        // — a Func<EvrimaRconClient, Task<string>> that closes over the locally-computed `playables`
+        // - a Func<EvrimaRconClient, Task<string>> that closes over the locally-computed `playables`
         // string. Rather than invoke it against a real (socket-backed) EvrimaRconClient, pull the
         // captured value straight off the compiler-generated closure via reflection.
         _rcon.ExecuteAsync(Arg.Do<Func<EvrimaRconClient, Task<string>>>(CapturePlayables))

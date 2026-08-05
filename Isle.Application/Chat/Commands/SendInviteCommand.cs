@@ -73,7 +73,7 @@ public class SendInviteCommand(
         microserviceContext.PlayerInvites.Add(invite);
         await microserviceContext.SaveChangesAsync();
 
-        // Let the receiver know how to accept — they teleport to us on accept.
+        // Let the receiver know how to accept - they teleport to us on accept.
         var senderLabel = string.IsNullOrWhiteSpace(sender.InGameName) ? sender.FriendlyId : sender.InGameName;
         await bridgeClient.DmAsync(
             text: $"{senderLabel} invited you! Reply !accept {sender.FriendlyId} to teleport to them.",

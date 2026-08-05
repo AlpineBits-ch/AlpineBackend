@@ -12,7 +12,7 @@ public static class VoiceClusterHandler
         return changes.Select(ToMessage);
     }
 
-    // Note: handles RemovePlayerCommand (Isle.Contracts) — the type actually dispatched by
+    // Note: handles RemovePlayerCommand (Isle.Contracts) - the type actually dispatched by
     // /voice/leave and the game-leave ingestion.
     public static IEnumerable<object> Handle(RemovePlayerCommand command, VoiceCluster cluster)
     {

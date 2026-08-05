@@ -10,7 +10,7 @@ namespace Isle.Tests.Tests.Services.Hosted;
 /// <see cref="RconConnectionService"/>'s loop calls <c>EnsureConnectedAsync</c> BEFORE delaying on each
 /// iteration (unlike most of its siblings, which delay first), so a short-lived
 /// <c>CancellationTokenSource</c> that's still open when the service starts is enough to observe at
-/// least one real keepalive call before cancellation stops the loop — no need to touch a private tick
+/// least one real keepalive call before cancellation stops the loop - no need to touch a private tick
 /// method here.
 /// </summary>
 [TestFixture]

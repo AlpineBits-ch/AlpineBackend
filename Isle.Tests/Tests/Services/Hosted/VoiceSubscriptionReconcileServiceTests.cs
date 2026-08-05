@@ -12,7 +12,7 @@ namespace Isle.Tests.Tests.Services.Hosted;
 /// <see cref="VoiceSubscriptionReconcileService"/> has real, meaty inline logic (grace/cooldown for
 /// forgotten-track republish, once-per-process pair pushing) with no separate pure-logic class to
 /// delegate to, and neither <see cref="VoiceCluster"/> nor <see cref="VoiceTrackRegistry"/> need any I/O
-/// to construct — so <c>ReconcileAsync</c> and <c>OrderRepublishForForgottenTracks</c> (both `internal`
+/// to construct - so <c>ReconcileAsync</c> and <c>OrderRepublishForForgottenTracks</c> (both `internal`
 /// for this) are driven directly against real instances of both, with only <see cref="ISfuClient"/>
 /// substituted.
 /// </summary>

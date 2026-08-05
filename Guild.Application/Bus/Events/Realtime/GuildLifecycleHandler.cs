@@ -29,7 +29,7 @@ public class GuildLifecycleHandler
         SlidingExpiration = TimeSpan.FromHours(4)
     };
 
-    // A brand-new connection defaults to Online (matches Discord's default) — there is no prior
+    // A brand-new connection defaults to Online (matches Discord's default) - there is no prior
     // presence entry to preserve a status from.
     public async Task Handle(UserConnected message, MicroserviceContext microserviceContext,
         GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks,
@@ -261,7 +261,7 @@ public class GuildLifecycleHandler
     }
 
     // Marks the member offline in Redis immediately on disconnect rather than waiting for the
-    // presence hash/ZSET entry to expire (previously the only mechanism — see the ghost-presence
+    // presence hash/ZSET entry to expire (previously the only mechanism - see the ghost-presence
     // stress test), then falls through to the pre-existing voice-cleanup logic below.
     public async Task Handle(UserDisconnected message, MicroserviceContext microserviceContext,
         GuildHydrateService service, IDistributedCache cache, LockedJsonCacheStore voiceStore,
@@ -303,7 +303,7 @@ public class GuildLifecycleHandler
         var channelKey = ChannelVoiceState.GetCacheKey(location.ChannelId);
 
         // Locked: this shares the channel blob with Join, CreateSession, ExchangeParticipantJoined,
-        // CloseTracks, the mute/deafen/screenshare handlers and the heartbeat sweeper — every one
+        // CloseTracks, the mute/deafen/screenshare handlers and the heartbeat sweeper - every one
         // of which was moved onto LockedJsonCacheStore for this reason and this one call site was
         // missed.
         var removedFromVoice = false;

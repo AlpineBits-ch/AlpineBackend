@@ -1,10 +1,10 @@
-# Auto-moderation — frontend integration guide
+# Auto-moderation - frontend integration guide
 
 Backend support for a per-guild blocked-word filter and a simple message-rate limit is done and
 live. There is no ML-based content classification, link/invite filtering, or spam-account
 detection in this pass - see Known limitations.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly.
 
 ## Configuring a guild's auto-mod

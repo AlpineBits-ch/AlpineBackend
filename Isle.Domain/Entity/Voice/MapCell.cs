@@ -18,7 +18,7 @@ public readonly struct MapCell : IEquatable<MapCell>
     }
 
     // Builds a cell from integer indices by pointing WorldX/Y at the cell centre, which
-    // floors back to exactly (cellX, cellY) regardless of rounding — keeping equality/hashing
+    // floors back to exactly (cellX, cellY) regardless of rounding - keeping equality/hashing
     // (which are index-based) intact.
     private static MapCell FromIndices(int cellX, int cellY, float cellSize) => new()
     {

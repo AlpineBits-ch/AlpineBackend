@@ -37,7 +37,7 @@ public class VoiceCluster
                 Yaw = yaw,
                 CurrentCell = newCell,
                 LastUpdateUnixMs = nowMs
-                // velocity stays 0 for the first sample — nothing to derive a delta from yet.
+                // velocity stays 0 for the first sample - nothing to derive a delta from yet.
             };
             _players[playerId] = player;
             AddToCell(playerId, newCell);
@@ -108,7 +108,7 @@ public class VoiceCluster
             return _players.Keys.ToArray();
     }
 
-    /// <summary>Players within earshot of <paramref name="playerId"/> — the 3x3 block around their cell, excluding themselves.</summary>
+    /// <summary>Players within earshot of <paramref name="playerId"/> - the 3x3 block around their cell, excluding themselves.</summary>
     public IReadOnlyCollection<string> GetAudiblePeers(string playerId)
     {
         lock (_gate)

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>venta.gg — Bot Developer Portal</title>
+<title>venta.gg - Bot Developer Portal</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -510,7 +510,7 @@
         }),
       });
 
-      setStatus(status, "Bot created. Copy the credentials now — the secret is never shown again.", "ok");
+      setStatus(status, "Bot created. Copy the credentials now - the secret is never shown again.", "ok");
       credentialsBox.appendChild(credentialRow("Client ID", created.clientId));
       credentialsBox.appendChild(credentialRow("Client secret", created.clientSecret));
       credentialsBox.appendChild(credentialRow("Discord-compat token (Authorization: Bot <token>)", created.compatToken));
@@ -543,7 +543,7 @@
       list.innerHTML = "";
 
       if (!bots || bots.length === 0) {
-        list.innerHTML = '<p class="empty">No bots yet — create one above.</p>';
+        list.innerHTML = '<p class="empty">No bots yet - create one above.</p>';
         setStatus(status, "", "");
         return;
       }

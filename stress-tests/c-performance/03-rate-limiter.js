@@ -1,5 +1,5 @@
 /**
- * C3 — YARP Rate Limiter Boundary Validation
+ * C3 - YARP Rate Limiter Boundary Validation
  *
  * Validates the rate limiter implementation:
  *   - 100 req/min per authenticated user (fixed window, QueueLimit=0)
@@ -7,9 +7,9 @@
  *   - Requests are REJECTED immediately on quota exhaustion (no queuing)
  *
  * Three sub-scenarios:
- *   burst     — send 110 requests within the first 10s (should get ~10 x 429)
- *   sustained — send exactly 100/min for 3 minutes (should get 0 x 429)
- *   crossover — mix of WebSocket-upgrade + API calls to verify the upgrade
+ *   burst     - send 110 requests within the first 10s (should get ~10 x 429)
+ *   sustained - send exactly 100/min for 3 minutes (should get 0 x 429)
+ *   crossover - mix of WebSocket-upgrade + API calls to verify the upgrade
  *               request counts toward the same quota
  *
  * What to watch:
@@ -112,7 +112,7 @@ export function burstScenario(data) {
   });
 }
 
-/** Sustained: stay right at the 100/min limit — should receive 0 rejections */
+/** Sustained: stay right at the 100/min limit - should receive 0 rejections */
 export function sustainedScenario(data) {
   const idx = (__VU - 1) % USER_COUNT;
   const creds = credentialsFor(idx);
@@ -133,7 +133,7 @@ export function sustainedScenario(data) {
 
   if (res.status === 429) {
     rateLimitRejections.add(1);
-    unexpectedRejections.add(1); // under limit — this should never happen
+    unexpectedRejections.add(1); // under limit - this should never happen
   }
 
   sleep(0.65);
@@ -142,7 +142,7 @@ export function sustainedScenario(data) {
 /**
  * Crossover: verify SignalR negotiate counts toward the rate limit quota.
  * Consume 95 requests, then negotiate, confirm negotiate is tracked,
- * then send 5 more — they should be rejected if negotiate was counted.
+ * then send 5 more - they should be rejected if negotiate was counted.
  */
 export function crossoverScenario(data) {
   const idx = (__VU - 1) % 50;
@@ -164,7 +164,7 @@ export function crossoverScenario(data) {
     }
   });
 
-  // Negotiate (POST) — should count toward the 100/min limit
+  // Negotiate (POST) - should count toward the 100/min limit
   let negStatus = 0;
   group('negotiate', () => {
     const jar = http.cookieJar();
@@ -176,7 +176,7 @@ export function crossoverScenario(data) {
     }
   });
 
-  // Remaining 4 API calls — if negotiate counted, at most 4 should succeed
+  // Remaining 4 API calls - if negotiate counted, at most 4 should succeed
   let rejectedAfterNeg = 0;
   group('post_negotiate', () => {
     for (let i = 0; i < 5; i++) {

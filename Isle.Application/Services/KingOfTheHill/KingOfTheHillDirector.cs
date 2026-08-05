@@ -12,7 +12,7 @@ public sealed class KingOfTheHillDirector(
     ILogger<KingOfTheHillDirector> logger)
 {
     /// <summary>
-    /// The seeded definition is matched by name rather than a dedicated "which mode" column —
+    /// The seeded definition is matched by name rather than a dedicated "which mode" column -
     /// nothing in <c>GameModeDefinition</c> distinguishes a King of the Hill row from a future
     /// mode's row, and adding that column is a migration this feature deliberately avoids.
     /// </summary>

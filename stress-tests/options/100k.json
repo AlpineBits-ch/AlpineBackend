@@ -1,7 +1,7 @@
 {
   "ext": {
     "loadimpact": {
-      "name": "Echo Stress — 100k Users"
+      "name": "Echo Stress - 100k Users"
     }
   },
   "env": {
@@ -23,7 +23,7 @@
   "notes": [
     "At 100k users the k6 test runner itself needs horizontal distribution.",
     "Use the k6 operator with parallelism >= 20 pods, each pod handles ~5k VUs.",
-    "Redis must be in cluster mode (min 3 shards) — standalone will OOM.",
+    "Redis must be in cluster mode (min 3 shards) - standalone will OOM.",
     "PgBouncer default_pool_size should be tuned to match PostgreSQL max_connections.",
     "ScyllaDB must have 3+ nodes; increase RF=3 for the messaging keyspace.",
     "Consider splitting k8s namespaces: echo-stress-infra vs echo-stress-app.",

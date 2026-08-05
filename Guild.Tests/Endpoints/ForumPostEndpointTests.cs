@@ -111,7 +111,7 @@ public class ForumPostEndpointTests
         _endpoint.ListPostsAsync(forumId, _permissionService, _context, _forumService,
             TestPrincipal.Create(asUser ?? UserId), tagIds, match, sort, archived, limit, cursor);
 
-    // ══════════════════════════════════════════════════════════════════════ ListPostsAsync —
+    // ══════════════════════════════════════════════════════════════════════ ListPostsAsync -
     // access ══════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -158,7 +158,7 @@ public class ForumPostEndpointTests
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // ListPostsAsync — ordering and visibility
+    // ListPostsAsync - ordering and visibility
     // ══════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -273,7 +273,7 @@ public class ForumPostEndpointTests
         Assert.That(page.Posts[0].TagIds, Is.EqualTo(new[] { a.Id, b.Id }));
     }
 
-    // ══════════════════════════════════════════════════════════════════════ ListPostsAsync — tag
+    // ══════════════════════════════════════════════════════════════════════ ListPostsAsync - tag
     // filtering ══════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -348,7 +348,7 @@ public class ForumPostEndpointTests
         Assert.That(page.Posts.Select(p => p.Name), Is.EqualTo(new[] { "live" }));
     }
 
-    // ══════════════════════════════════════════════════════════════════════ ListPostsAsync —
+    // ══════════════════════════════════════════════════════════════════════ ListPostsAsync -
     // pagination ══════════════════════════════════════════════════════════════════════
 
     [Test]

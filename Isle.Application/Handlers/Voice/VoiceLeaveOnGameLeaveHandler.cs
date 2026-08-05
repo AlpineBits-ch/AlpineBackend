@@ -13,7 +13,7 @@ public class VoiceLeaveOnGameLeaveHandler
     public static async Task<object?> Handle(UserLeftIsleServerEvent @event, VoicePlayerRegistry registry)
     {
         if (!registry.TryGetPlayerId(@event.SteamId, out var playerId))
-            return null; // wasn't opted into voice — nothing to clean up
+            return null; // wasn't opted into voice - nothing to clean up
 
         await registry.UnregisterBySteamIdAsync(@event.SteamId);
 

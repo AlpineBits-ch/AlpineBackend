@@ -9,7 +9,7 @@ namespace Guild.Tests.Domain;
 public class HouseholdDomainTests
 {
     // ══════════════════════════════════════════════════════════════════════════
-    // Decisions — consent, not majority
+    // Decisions - consent, not majority
     // ══════════════════════════════════════════════════════════════════════════
 
     private static Decision MakeDecision(int? quorum = null, params string[] optionTitles)

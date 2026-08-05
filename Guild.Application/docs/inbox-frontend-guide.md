@@ -1,10 +1,10 @@
-# Inbox — frontend integration guide
+# Inbox - frontend integration guide
 
-Two tabs — **Unread** and **Mentions** — spanning every guild the caller is in. Backend work is
+Two tabs - **Unread** and **Mentions** - spanning every guild the caller is in. Backend work is
 done; this is what the client needs to build against it.
 
 > **Already have a client running?** Read
-> [`inbox-client-migration.md`](./inbox-client-migration.md) first — there is one field that
+> [`inbox-client-migration.md`](./inbox-client-migration.md) first - there is one field that
 > silently changed value, and it is a two-minute fix.
 
 ## Base URL
@@ -13,7 +13,7 @@ done; this is what the client needs to build against it.
 https://api.venta.gg/api/v1/guild/inbox/...
 ```
 
-Normal `Authorization: Bearer <token>`. Every route acts on **the caller's own** inbox — there is no
+Normal `Authorization: Bearer <token>`. Every route acts on **the caller's own** inbox - there is no
 user id in any path and no way to read anyone else's.
 
 | | |
@@ -30,7 +30,7 @@ user id in any path and no way to read anyone else's.
 ## Things to know before you build against this
 
 **Timestamps decide what is unread, never ids.** Message ids sort by creation time *only* if they
-were minted after the ULID change; older ones do not sort at all. Treat every id as opaque — never
+were minted after the ULID change; older ones do not sort at all. Treat every id as opaque - never
 compare two of them to work out which is newer. `lastActivityAt` and `createdAt` are what order
 things.
 
@@ -39,7 +39,7 @@ its own. Don't assume a fetch for it will succeed.
 
 **There is no backfill.** Mentions that predate the feature shipping do not appear. The index keeps a
 rolling 31-day window and older rows expire on their own, so the Mentions tab is never a complete
-archive — it is a recent-activity view. Do not build "all my mentions ever" on top of it.
+archive - it is a recent-activity view. Do not build "all my mentions ever" on top of it.
 
 **Counts are two different qualities.** `mentionCount` is exact. `unreadCount` is best-effort,
 derived from denormalized counters that drift under message loss; it is clamped at zero and is for
@@ -58,8 +58,8 @@ Channels with messages newer than the caller's read cursor, newest activity firs
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
-| `limit` | int | `10` | Clamped to 1–25 |
-| `cursor` | string | – | Opaque; from the previous response's `nextCursor` |
+| `limit` | int | `10` | Clamped to 1-25 |
+| `cursor` | string | - | Opaque; from the previous response's `nextCursor` |
 
 ```jsonc
 {
@@ -93,13 +93,13 @@ Channels with messages newer than the caller's read cursor, newest activity firs
 ### `previewsUnavailable`
 
 `true` means the message service could not be reached. **The groups, counts and breadcrumbs are still
-correct** — they come from a different service — so render the tab, just without message bodies. This
+correct** - they come from a different service - so render the tab, just without message bodies. This
 is a `200`, not an error. Retrying the same request is reasonable.
 
 ### Guild icons
 
 `guildIconUrl` is a fixed path, not a stored value. It redirects to a presigned URL, and returns
-`404` when the guild has no icon — render the name-initial fallback on 404. Use the thumbnail variant
+`404` when the guild has no icon - render the name-initial fallback on 404. Use the thumbnail variant
 for the small avatar; it is what the inbox is sized for.
 
 ### What never appears here
@@ -110,11 +110,11 @@ Muted channels **do** still appear under Mentions.
 
 ### Paging
 
-Keyset, not offset — the list reorders under you as messages arrive. Follow `nextCursor` until it is
+Keyset, not offset - the list reorders under you as messages arrive. Follow `nextCursor` until it is
 `null`.
 
 A page can come back with **fewer groups than `limit`, or none at all, and still have a
-`nextCursor`** — muting and permission filtering are applied after the page is taken. An empty
+`nextCursor`** - muting and permission filtering are applied after the page is taken. An empty
 `groups` array with a non-null `nextCursor` means "keep going", not "you're done". Stop only when
 `nextCursor` is `null`.
 
@@ -130,13 +130,13 @@ Messages that mentioned the caller, newest first. Merges direct/`@here` mentions
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
-| `guildId` | string | – | Restrict to one guild |
+| `guildId` | string | - | Restrict to one guild |
 | `since` | string | `7d` | `24h`, `7d` or `30d`. Anything else falls back to the default |
 | `includeEveryone` | bool | `true` | |
 | `includeRoles` | bool | `true` | |
 | `includeDms` | bool | `true` | |
-| `limit` | int | `25` | Clamped to 1–50 |
-| `cursor` | string | – | Opaque |
+| `limit` | int | `25` | Clamped to 1-50 |
+| `cursor` | string | - | Opaque |
 
 ```jsonc
 {
@@ -160,7 +160,7 @@ Messages that mentioned the caller, newest first. Merges direct/`@here` mentions
 `kind` is the most specific one that applies: someone named directly inside an `@everyone` message
 gets `Direct`, and the message appears once, not twice.
 
-Messages deleted since being indexed are **skipped**, not rendered as a hole — so a page can be
+Messages deleted since being indexed are **skipped**, not rendered as a hole - so a page can be
 shorter than `limit` while more pages exist. Same rule as Unread: page until `nextCursor` is `null`.
 
 `since` is capped at the 31-day retention window regardless of what you ask for.
@@ -175,7 +175,7 @@ The header badge.
 { "unreadChannelCount": 4, "mentionCount": 12, "capped": false }
 ```
 
-`capped: true` means the real numbers are higher than reported — render as `99+`. Counting further
+`capped: true` means the real numbers are higher than reported - render as `99+`. Counting further
 would mean an unbounded scan for a number that renders the same either way.
 
 ---
@@ -184,7 +184,7 @@ would mean an unbounded scan for a number that renders the same either way.
 
 Marks one channel read up to its current head. No body. `204` on success.
 
-Same effect as the `guild.UpdateLastRead` hub method — this exists so the check button works without
+Same effect as the `guild.UpdateLastRead` hub method - this exists so the check button works without
 a live socket. A channel with no messages is a `204` no-op, not an error.
 
 | Status | Meaning |
@@ -199,14 +199,14 @@ a live socket. A channel with no messages is a `204` no-op, not an error.
 
 Marks every channel in every guild read. No body. `204`.
 
-Idempotent. Rate-limited — this is a bulk write across the caller's whole account, so don't call it
+Idempotent. Rate-limited - this is a bulk write across the caller's whole account, so don't call it
 on a timer.
 
 ---
 
 ## `DELETE /api/v1/guild/inbox/mentions/{messageId}?createdAt=…`
 
-Dismisses one mention (the ✕). `204`, idempotent — dismissing twice is the same as once.
+Dismisses one mention (the ✕). `204`, idempotent - dismissing twice is the same as once.
 
 `createdAt` is **required** and must be the exact ISO-8601 timestamp from the mention row, not a
 re-parse of the message's own timestamp. The index is keyed on it, so a mismatch silently deletes
@@ -215,7 +215,7 @@ nothing. Pass back what the mentions response gave you.
 `400` if `createdAt` is missing or unparseable.
 
 Only direct and `@here` mentions can be dismissed. `@everyone` and `@role` pings are not per-user
-rows, so there is nothing to delete — dismissing one is accepted and does nothing.
+rows, so there is nothing to delete - dismissing one is accepted and does nothing.
 
 ---
 
@@ -237,12 +237,12 @@ rows, so there is nothing to delete — dismissing one is accepted and does noth
 }
 ```
 
-`content` is raw bytes. When `isEncrypted` is `true` it is ciphertext — decrypt it exactly as you do
+`content` is raw bytes. When `isEncrypted` is `true` it is ciphertext - decrypt it exactly as you do
 for channel history, using `mlsGeneration` to pick the group. **The server never decrypts, so it
 cannot generate a text preview for an encrypted channel.** If you show a fallback line for encrypted
 previews, that is a client decision.
 
-For `type` 2 and 3, `content` is empty and `systemMessageVariant` (0–9) selects which localized
+For `type` 2 and 3, `content` is empty and `systemMessageVariant` (0-9) selects which localized
 phrasing to render.
 
 ---
@@ -275,7 +275,7 @@ Sent to the acking user's **other** devices so a second client's badge clears.
 { "channelId": "chan_01J…", "lastReadMessageId": "mesg_01J…", "mentionCount": 0 }
 ```
 
-Read-all sends `{ "all": true }` instead — treat that as "clear every badge" rather than looking for
+Read-all sends `{ "all": true }` instead - treat that as "clear every badge" rather than looking for
 a channel id.
 
 ---
@@ -287,5 +287,5 @@ a channel id.
   `inbox.ReadStateChanged`. It is cheap, but it is not free.
 - On `previewsUnavailable`, show the groups and retry previews in the background rather than showing
   an error.
-- Treat an empty page with a non-null cursor as "keep paging" — see above. This is the single easiest
+- Treat an empty page with a non-null cursor as "keep paging" - see above. This is the single easiest
   thing to get wrong here.

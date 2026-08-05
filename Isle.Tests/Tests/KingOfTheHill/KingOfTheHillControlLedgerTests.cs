@@ -46,7 +46,7 @@ public class KingOfTheHillControlLedgerTests
         var standings = await _ledger.GetStandingsAsync(InstanceId);
         Assert.That(standings[0].Ticks, Is.EqualTo(3));
 
-        // The streak keeps running from the same "since" — it must not have reset on ticks 2 and 3.
+        // The streak keeps running from the same "since" - it must not have reset on ticks 2 and 3.
         Assert.That(laterHolder!.Value.Streak, Is.GreaterThanOrEqualTo(firstHolder!.Value.Streak));
     }
 
@@ -109,7 +109,7 @@ public class KingOfTheHillControlLedgerTests
     [Test]
     public async Task Contestants_TracksEveryoneWhoEverEnteredTheZone_IncludingContestedOnly()
     {
-        // steam_1 and steam_2 only ever show up together (contested) — neither is ever credited a
+        // steam_1 and steam_2 only ever show up together (contested) - neither is ever credited a
         // tick, but both fought for the hill and must count as contestants.
         await _ledger.ApplyPresenceAsync(InstanceId, ["steam_1", "steam_2"]);
         await _ledger.ApplyPresenceAsync(InstanceId, ["steam_3"]);
@@ -160,7 +160,7 @@ public class KingOfTheHillControlLedgerTests
     [Test]
     public async Task GetHolderStreak_HolderKeySetButSinceKeyMissing_ReturnsNull()
     {
-        // Simulates a partial write (e.g. the process died between the two StringSetAsync calls) —
+        // Simulates a partial write (e.g. the process died between the two StringSetAsync calls) -
         // the read side must not crash or invent a streak out of a missing timestamp.
         await _ledger.ApplyPresenceAsync(InstanceId, ["steam_1"]);
         _store.Strings.TryRemove($"isle:koth:holdersince:{InstanceId}", out _);

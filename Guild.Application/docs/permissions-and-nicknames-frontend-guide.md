@@ -1,6 +1,6 @@
-# New permission bits & nicknames — frontend integration guide
+# New permission bits & nicknames - frontend integration guide
 
-Five new permission bits and the first-ever nickname endpoints. Backend work is done — this is
+Five new permission bits and the first-ever nickname endpoints. Backend work is done - this is
 what the client needs to build against it.
 
 ## Base URL
@@ -37,32 +37,32 @@ ChangeNickname   = 1n << 53n  // 9007199254740992
 ManageNicknames  = 1n << 54n  // 18014398509481984
 ```
 
-> The permissions field crosses the wire as a **decimal string**, not a JSON number — 2^53 is past
+> The permissions field crosses the wire as a **decimal string**, not a JSON number - 2^53 is past
 > `Number.MAX_SAFE_INTEGER` and bits 53/54 land exactly there. Parse with `BigInt`, never `Number`.
 > This already mattered before these bits; it is now unavoidable.
 
 ### Two role-editor changes
 
 **`ManageRoles` split out of `ManagePermissions`.** The role editor's "Manage Roles" toggle must
-now write bit 51. `ManagePermissions` (bit 21) still exists and still means something — it now
+now write bit 51. `ManagePermissions` (bit 21) still exists and still means something - it now
 means *only* "may edit per-channel and per-category permission overwrites". If your settings UI
 showed one checkbox for both, it needs to become two.
 
 **`ManageWebhooks` split out of `ManageChannel`.** Same shape: "Manage Webhooks" is its own toggle
 now. A role with Manage Channel no longer implies webhook access.
 
-Existing roles were backfilled on deploy — anyone who had `ManagePermissions` now also has
-`ManageRoles`, anyone who had `ManageChannel` now also has `ManageWebhooks` — so no server loses
+Existing roles were backfilled on deploy - anyone who had `ManagePermissions` now also has
+`ManageRoles`, anyone who had `ManageChannel` now also has `ManageWebhooks` - so no server loses
 capability. But a role edited by an old client would silently drop the new bits, so ship the
 editor change before or with this.
 
-### `@everyone` behaves differently from Discord — deliberately
+### `@everyone` behaves differently from Discord - deliberately
 
 Two things to know:
 
 **It is not granted to `@everyone` by default.** On Discord, the default `@everyone` role can ping
 `@everyone`. Here it cannot: the bit is granted only to roles that already had Manage Channel or
-Manage Guild. This is a deliberate divergence — "every member may ping every member" is the abuse
+Manage Guild. This is a deliberate divergence - "every member may ping every member" is the abuse
 vector the bit exists to close. If a server wants Discord's behaviour they can grant it explicitly.
 
 **A denied ping is silently downgraded, not rejected.** If a user without `MentionEveryone` sends
@@ -77,7 +77,7 @@ response, not from what you sent.** If your UI shows "this will notify 4,213 peo
 local state, it will lie to users who lack the permission. Either check the permission before
 showing that warning, or reconcile against the created message.
 
-DMs and group conversations are unaffected — there is no `MentionEveryone` concept there and the
+DMs and group conversations are unaffected - there is no `MentionEveryone` concept there and the
 flags always stand.
 
 ---
@@ -107,7 +107,7 @@ PATCH /api/v1/guild/api/v1/guilds/{guildId}/members/{memberId}/nickname
 { "nickname": "Renamed" }
 ```
 
-Requires `ManageNicknames` **and** that you outrank the target — the same role-hierarchy rule as
+Requires `ManageNicknames` **and** that you outrank the target - the same role-hierarchy rule as
 kick/ban/timeout. The guild owner can never be renamed by anyone else.
 
 Passing your own `memberId` to this route only needs `ChangeNickname`, so a client that always
@@ -115,9 +115,9 @@ addresses members by id doesn't need to special-case self.
 
 ### Rules for both
 
-- **1–32 characters** after trimming. Longer → `400`.
+- **1-32 characters** after trimming. Longer → `400`.
 - `null`, `""` or whitespace **clears** the nickname; the member falls back to their account
-  username. This is how "reset nickname" is expressed — there is no separate endpoint.
+  username. This is how "reset nickname" is expressed - there is no separate endpoint.
 - Leading/trailing whitespace is trimmed server-side.
 - A no-op change (same nickname) returns `204` and emits no events.
 
@@ -126,7 +126,7 @@ addresses members by id doesn't need to special-case self.
 | Status | Meaning |
 |---|---|
 | `200` | Changed. Body: `{ "userId": "...", "nickname": "Newt" }` (nickname `null` if cleared) |
-| `204` | No change — the nickname was already that value |
+| `204` | No change - the nickname was already that value |
 | `400` | Over 32 characters |
 | `403` | Missing permission, or the target outranks you |
 | `404` | Not a member of that guild / no such member |
@@ -139,13 +139,13 @@ Everyone in the guild, plus the renamed member, receives:
 connection.on("guild.MemberUpdated", ({ guildId, userId, nickname }) => { ... })
 ```
 
-Update your member cache from this rather than only from the PATCH response — someone else's
+Update your member cache from this rather than only from the PATCH response - someone else's
 rename arrives this way too. Note `nickname` may be `null`, meaning "fall back to username".
 
 ### Member search now matches nicknames
 
 `GET /api/v1/guild/api/v1/guilds/{id}/members/search?search=...` previously matched only the
-account username. It now matches **either** the username or the current nickname. No API change —
+account username. It now matches **either** the username or the current nickname. No API change -
 your existing call just returns better results. If you were client-side filtering on nickname to
 compensate, you can drop that.
 
@@ -157,7 +157,7 @@ compensate, you can drop that.
 2. Split the role editor's Manage Roles and Manage Permissions toggles; same for Manage Webhooks
    and Manage Channel.
 3. Add the five new bits to the permission picker with sensible labels.
-4. Don't promise an `@everyone` ping in the composer unless the user actually holds bit 50 —
+4. Don't promise an `@everyone` ping in the composer unless the user actually holds bit 50 -
    render from the response.
 5. Build nickname editing: own (member context menu → "Change nickname") and moderator
    (member list → "Change nickname", gated on `ManageNicknames` + outranking).

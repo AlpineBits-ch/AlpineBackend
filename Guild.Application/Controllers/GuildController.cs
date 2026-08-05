@@ -209,7 +209,7 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             return Unauthorized();
         }
 
-        // First, not Single: SingleAsync throws — and so 500s — both when the caller isn't a member
+        // First, not Single: SingleAsync throws - and so 500s - both when the caller isn't a member
         // of this guild and if a duplicate membership row ever exists. Neither is a server fault.
         var member = await ctx.GuildMembers
             .Where(m => m.GuildId == guildId && m.UserId == userId)

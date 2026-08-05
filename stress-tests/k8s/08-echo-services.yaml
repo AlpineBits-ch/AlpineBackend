@@ -1,4 +1,4 @@
-# Echo application services — images from ghcr.io/alpinebits-ch (private).
+# Echo application services - images from ghcr.io/alpinebits-ch (private).
 #
 # Before applying, create a pull secret for GHCR:
 #   kubectl create secret docker-registry ghcr-pull-secret \

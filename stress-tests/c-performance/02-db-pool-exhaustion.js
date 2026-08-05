@@ -1,14 +1,14 @@
 /**
- * C2 — Database Connection Pool Exhaustion
+ * C2 - Database Connection Pool Exhaustion
  *
  * Finds the exact VU concurrency where PgBouncer + PostgreSQL becomes the
  * bottleneck. Each VU holds an open request that requires a database connection
- * for the full duration (member list query with a JOIN — not cached).
+ * for the full duration (member list query with a JOIN - not cached).
  *
  * Architecture under test:
  *   App service → PgBouncer (transaction pooling, default_pool_size=25 per DB)
  *     → PostgreSQL (max_connections depends on your postgres config, not the 50
- *        in Env.cs — that's the NpgsqlDataSource pool, which PgBouncer replaces
+ *        in Env.cs - that's the NpgsqlDataSource pool, which PgBouncer replaces
  *        in prod)
  *
  * Pool exhaustion signature:
@@ -40,15 +40,15 @@ export const options = {
       stages: [
         { duration: '30s',  target: 25  },  // below one PgBouncer pool
         { duration: '30s',  target: 50  },  // at one pool
-        { duration: '30s',  target: 100 },  // 2× pool — queuing begins
+        { duration: '30s',  target: 100 },  // 2× pool - queuing begins
         { duration: '30s',  target: 200 },
         { duration: '60s',  target: MAX_VUS },  // saturation zone
-        { duration: '30s',  target: 25  },  // recovery — watch latency drop
+        { duration: '30s',  target: 25  },  // recovery - watch latency drop
       ],
     },
   },
   thresholds: {
-    api_response_ms: ['p(95)<3000'],  // more lenient — we WANT to find saturation
+    api_response_ms: ['p(95)<3000'],  // more lenient - we WANT to find saturation
     server_errors: ['count<200'],
     http_req_failed: ['rate<0.05'],
   },
@@ -71,7 +71,7 @@ export default function (data) {
   }
 
   // Members endpoint requires a JOIN across guild_members and users tables
-  // (non-trivial query, no result cache for this test — disable caching if possible)
+  // (non-trivial query, no result cache for this test - disable caching if possible)
   const start = Date.now();
   const res = http.get(
     `${BASE_URL}/api/v1/guild/${guildId}/members`,
@@ -86,5 +86,5 @@ export default function (data) {
   if (res.status >= 500) serverErrors.add(1);
   check(res, { 'ok': (r) => r.status === 200 });
 
-  // No sleep — we want maximum concurrent DB pressure per VU
+  // No sleep - we want maximum concurrent DB pressure per VU
 }

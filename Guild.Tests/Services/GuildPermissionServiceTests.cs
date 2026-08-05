@@ -18,7 +18,7 @@ namespace Guild.Tests.Services;
 ///   - Owner check short-circuits all permission logic.
 ///   - Base permissions come from Role.Permissions (a scalar flags field), OR-combined
 ///     across all roles the user holds.  ChannelPermission records with only a RoleId
-///     (no ChannelId / CategoryId) are ignored — they are not base permissions.
+///     (no ChannelId / CategoryId) are ignored - they are not base permissions.
 ///   - Channel and category overwrites are applied after base (category first,
 ///     channel second so channel wins).
 ///   - User-specific overwrites are applied last and always take priority.
@@ -208,7 +208,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // CanUserPerformActionAsync — public entry point
+    // CanUserPerformActionAsync - public entry point
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -366,7 +366,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // CanUserPerformActionOnGuildAsync — guild-scoped (no channel context)
+    // CanUserPerformActionOnGuildAsync - guild-scoped (no channel context)
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -496,7 +496,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ComputePermissionsForUserAsync — internal method (InternalsVisibleTo)
+    // ComputePermissionsForUserAsync - internal method (InternalsVisibleTo)
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -1032,7 +1032,7 @@ public class GuildPermissionServiceTests
         _context.Roles.Add(MakeRole(permissions: Permissions.None));
         _context.GuildMembers.Add(MakeGuildMember());
         _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
-        // A ChannelPermission with only a RoleId — this must not grant anything.
+        // A ChannelPermission with only a RoleId - this must not grant anything.
         _context.ChannelPermissions.Add(
             MakePermission("cp-legacy", roleId: RoleId, allow: Permissions.ViewChannel));
         await _context.SaveChangesAsync();
@@ -1281,7 +1281,7 @@ public class GuildPermissionServiceTests
     public async Task MemberAllow_IsOverriddenByChannelRoleDeny()
     {
         // Member allow grants SendMessages at guild level, but a channel-level role
-        // deny overwrite strips it for this channel — channel overwrite wins.
+        // deny overwrite strips it for this channel - channel overwrite wins.
         _context.Guilds.Add(MakeGuild());
         _context.Channels.Add(MakeChannel());
         _context.Roles.Add(MakeRole(permissions: Permissions.None));
@@ -1366,7 +1366,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // CanGrantPermissionsAsync — privilege-escalation guard
+    // CanGrantPermissionsAsync - privilege-escalation guard
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -1401,7 +1401,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Role hierarchy — GetHighestRolePositionAsync / CanManageRoleAsync / CanModerateTargetAsync
+    // Role hierarchy - GetHighestRolePositionAsync / CanManageRoleAsync / CanModerateTargetAsync
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -1567,7 +1567,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Mute (MutedUntil) — permission stripping
+    // Mute (MutedUntil) - permission stripping
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
@@ -1628,7 +1628,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════ Onboarding
-    // (OnboardingCompletedAt) — permission stripping
+    // (OnboardingCompletedAt) - permission stripping
 
     private static GuildOnboardingConfig MakeOnboardingConfig(bool enabled = true, string guildId = GuildId) => new()
     {
@@ -1764,7 +1764,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // Threads — inherit parent's resolved permissions; SendMessages checks
+    // Threads - inherit parent's resolved permissions; SendMessages checks
     // substitute SendMessagesInThreads for Thread-type channels.
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -1781,7 +1781,7 @@ public class GuildPermissionServiceTests
     public async Task Thread_InheritsParentChannelOverwrite()
     {
         // Role alone would not grant ViewChannel, but a channel-level overwrite on the
-        // parent grants it — the thread must see the same resolved result as its parent.
+        // parent grants it - the thread must see the same resolved result as its parent.
         _context.Guilds.Add(MakeGuild());
         _context.Channels.Add(MakeChannel());
         _context.Channels.Add(MakeThread());
@@ -1802,7 +1802,7 @@ public class GuildPermissionServiceTests
     [Test]
     public async Task Thread_SendMessagesCheck_SubstitutesSendMessagesInThreads()
     {
-        // Role grants SendMessagesInThreads but not plain SendMessages — posting in the
+        // Role grants SendMessagesInThreads but not plain SendMessages - posting in the
         // thread must still be allowed.
         _context.Guilds.Add(MakeGuild());
         _context.Channels.Add(MakeChannel());
@@ -1823,7 +1823,7 @@ public class GuildPermissionServiceTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // ClampToGrantableAsync / CanGrantPermissionsAsync — bot-install privilege clamp Extracted so
+    // ClampToGrantableAsync / CanGrantPermissionsAsync - bot-install privilege clamp Extracted so
     // the install flow can silently downgrade an over-broad request instead of rejecting it
     // outright; CanGrantPermissionsAsync must keep its original boolean semantics on top of the
     // same shared math. ══════════════════════════════════════════════════════════════════════════

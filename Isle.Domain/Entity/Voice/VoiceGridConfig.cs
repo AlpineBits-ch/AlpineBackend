@@ -2,9 +2,9 @@
 
 public class VoiceGridConfig
 {
-    public float CellSize { get; init; } = 3000f; // UE units (cm) — tune to voice radius
+    public float CellSize { get; init; } = 3000f; // UE units (cm) - tune to voice radius
 
-    // Rough Gateway bounds — recalibrate against real telemetry
+    // Rough Gateway bounds - recalibrate against real telemetry
     public float MapMinX { get; init; } = -800_000f;
     public float MapMaxX { get; init; } = 250_000f;
     public float MapMinY { get; init; } = -800_000f;

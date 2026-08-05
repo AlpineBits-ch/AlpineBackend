@@ -60,7 +60,7 @@ public sealed class VoicePresenceReconcileService(
         }
         catch (Exception ex)
         {
-            // Roster unavailable this tick — still reconcile against Redis; TTL covers staleness.
+            // Roster unavailable this tick - still reconcile against Redis; TTL covers staleness.
             logger.LogDebug(ex, "Roster fetch failed; relying on TTL for staleness this tick");
             onlineSteamIds = [];
         }

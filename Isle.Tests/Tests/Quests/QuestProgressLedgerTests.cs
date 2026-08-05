@@ -55,7 +55,7 @@ public class QuestProgressLedgerTests
     [Test]
     public async Task GetQualified_OrdersByEarliestArrivalFirst_ThenTicksDescending()
     {
-        // steam_1 arrives first tick, steam_2 arrives second tick — both end with 2+ ticks.
+        // steam_1 arrives first tick, steam_2 arrives second tick - both end with 2+ ticks.
         await _ledger.CreditPresenceAsync(InstanceId, ["steam_1"]);
         await _ledger.CreditPresenceAsync(InstanceId, ["steam_1", "steam_2"]);
         await _ledger.CreditPresenceAsync(InstanceId, ["steam_1", "steam_2"]);

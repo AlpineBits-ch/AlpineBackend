@@ -417,7 +417,7 @@ public class OnboardingEndpointTests
         });
     }
 
-    // ══════════════════════════════════════════════════════════════════════ Prompts — config
+    // ══════════════════════════════════════════════════════════════════════ Prompts - config
     // reconciliation, role safety, and applying answers
 
     private const string GrantRoleId = "role-grant";
@@ -739,7 +739,7 @@ public class OnboardingEndpointTests
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // Channels & Roles — re-answering after joining
+    // Channels & Roles - re-answering after joining
     // ══════════════════════════════════════════════════════════════════════
 
     private async Task<IResult> SetResponsesAs(GuildMember member, OnboardingResponsesDto dto) =>

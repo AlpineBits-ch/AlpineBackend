@@ -121,7 +121,7 @@ public class SignedFederationEventTests
         }
         catch (Exception)
         {
-            Assert.Pass("NSec threw on malformed signature length – acceptable.");
+            Assert.Pass("NSec threw on malformed signature length - acceptable.");
             return;
         }
 
@@ -140,7 +140,7 @@ public class SignedFederationEventTests
         var sig2 = ManuallySign(payload, privateKey).Signature;
 
         Assert.That(sig1, Is.EqualTo(sig2),
-            "Ed25519 is deterministic – identical inputs must yield identical signatures.");
+            "Ed25519 is deterministic - identical inputs must yield identical signatures.");
     }
 
     [Test]

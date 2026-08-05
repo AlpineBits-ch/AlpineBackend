@@ -6,7 +6,7 @@ namespace Isle.Api.Services.Quests;
 public sealed record KillStreak(string PlayerId, int Kills, DateTimeOffset LastKillAt);
 
 /// <summary>
-/// Session-scoped kill streaks — deliberately separate from <c>KillLog</c>, which is the permanent
+/// Session-scoped kill streaks - deliberately separate from <c>KillLog</c>, which is the permanent
 /// audit trail.
 /// </summary>
 public sealed class KillStreakTracker(IConnectionMultiplexer redis, ILogger<KillStreakTracker> logger)
@@ -43,7 +43,7 @@ public sealed class KillStreakTracker(IConnectionMultiplexer redis, ILogger<Kill
         }
     }
 
-    /// <summary>Clears a player's streak. Called on death and on disconnect — both end the run.</summary>
+    /// <summary>Clears a player's streak. Called on death and on disconnect - both end the run.</summary>
     public async Task ResetAsync(string playerId)
     {
         try

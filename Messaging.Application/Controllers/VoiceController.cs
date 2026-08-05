@@ -137,7 +137,7 @@ public class VoiceController(
     }
 
     /// <summary>
-    /// Authoritative current-state fetch — the catch-up path for clients that missed a
+    /// Authoritative current-state fetch - the catch-up path for clients that missed a
     /// `call.ParticipantJoined`/`call.CallEnded` SignalR event (e.g. a reconnect gap mid-call).
     /// </summary>
     [HttpGet("call/{callId}")]

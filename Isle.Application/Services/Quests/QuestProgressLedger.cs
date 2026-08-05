@@ -4,7 +4,7 @@ using StackExchange.Redis;
 namespace Isle.Api.Services.Quests;
 
 /// <summary>One player's showing at a quest location.</summary>
-/// <param name="SteamId">The player, unresolved — the ledger never touches the database.</param>
+/// <param name="SteamId">The player, unresolved - the ledger never touches the database.</param>
 /// <param name="Ticks">How many roster samples found them inside the quest's region.</param>
 /// <param name="FirstSeenAt">When they first turned up, which is the order participants are ranked in.</param>
 public sealed record QuestPresence(string SteamId, int Ticks, DateTimeOffset FirstSeenAt);

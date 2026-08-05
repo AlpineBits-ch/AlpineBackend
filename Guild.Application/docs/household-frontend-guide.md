@@ -1,4 +1,4 @@
-# Household modules — frontend integration guide
+# Household modules - frontend integration guide
 
 Audience: web/desktop/mobile client engineers.
 
@@ -6,13 +6,13 @@ Everything a shared household needs that a chat server doesn't: the shopping lis
 the shared-expense ledger, the pantry, house decisions, who's home, quiet hours, and time-boxed
 guest access.
 
-All URLs below are **public, through the gateway (`https://api.venta.gg`)** — never call a
+All URLs below are **public, through the gateway (`https://api.venta.gg`)** - never call a
 microservice directly. Guild endpoints are reached under the `/api/v1/guild/` prefix; the gateway
 strips the `guild` segment before forwarding, which is why the paths read
 `/api/v1/guild/channels/{channelId}/...`. That doubled-looking segment is correct.
 
 **Prerequisite:** every endpoint here is gated on a `GuildFeatures` module. Read
-[guild-kind-and-features-frontend-guide.md](./guild-kind-and-features-frontend-guide.md) first —
+[guild-kind-and-features-frontend-guide.md](./guild-kind-and-features-frontend-guide.md) first -
 it explains `kind`, `features`, and the wire format (`features` is a **comma-separated name
 string**, not a bitmask). Nothing below works in a guild whose module is off.
 
@@ -32,18 +32,18 @@ whose contents are structured rows instead of messages:
 | `Decisions` | `Decisions` | House decisions and votes |
 
 They come back from the normal channel endpoints alongside `Text` and `Voice`, so your sidebar
-already receives them — **it just needs to know not to open a message composer for them**. That's
+already receives them - **it just needs to know not to open a message composer for them**. That's
 the single biggest integration point: a `List` channel has no message history and no
 `POST /messages`.
 
 The other three are guild-scoped, not channels: **home status**, **quiet hours** and **guest
-access** (§7–9).
+access** (§7-9).
 
 ### New channel types are additive
 
 `ChannelType` gained `List`, `Chores`, `Ledger`, `Pantry`, `Decisions` at the end of the enum.
 A client that doesn't recognise a type should render it as an inert placeholder rather than
-assuming `Text` — that's the failure mode that produces a composer posting into a shopping list.
+assuming `Text` - that's the failure mode that produces a composer posting into a shopping list.
 
 ### Creating them
 
@@ -72,7 +72,7 @@ at `# general`.
 
 ## 2. Permissions
 
-Eleven new values, all gated on their module — a Community guild returns `403` for every one of
+Eleven new values, all gated on their module - a Community guild returns `403` for every one of
 them regardless of roles, **including for the guild owner**.
 
 | Permission | Module | Allows |
@@ -111,7 +111,7 @@ interface ListItem {
   id: string;
   channelId: string;
   text: string;
-  quantity?: string | null;      // free text — "2", "2 packs", "a bunch"
+  quantity?: string | null;      // free text - "2", "2 packs", "a bunch"
   note?: string | null;
   section?: string | null;       // free-text grouping, e.g. "Dairy"
   assigneeUserId?: string | null;
@@ -129,7 +129,7 @@ interface ListItem {
 the common case slower to type.
 
 **Editing and deleting**: your own items need `AddListItems`; someone else's needs `ManageLists`.
-Ticking is always `CheckOffListItems` — checking things off is the collaborative part.
+Ticking is always `CheckOffListItems` - checking things off is the collaborative part.
 
 Caps: 200 chars per `text`, 500 items per list (`400` beyond).
 
@@ -141,7 +141,7 @@ so a drag-and-drop payload of just the moved neighbourhood is fine.
 `guild.ListItemCreated` · `guild.ListItemUpdated` · `guild.ListItemChecked` ·
 `guild.ListItemDeleted` · `guild.ListItemsReordered` · `guild.ListCleared`
 
-All carry `{ guildId, channelId, ... }`. Apply optimistically then reconcile — the defining use
+All carry `{ guildId, channelId, ... }`. Apply optimistically then reconcile - the defining use
 case is two people in the same shop, and a tick has to strike through on the other phone within
 the second or they buy it twice.
 
@@ -168,7 +168,7 @@ interface Chore {
   title: string; description?: string | null;
   intervalDays: number;          // 1-365
   anchorAt: string;              // the first due date; the cadence steps from here
-  effortMinutes: number;         // 1-600 — the fairness weight
+  effortMinutes: number;         // 1-600 - the fairness weight
   rotationRoleId?: string | null;   // the pool: whoever holds this role
   fixedAssigneeUserId?: string | null;
   graceHours: number;            // before it counts as overdue
@@ -199,7 +199,7 @@ the last 30 days. Worth surfacing in your UI copy, because it's the behaviour pe
 plain rota rewards skipping (your turn comes round again regardless), and weighting by
 `effortMinutes` stops "take the bins out" counting the same as "clean the bathroom".
 
-`/swap` reassigns to the lightest-loaded *other* member — the one-tap answer to "I can't do the
+`/swap` reassigns to the lightest-loaded *other* member - the one-tap answer to "I can't do the
 bins tonight". `400` if nobody else is in the rotation.
 
 ### Balance
@@ -209,7 +209,7 @@ interface ChoreBalanceEntry {
   userId: string;
   completedMinutes: number;
   completedCount: number;
-  balanceMinutes: number;   // relative to the household average — negative = behind
+  balanceMinutes: number;   // relative to the household average - negative = behind
 }
 ```
 
@@ -221,7 +221,7 @@ interface ChoreBalanceEntry {
 - **Skipping does not credit the balance.** A skipped chore stays unpaid work, which is exactly
   what makes the rotation land back on the same person. Don't show it as done.
 - **`completedByUserId` may differ from `assignedUserId`**, and the balance credits the
-  *assignee*. That's deliberate — crediting the doer would let one flatmate farm the ledger by
+  *assignee*. That's deliberate - crediting the doer would let one flatmate farm the ledger by
   doing everyone's easy chores. Show both ("Ben did Anna's washing-up").
 
 Occurrences are generated by the server (on creation, then on schedule, with a 5-minute reconcile
@@ -245,7 +245,7 @@ GET/PUT  /api/v1/guild/channels/{channelId}/pantry/config
 interface PantryItem {
   id: string; channelId: string;
   name: string;
-  quantity: number;              // decimal here — it's compared against the threshold
+  quantity: number;              // decimal here - it's compared against the threshold
   unit?: string | null;
   lowThreshold?: number | null;  // null = restock tracking off for this item
   expiresAt?: string | null;
@@ -264,7 +264,7 @@ interface PantryConfig {
 ### The restock loop
 
 When `quantity` drops to or below `lowThreshold`, the server **appends the item to the configured
-restock list** and stamps `restockedAt`. The created `ListItem` carries `sourcePantryItemId` —
+restock list** and stamps `restockedAt`. The created `ListItem` carries `sourcePantryItemId` -
 badge it ("added by the pantry") so people know why it appeared.
 
 `restockedAt` is the idempotency guard. It's released when:
@@ -277,7 +277,7 @@ thresholds say.
 
 ### Expiring
 
-`/pantry/expiring` spans **every pantry in the guild the caller can see**, not one channel —
+`/pantry/expiring` spans **every pantry in the guild the caller can see**, not one channel -
 "what needs eating" is a question about the house. Results are filtered per-channel by
 `ViewChannel`, so a guest with access to one pantry can't enumerate a private one.
 
@@ -299,12 +299,12 @@ GET/PUT  /api/v1/guild/channels/{channelId}/ledger/config
 
 ### Money is integer minor units. Always.
 
-`amountMinor` is a whole number of rappen/cents. **Never send `12.34`** — send `1234`. Every split
+`amountMinor` is a whole number of rappen/cents. **Never send `12.34`** - send `1234`. Every split
 and balance is integer arithmetic, which is what guarantees shares sum to the total and balances
 sum to exactly zero. Format for display client-side using the channel's `currency`.
 
 One currency per ledger channel (`ledger/config`, ISO-4217). Changing it relabels; it does not
-convert existing amounts — worth a confirmation dialog.
+convert existing amounts - worth a confirmation dialog.
 
 ```ts
 interface Expense {
@@ -315,7 +315,7 @@ interface Expense {
   currency: string;
   occurredAt: string;
   splitKind: 'Equal' | 'Shares' | 'Exact';
-  createdByUserId: string;       // who entered it — often not the payer
+  createdByUserId: string;       // who entered it - often not the payer
   shares: { userId: string; shareValue: number; amountMinor: number }[];
 }
 ```
@@ -327,7 +327,7 @@ interface Expense {
 | `Exact` | that person's exact `amountMinor` | Must sum to the total, else `400` |
 
 Remainders are distributed server-side, deterministically: 1000 across 3 is 334/333/333. Never
-compute shares client-side and send them as `Exact` — you'll disagree with the server on rounding.
+compute shares client-side and send them as `Exact` - you'll disagree with the server on rounding.
 
 ### Balances and settling
 
@@ -336,7 +336,7 @@ interface LedgerBalance { userId: string; netMinor: number }   // + = the house 
 interface TransferSuggestion { fromUserId: string; toUserId: string; amountMinor: number }
 ```
 
-Balances always sum to zero and members at zero are omitted — an empty array means the house is
+Balances always sum to zero and members at zero are omitted - an empty array means the house is
 settled. `settle-suggestion` returns at most n−1 transfers (four flatmates settle with two
 payments, not six). Recording a settlement doesn't move money; it records that someone paid.
 
@@ -358,7 +358,7 @@ POST     /api/v1/guild/decisions/{decisionId}/close
 DELETE   /api/v1/guild/decisions/{decisionId}          // soft-cancel
 ```
 
-### This is not a poll — don't build poll UI
+### This is not a poll - don't build poll UI
 
 An option is carried when quorum is met and **nobody has blocked it**. One reasoned block beats any
 amount of support. Household questions aren't well served by majority rule: the person who has to
@@ -384,16 +384,16 @@ Vote body: `{ kind, optionId?, reason? }`.
 
 | Rule | |
 |---|---|
-| `Block` **requires** a `reason` | `400` otherwise — a veto nobody can see the reasoning for is how a house ends up in a silent standoff |
+| `Block` **requires** a `reason` | `400` otherwise - a veto nobody can see the reasoning for is how a house ends up in a silent standoff |
 | `Support` requires an `optionId` | `400` otherwise |
 | `Block` with `optionId: null` | Objects to the whole decision, not one option |
 | One vote per member | Re-voting replaces; `PUT` is the upsert |
 
-Render `blocks` as **objections to resolve**, prominently and with the reason — not as a tally row.
+Render `blocks` as **objections to resolve**, prominently and with the reason - not as a tally row.
 `isBlocked` on an option means it cannot win no matter what `supportCount` says.
 
 **Statuses:** `Blocked` means every option was vetoed. It is deliberately *not* "the least-hated
-option wins" — "we couldn't agree" is a result. `Expired` means quorum was never reached
+option wins" - "we couldn't agree" is a result. `Expired` means quorum was never reached
 (abstentions don't count toward it). Decisions with a `closesAt` are resolved automatically within
 5 minutes of it passing.
 
@@ -402,7 +402,7 @@ Realtime: `guild.DecisionCreated` · `guild.DecisionUpdated` · `guild.DecisionC
 
 ---
 
-## 8. Home status — "who's home"
+## 8. Home status - "who's home"
 
 ```
 GET    /api/v1/guild/guilds/{guildId}/home-status
@@ -419,13 +419,13 @@ interface HomeStatus {
 }
 ```
 
-`PUT` body: `{ kind, note?, expiresInMinutes? }` — default 12 hours, capped at 7 days.
+`PUT` body: `{ kind, note?, expiresInMinutes? }` - default 12 hours, capped at 7 days.
 
 **This is not connection presence.** The existing online/offline presence means "their app is
 connected"; this means "they're in the flat". Keep them visually distinct or you'll confuse both.
 
 **It decays on purpose.** A status nobody clears stops being asserted rather than claiming someone
-is asleep three days later — a stale board is worse than no board. `GET` never returns expired
+is asleep three days later - a stale board is worse than no board. `GET` never returns expired
 entries, and a member with no live status is simply absent from the array.
 
 You can only ever set your **own** status. There's no permission for it and no way to set someone
@@ -464,13 +464,13 @@ POST   /api/v1/guild/guilds/{guildId}/members/{userId}/roles/{roleId}/temporary 
 DELETE /api/v1/guild/guilds/{guildId}/members/{userId}/roles/{roleId}/temporary
 ```
 
-Needs `ManageGuests`, plus the same role-hierarchy rule as normal role assignment — you can only
+Needs `ManageGuests`, plus the same role-hierarchy rule as normal role assignment - you can only
 hand out roles you could assign by hand. Max one year.
 
 The grant lapses **on its own**: permission resolution ignores expired role memberships from the
 exact instant they expire, so the pet sitter's five days end without anybody remembering to revoke
 them. Rows are tidied up a week later, so a lapsed grant may still be visible in role listings for
-a while — treat `expiresAt` in the past as "no longer granted".
+a while - treat `expiresAt` in the past as "no longer granted".
 
 ---
 
@@ -480,7 +480,7 @@ a while — treat `expiresAt` in the past as "no longer granted".
 Route by `channel.type` before rendering, and treat unknown types as inert rather than as `Text`.
 
 **2. `403` doesn't always mean "you lack permission".** It often means the guild doesn't have that
-module. Read `features` first and don't render the UI at all — that's the difference between "your
+module. Read `features` first and don't render the UI at all - that's the difference between "your
 house doesn't do money" and "you're not allowed to see the money".
 
 **3. The owner is not exempt from the feature gate.** Don't build an admin escape hatch; there
@@ -493,7 +493,7 @@ isn't one.
 **6. Skipped chores are not completed chores.** They don't credit the balance, on purpose. See §4.
 
 **7. Everything is realtime.** All five channel modules broadcast every mutation to everyone
-present in the guild. Design for concurrent edits — two people in the same shop is the normal case,
+present in the guild. Design for concurrent edits - two people in the same shop is the normal case,
 not the exception.
 
 ---
@@ -510,5 +510,5 @@ Nothing here changes an existing endpoint's behaviour.
   by name are unaffected.
 - **`RoleMember` gained `expiresAt`** (nullable). Existing memberships have `null` and behave
   exactly as before.
-- **Bots** don't see any of this — the gateway's `GUILD_CREATE` payload carries no household data,
+- **Bots** don't see any of this - the gateway's `GUILD_CREATE` payload carries no household data,
   and there's no Discord equivalent to map it onto.

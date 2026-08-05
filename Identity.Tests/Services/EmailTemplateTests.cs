@@ -1,3 +1,4 @@
+using System.Reflection;
 using Identity.Application.Templates;
 using RazorLight;
 
@@ -80,11 +81,21 @@ public class EmailTemplateTests
         {
             Assert.That(html, Does.Contain("Sam"));
             Assert.That(html, Does.Contain("sam@example.com"));
-
-            // The model deliberately carries nothing the sender supplied - see its remarks.
-            Assert.That(html, Does.Not.Contain("password"),
-                "this mail must never carry a credential or anything the anonymous sender chose");
         });
+    }
+
+    /// <summary>The sign-up-attempt mail can only ever say things about the recipient.</summary>
+    [Test]
+    public void RegistrationAttemptEmail_ExposesOnlyTheRecipientsOwnFields()
+    {
+        var properties = typeof(RegistrationAttemptEmail)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Select(p => p.Name)
+            .ToList();
+
+        Assert.That(properties, Is.EquivalentTo(new[] { "Name", "Email" }),
+            "a field added here is a field an anonymous caller may be able to put in front of "
+            + "somebody else - read the model's remarks before adding one");
     }
 
     // ── The rendering rules ─────────────────────────────────────────────────

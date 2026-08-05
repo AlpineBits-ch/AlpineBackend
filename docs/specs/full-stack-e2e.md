@@ -324,6 +324,41 @@ inbox nobody reads is not a test suite.
 **Phase 5 - optional.** Mailpit and the SMTP branch in `EmailService` (also unblocks self-hosting).
 A `tauri-driver` smoke for MLS and real voice media.
 
+## What it found on the way up
+
+Recorded because the point of this suite is the class of bug nothing else sees, and it is worth
+knowing which ones those turned out to be. All of these were found by running the real client
+against a real backend, and none of them were visible to any other tier.
+
+**Every service in the client that reached for a Tauri API crashed the app outside Tauri, and the
+unit suite could not see it.** Three separate stores (`DeviceIdentityService`,
+`AccountRegistryService`, `UserTokenService`) plus `PlatformService`. The last one was the worst
+shape: `isMobile` was a *field initialiser* calling `@tauri-apps/plugin-os`'s `type()`, so the
+throw landed while the injector was constructing the service and took `MainPageComponent` with it.
+Route activation for `/overview` failed, the router restored `/authentication`, and the outlet was
+left empty - which presented as "login succeeds, bounced back to the login page, blank screen".
+Every one of the 2143 unit tests passed throughout, because every spec that touches those services
+mocks `isTauri` to `true`.
+
+**The client hardcoded the venta.gg address into avatar URLs, and so did the backend in seven
+places** - including `AvatarUrl`/`BannerUrl` on every profile projection, attachment thumbnails,
+and update downloads. Every self-hosted and federated deployment was sending its users to our
+servers for images its own instance was already serving. This is the defect the E2E suite existed
+to catch, and it was nowhere near where it was being looked for.
+
+**Two flakes that would have been blamed on the backend.** The verification dialog's `(onShow)`
+fires when its *enter animation ends*, 300-450ms after it is in the DOM and typeable, and
+`onShow()` clears the code field - so digits typed in that window vanish, `verify()` early-returns
+on a short code, no request is made at all, and the test times out against an app nobody asked to
+do anything. Roughly two runs in five. And `p-button` renders its `<button>` inside the tagged
+host, so a `toBeEnabled()` assertion that was meant to prove the client had reached the stack over
+TLS passed unconditionally and could never have failed.
+
+**Blocking UI is a permanent tax on this suite, not a one-off.** A fresh account gets an onboarding
+banner that intercepts pointer events on the shell chrome, and a policy-acceptance modal is coming.
+The fixtures therefore dismiss blocking overlays through one shared, extensible helper rather than
+special-casing whichever one exists this month.
+
 ## Open questions
 
 1. **Backend images on pull requests.** Resolved for `main`: `docker-build.yml` already tags with

@@ -10,7 +10,7 @@
     </PropertyGroup>
   
     <ItemGroup>
-      <PackageReference Include="AWSSDK.S3" Version="4.0.101.4" />
+      <PackageReference Include="AWSSDK.S3" Version="4.0.101.7" />
       <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
       <PackageReference Include="FirebaseAdmin" Version="3.6.0" />
       <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.11" />

@@ -27,11 +27,11 @@
         </PackageReference>
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="RedLock.net" Version="2.3.2" />
-        <PackageReference Include="WolverineFx" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.Http" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
+        <PackageReference Include="WolverineFx" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.Http" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.24.6" />
     </ItemGroup>
 
     <ItemGroup>

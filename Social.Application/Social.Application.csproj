@@ -27,16 +27,16 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
-        <PackageReference Include="WolverineFx" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.Http" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.Postgresql" Version="6.21.0" />
-        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.21.0" />
+        <PackageReference Include="WolverineFx" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.Http" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.24.6" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.7" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
-        <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.21.0" />
+        <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
     </ItemGroup>
 
 

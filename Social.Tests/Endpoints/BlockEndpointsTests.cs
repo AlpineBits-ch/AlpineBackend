@@ -21,6 +21,7 @@ public class BlockEndpointsTests
     private TestSocialContext _context = null!;
     private FakeDistributedCache _cache = null!;
     private FakeMessageBus _bus = null!;
+    private string _originalInstanceUrl = null!;
 
     [SetUp]
     public void SetUp()
@@ -28,10 +29,15 @@ public class BlockEndpointsTests
         _context = new TestSocialContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
         _bus = new FakeMessageBus();
+        _originalInstanceUrl = AppEnvironment.Env.GeneralConfiguration.InstanceUrl;
     }
 
     [TearDown]
-    public async Task TearDown() => await _context.DisposeAsync();
+    public async Task TearDown()
+    {
+        AppEnvironment.Env.GeneralConfiguration.InstanceUrl = _originalInstanceUrl;
+        await _context.DisposeAsync();
+    }
 
     private static ClaimsPrincipal MakeUser(string userId) => new(
         new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId)], "test"));
@@ -342,6 +348,26 @@ public class BlockEndpointsTests
             Assert.That(page.Blocked[0].UserId, Is.EqualTo("user-b"));
             Assert.That(page.NextCursor, Is.Null);
         });
+    }
+
+    [TestCase("https://selfhosted.example.net")]
+    // A trailing slash on INSTANCE_URL is the operator's taste, not a misconfiguration, and must not
+    // produce https://host//api/v1/...
+    [TestCase("https://selfhosted.example.net/")]
+    public async Task ListBlocked_BuildsAvatarUrlsFromTheConfiguredInstanceUrl(string instanceUrl)
+    {
+        AppEnvironment.Env.GeneralConfiguration.InstanceUrl = instanceUrl;
+
+        await AddProfile("user-a", "a");
+        var b = await AddProfile("user-b", "b");
+        await BlockAsync("user-a", "user-b");
+        await _context.SaveChangesAsync();
+
+        var result = await BlockEndpoints.ListBlockedAsync(_context, MakeUser("user-a"));
+        var page = ((Ok<BlockedUsersPageDto>)result).Value!;
+
+        Assert.That(page.Blocked[0].AvatarUrl,
+            Is.EqualTo($"https://selfhosted.example.net/api/v1/social/profiles/{b.Id}/avatar"));
     }
 
     [Test]

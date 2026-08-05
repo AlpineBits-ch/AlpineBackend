@@ -1,3 +1,4 @@
+using AppEnvironment;
 using Social.Contracts.Dtos;
 using Social.Domain.Aggregate;
 
@@ -18,8 +19,8 @@ public static class IntegrationProfileDtoExtensions
                 .Select(r => r.ToIntegrationRelationship())
                 .ToList(),
             UserId = profileDto.UserId,
-            AvatarUrl = $"https://api.venta.gg/api/v1/social/profiles/{profileDto.Id}/avatar",
-            BannerUrl = $"https://api.venta.gg/api/v1/social/profiles/{profileDto.Id}/banner",
+            AvatarUrl = $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/social/profiles/{profileDto.Id}/avatar",
+            BannerUrl = $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/social/profiles/{profileDto.Id}/banner",
             AccentColor = profileDto.AccentColor,
             Font = profileDto.Font.ToString(),
         };

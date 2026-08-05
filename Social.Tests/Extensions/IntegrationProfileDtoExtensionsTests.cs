@@ -1,3 +1,4 @@
+using AppEnvironment;
 using Social.Api.Extensions;
 using Social.Domain.Aggregate;
 using DomainRelationshipStatus = Social.Domain.Enums.RelationshipStatus;
@@ -8,6 +9,18 @@ namespace Social.Tests.Extensions;
 [TestFixture]
 public class IntegrationProfileDtoExtensionsTests
 {
+    private string _originalInstanceUrl = null!;
+
+    [SetUp]
+    public void SetUp()
+    {
+        _originalInstanceUrl = Env.GeneralConfiguration.InstanceUrl;
+        Env.GeneralConfiguration.InstanceUrl = "https://chat.example.org";
+    }
+
+    [TearDown]
+    public void TearDown() => Env.GeneralConfiguration.InstanceUrl = _originalInstanceUrl;
+
     private static Profile MakeProfile(string id = "prfl_1", string userId = "user-1") => new()
     {
         Id = id,
@@ -32,8 +45,40 @@ public class IntegrationProfileDtoExtensionsTests
             Assert.That(dto.UserId, Is.EqualTo("user-1"));
             Assert.That(dto.AccentColor, Is.EqualTo("#5865F2"));
             Assert.That(dto.Font, Is.EqualTo("Default"));
-            Assert.That(dto.AvatarUrl, Is.EqualTo("https://api.venta.gg/api/v1/social/profiles/prfl_42/avatar"));
-            Assert.That(dto.BannerUrl, Is.EqualTo("https://api.venta.gg/api/v1/social/profiles/prfl_42/banner"));
+            Assert.That(dto.AvatarUrl, Is.EqualTo("https://chat.example.org/api/v1/social/profiles/prfl_42/avatar"));
+            Assert.That(dto.BannerUrl, Is.EqualTo("https://chat.example.org/api/v1/social/profiles/prfl_42/banner"));
+        });
+    }
+
+    // ── Media URLs are built from INSTANCE_URL, not from Alpinebits' host ──────
+
+    [Test]
+    public void ToIntegrationProfile_BuildsMediaUrlsFromTheConfiguredInstanceUrl()
+    {
+        Env.GeneralConfiguration.InstanceUrl = "https://selfhosted.example.net";
+
+        var dto = MakeProfile("prfl_42").ToIntegrationProfile();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.AvatarUrl, Is.EqualTo("https://selfhosted.example.net/api/v1/social/profiles/prfl_42/avatar"));
+            Assert.That(dto.BannerUrl, Is.EqualTo("https://selfhosted.example.net/api/v1/social/profiles/prfl_42/banner"));
+        });
+    }
+
+    [Test]
+    public void ToIntegrationProfile_TrailingSlashOnInstanceUrl_DoesNotDoubleTheSeparator()
+    {
+        // INSTANCE_URL is operator-written, so a trailing slash is a matter of taste rather than a
+        // misconfiguration - it must not produce https://host//api/v1/...
+        Env.GeneralConfiguration.InstanceUrl = "https://selfhosted.example.net/";
+
+        var dto = MakeProfile("prfl_42").ToIntegrationProfile();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.AvatarUrl, Is.EqualTo("https://selfhosted.example.net/api/v1/social/profiles/prfl_42/avatar"));
+            Assert.That(dto.BannerUrl, Is.EqualTo("https://selfhosted.example.net/api/v1/social/profiles/prfl_42/banner"));
         });
     }
 

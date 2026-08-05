@@ -122,8 +122,8 @@ public class AttachmentController(
         if (!await CanReadAsync(attachment)) return NotFound();
 
         var dto = attachment.ToFacet<Attachment, AttachmentDto>();
-        dto.Url = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/{id}/download";
-        dto.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/{id}/thumbnail";
+        dto.Url = $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/messaging/attachments/{id}/download";
+        dto.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/messaging/attachments/{id}/thumbnail";
         return Ok(dto);
     }
 

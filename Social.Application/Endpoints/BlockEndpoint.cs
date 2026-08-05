@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text;
+using AppEnvironment;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
@@ -180,7 +181,7 @@ public static class BlockEndpoints
                 ProfileId = r.TargetId,
                 UserId = r.UserId,
                 UserName = r.UserName,
-                AvatarUrl = $"https://api.venta.gg/api/v1/social/profiles/{r.TargetId}/avatar",
+                AvatarUrl = $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/social/profiles/{r.TargetId}/avatar",
                 BlockedAt = r.UpdatedAt,
             }).ToList(),
             NextCursor = hasMore && last is not null ? EncodeCursor(last.UpdatedAt, last.Id) : null,

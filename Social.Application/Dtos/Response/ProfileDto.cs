@@ -1,4 +1,5 @@
 ﻿using System.Text.Json.Serialization;
+using AppEnvironment;
 using Facet;
 using Facet.Mapping;
 using Social.Domain.Aggregate;
@@ -7,10 +8,13 @@ namespace Social.Api.Dtos.Response;
 
 public class ProfileMapConfig : IFacetMapConfiguration<Profile, ProfileDto>
 {
+    // Facet calls this as a static hook, so there is nowhere to inject configuration; read Env
+    // directly, as every other public-URL site in the solution does.
     public static void Map(Profile source, ProfileDto target)
     {
-        target.AvatarUrl = $"https://api.venta.gg/api/v1/social/profiles/{source.Id}/avatar";
-        target.BannerUrl = $"https://api.venta.gg/api/v1/social/profiles/{source.Id}/banner";
+        var baseUrl = Env.GeneralConfiguration.InstanceBaseUrl;
+        target.AvatarUrl = $"{baseUrl}/api/v1/social/profiles/{source.Id}/avatar";
+        target.BannerUrl = $"{baseUrl}/api/v1/social/profiles/{source.Id}/banner";
     }
 }
 [Facet(typeof(Profile), NestedFacets = [typeof(NestedRelationshipDto)], MaxDepth = 1, Configuration = typeof(ProfileMapConfig))]

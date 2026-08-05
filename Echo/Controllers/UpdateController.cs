@@ -27,6 +27,12 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
 
     private record PlatformEntry(string signature, string url);
 
+    /// <summary>
+    /// Where the updater is told to fetch the binary from: this instance, not a canonical one.
+    /// </summary>
+    internal static string DownloadBaseUrl(string tagName) =>
+        $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/update/download/{tagName}";
+
     [HttpGet("check/{currentVersion}")]
     public async Task<IActionResult> CheckUpdate(string currentVersion)
     {
@@ -56,7 +62,7 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
 
         // Pin the download to the resolved version so the binary always matches the signature
         // handed out above, even if a newer (still empty) release shows up in the meantime.
-        var baseUrl = $"https://api.venta.gg/api/v1/update/download/{latest.TagName}";
+        var baseUrl = DownloadBaseUrl(latest.TagName);
         var platforms = signatures
             .Where(s => s.Sig != null)
             .ToDictionary(

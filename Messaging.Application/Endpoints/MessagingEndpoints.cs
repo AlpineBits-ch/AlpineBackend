@@ -176,7 +176,7 @@ public class MessagingEndpoints
             Id = a.Id,
             FileName = a.FileName,
             ContentType = a.ContentType,
-            ThumbnailUrl = "https://api.venta.gg/api/v1/messaging/attachments/" + a.Id + "/thumbnail",
+            ThumbnailUrl = AppEnvironment.Env.GeneralConfiguration.InstanceBaseUrl + "/api/v1/messaging/attachments/" + a.Id + "/thumbnail",
             ThumbnailId = a.ThumbnailId
         }).ToList();
 

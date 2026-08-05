@@ -18,16 +18,22 @@ public class AttachmentControllerTests
 {
     private TestMessagingContext _context = null!;
     private FakeDistributedCache _cache = null!;
+    private string _originalInstanceUrl = null!;
 
     [SetUp]
     public void SetUp()
     {
         _context = new TestMessagingContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
+        _originalInstanceUrl = AppEnvironment.Env.GeneralConfiguration.InstanceUrl;
     }
 
     [TearDown]
-    public async Task TearDown() => await _context.DisposeAsync();
+    public async Task TearDown()
+    {
+        AppEnvironment.Env.GeneralConfiguration.InstanceUrl = _originalInstanceUrl;
+        await _context.DisposeAsync();
+    }
 
     private AttachmentController MakeController(ClaimsPrincipal? user = null, FakeMessageBus? bus = null)
     {
@@ -100,6 +106,26 @@ public class AttachmentControllerTests
         {
             Assert.That(dto.Url, Does.Contain("/api/v1/messaging/attachments/atac-1/download"));
             Assert.That(dto.ThumbnailUrl, Does.Contain("/api/v1/messaging/attachments/atac-1/thumbnail"));
+        });
+    }
+
+    [TestCase("https://selfhosted.example.net")]
+    // A trailing slash on INSTANCE_URL is the operator's taste, not a misconfiguration, and must not
+    // produce https://host//api/v1/...
+    [TestCase("https://selfhosted.example.net/")]
+    public async Task GetAttachment_BuildsUrlsFromTheConfiguredInstanceUrl(string instanceUrl)
+    {
+        AppEnvironment.Env.GeneralConfiguration.InstanceUrl = instanceUrl;
+        _context.Attachments.Add(MakeAttachment("atac-1"));
+        await _context.SaveChangesAsync();
+
+        var result = await MakeController().GetAttachmentAsync("atac-1");
+
+        var dto = (AttachmentDto)((OkObjectResult)result).Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.Url, Is.EqualTo("https://selfhosted.example.net/api/v1/messaging/attachments/atac-1/download"));
+            Assert.That(dto.ThumbnailUrl, Is.EqualTo("https://selfhosted.example.net/api/v1/messaging/attachments/atac-1/thumbnail"));
         });
     }
 

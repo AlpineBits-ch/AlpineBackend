@@ -7,7 +7,10 @@ public class FederationDocumentResponse
     public string Instance { get; init; } = Env.GeneralConfiguration.InstanceUrl;
     public string InstanceName { get; init; } = Env.Federation.InstanceName;
     public string Version { get; init; } = Env.Federation.Version;
-    public string FederationApi { get; init; } = $"{Env.GeneralConfiguration.InstanceUrl}/federation/v1";
+    // InstanceBaseUrl, not InstanceUrl: an operator who sets INSTANCE_URL with a trailing slash
+    // would otherwise publish a double-slashed federation endpoint in the document every other
+    // instance discovers this one through.
+    public string FederationApi { get; init; } = $"{Env.GeneralConfiguration.InstanceBaseUrl}/federation/v1";
     public byte[] PublicKey { get; init; } = Env.Federation.PublicKey;
     public FederationDocumentCapabilities Capabilities { get; init; } = new();
 }

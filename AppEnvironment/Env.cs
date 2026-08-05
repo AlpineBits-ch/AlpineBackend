@@ -236,6 +236,11 @@ public class GeneralConfiguration
     public bool IsUserHashGenerationEnabled { get; set; } = (GetEnvironmentVariable("IS_USER_HASH_GENERATION_ENABLED")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
     public string InstanceUrl { get; set; } = GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg";
 
+    /// <summary>
+    /// <see cref="InstanceUrl"/> with any trailing slash removed, for composing a public URL by
+    /// appending a rooted path to it.
+    /// </summary>
+    public string InstanceBaseUrl => InstanceUrl.TrimEnd('/');
 }
 
 public class SteamConfiguration

@@ -140,7 +140,7 @@ public class ProcessAttachmentHandler
         
         if (attachment is not null)
         {
-            attachment.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceUrl}/api/v1/messaging/attachments/" + request.AttachmentId + "/thumbnail";
+            attachment.ThumbnailUrl = $"{Env.GeneralConfiguration.InstanceBaseUrl}/api/v1/messaging/attachments/" + request.AttachmentId + "/thumbnail";
             attachment.ThumbnailId = thumbnailPath;
             attachment.State = AttachmentState.Complete;
         }

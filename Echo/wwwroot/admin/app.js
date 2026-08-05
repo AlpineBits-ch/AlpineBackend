@@ -199,7 +199,19 @@
                 client_id: 'echo',
                 username: $('#g-user').value.trim(),
                 password: $('#g-pass').value,
-                scope: 'openid profile email offline_access',
+                // Only the two protocol scopes, which is what the desktop client asks for.
+                //
+                // `profile` and `email` are rejected with invalid_scope: OpenIddict validates a
+                // requested scope against the scopes *registered on the server*, and Identity never
+                // calls RegisterScopes. The `echo` application does carry scp:profile and scp:email
+                // permissions, but a permission is a per-client allowlist over registered scopes -
+                // it does not register anything, so the allowlist points at scopes that do not
+                // exist. Asking for them fails before the client is even consulted.
+                //
+                // Nothing here needs them anyway: the console gets its identity and its tier from
+                // GET /api/v1/admin/session, resolved from the account row on every request, which
+                // is deliberately not a token claim (a claim outlives a demotion).
+                scope: 'openid offline_access',
                 ...(mfa ? { mfa_code: mfa } : {}),
             });
 

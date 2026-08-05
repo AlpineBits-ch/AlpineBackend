@@ -88,6 +88,32 @@ public class SiteAssetPathTests
         });
     }
 
+    /// <summary>
+    /// The console may only ask for scopes the authorization server actually has.
+    /// </summary>
+    [Test]
+    public void The_console_requests_only_the_protocol_scopes()
+    {
+        var script = File.ReadAllText(Path.Combine(WebRoot, "admin", "app.js"));
+
+        var requested = Regex.Matches(script, @"scope:\s*'([^']*)'")
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        Assert.That(requested, Is.Not.Empty, "the sign-in form must request a scope");
+
+        Assert.Multiple(() =>
+        {
+            foreach (var scope in requested)
+            {
+                Assert.That(scope.Split(' ', StringSplitOptions.RemoveEmptyEntries),
+                    Is.EquivalentTo(new[] { "openid", "offline_access" }),
+                    "Identity registers no scopes, so anything beyond the two protocol scopes is "
+                    + "rejected with invalid_scope before the client is consulted");
+            }
+        });
+    }
+
     /// <summary>Every icon the pages ask for by name has a file behind it.</summary>
     [Test]
     public void Every_named_icon_has_a_file()

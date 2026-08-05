@@ -7,4 +7,10 @@ namespace Guild.Application.Dtos.Response;
 public partial class WikiPageSummaryDto
 {
     public int RevisionCount { get; set; }
+
+    /// <summary>
+    /// Populated only when the wiki is fetched with <c>?includeContent=true</c>, which clients
+    /// doing full-text search or backlink indexing need.
+    /// </summary>
+    public string? Content { get; set; }
 }

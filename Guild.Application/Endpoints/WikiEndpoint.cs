@@ -16,12 +16,14 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class WikiEndpoint
 {
+    /// <param name="includeContent">Returns each page's body alongside its summary.</param>
     [WolverineGet("/api/v1/guilds/{guildId}/wiki")]
     public async Task<IResult> GetWiki(
         string guildId,
         [NotBody] GuildPermissionService permissionService,
         [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] ClaimsPrincipal user,
+        bool includeContent = false)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -38,10 +40,23 @@ public class WikiEndpoint
         }
 
         var pages = await ctx.WikiPages
-            .Include(p => p.Revisions)
             .Where(p => p.GuildId == guildId)
             .OrderBy(p => p.CreatedAt)
             .ToListAsync();
+
+        // A grouped count, not Include(p => p.Revisions). The Include materialised every
+        // revision of every page - each carrying a full copy of the page body at that point in
+        // time - purely to read Count on the loaded collection. A wiki with 50 pages and 10
+        // revisions each pulled 500 page-sized rows out of the database to produce 50 integers,
+        // on every single wiki load. That dwarfed the page content this endpoint actually
+        // returns, and it grew with edit history rather than with wiki size.
+        var pageIds = pages.Select(p => p.Id).ToList();
+        var revisionCounts = (await ctx.WikiRevisions
+                .Where(r => pageIds.Contains(r.PageId))
+                .GroupBy(r => r.PageId)
+                .Select(g => new { PageId = g.Key, Count = g.Count() })
+                .ToListAsync())
+            .ToDictionary(x => x.PageId, x => x.Count);
 
         var categories = await ctx.WikiCategories
             .Where(c => c.GuildId == guildId)
@@ -56,7 +71,9 @@ public class WikiEndpoint
             Pages = pages.Select(p =>
             {
                 var summary = p.ToFacet<WikiPage, WikiPageSummaryDto>();
-                summary.RevisionCount = p.Revisions.Count;
+                // A page with no revisions has no group and so no row at all.
+                summary.RevisionCount = revisionCounts.GetValueOrDefault(p.Id);
+                if (includeContent) summary.Content = p.Content;
                 return summary;
             }).ToList(),
         });
@@ -168,6 +185,9 @@ public class WikiEndpoint
                 Content = page.Content,
                 EditorId = userId,
                 RevisionNumber = nextRevisionNumber,
+                // Only meaningful here: a summary describes a content change, and this is the
+                // only branch where one exists to describe.
+                Summary = string.IsNullOrWhiteSpace(dto.Summary) ? null : dto.Summary.Trim(),
             });
             // Not also page.Revisions.Add(revision) - EF Core's change-tracker fixup already
             // appends it to page.Revisions automatically once revision.PageId matches this

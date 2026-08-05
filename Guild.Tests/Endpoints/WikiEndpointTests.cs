@@ -109,6 +109,66 @@ public class WikiEndpointTests
         Assert.That(ok.Value.Pages[0].RevisionCount, Is.EqualTo(1));
     }
 
+    // The default stays a summary listing: content is the largest thing a wiki holds, and most
+    // callers only want the tree.
+    [Test]
+    public async Task GetWiki_ByDefault_OmitsPageContent()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        await SeedPage(content: "the body");
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].Content, Is.Null);
+    }
+
+    // Full-text search and backlinks need every body.
+    [Test]
+    public async Task GetWiki_IncludeContent_ReturnsPageContent()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        await SeedPage(content: "the body");
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId), includeContent: true);
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].Content, Is.EqualTo("the body"));
+    }
+
+    // Guards the switch away from Include(p => p.Revisions): the count must survive being
+    // computed by a projection rather than by materialising every revision.
+    [Test]
+    public async Task GetWiki_CountsRevisionsWithoutLoadingThem()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages | Permissions.ViewWiki);
+        var page = await SeedPage(content: "v1");
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2" }, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].RevisionCount, Is.EqualTo(2));
+    }
+
+    // A grouped count returns no row at all for a page with no revisions, so the lookup has to
+    // default rather than throw.
+    [Test]
+    public async Task GetWiki_PageWithNoRevisions_ReportsZero()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = WikiPage.Create(new CreateWikiPageParams { GuildId = GuildId, Title = "No revisions", Content = "x", AuthorId = UserId });
+        page.Revisions.Clear();
+        _context.WikiPages.Add(page);
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].RevisionCount, Is.EqualTo(0));
+    }
+
     // ══════════════════════════════════════════════════════════════════════ GetWikiPage
     // ══════════════════════════════════════════════════════════════════════
 
@@ -243,6 +303,52 @@ public class WikiEndpointTests
         var page = await SeedPage(authorId: UserId, content: "v1");
 
         await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v1", Title = "renamed" }, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var revisions = await _context.WikiRevisions.AsNoTracking().Where(r => r.PageId == page.Id).ToListAsync();
+        Assert.That(revisions, Has.Count.EqualTo(1));
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.That(reloaded.Title, Is.EqualTo("renamed"));
+    }
+
+    // WikiRevision has carried a Summary since the feature shipped and nothing could ever set
+    // it, so every revision in every wiki reads "No summary".
+    [Test]
+    public async Task UpdateWikiPage_WithSummary_StoresItOnTheNewRevision()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage(authorId: UserId, content: "v1");
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2", Summary = "Fixed the install steps" }, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var latest = await _context.WikiRevisions.AsNoTracking()
+            .Where(r => r.PageId == page.Id).OrderByDescending(r => r.RevisionNumber).FirstAsync();
+        Assert.That(latest.Summary, Is.EqualTo("Fixed the install steps"));
+    }
+
+    [Test]
+    public async Task UpdateWikiPage_WithoutSummary_LeavesItNull()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage(authorId: UserId, content: "v1");
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2" }, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var latest = await _context.WikiRevisions.AsNoTracking()
+            .Where(r => r.PageId == page.Id).OrderByDescending(r => r.RevisionNumber).FirstAsync();
+        Assert.That(latest.Summary, Is.Null);
+    }
+
+    // A summary describes a content change.
+    [Test]
+    public async Task UpdateWikiPage_SummaryWithoutContentChange_AddsNoRevision()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage(authorId: UserId, content: "v1");
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Title = "renamed", Summary = "orphaned" }, _permissionService, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var revisions = await _context.WikiRevisions.AsNoTracking().Where(r => r.PageId == page.Id).ToListAsync();

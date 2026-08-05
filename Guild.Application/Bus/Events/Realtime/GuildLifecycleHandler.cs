@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Guild.Application.Controllers;
@@ -7,11 +7,13 @@ using Guild.Application.Models;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Enums;
+using Identity.Contracts.Bus.Response;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Social.Contracts.Bus.Integration.Events;
+using Social.Contracts.Dtos;
 using Wolverine;
 
 namespace Guild.Application.Bus.Events.Realtime;
@@ -30,12 +32,15 @@ public class GuildLifecycleHandler
     // A brand-new connection defaults to Online (matches Discord's default) — there is no prior
     // presence entry to preserve a status from.
     public async Task Handle(UserConnected message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks,
+        PrivacySettingsCache privacy)
     {
         var updates = await RefreshPresenceAsync(message.UserId, microserviceContext, service,
             defaultStatus: nameof(OnlineStatus.Online));
 
-        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks);
+        var settings = await privacy.GetAsync(message.UserId);
+
+        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks, settings);
     }
 
     // The gateway hub republishes this while the connection is alive (throttled), replacing the old
@@ -43,7 +48,7 @@ public class GuildLifecycleHandler
     public Task Handle(PresenceHeartbeat message, MicroserviceContext microserviceContext, GuildHydrateService service)
         => RefreshPresenceAsync(message.UserId, microserviceContext, service, defaultStatus: null);
 
-    private static async Task<List<(string GuildId, string Status)>> RefreshPresenceAsync(
+    private static async Task<List<PresenceUpdate>> RefreshPresenceAsync(
         string userId, MicroserviceContext ctx, GuildHydrateService service, string? defaultStatus)
     {
         var members = await ctx.GuildMembers
@@ -52,7 +57,7 @@ public class GuildLifecycleHandler
             .Select(m => new { m.Id, m.UserId, m.GuildId })
             .ToListAsync();
 
-        var updates = new List<(string GuildId, string Status)>();
+        var updates = new List<PresenceUpdate>();
 
         foreach (var m in members)
         {
@@ -65,25 +70,31 @@ public class GuildLifecycleHandler
                 UserId = m.UserId,
                 Status = status,
                 Activity = existing?.Activity,
+                // Carried through for the same reason the status is: this runs on every heartbeat,
+                // and anything not explicitly preserved here is silently erased every ~30 seconds.
+                Activities = existing?.Activities,
                 ClientStatus = existing?.ClientStatus,
                 HeartbeatTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             });
 
-            updates.Add((m.GuildId, status));
+            updates.Add(new PresenceUpdate(m.GuildId, status, existing?.Activities ?? []));
         }
 
         return updates;
     }
 
+    /// <summary>One guild's worth of what changed, as it will go on the wire before projection.</summary>
+    private readonly record struct PresenceUpdate(string GuildId, string Status, IReadOnlyList<ActivityDto> Activities);
+
     /// <summary>Fans a presence change out to the guilds the user is in.</summary>
-    private static async Task BroadcastPresenceChangesAsync(string userId, List<(string GuildId, string Status)> updates,
-        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
+    private static async Task BroadcastPresenceChangesAsync(string userId, List<PresenceUpdate> updates,
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks, UserPrivacySettingsSummary privacy)
     {
         if (updates.Count == 0) return;
 
         var blockView = await blocks.GetAsync([userId]);
 
-        foreach (var (guildId, status) in updates)
+        foreach (var (guildId, status, activities) in updates)
         {
             var presence = await service.GetGuildPresenceAsync(guildId);
             var recipients = presence.Select(p => p.UserId).Distinct(StringComparer.Ordinal).ToList();
@@ -95,7 +106,14 @@ public class GuildLifecycleHandler
             if (self.Count > 0)
             {
                 await hub.Clients.Users(self).SendAsync("guild.PresenceChanged",
-                    new { UserId = userId, GuildId = guildId, Status = status });
+                    new
+                    {
+                        UserId = userId,
+                        GuildId = guildId,
+                        Status = status,
+                        Activities = PresenceProjection.ProjectActivitiesFor(
+                            activities, status, viewerIsSubject: true, privacy.ShareActivity, privacy.HiddenActivities),
+                    });
             }
 
             if (others.Count > 0)
@@ -106,13 +124,19 @@ public class GuildLifecycleHandler
                         UserId = userId,
                         GuildId = guildId,
                         Status = PresenceProjection.ProjectNameFor(status, viewerIsSubject: false),
+                        // Projected against the *stored* status, not the one just projected above -
+                        // the Hidden gate needs to see the truth to act on it, and by then the
+                        // status on this line has already been flattened to Offline.
+                        Activities = PresenceProjection.ProjectActivitiesFor(
+                            activities, status, viewerIsSubject: false, privacy.ShareActivity, privacy.HiddenActivities),
                     });
             }
         }
     }
 
     public async Task Handle(UserStatusChanged message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks,
+        PrivacySettingsCache privacy)
     {
         var members = await microserviceContext.GuildMembers
             .AsNoTracking()
@@ -120,7 +144,7 @@ public class GuildLifecycleHandler
             .Select(m => new { m.Id, m.UserId, m.GuildId })
             .ToListAsync();
 
-        var updates = new List<(string GuildId, string Status)>();
+        var updates = new List<PresenceUpdate>();
 
         foreach (var m in members)
         {
@@ -132,14 +156,108 @@ public class GuildLifecycleHandler
                 UserId = m.UserId,
                 Status = message.Status,
                 Activity = existing?.Activity,
+                Activities = existing?.Activities,
                 ClientStatus = existing?.ClientStatus,
                 HeartbeatTimestamp = existing?.HeartbeatTimestamp ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds()
             });
 
-            updates.Add((m.GuildId, message.Status));
+            updates.Add(new PresenceUpdate(m.GuildId, message.Status, existing?.Activities ?? []));
         }
 
-        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks);
+        var settings = await privacy.GetAsync(message.UserId);
+
+        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks, settings);
+    }
+
+    /// <summary>A user's activity list changed.</summary>
+    public async Task Handle(UserActivityChanged message, MicroserviceContext microserviceContext,
+        GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks,
+        PrivacySettingsCache privacy)
+    {
+        var members = await microserviceContext.GuildMembers
+            .AsNoTracking()
+            .Where(m => m.UserId == message.UserId)
+            .Select(m => new { m.Id, m.UserId, m.GuildId })
+            .ToListAsync();
+
+        var live = new List<(string MemberId, string UserId, string GuildId, MemberPresenceState Presence)>();
+
+        foreach (var m in members)
+        {
+            var existing = await service.GetPresenceStateForMemberAsync(m.Id);
+            if (existing is null) continue;
+
+            live.Add((m.Id, m.UserId, m.GuildId, existing));
+        }
+
+        if (live.Count == 0) return;
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var priorActivities = live.SelectMany(l => l.Presence.Activities ?? []).ToList();
+        var activities = MergeStartTimes(priorActivities, message.Activities, nowMs);
+
+        var updates = new List<PresenceUpdate>(live.Count);
+
+        foreach (var (memberId, userId, guildId, presence) in live)
+        {
+            await service.AddPresenceStateAsync(guildId, new MemberPresenceState
+            {
+                MemberId = memberId,
+                UserId = userId,
+                // Activity is not a status change: whatever the user had set - including Hidden -
+                // is carried through untouched.
+                Status = presence.Status,
+                Activity = presence.Activity,
+                Activities = activities,
+                ClientStatus = presence.ClientStatus,
+                HeartbeatTimestamp = presence.HeartbeatTimestamp
+            });
+
+            updates.Add(new PresenceUpdate(guildId, presence.Status, activities));
+        }
+
+        var settings = await privacy.GetAsync(message.UserId);
+
+        await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks, settings);
+    }
+
+    /// <summary>
+    /// Carries a start time forward for an activity that is still the same activity.
+    /// </summary>
+    internal static IReadOnlyList<ActivityDto> MergeStartTimes(
+        IReadOnlyList<ActivityDto>? previous, IReadOnlyList<ActivityDto>? incoming, long nowMs)
+    {
+        if (incoming is null || incoming.Count == 0) return [];
+
+        var priorStarts = new Dictionary<string, long>(StringComparer.Ordinal);
+
+        foreach (var activity in previous ?? [])
+        {
+            // First wins.
+            if (activity.StartedAt is { } started) priorStarts.TryAdd(IdentityKey(activity), started);
+        }
+
+        return incoming.Select(activity => new ActivityDto
+        {
+            Type = activity.Type,
+            Name = activity.Name,
+            Details = activity.Details,
+            State = activity.State,
+            ApplicationId = activity.ApplicationId,
+            StartedAt = priorStarts.TryGetValue(IdentityKey(activity), out var prior)
+                ? prior
+                : activity.StartedAt ?? nowMs,
+            EndsAt = activity.EndsAt,
+            Assets = activity.Assets,
+            Party = activity.Party,
+            Source = activity.Source,
+        }).ToList();
+
+        // Separated, not concatenated: names are arbitrary text, so ("Playing", "AB", null) and
+        // ("PlayingA", "B", null) would otherwise collapse to the same key and one game could
+        // inherit another's start time.
+        static string IdentityKey(ActivityDto activity) =>
+            $"{activity.Type}\u001f{activity.Name}\u001f{activity.ApplicationId}";
     }
 
     // Marks the member offline in Redis immediately on disconnect rather than waiting for the

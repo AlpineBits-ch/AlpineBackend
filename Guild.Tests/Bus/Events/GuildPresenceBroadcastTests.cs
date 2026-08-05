@@ -75,7 +75,8 @@ public class GuildPresenceBroadcastTests
         _handler.Handle(
             new UserStatusChanged { UserId = SubjectUserId, Status = status.ToString() },
             _context, HydrateWith(present), _hub,
-            PrivacyTestFactory.Blocks(_bus, _cache, blocks));
+            PrivacyTestFactory.Blocks(_bus, _cache, blocks),
+            PrivacyTestFactory.Privacy(_bus, _cache, PrivacyTestFactory.Permissive(SubjectUserId)));
 
     /// <summary>The Status field of the payload sent to <paramref name="userId"/>.</summary>
     private string? StatusSentTo(string userId)
@@ -135,7 +136,8 @@ public class GuildPresenceBroadcastTests
             _context,
             HydrateWith(Present(PeerMemberId, PeerUserId, OnlineStatus.Online)),
             _hub,
-            PrivacyTestFactory.Blocks(_bus, _cache));
+            PrivacyTestFactory.Blocks(_bus, _cache),
+            PrivacyTestFactory.Privacy(_bus, _cache, PrivacyTestFactory.Permissive(SubjectUserId)));
 
         Assert.That(StatusSentTo(PeerUserId), Is.EqualTo(nameof(OnlineStatus.Online)));
     }
@@ -220,7 +222,10 @@ public class GuildPresenceBroadcastTests
             HydrateWith(Present(SubjectMemberId, SubjectUserId, OnlineStatus.Online),
                         Present(PeerMemberId, PeerUserId, OnlineStatus.Online)),
             _hub,
-            new BlockCache(_cache, _bus, NullLogger<BlockCache>.Instance));
+            new BlockCache(_cache, _bus, NullLogger<BlockCache>.Instance),
+            // Left unreachable along with everything else: this test is about failing closed, and
+            // an unresolvable privacy record means activity is withheld, not published.
+            PrivacyTestFactory.UnreachablePrivacy(_bus, _cache));
 
         Assert.Multiple(() =>
         {

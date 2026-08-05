@@ -76,6 +76,30 @@ public class GetUserPrivacySettingsHandler
             MinorPrivacyFloors.Clamp(summary, minors.Contains(summary.UserId));
         }
 
+        // Loaded after the floors, not before: a suppression is the user asking for less to be
+        // shared, so no floor can widen it and clamping it would be meaningless.
+        var hidden = await ctx.UserHiddenActivities.AsNoTracking()
+            .Where(h => userIds.Contains(h.UserId))
+            .Select(h => new { h.UserId, h.ApplicationId, h.Name })
+            .ToListAsync();
+
+        if (hidden.Count > 0)
+        {
+            var byUser = hidden.GroupBy(h => h.UserId).ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var summary in stored)
+            {
+                if (!byUser.TryGetValue(summary.UserId, out var rows)) continue;
+
+                summary.HiddenActivities = new HiddenActivitySummary
+                {
+                    ApplicationIds = rows.Where(r => r.ApplicationId is not null)
+                        .Select(r => r.ApplicationId!).ToList(),
+                    Names = rows.Where(r => r.Name is not null).Select(r => r.Name!).ToList(),
+                };
+            }
+        }
+
         return new GetUserPrivacySettingsResponse { Settings = stored };
     }
 }

@@ -7,6 +7,12 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- GameCatalogSeeder.ApplyAsync is the reconciliation without the advisory lock, which is
+             the only part testable against a provider that has no advisory locks. -->
+        <InternalsVisibleTo Include="Social.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="AWSSDK.S3" Version="4.0.101.4" />
         <PackageReference Include="EFCore.NamingConventions" Version="10.0.1" />
         <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.3.11" />
@@ -24,5 +30,14 @@
     <ItemGroup>
       <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
       <ProjectReference Include="..\Social.Domain\Social.Domain.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <!-- Embedded rather than copied to output: the seeder and its tests both read it through the
+           assembly, so there is no file path to get wrong in a container, a test host, or a
+           migration bundle. ~0.85 MiB compressed. Regenerated only by Seed/build-seed.mjs, which
+           is a manual one-time bootstrap and not part of any build or deploy step. -->
+      <EmbeddedResource Include="Seed\game-catalog.seed.json.gz" />
+      <None Include="Seed\build-seed.mjs" />
     </ItemGroup>
 </Project>

@@ -11,6 +11,7 @@ using Social.Domain.Enums;
 using Social.Infrastructure.Persistence;
 using Social.Contracts.Bus.Integration.Events;
 using Social.Api.Services;
+using Microsoft.Extensions.Caching.Distributed;
 using Wolverine;
 
 namespace Social.Api.Controllers;
@@ -21,7 +22,9 @@ public partial class ProfileController(
     MicroserviceContext ctx,
     ILogger<ProfileController> logger,
     IMessageBus bus,
-    ProfileProjectionService projection) : ControllerBase
+    ProfileProjectionService projection,
+    ActivityWriteGuard activityGuard,
+    IDistributedCache cache) : ControllerBase
 {
     [GeneratedRegex("^#[0-9A-Fa-f]{6}$")]
     private static partial Regex HexColorRegex();
@@ -49,6 +52,51 @@ public partial class ProfileController(
         await bus.PublishAsync(new UserStatusChanged { UserId = userId, Status = status.ToString() });
 
         return Ok(profile.ToFacet<Profile, ProfileDto>());
+    }
+
+    /// <summary>How often a client may report activity.</summary>
+    private static readonly TimeSpan ActivityWriteInterval = TimeSpan.FromSeconds(15);
+
+    /// <summary>The floor for clearing activity.</summary>
+    private static readonly TimeSpan ActivityClearInterval = TimeSpan.FromSeconds(2);
+
+    /// <summary>Replaces the caller's activity list.</summary>
+    [Authorize]
+    [HttpPut("me/activity")]
+    public async Task<IActionResult> SetActivityAsync(SetActivityDto dto, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return Unauthorized();
+
+        var isClear = dto.Activities is null || dto.Activities.Count == 0;
+
+        // Clears get their own, much shorter window rather than bypassing the limiter: someone who
+        // quits a game a second after launching it must not stay visible as playing for fifteen
+        // seconds, but an unlimited path is a fan-out amplifier - every clear reaches every guild
+        // the user is in.
+        var interval = isClear ? ActivityClearInterval : ActivityWriteInterval;
+        var throttleKey = isClear ? $"activity:throttle:clear:{userId}" : $"activity:throttle:{userId}";
+
+        if (await cache.GetStringAsync(throttleKey, ct) is not null)
+        {
+            Response.Headers.RetryAfter = ((int)interval.TotalSeconds).ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests);
+        }
+
+        // Read-then-write, so two simultaneous requests can both pass.
+        await cache.SetStringAsync(throttleKey, "1",
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = interval }, ct);
+
+        var sanitized = await activityGuard.SanitizeAsync(dto.Activities, DateTimeOffset.UtcNow, ct);
+
+        if (!isClear && sanitized.Count == 0)
+        {
+            logger.LogDebug("Activity write for {UserId} produced nothing publishable; clearing instead.", userId);
+        }
+
+        await bus.PublishAsync(new UserActivityChanged { UserId = userId, Activities = sanitized });
+
+        return NoContent();
     }
 
     // Bio/AccentColor: null leaves the field unchanged, "" clears it.

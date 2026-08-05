@@ -1,4 +1,4 @@
-using Facet.Extensions;
+﻿using Facet.Extensions;
 using Identity.Contracts.Bus.Response;
 using Domain;
 using Social.Api.Dtos.Response;
@@ -34,7 +34,12 @@ public sealed record ProfileSupplements
     public IReadOnlyList<MutualServerDto>? MutualServers { get; init; }
     public IReadOnlyList<ProfileConnectionDto>? Connections { get; init; }
     public DateOnly? Birthday { get; init; }
-    public ProfileActivityDto? Activity { get; init; }
+
+    /// <summary>
+    /// Rich presence, in the same shape the rest of the system uses (<see
+    /// cref="Social.Contracts.Dtos.ActivityDto"/>).
+    /// </summary>
+    public IReadOnlyList<Social.Contracts.Dtos.ActivityDto>? Activities { get; init; }
 }
 
 /// <summary>
@@ -103,7 +108,7 @@ public static class ProfileVisibility
         // T2-19: ShareActivity is a plain boolean, not a Visibility - "off" means nobody but the
         // user themselves, which is what SelfView already short-circuits.
         if (relation == ViewerRelation.SelfView || settings.ShareActivity)
-            dto.Activity = supplements.Activity;
+            dto.Activities = supplements.Activities;
 
         return dto;
     }

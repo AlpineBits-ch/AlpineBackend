@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using AppEnvironment;
+using Identity.Application.Dtos.Request;
 using Identity.Application.Dtos.Response;
 using Identity.Application.Services;
 using Identity.Contracts.Bus.Events;
@@ -106,6 +107,107 @@ public class PrivacySettingsController(
             userId, settings.Version, string.Join(", ", result.ChangedFields));
 
         return Ok(PrivacySettingsMapping.ToDto(MinorPrivacyFloors.Snapshot(settings, isMinor)));
+    }
+
+    /// <summary>The caller's suppressed-games list.</summary>
+    [HttpGet("hidden-activities")]
+    [ProducesResponseType<SetHiddenActivitiesDto>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetHiddenActivitiesAsync()
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+
+        var entries = await ctx.UserHiddenActivities.AsNoTracking()
+            .Where(h => h.UserId == userId)
+            .OrderBy(h => h.Id)
+            .Select(h => new HiddenActivityDto { ApplicationId = h.ApplicationId, Name = h.Name })
+            .ToListAsync();
+
+        return Ok(new SetHiddenActivitiesDto { Entries = entries });
+    }
+
+    /// <summary>Replaces the caller's suppressed-games list.</summary>
+    [HttpPut("hidden-activities")]
+    [ProducesResponseType<SetHiddenActivitiesDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SetHiddenActivitiesAsync([FromBody] SetHiddenActivitiesDto dto)
+    {
+        var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+
+        var settings = await ResolveAsync(userId, persistIfCreated: false);
+        if (settings is null) return NotFound();
+
+        var parsed = HiddenActivitiesInput.Parse(dto.Entries);
+        if (!parsed.Ok) return BadRequest(parsed.Error);
+
+        var applicationIds = parsed.ApplicationIds;
+        var names = parsed.Names;
+
+        var existing = await ctx.UserHiddenActivities.Where(h => h.UserId == userId).ToListAsync();
+
+        var existingApplicationIds = existing.Where(h => h.ApplicationId is not null)
+            .Select(h => h.ApplicationId!).ToHashSet(StringComparer.Ordinal);
+        var existingNames = existing.Where(h => h.Name is not null)
+            .Select(h => h.Name!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (applicationIds.SetEquals(existingApplicationIds) && names.SetEquals(existingNames))
+        {
+            // No version bump and no change event - a re-post of the current state is not a change,
+            // and every service treats that event as "drop your cache and re-ask".
+            await ctx.SaveChangesAsync();
+            return Ok(await ReadHiddenActivitiesAsync(userId));
+        }
+
+        ctx.UserHiddenActivities.RemoveRange(existing);
+
+        foreach (var applicationId in applicationIds)
+        {
+            ctx.UserHiddenActivities.Add(new UserHiddenActivity
+            {
+                Id = UserHiddenActivity.GenerateId(), UserId = userId, ApplicationId = applicationId,
+            });
+        }
+
+        foreach (var name in names)
+        {
+            ctx.UserHiddenActivities.Add(new UserHiddenActivity
+            {
+                Id = UserHiddenActivity.GenerateId(), UserId = userId, Name = name,
+            });
+        }
+
+        settings.Version++;
+        settings.UpdatedAt = DateTimeOffset.UtcNow;
+
+        ctx.IdentityAuditEvents.Add(IdentityAuditEvent.Create(new CreateIdentityAuditEventParams
+        {
+            UserId = userId,
+            Action = IdentityAuditActions.PrivacySettingsChanged,
+            // Counts, not the games themselves.
+            Detail = $"v{settings.Version}: hiddenActivities ({applicationIds.Count} ids, {names.Count} names)",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+        }));
+
+        await ctx.SaveChangesAsync();
+
+        // After the commit, never before - same reasoning as PatchAsync.
+        await bus.PublishAsync(new UserPrivacySettingsChangedEvent { UserId = userId, Version = settings.Version });
+
+        logger.LogInformation("Hidden activities updated for {UserId} to version {Version}", userId, settings.Version);
+
+        return Ok(await ReadHiddenActivitiesAsync(userId));
+    }
+
+    private async Task<SetHiddenActivitiesDto> ReadHiddenActivitiesAsync(string userId)
+    {
+        var entries = await ctx.UserHiddenActivities.AsNoTracking()
+            .Where(h => h.UserId == userId)
+            .OrderBy(h => h.Id)
+            .Select(h => new HiddenActivityDto { ApplicationId = h.ApplicationId, Name = h.Name })
+            .ToListAsync();
+
+        return new SetHiddenActivitiesDto { Entries = entries };
     }
 
     /// <summary>Whether the caller is below the age of majority right now (T1-11).</summary>

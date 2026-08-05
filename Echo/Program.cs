@@ -142,10 +142,16 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AlpinePolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:1420", "https://chat.alpinebits.ch", "http://tauri.localhost", "tauri://localhost", "https://app.venta.gg")
+        // localhost:1420 is the Tauri dev shell; 4200 is a plain `ng serve`, which otherwise gets no
+        // CORS headers at all and so cannot read any cross-origin response against a deployed
+        // gateway. Same trust level as the 1420 entry that was already here.
+        policy.WithOrigins("http://localhost:1420", "http://localhost:4200", "https://chat.alpinebits.ch", "http://tauri.localhost", "tauri://localhost", "https://app.venta.gg")
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials()
+            // AllowAnyHeader covers request headers; reading a response header from JS needs it
+            // named here.
+            .WithExposedHeaders("Date");
     });
 });
 var app = builder.Build();

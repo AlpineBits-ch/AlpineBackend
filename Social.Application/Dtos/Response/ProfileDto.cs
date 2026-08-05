@@ -39,5 +39,5 @@ public partial class ProfileDto
 
     /// <summary>Gated by <c>ShareActivity</c>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public ProfileActivityDto? Activity { get; set; }
+    public IReadOnlyList<Social.Contracts.Dtos.ActivityDto>? Activities { get; set; }
 }

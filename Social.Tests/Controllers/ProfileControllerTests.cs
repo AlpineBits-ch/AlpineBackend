@@ -44,7 +44,8 @@ public class ProfileControllerTests
 
     private ProfileController MakeController(string? userId)
     {
-        var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus, _projection);
+        var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus, _projection,
+            new ActivityWriteGuard(new GameCatalogLookup(_context)), new FakeDistributedCache());
         var principal = userId is null
             ? new ClaimsPrincipal(new ClaimsIdentity())
             : new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, userId)], "test"));

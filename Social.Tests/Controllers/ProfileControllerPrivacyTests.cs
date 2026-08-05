@@ -53,7 +53,8 @@ public class ProfileControllerPrivacyTests
             _sharedGuilds ?? new NoSharedGuildResolver(),
             _identityFacts ?? new NoIdentityProfileFactsResolver());
 
-        var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus, projection)
+        var controller = new ProfileController(_context, NullLogger<ProfileController>.Instance, _bus, projection,
+            new ActivityWriteGuard(new GameCatalogLookup(_context)), new FakeDistributedCache())
         {
             ControllerContext = new ControllerContext
             {

@@ -20,6 +20,13 @@ public enum OnlineStatus
 public partial class MemberDto
 {
     public OnlineStatus Status { get; set; }
+
+    /// <summary>
+    /// What this member is doing, already projected for the caller - see
+    /// <c>PresenceProjection.ProjectActivitiesFor</c>.
+    /// </summary>
+    public IReadOnlyList<ActivityDto> Activities { get; set; } = [];
+
     public ProfileDto? Profile { get; set; }
     public List<MemberRoleAssignmentDto> RoleMembers { get; set; } = [];
 }

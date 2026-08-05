@@ -1,4 +1,4 @@
-using Social.Api.Dtos.Response;
+﻿using Social.Api.Dtos.Response;
 using Social.Domain.Aggregate;
 using Social.Infrastructure.Persistence;
 
@@ -78,7 +78,7 @@ public class ProfileProjectionService(
             Birthday = birthday,
             // Activity still has no source: rich presence belongs to Guild/Isle and neither reports
             // it here yet.
-            Activity = null,
+            Activities = null,
         };
     }
 }

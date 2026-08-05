@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Guild.Application.Dtos.Response;
 using Guild.Persistence.Persistence;
+using Social.Contracts.Dtos;
 using StackExchange.Redis;
 
 namespace Guild.Application.Services;
@@ -10,7 +11,13 @@ public record MemberPresenceState
     public string MemberId { get; init; }
     public string UserId { get; init; }
     public string Status { get; init; }
+
+    /// <summary>Legacy free-text activity.</summary>
     public string? Activity { get; init; }
+
+    /// <summary>Structured rich presence.</summary>
+    public IReadOnlyList<ActivityDto>? Activities { get; init; }
+
     public Dictionary<string, string>? ClientStatus { get; init; }
     public long HeartbeatTimestamp { get; init; }
 }

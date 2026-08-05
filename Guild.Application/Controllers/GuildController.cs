@@ -20,7 +20,7 @@ namespace Guild.Application.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/v1/guilds")]
-public class GuildController(MicroserviceContext ctx, GuildThumbnailService thumbnailService, GuildPermissionService permissionService, ILogger<GuildController> logger, ProfileService profileService, GuildHydrateService guildHydrateService, IMessageBus bus) : ControllerBase
+public class GuildController(MicroserviceContext ctx, GuildThumbnailService thumbnailService, GuildPermissionService permissionService, ILogger<GuildController> logger, ProfileService profileService, GuildHydrateService guildHydrateService, IMessageBus bus, PrivacySettingsCache privacySettings) : ControllerBase
 {
     [HttpGet]
     public async Task<IActionResult> GetGuilds()
@@ -131,15 +131,21 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         
         logger.LogInformation("Presence map data: {PresenceMap}", presenceMap);
 
+        // One privacy read for the whole page rather than one per member: ShareActivity gates the
+        // activity half of every row below, and the cache is Redis-backed.
+        var memberUserIds = members.Select(m => m.UserId).Distinct(StringComparer.Ordinal).ToList();
+        var privacyByUserId = await privacySettings.GetAsync(memberUserIds);
+
         foreach (var member in members)
         {
             if (presenceMap.TryGetValue(member.Id, out var presence))
             {
+                var viewerIsSubject = member.UserId == userId;
+
                 if (PresenceProjection.TryParse(presence.Status, out var status))
                 {
                     // Projected, not assigned raw.
-                    member.Status = PresenceProjection.ProjectFor(
-                        status, viewerIsSubject: member.UserId == userId);
+                    member.Status = PresenceProjection.ProjectFor(status, viewerIsSubject);
                 }
                 else
                 {
@@ -147,7 +153,19 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
                         "Unrecognized presence status {Status} for member {MemberId}; defaulting to Offline",
                         presence.Status, member.Id);
                     member.Status = OnlineStatus.Offline;
+                    status = OnlineStatus.Offline;
                 }
+
+                // Projected against the parsed stored status, not member.Status, which has already
+                // been flattened - the Hidden gate needs to see the truth to act on it.
+                var hasPrivacy = privacyByUserId.TryGetValue(member.UserId, out var memberPrivacy);
+
+                member.Activities = PresenceProjection.ProjectActivitiesFor(
+                    presence.Activities,
+                    status,
+                    viewerIsSubject,
+                    hasPrivacy && memberPrivacy!.ShareActivity,
+                    memberPrivacy?.HiddenActivities);
             }
         }
         

@@ -14,6 +14,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
 {
     public DbSet<UserPreferences> UserPreferences { get; set; }
     public DbSet<UserPrivacySettings> UserPrivacySettings { get; set; }
+    public DbSet<UserHiddenActivity> UserHiddenActivities { get; set; }
     public DbSet<UserPublicKey> UserPublicKeys { get; set; }
     public DbSet<UserKey> UserKeys { get; set; }
     public DbSet<UserKeyPackage> UserKeyPackages { get; set; }
@@ -123,6 +124,37 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
             // Unique is implied by the 1:1, but stated so the intent survives a future change to
             // the relationship and so the backfill can rely on it.
             privacy.HasIndex(p => p.UserId).IsUnique();
+        });
+
+        modelBuilder.Entity<UserHiddenActivity>(hidden =>
+        {
+            hidden.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(h => h.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Read as a set, always for one user at a time.
+            hidden.HasIndex(h => h.UserId);
+
+            // Filtered uniques rather than one composite: the two keys are alternatives, and a
+            // composite over two nullable columns would happily accept the same application twice
+            // because Postgres treats each NULL as distinct.
+            hidden.HasIndex(h => new { h.UserId, h.ApplicationId })
+                .IsUnique()
+                .HasFilter("application_id IS NOT NULL");
+
+            hidden.HasIndex(h => new { h.UserId, h.Name })
+                .IsUnique()
+                .HasFilter("name IS NOT NULL");
+
+            hidden.Property(h => h.ApplicationId).HasMaxLength(20);
+            hidden.Property(h => h.Name).HasMaxLength(128);
+
+            // The invariant the whole design rests on: one key or the other, never both, never
+            // neither. A row with neither would match every activity a user has.
+            hidden.ToTable(t => t.HasCheckConstraint(
+                "ck_user_hidden_activities_exactly_one_key",
+                "(application_id IS NULL) <> (name IS NULL)"));
         });
 
         modelBuilder.Entity<UserPublicKey>(key =>

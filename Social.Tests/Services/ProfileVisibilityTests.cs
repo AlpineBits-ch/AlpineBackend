@@ -1,4 +1,4 @@
-using Domain;
+﻿using Domain;
 using Social.Api.Dtos.Response;
 using Social.Api.Services;
 using Social.Domain.Aggregate;
@@ -32,7 +32,7 @@ public class ProfileVisibilityTests
         MutualServers = [new MutualServerDto { GuildId = "guld_1", Name = "guild" }],
         Connections = [new ProfileConnectionDto { Type = "steam", ExternalId = "76561198000000000", Verified = true }],
         Birthday = new DateOnly(1990, 1, 2),
-        Activity = new ProfileActivityDto { Type = "playing", Name = "Isle" },
+        Activities = [new Social.Contracts.Dtos.ActivityDto { Type = "Playing", Source = "Native", Name = "Isle" }],
     };
 
     // ── T0-5 presence ────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ public class ProfileVisibilityTests
             Assert.That(dto.MutualServers, Is.Null);
             Assert.That(dto.Connections, Is.Null);
             Assert.That(dto.Birthday, Is.Null);
-            Assert.That(dto.Activity, Is.Null);
+            Assert.That(dto.Activities, Is.Null);
         });
     }
 
@@ -161,7 +161,7 @@ public class ProfileVisibilityTests
 
         var dto = ProfileVisibility.Project(MakeProfile(), settings, ViewerRelation.Friend, FullSupplements());
 
-        Assert.That(dto.Activity, Is.Null);
+        Assert.That(dto.Activities, Is.Null);
     }
 
     [Test]
@@ -172,7 +172,7 @@ public class ProfileVisibilityTests
 
         var dto = ProfileVisibility.Project(MakeProfile(), settings, ViewerRelation.Friend, FullSupplements());
 
-        Assert.That(dto.Activity!.Name, Is.EqualTo("Isle"));
+        Assert.That(dto.Activities![0].Name, Is.EqualTo("Isle"));
     }
 
     [Test]
@@ -183,7 +183,7 @@ public class ProfileVisibilityTests
 
         var dto = ProfileVisibility.Project(MakeProfile(), settings, ViewerRelation.SelfView, FullSupplements());
 
-        Assert.That(dto.Activity, Is.Not.Null);
+        Assert.That(dto.Activities, Is.Not.Null);
     }
 
     // ── T0-3 minimal projection ──────────────────────────────────────────────
@@ -206,7 +206,7 @@ public class ProfileVisibilityTests
             Assert.That(dto.OnlineStatus, Is.EqualTo(OnlineStatus.Offline));
             Assert.That(dto.LastSeenAt, Is.EqualTo(default(DateTimeOffset)));
             Assert.That(dto.MutualFriends, Is.Null);
-            Assert.That(dto.Activity, Is.Null);
+            Assert.That(dto.Activities, Is.Null);
         });
     }
 

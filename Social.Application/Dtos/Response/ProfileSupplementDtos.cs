@@ -35,11 +35,5 @@ public class ProfileConnectionDto
     public bool Verified { get; init; }
 }
 
-/// <summary>"Playing Isle"-style rich presence, gated by <c>ShareActivity</c> (privacy spec T2-19).</summary>
-public class ProfileActivityDto
-{
-    public required string Type { get; init; }
-    public required string Name { get; init; }
-    public string? Details { get; init; }
-    public DateTimeOffset? StartedAt { get; init; }
-}
+// The profile surface's activity type used to be a separate `ProfileActivityDto` - one activity,
+// `Type`/`Name`/`Details` only, and a `DateTimeOffset` start.

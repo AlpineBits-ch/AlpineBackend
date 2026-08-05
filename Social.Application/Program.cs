@@ -8,6 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 using Social.Api.Services;
 using Social.Infrastructure;
 using Social.Infrastructure.Persistence;
+using Social.Infrastructure.Seed;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using Wolverine.Http;
@@ -34,6 +35,15 @@ builder.Services.AddScoped<ProfileProjectionService>();
 builder.Services.AddScoped<ISharedGuildResolver, BusSharedGuildResolver>();
 builder.Services.AddScoped<IIdentityProfileFactsResolver, BusIdentityProfileFactsResolver>();
 builder.Services.AddScoped<UserDirectory>();
+
+// Game catalog.
+builder.Services.AddScoped<GameCatalogSeeder>();
+builder.Services.AddScoped<GameCatalogLookup>();
+builder.Services.AddHostedService<GameCatalogSeedService>();
+
+// The only thing standing between an unauthenticated local IPC socket and every server the user
+// is in. See ActivityWriteGuard's docblock.
+builder.Services.AddScoped<ActivityWriteGuard>();
 
 // T0-4: telemetry consent.
 builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>

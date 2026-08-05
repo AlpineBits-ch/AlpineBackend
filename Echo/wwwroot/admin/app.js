@@ -610,12 +610,23 @@
         if (report.evidence) {
             const box = block('Evidence');
 
-            // The label is the point. For an encrypted conversation this is the reporter's own
-            // client's copy of what it decrypted - the server holds ciphertext and cannot
-            // corroborate any of it. A moderator acting on this is acting on one person's account
-            // of events, and must know that.
-            box.append(banner('warn',
-                'Supplied by the reporting client. The server cannot verify it against the original message.'));
+            // The label is the point: a moderator acting on this is acting on one person's account
+            // of events and must know that.
+            //
+            // Why it is unverified differs by conversation, and the reporting client says which.
+            // Encrypted (opt-in, per conversation): the server holds ciphertext and never could
+            // corroborate it. Plain (the default): the server holds the message and simply does not
+            // check - so this is a gap that could be closed, not a law of physics, and the wording
+            // must not imply otherwise.
+            const encrypted = (() => {
+                try { return JSON.parse(report.evidence)?.encrypted === true; } catch { return false; }
+            })();
+
+            box.append(banner('warn', encrypted
+                ? 'Supplied by the reporting client, from an end-to-end encrypted conversation. '
+                  + 'The server holds only ciphertext and cannot corroborate any of it.'
+                : 'Supplied by the reporting client and not checked against the stored message. '
+                  + 'Treat it as the reporter\'s account of what they saw.'));
 
             let pretty = report.evidence;
             try { pretty = JSON.stringify(JSON.parse(report.evidence), null, 2); } catch { /* leave as-is */ }

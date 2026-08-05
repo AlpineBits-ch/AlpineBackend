@@ -125,10 +125,7 @@ public class ReportDto
     /// <summary>Only populated on the single-report read. Raw JSON, passed through as-is.</summary>
     public string? Evidence { get; set; }
 
-    /// <summary>
-    /// True when the evidence came from a client's decrypted view of an end-to-end encrypted
-    /// conversation and the server cannot corroborate it.
-    /// </summary>
+    /// <summary>True whenever evidence is present, because nothing corroborates it today.</summary>
     public bool EvidenceIsUnverified { get; set; }
 
     public static ReportDto From(ModerationReport r, bool includeEvidence = false) => new()

@@ -98,16 +98,29 @@ Resolution        string?        staff note; required to leave Open
 DuplicateOfId     string?
 ```
 
-**Evidence has to come from the reporter's client, and that is a real constraint, not an
-implementation detail.** Direct messages are end-to-end encrypted (see `docs/specs/mls-*`); the
-server holds ciphertext and cannot produce the plaintext of a reported DM at review time. So a
-report of an encrypted message carries a snapshot the reporting client captured from its own
-decrypted view, and the console labels it as such. A moderator is looking at *what the reporter says
-they saw*, attested by nothing. For unencrypted surfaces (guild channels) the console re-reads the
-message live and shows both.
+**Evidence comes from the reporter's client, and the console labels it unverified.** A moderator is
+looking at *what the reporter says they saw*, attested by nothing.
 
-There is no way around this that does not break the encryption guarantee, and pretending the
-snapshot is authoritative would be worse than saying so in the UI.
+**Encryption is per conversation and off by default.** `Conversation.EncryptionState` starts at
+`Plain` and only becomes `Encrypted` when the client creates the conversation with an MLS group (see
+`docs/specs/mls-*`). That splits the evidence problem in two, and the halves are not the same kind of
+problem:
+
+| | What the server holds | Can the snapshot be corroborated? |
+|---|---|---|
+| Plain conversation (default) | the message text | **In principle yes; nothing does it today.** |
+| Encrypted conversation (opt-in) | ciphertext only | **Never** - not without breaking the guarantee |
+
+So the encrypted case is a genuine constraint: the snapshot is the only thing that will ever exist,
+and pretending it is authoritative would be worse than saying so in the UI. The plain case is a
+**gap, not a law** - the server could re-read the stored message and show it beside the reporter's
+copy, and should. It is listed in §10 rather than done, and the label says "not checked against the
+stored message" rather than implying it is impossible.
+
+Getting this wrong in the other direction is the more serious mistake: an earlier draft of this spec,
+the support FAQ and four code comments all asserted that DMs are end-to-end encrypted full stop.
+That is a privacy claim, it was wrong for the default case, and it was on a page users read to decide
+what to say to us.
 
 ### `ModerationAction` (`mact_`)
 
@@ -424,6 +437,10 @@ Named here so their absence is a decision rather than an oversight.
 * **Automated detection.** No spam classifier, no hash matching, no CSAM scanning. Reports are
   human-filed and human-reviewed. Hash matching against a known-material list is the obvious next
   step and needs a legal decision before a technical one.
+* **Corroborating evidence against the stored message.** For a plain conversation - the default - the
+  server has the message and could show it beside the reporter's snapshot, flagging any divergence.
+  That is the single highest-value addition to this feature and it is not built. Until it is, the
+  console shows the snapshot alone and says so.
 * **Guild-level moderation.** Guilds already have their own bans, kicks, mutes and audit log
   (`project_guild_moderation_completion`). This is instance-level and does not reach into them.
 * **Federated reports.** A report against a user on a remote instance is recorded locally and is not

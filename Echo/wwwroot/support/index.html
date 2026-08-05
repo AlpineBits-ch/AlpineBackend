@@ -302,14 +302,24 @@
         <summary><span>Can you read my messages?</span><i data-icon="angle-down"></i></summary>
         <div class="qa-body">
           <p>
-            Direct messages are end-to-end encrypted. The server holds ciphertext and has no key for
-            it, so nobody here - moderators included - can read them.
+            It depends on the conversation, and the honest answer is: usually yes, technically.
           </p>
           <p>
-            That has a consequence worth knowing when you report a private message: we can only see
-            the copy your own app attaches to the report. A moderator is looking at what you say you
-            saw, and the console labels it that way. Messages in unencrypted channels we can read
-            directly.
+            <strong>By default, conversations are not end-to-end encrypted.</strong> The message
+            text is stored on the server, which means staff can read it - in practice only when
+            reviewing a report, and every time they open one is recorded. We do not read messages
+            for any other reason, but nothing in the storage itself stops us, and you should know
+            that rather than assume otherwise.
+          </p>
+          <p>
+            <strong>End-to-end encryption is available and you turn it on per conversation.</strong>
+            Once it is on, the server holds only ciphertext and has no key for it, so nobody here can
+            read that conversation - moderators included.
+          </p>
+          <p>
+            That changes what a report can show us. For an encrypted conversation the only thing a
+            moderator sees is the copy your own app attaches, so they are looking at what you say you
+            saw. For an unencrypted one we hold the message itself.
           </p>
         </div>
       </details>

@@ -176,18 +176,25 @@ worth putting those three where they are easy to find rather than buried under "
 
 ### Evidence - read this part carefully
 
-**Direct messages are end-to-end encrypted. The server holds ciphertext and cannot read a reported
-DM.** So for an encrypted conversation, the only thing a moderator will ever see is what the
-reporting client attaches. If the client sends nothing, the moderator is deciding on the reporter's
-free-text description alone.
+**Encryption is per conversation and off by default.** `Conversation.EncryptionState` starts at
+`Plain`; it only becomes `Encrypted` when the conversation was created with an MLS group. Do not
+assume either state - read it from the conversation you are reporting from.
 
-Send a snapshot of the decrypted view around the reported message:
+That gives two cases, and the client's job differs:
+
+* **Encrypted conversation.** The server holds ciphertext and can never read the message. Whatever
+  the client attaches is the only thing a moderator will ever see. If it sends nothing, the report is
+  decided on the reporter's free-text description alone.
+* **Plain conversation (the default).** The server has the message. Evidence is still worth sending -
+  a message deleted before review is otherwise gone - but it is a convenience, not the sole record.
+
+Send a snapshot of the conversation around the reported message:
 
 ```jsonc
 {
   "capturedAt": "2026-08-05T10:14:22Z",
   "conversationId": "conv_...",
-  "encrypted": true,                    // was this from an E2EE conversation
+  "encrypted": true,                    // read from the conversation, never assumed
   "messages": [
     {
       "id": "mesg_...",
@@ -207,10 +214,12 @@ Rules:
   the oldest end and drop attachments to metadata (`{ "attachment": "image/png, 2.1 MB" }`), never
   base64.
 * **Never send key material, and never send another conversation.** This blob is read by staff.
-* **Set `encrypted` honestly.** The console renders it as unverifiable either way, but the flag is
-  what lets it say *why*.
-* For unencrypted guild channels the server re-reads the message live, so evidence is optional
-  there - send it anyway, since a message deleted before review is otherwise gone.
+* **Set `encrypted` honestly.** The console renders the evidence as unverified either way, but the
+  flag decides what it tells the moderator: "the server holds only ciphertext and cannot corroborate
+  any of it" versus "not checked against the stored message". Getting it wrong makes a moderator
+  either over-trust or under-trust what they are reading.
+* **`content` is the plaintext as your client rendered it** - after decryption in the encrypted case,
+  as displayed in the plain one. Never send ciphertext; nothing downstream can do anything with it.
 
 Tell the user what is being attached. A one-line "The last 10 messages in this chat will be included
 so a moderator can see the context" with a way to review it. Silently uploading a slice of someone's

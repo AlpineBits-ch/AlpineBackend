@@ -16,7 +16,30 @@ public class CreateReportParams
     public string? EvidenceJson { get; init; }
 }
 
-/// <summary>One filed report.</summary>
+/// <summary>
+/// One filed report. Immutable except for the triage fields staff write.
+///
+/// <para><b>On <see cref="EvidenceJson"/>.</b> The snapshot is whatever the reporting client
+/// captured from its own view: it is what the reporter <em>says</em> they saw, attested by nothing,
+/// and the console must label it that way.
+///
+/// <para><b>Encryption is per conversation and off by default</b> - see
+/// <c>Conversation.EncryptionState</c>, which starts at <c>Plain</c> and only becomes
+/// <c>Encrypted</c> when the client creates the conversation with an MLS group. So the two cases
+/// differ, and the difference matters to a moderator:</para>
+///
+/// <list type="bullet">
+///   <item>Plain conversation: the server holds the message text, so the snapshot <em>could</em> be
+///   corroborated against it. Nothing here does that yet - the console shows the snapshot alone -
+///   which is why the evidence is still labelled unverified rather than confirmed.</item>
+///   <item>Encrypted conversation: the server holds ciphertext and cannot produce the plaintext at
+///   review time at all. The snapshot is the only thing that will ever exist, and no amount of
+///   server-side work changes that without breaking the guarantee the encryption exists for.</item>
+/// </list>
+///
+/// <para>The reporting client states which case it was, and the console must not present either as
+/// server-attested message text.</para>
+/// </summary>
 public class ModerationReport : BaseEntity<ModerationReport>, IPrefixedEntity
 {
     public static string Prefix => "rprt";

@@ -244,3 +244,81 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             IDENTITY_KEY_PASSWORD=${{ secrets.IDENTITY_KEY_PASSWORD }}
+  # ---------------------------------------------------------------------------------------------
+  # Tell the full-stack E2E suite there is a new backend to test.
+  #
+  # AlpineBits-ch/venta-e2e drives the real Angular client against a real backend stack (see
+  # docs/specs/full-stack-e2e.md). Its nightly cron already re-checks `latest`, so this job only
+  # buys promptness - but promptness is most of the value: a red run an hour after the merge names
+  # one commit, and a red run at 03:00 names everything that landed that day.
+  #
+  # `needs: build` and nothing else, so the dispatch cannot fire for images that were not pushed.
+  # The matrix means "all ten succeeded" - if any image failed, this is skipped and the suite is
+  # not asked to test a half-published set.
+  # ---------------------------------------------------------------------------------------------
+  notify-e2e:
+    name: Trigger the E2E suite
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+
+    # Same reason as the frontend's image workflow: the `secrets` context is NOT available in an
+    # `if`, only in `with:` and `env:`. Writing `if: ${{ secrets.X != '' }}` does not evaluate to
+    # false, it fails to PARSE, and a workflow that does not parse produces a run with zero jobs.
+    env:
+      HAS_DISPATCH_TOKEN: ${{ secrets.E2E_DISPATCH_TOKEN != '' }}
+
+    steps:
+      # The tag is read back out of metadata-action rather than reconstructed from github.sha,
+      # because those are not the same string. `type=sha,prefix=` emits the SHORT sha; github.sha
+      # is the full 40. venta-e2e was pinned to a tag nobody had pushed exactly once already, and
+      # a locally rebuilt short sha would drift again the moment that action changes its length.
+      # Any image name works here - the whole matrix carries the same tags.
+      - name: Resolve the tag the images were published under
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/echo
+          tags: |
+            type=sha,prefix=
+
+      - name: Pin the immutable tag
+        id: tag
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          tag=$(printf '%s\n' "$TAGS" | grep -v ':latest$' | head -n 1)
+          tag="${tag##*:}"
+          if [ -z "$tag" ]; then
+            echo "::error::no immutable tag was produced; nothing to pin the E2E run to"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "backend tag: $tag"
+
+      # Skipped rather than failed when the token is absent. This job's whole product is a
+      # notification, and the nightly cron covers the same ground - so a missing secret should cost
+      # promptness, not turn a perfectly good build red.
+      - name: Notify venta-e2e
+        if: ${{ env.HAS_DISPATCH_TOKEN == 'true' }}
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.E2E_DISPATCH_TOKEN }}
+          repository: AlpineBits-ch/venta-e2e
+          event-type: upstream-changed
+          client-payload: |
+            {
+              "echo_tag": "${{ steps.tag.outputs.tag }}",
+              "backend_sha": "${{ github.sha }}",
+              "backend_ref": "${{ github.ref_name }}"
+            }
+
+      - name: Say so when the dispatch was skipped
+        if: ${{ env.HAS_DISPATCH_TOKEN != 'true' }}
+        run: |
+          echo "::notice::Backend images published as ${{ steps.tag.outputs.tag }}, but venta-e2e"\
+               "was not notified: E2E_DISPATCH_TOKEN is not set. The nightly run still covers this"\
+               "via the latest tag."

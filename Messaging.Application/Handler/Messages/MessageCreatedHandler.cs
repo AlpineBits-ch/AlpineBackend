@@ -43,6 +43,10 @@ public class MessageCreatedHandler
             var now = DateTimeOffset.UtcNow;
             var pushUserIds = conversationMembers.Where(m => !m.IsMuted(now)).Select(m => m.UserId).ToList();
 
+            // A system message is a record of something the user already lived through - a call
+            // that just ended on this very device, or one they watched ring out.
+            if (messageCreated.Type != DomainMessageType.Message) pushUserIds = [];
+
             // T0-3's "blocker receives no notification from the blocked user".
             if (pushUserIds.Count > 0)
             {

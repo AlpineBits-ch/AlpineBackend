@@ -104,6 +104,26 @@ public class Call : Aggregate<Call>, IPrefixedEntity
     public bool IsParticipant(string userId) => Participants.Any(p => p.UserId == userId);
     public bool IsCreator(string userId) => CreatorId == userId;
 
+    /// <summary>
+    /// Raises <see cref="CallEnded"/> with everything a consumer needs to describe the call that
+    /// just finished.
+    /// </summary>
+    private void RaiseEnded(CallEndReason reason)
+    {
+        AddDomainEvent(new CallEnded
+        {
+            CallId = this.Id,
+            Reason = reason,
+            ConversationId = this.ConversationId ?? string.Empty,
+            CreatorId = this.CreatorId,
+            ParticipantIds = Participants.Select(p => p.UserId).ToList(),
+            StartedAt = this.CreatedAt,
+            // Connected or Left: someone who answered and hung up answered.
+            Answered = Participants.Any(p =>
+                p.UserId != CreatorId && p.Status is CallStatus.Connected or CallStatus.Left),
+        });
+    }
+
     public void Decline(string userId, string deviceId)
     {
         var participant = Participants.FirstOrDefault(p => p.UserId == userId);
@@ -138,22 +158,14 @@ public class Call : Aggregate<Call>, IPrefixedEntity
             // Also raise CallEnded - CallDeclined alone only reaches clients that specifically
             // handle it (group-call "so-and-so declined" UI); CallEnded is the one every client
             // already tears its ringing/in-call UI down on, so the 1:1 case needs it too.
-            AddDomainEvent(new CallEnded()
-            {
-                CallId = this.Id,
-                Reason = CallEndReason.Declined,
-            });
+            RaiseEnded(CallEndReason.Declined);
             return;
         }
 
         if (Participants.Except([creator]).All(p => p.Status == CallStatus.Rejected))
         {
             this.Status = CallStatus.Rejected;
-            AddDomainEvent(new CallEnded()
-            {
-                CallId = this.Id,
-                Reason = CallEndReason.Declined,
-            });
+            RaiseEnded(CallEndReason.Declined);
         }
     }
 
@@ -179,11 +191,7 @@ public class Call : Aggregate<Call>, IPrefixedEntity
             case 0:
                 this.Status = CallStatus.Completed;
                 this.AloneSince = null;
-                AddDomainEvent(new CallEnded
-                {
-                    CallId = this.Id,
-                    Reason = CallEndReason.AllParticipantsLeft,
-                });
+                RaiseEnded(CallEndReason.AllParticipantsLeft);
                 break;
             case 1:
                 this.AloneSince = DateTime.UtcNow;
@@ -205,11 +213,7 @@ public class Call : Aggregate<Call>, IPrefixedEntity
         this.Status = CallStatus.Completed;
         this.AloneSince = null;
 
-        AddDomainEvent(new CallEnded()
-        {
-            CallId = this.Id,
-            Reason = reason,
-        });
+        RaiseEnded(reason);
     }
 
     /// <summary>Auto-declines the call if nobody has answered by the ring timeout.</summary>
@@ -218,11 +222,7 @@ public class Call : Aggregate<Call>, IPrefixedEntity
         if (Status != CallStatus.Pending) return;
         this.Status = CallStatus.Rejected;
 
-        AddDomainEvent(new CallEnded()
-        {
-            CallId = this.Id,
-            Reason = CallEndReason.Declined,
-        });
+        RaiseEnded(CallEndReason.Declined);
     }
 
     /// <summary>Ends the call if it's still stuck at exactly one connected participant matching

@@ -4,11 +4,14 @@ using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Messaging.Application.Dtos.Request;
+using Messaging.Application.Dtos.Response;
 
 using Messaging.Application.Services;
 using Messaging.Application.Services.Privacy;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
+using Messaging.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -33,6 +36,8 @@ public class VoiceController(
     LockedJsonCacheStore callStore,
     DeviceIdResolver devices,
     DirectMessagePolicyService dmPolicy,
+    StreamViewerStore viewers,
+    MicroserviceContext db,
     IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
     // Call.GetCacheId(callId) doubles as the lock key -LockedJsonCacheStore namespaces it
@@ -115,6 +120,10 @@ public class VoiceController(
 
         await hubContext.Clients.Users(request.Participants).SendAsync("call.IncomingCall", call);
 
+        // Everyone else in the conversation is told a call is happening, not that they are being
+        // rung.
+        await AnnounceConversationCallAsync(call, "Ongoing");
+
         // Neither of the two ways a callee hears about this is guaranteed.
         await Task.WhenAll(request.Participants.Select(p =>
             cache.SetStringAsync(PendingCallKey(p), call.Id, PendingCallOptions)));
@@ -177,6 +186,122 @@ public class VoiceController(
         return Ok(call);
     }
 
+    /// <summary>
+    /// The call going on in <paramref name="conversationId"/> right now, or <c>204</c>.
+    /// </summary>
+    [HttpGet("conversations/{conversationId}/call")]
+    public async Task<IActionResult> GetConversationCall(string conversationId, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var isMember = await db.Members
+            .AsNoTracking()
+            .AnyAsync(m => m.ConversationId == conversationId && m.UserId == userId, ct);
+        if (!isMember) return NotFound();
+
+        var callId = await cache.GetStringAsync(CallService.ConversationCallKey(conversationId), ct);
+        if (string.IsNullOrWhiteSpace(callId)) return NoContent();
+
+        // The index is a hint and the call is the authority - same contract as GetPendingCall, and
+        // for the same reason: a call ends in half a dozen ways and an index that missed one must
+        // degrade to "no call" rather than advertise a dead one.
+        var call = await callStore.LoadAsync<Domain.Entities.Call>(Domain.Entities.Call.GetCacheId(callId));
+        if (call is null || call.Status is not (CallStatus.Pending or CallStatus.Connected)) return NoContent();
+
+        return Ok(new OngoingCallDto(
+            call.Id,
+            conversationId,
+            call.Status.ToString(),
+            call.CreatorId,
+            call.CreatedAt,
+            call.Participants.Where(p => p.Status == CallStatus.Connected).Select(p => p.UserId).ToList()));
+    }
+
+    /// <summary>Tells every member of the call's conversation that its state changed.</summary>
+    private async Task AnnounceConversationCallAsync(Domain.Entities.Call call, string status)
+    {
+        if (string.IsNullOrWhiteSpace(call.ConversationId)) return;
+
+        await cache.SetStringAsync(
+            CallService.ConversationCallKey(call.ConversationId), call.Id, CacheOptions);
+
+        var memberIds = await db.Members
+            .AsNoTracking()
+            .Where(m => m.ConversationId == call.ConversationId)
+            .Select(m => m.UserId)
+            .ToListAsync();
+        if (memberIds.Count == 0) return;
+
+        await hubContext.Clients.Users(memberIds).SendAsync("conversation.CallStateChanged", new
+        {
+            conversationId = call.ConversationId,
+            callId = call.Id,
+            status,
+            reason = (string?)null,
+            participantIds = call.Participants
+                .Where(p => p.Status == CallStatus.Connected)
+                .Select(p => p.UserId)
+                .ToList(),
+        });
+    }
+
+    // ── Screen share viewers ──────────────────────────────────────────────────
+
+    /// <summary>Announces the caller as watching <paramref name="shareId"/> in this call, or
+    /// refreshes that claim. Expires on its own - see <see cref="StreamViewerStore"/>.</summary>
+    [HttpPost("call/{callId}/shares/{shareId}/watch")]
+    public Task<IActionResult> WatchCallShare(string callId, string shareId, CancellationToken ct) =>
+        UpdateCallWatchAsync(callId, shareId, watching: true, ct);
+
+    /// <summary>Stops counting the caller as a viewer of <paramref name="shareId"/>.</summary>
+    [HttpDelete("call/{callId}/shares/{shareId}/watch")]
+    public Task<IActionResult> UnwatchCallShare(string callId, string shareId, CancellationToken ct) =>
+        UpdateCallWatchAsync(callId, shareId, watching: false, ct);
+
+    /// <summary>Everyone currently watching each live share in this call, as
+    /// <c>shareId -&gt; userIds</c> - the catch-up read for someone who joined mid-stream.</summary>
+    [HttpGet("call/{callId}/shares/viewers")]
+    public async Task<IActionResult> GetCallShareViewers(string callId, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var call = await callStore.LoadAsync<Domain.Entities.Call>(Domain.Entities.Call.GetCacheId(callId));
+        if (call is null || !call.IsParticipant(userId)) return NotFound();
+
+        var snapshot = await viewers.SnapshotAsync(StreamViewerStore.CallScope(callId), ct);
+        return Ok(snapshot.ToDictionary(s => s.Key, s => s.Value));
+    }
+
+    private async Task<IActionResult> UpdateCallWatchAsync(string callId, string shareId, bool watching, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var call = await callStore.LoadAsync<Domain.Entities.Call>(Domain.Entities.Call.GetCacheId(callId));
+        if (call is null) return NotFound();
+
+        // Connected, not merely invited: watching is a claim about media that only flows to someone
+        // actually in the call, and an invitee who never answered has no business appearing in a
+        // viewer count.
+        var me = call.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null || me.Status != CallStatus.Connected) return Forbid();
+
+        var scope = StreamViewerStore.CallScope(callId);
+        var snapshot = watching
+            ? await viewers.WatchAsync(scope, shareId, userId, ct)
+            : await viewers.UnwatchAsync(scope, shareId, userId, ct);
+
+        var viewerIds = snapshot.TryGetValue(shareId, out var ids) ? ids : [];
+        var payload = new { callId, shareId, viewerCount = viewerIds.Count, viewerIds };
+
+        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId).ToList())
+            .SendAsync("call.ShareViewersChanged", payload, ct);
+
+        return Ok(payload);
+    }
+
     [HttpPut("call/{callId}/accept")]
     public async Task<IActionResult> AcceptCall(string callId)
     {
@@ -201,6 +326,10 @@ public class VoiceController(
         {
             await bus.PublishAsync(evt);
         }
+
+        // Re-announced so the conversation-level "call in progress" indicator names the people
+        // actually on the call, not just those on it when it was placed.
+        await AnnounceConversationCallAsync(call, "Ongoing");
 
         return Accepted(call);
     }

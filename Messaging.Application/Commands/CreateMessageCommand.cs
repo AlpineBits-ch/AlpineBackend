@@ -33,6 +33,8 @@ public class CreateMessageCommandHandler
             ContractMessageType.Invite => DomainMessageType.Invite,
             ContractMessageType.GuildMemberJoin => DomainMessageType.GuildMemberJoin,
             ContractMessageType.GuildMemberLeave => DomainMessageType.GuildMemberLeave,
+            ContractMessageType.CallEnded => DomainMessageType.CallEnded,
+            ContractMessageType.CallMissed => DomainMessageType.CallMissed,
             _ => DomainMessageType.Message,
         };
 

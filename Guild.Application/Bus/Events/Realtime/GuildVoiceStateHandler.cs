@@ -122,7 +122,8 @@ public class GuildVoiceStateHandler
     }
 
     public async Task Handle(GuildVoiceScreenShareStartCommand message, LockedJsonCacheStore voiceStore,
-        IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService, IMessageBus bus)
+        IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService,
+        GuildVoiceActivityStore activity, IMessageBus bus)
     {
         var userId = message.UserId;
 
@@ -144,10 +145,15 @@ public class GuildVoiceStateHandler
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.ScreenShareStarted",
             new { userId, shareId = message.ShareId, trackName = message.TrackName, channelId = message.ChannelId });
 
+        // Mirrored into the guild index so the server list can say "someone is live here" from the
+        // one key it already reads, rather than opening every channel to find out.
+        await activity.SetStreamingAsync(voiceState.GuildId, message.ChannelId, userId, true);
+
         if (meAfter is not null) await bus.PublishAsync(ToVoiceStateForBots(meAfter));
     }
 
-    public async Task Handle(GuildVoiceScreenShareStopCommand message, LockedJsonCacheStore voiceStore, IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
+    public async Task Handle(GuildVoiceScreenShareStopCommand message, LockedJsonCacheStore voiceStore,
+        IHubContext<EchoRealtimeHub> hub, GuildVoiceActivityStore activity, StreamViewerStore viewers, IMessageBus bus)
     {
         var userId = message.UserId;
 
@@ -168,6 +174,13 @@ public class GuildVoiceStateHandler
         var otherIds = voiceState.Participants.Where(p => p.UserId != userId).Select(p => p.UserId).ToList();
         await hub.Clients.Users(otherIds).SendAsync("guild.voice.ScreenShareStopped",
             new { shareId = message.ShareId, channelId = message.ChannelId });
+
+        // The audience of a share that stopped is not empty, it is undefined - drop the entry
+        // outright so a later share reusing the id can't inherit it.
+        await viewers.RemoveShareAsync(StreamViewerStore.ChannelScope(message.ChannelId), message.ShareId);
+
+        // Tracks IsStreaming above, which this same handler clears unconditionally on a stop.
+        await activity.SetStreamingAsync(voiceState.GuildId, message.ChannelId, userId, false);
 
         await bus.PublishAsync(ToVoiceStateForBots(meAfter));
     }
@@ -223,6 +236,7 @@ public class GuildVoiceStateHandler
     public async Task Handle(GuildVoiceMoveUserCommand message, IDistributedCache cache,
         LockedJsonCacheStore voiceStore, IDistributedLockService locks,
         IHubContext<EchoRealtimeHub> hub, GuildPermissionService permissionService,
+        GuildVoiceActivityStore activity, StreamViewerStore viewers,
         MicroserviceContext microserviceContext, IMessageBus bus)
     {
         var userId = message.UserId;
@@ -279,6 +293,13 @@ public class GuildVoiceStateHandler
 
             await voiceStore.SaveAsync(targetKey, targetVoiceState, ChannelCacheOptions);
         }
+
+        // One index write for what is one fact - a move.
+        await activity.MoveParticipantAsync(
+            voiceState.GuildId, message.ChannelId, message.TargetChannelId, message.TargetUserId);
+
+        // Whatever they were watching was in the channel they just left.
+        await viewers.RemoveViewerAsync(StreamViewerStore.ChannelScope(message.ChannelId), message.TargetUserId);
 
         var onlineUserIds = await microserviceContext.GuildMembers
             .AsNoTracking()

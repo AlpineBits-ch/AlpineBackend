@@ -6,6 +6,14 @@ public enum MessageType
     Invite,
     GuildMemberJoin,
     GuildMemberLeave,
+
+    /// <summary>A call in this conversation finished.</summary>
+    CallEnded,
+
+    /// <summary>A call in this conversation ended with nobody but the caller ever connecting.
+    /// Content is empty: there is no duration to show, only that it happened and who placed it
+    /// (the message's author).</summary>
+    CallMissed,
 }
 
 /// <summary>

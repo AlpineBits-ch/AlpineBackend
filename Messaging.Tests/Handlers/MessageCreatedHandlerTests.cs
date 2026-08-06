@@ -123,6 +123,45 @@ public class MessageCreatedHandlerTests
             MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance));
     }
 
+    [Test]
+    public async Task Handle_ConversationSystemMessage_SendsNoPush()
+    {
+        // A call entry is a record of something the recipient already lived through - the call just
+        // ended on their own device, or they watched it ring out.
+        _context.Members.AddRange(
+            MakeMember("m-1", "author-1", "conv-1"),
+            MakeMember("m-2", "user-2", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var bus = BusWithNoDeviceTokens();
+        var systemMessage = MakeEvent(conversationId: "conv-1");
+        systemMessage.Type = DomainMessageType.CallEnded;
+
+        await MessageCreatedHandler.Handle(systemMessage, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+
+        Assert.That(bus.Invoked.Any(m => m is GetPushTokensForUsersRequest), Is.False);
+    }
+
+    [Test]
+    public async Task Handle_ConversationSystemMessage_StillBroadcastsRealtime()
+    {
+        // Suppressing the push must not suppress delivery: the entry still has to appear in the
+        // conversation, and the unread badge still has to be right.
+        _context.Members.AddRange(
+            MakeMember("m-1", "author-1", "conv-1"),
+            MakeMember("m-2", "user-2", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var bus = BusWithNoDeviceTokens();
+        var systemMessage = MakeEvent(conversationId: "conv-1");
+        systemMessage.Type = DomainMessageType.CallMissed;
+
+        await MessageCreatedHandler.Handle(systemMessage, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+
+        var hubClients = (FakeHubClients)_hub.Clients;
+        Assert.That(hubClients.SentMessages.Single().Method, Is.EqualTo("conversation.MessageCreated"));
+    }
+
     // ══════════════════════════════════════════════════════════════════════════ Handle - channel
     // branch ══════════════════════════════════════════════════════════════════════════
 

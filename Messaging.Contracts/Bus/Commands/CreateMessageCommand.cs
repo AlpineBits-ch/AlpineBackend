@@ -54,6 +54,12 @@ public enum MessageType
     Invite,
     GuildMemberJoin,
     GuildMemberLeave,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.CallEnded.</summary>
+    CallEnded,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.CallMissed.</summary>
+    CallMissed,
 }
 
 public record MinimalAttachmentContract

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Echo.Realtime;
+using Echo.Realtime.Caching;
 using Messaging.Application.Handler.Realtime;
 using Messaging.Domain.Entities;
 using Messaging.Tests.Helpers;
@@ -18,12 +19,14 @@ public class CallRealtimeCommandHandlersTests
 {
     private FakeDistributedCache _cache = null!;
     private FakeMessagingHubContext _hub = null!;
+    private StreamViewerStore _viewers = null!;
 
     [SetUp]
     public void SetUp()
     {
         _cache = new FakeDistributedCache();
         _hub = new FakeMessagingHubContext();
+        _viewers = new StreamViewerStore(new FakeDistributedLockService(), _cache);
     }
 
     private async Task SeedCall(string callId, params string[] participantUserIds)
@@ -148,7 +151,7 @@ public class CallRealtimeCommandHandlersTests
     [Test]
     public async Task ScreenShareStop_CallNotInCache_IsNoOp()
     {
-        await CallScreenShareStopHandler.Handle(new CallScreenShareStopCommand("user-1", "call-missing", "share-1"), _cache, _hub);
+        await CallScreenShareStopHandler.Handle(new CallScreenShareStopCommand("user-1", "call-missing", "share-1"), _cache, _viewers, _hub);
 
         Assert.That(HubClients.SentMessages, Is.Empty);
     }
@@ -158,7 +161,7 @@ public class CallRealtimeCommandHandlersTests
     {
         await SeedCall("call-1", "user-1", "user-2");
 
-        await CallScreenShareStopHandler.Handle(new CallScreenShareStopCommand("user-1", "call-1", "share-1"), _cache, _hub);
+        await CallScreenShareStopHandler.Handle(new CallScreenShareStopCommand("user-1", "call-1", "share-1"), _cache, _viewers, _hub);
 
         Assert.That(HubClients.SentMessages, Has.Count.EqualTo(1));
         Assert.That(HubClients.SentMessages[0].Method, Is.EqualTo("call.ScreenShareStopped"));

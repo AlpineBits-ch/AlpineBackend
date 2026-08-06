@@ -43,6 +43,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
     ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
 builder.Services.AddSingleton<IDistributedLockService, RedisDistributedLockService>();
 builder.Services.AddSingleton<LockedJsonCacheStore>();
+builder.Services.AddSingleton<StreamViewerStore>();
 // Scoped: it takes IMessageBus, which Wolverine registers per scope.
 builder.Services.AddScoped<DeviceIdResolver>();
 builder.Services.AddSignalR(config =>

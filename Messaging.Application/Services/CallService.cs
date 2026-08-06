@@ -6,6 +6,11 @@ namespace Messaging.Application.Services;
 
 public class CallService
 {
+    /// <summary>
+    /// Reverse index answering "is a call going on in this conversation right now".
+    /// </summary>
+    public static string ConversationCallKey(string conversationId) => $"conversation-call:{conversationId}";
+
     public static async Task<Call?> GetCallById(string id, IDistributedCache cache)
     {
         var serializedCall = await cache.GetStringAsync(Call.GetCacheId(id));

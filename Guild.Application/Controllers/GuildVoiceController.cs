@@ -31,6 +31,8 @@ public class GuildVoiceController(
     CloudflareService cfService,
     MicroserviceContext db,
     DeviceIdResolver devices,
+    GuildVoiceActivityStore activity,
+    StreamViewerStore viewers,
     IMessageBus bus) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -91,6 +93,10 @@ public class GuildVoiceController(
 
         // Add user to the target channel voice state.
         var voiceState = await JoinChannelVoiceStateAsync(channelId, guildId, deviceId, ct);
+
+        // Guild-level index, so the server list can answer "is anyone in voice here" without
+        // reading every channel of every guild.
+        await activity.AddParticipantAsync(guildId, channelId, UserId, ct);
 
         await cache.SetStringAsync(
             ChannelVoiceState.GetUserCacheKey(UserId),
@@ -165,6 +171,60 @@ public class GuildVoiceController(
         return Ok(ChannelVoiceStateResponse.From(voiceState));
     }
 
+    /// <summary>
+    /// Announces that the caller is watching <paramref name="shareId"/>, or refreshes that claim.
+    /// </summary>
+    [HttpPost("shares/{shareId}/watch")]
+    public Task<IActionResult> WatchShare(string guildId, string channelId, string shareId, CancellationToken ct) =>
+        UpdateWatchAsync(channelId, shareId, watching: true, ct);
+
+    /// <summary>Stops counting the caller as a viewer of <paramref name="shareId"/>.</summary>
+    [HttpDelete("shares/{shareId}/watch")]
+    public Task<IActionResult> UnwatchShare(string guildId, string channelId, string shareId, CancellationToken ct) =>
+        UpdateWatchAsync(channelId, shareId, watching: false, ct);
+
+    private async Task<IActionResult> UpdateWatchAsync(string channelId, string shareId, bool watching, CancellationToken ct)
+    {
+        var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
+        if (voiceState is null) return NotFound();
+
+        // Membership of the channel, not merely permission to view it: watching is a claim about
+        // media that is only pulled from inside the channel, and the roster is also the audience
+        // the resulting count is broadcast to.
+        if (voiceState.Participants.All(p => p.UserId != UserId)) return Forbid();
+
+        // A share nobody is publishing has no viewers to report, and letting one be named here
+        // would let any participant mint counts for shares that do not exist.
+        var shareExists = voiceState.Participants.Any(p => p.ActiveScreenShares.Any(s => s.ShareId == shareId));
+        if (!shareExists) return NotFound();
+
+        var scope = StreamViewerStore.ChannelScope(channelId);
+        var snapshot = watching
+            ? await viewers.WatchAsync(scope, shareId, UserId, ct)
+            : await viewers.UnwatchAsync(scope, shareId, UserId, ct);
+
+        var viewerIds = snapshot.TryGetValue(shareId, out var ids) ? ids : [];
+        var payload = new { channelId, shareId, viewerCount = viewerIds.Count, viewerIds };
+
+        await hub.Clients.Users(voiceState.Participants.Select(p => p.UserId).ToList())
+            .SendAsync("guild.voice.ShareViewersChanged", payload, ct);
+
+        return Ok(payload);
+    }
+
+    /// <summary>Everyone currently watching each live share in this channel, as
+    /// <c>shareId -&gt; userIds</c>. The catch-up read for a client that joined mid-stream, since
+    /// <c>guild.voice.ShareViewersChanged</c> is only ever a delta.</summary>
+    [HttpGet("shares/viewers")]
+    public async Task<IActionResult> GetShareViewers(string guildId, string channelId, CancellationToken ct)
+    {
+        var canView = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel);
+        if (!canView) return Forbid();
+
+        var snapshot = await viewers.SnapshotAsync(StreamViewerStore.ChannelScope(channelId), ct);
+        return Ok(snapshot.ToDictionary(s => s.Key, s => s.Value));
+    }
+
     /// <summary>Locked load-or-create-then-add-participant -see the comment on the Join
     /// endpoint above for why this needs the lock (not just the mutate-existing case that
     /// <see cref="LockedJsonCacheStore.UpdateAsync{T}"/> covers, since the very first joiner
@@ -202,18 +262,28 @@ public class GuildVoiceController(
     internal async Task LeaveChannelAsync(string channelId, string userId, CancellationToken ct)
     {
         ChannelVoiceState? voiceState;
+        List<string> ownedShareIds;
         await using (await locks.AcquireAsync(ChannelVoiceState.GetCacheKey(channelId), ct: ct))
         {
             voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
             var participant = voiceState?.Participants.FirstOrDefault(p => p.UserId == userId);
             if (participant is null) return;
 
+            ownedShareIds = participant.ActiveScreenShares.Select(s => s.ShareId).ToList();
             voiceState!.Participants.Remove(participant);
             await voiceStore.SaveAsync(ChannelVoiceState.GetCacheKey(channelId), voiceState, CacheOptions, ct);
         }
 
         await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId), ct);
         await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId), ct);
+
+        await activity.RemoveParticipantAsync(voiceState!.GuildId, channelId, userId, ct);
+
+        // Someone who is not in the channel is watching nothing in it, and a share whose owner left
+        // has no audience to report.
+        var scope = StreamViewerStore.ChannelScope(channelId);
+        await viewers.RemoveViewerAsync(scope, userId, ct);
+        if (ownedShareIds.Count > 0) await viewers.RemoveSharesAsync(scope, ownedShareIds, ct);
 
         var onlineUserIds = await GetOnlineGuildMemberIdsAsync(voiceState!.GuildId);
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",

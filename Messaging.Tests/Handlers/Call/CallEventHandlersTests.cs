@@ -154,7 +154,15 @@ public class CallEventHandlersTests
     {
         await SeedCall(new Call { Id = "call-1", ConversationId = "conv-1", CreatorId = "user-1" });
 
-        await CallEndedHandler.Handle(new CallEnded { CallId = "call-1", Reason = CallEndReason.UserEnded }, _cache);
+        // No ConversationId on the event, so the conversation-side work (history entry,
+        // CallStateChanged) is skipped and the eviction is all that is under test here.
+        await CallEndedHandler.Handle(
+            new CallEnded { CallId = "call-1", Reason = CallEndReason.UserEnded },
+            _cache,
+            new StreamViewerStore(new FakeDistributedLockService(), _cache),
+            _hub,
+            new TestMessagingContext(Guid.NewGuid().ToString()),
+            new FakeMessageBus());
 
         Assert.That(_cache.HasEntry(Call.GetCacheId("call-1")), Is.False);
     }

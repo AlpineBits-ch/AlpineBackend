@@ -17,6 +17,8 @@ public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
     LockedJsonCacheStore voiceStore,
+    GuildVoiceActivityStore activityStore,
+    StreamViewerStore viewers,
     IHubContext<EchoRealtimeHub> hub,
     IServiceScopeFactory scopeFactory,
     ILogger<VoiceHeartbeatCleanupService> logger) : BackgroundService
@@ -50,6 +52,9 @@ public class VoiceHeartbeatCleanupService(
         var server = redis.GetServer(redis.GetEndPoints().First());
         var keys = server.Keys(pattern: "voice:channel:*");
 
+        // Accumulated as the sweep goes, then written back per guild.
+        var rebuilt = new Dictionary<string, Dictionary<string, ChannelVoiceActivity>>();
+
         foreach (var key in keys)
         {
             if (ct.IsCancellationRequested) break;
@@ -67,7 +72,11 @@ public class VoiceHeartbeatCleanupService(
                     stale.Add(participant);
             }
 
-            if (stale.Count == 0) continue;
+            if (stale.Count == 0)
+            {
+                Record(rebuilt, loaded);
+                continue;
+            }
 
             var staleIds = stale.Select(p => p.UserId).ToHashSet();
             // Locked: this background sweep racing a live Join/mute/etc. write for the same channel
@@ -78,6 +87,17 @@ public class VoiceHeartbeatCleanupService(
                 vs => vs.Participants.RemoveAll(p => staleIds.Contains(p.UserId)),
                 ChannelCacheOptions, ct);
             if (voiceState is null) continue;
+
+            Record(rebuilt, voiceState);
+
+            // An evicted participant's watch claims and their own shares both die with them.
+            var viewerScope = StreamViewerStore.ChannelScope(channelId);
+            foreach (var participant in stale)
+            {
+                await viewers.RemoveViewerAsync(viewerScope, participant.UserId, ct);
+                var owned = participant.ActiveScreenShares.Select(s => s.ShareId).ToList();
+                if (owned.Count > 0) await viewers.RemoveSharesAsync(viewerScope, owned, ct);
+            }
 
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
@@ -101,5 +121,32 @@ public class VoiceHeartbeatCleanupService(
                 await bus.PublishAsync(new VoiceStateForBots { GuildId = voiceState.GuildId, UserId = participant.UserId, ChannelId = null });
             }
         }
+
+        foreach (var (guildId, channels) in rebuilt)
+        {
+            await activityStore.ReplaceAsync(guildId, channels, ct);
+        }
+    }
+
+    /// <summary>Folds one channel's authoritative roster into the guild index being rebuilt.</summary>
+    internal static void Record(
+        Dictionary<string, Dictionary<string, ChannelVoiceActivity>> rebuilt,
+        ChannelVoiceState state)
+    {
+        if (string.IsNullOrWhiteSpace(state.GuildId)) return;
+
+        if (!rebuilt.TryGetValue(state.GuildId, out var channels))
+        {
+            channels = new Dictionary<string, ChannelVoiceActivity>();
+            rebuilt[state.GuildId] = channels;
+        }
+
+        // Recorded even when empty: a guild whose last participant just left still has to be
+        // written back, or the index would keep reporting the roster it had before.
+        channels[state.ChannelId] = new ChannelVoiceActivity
+        {
+            UserIds = state.Participants.Select(p => p.UserId).ToList(),
+            StreamerIds = state.Participants.Where(p => p.IsStreaming).Select(p => p.UserId).ToList(),
+        };
     }
 }

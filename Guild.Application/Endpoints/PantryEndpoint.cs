@@ -64,24 +64,49 @@ public class PantryEndpoint
         if (!await ctx.GuildMembers.AnyAsync(m => m.GuildId == guildId && m.UserId == userId))
             return Results.Forbid();
 
-        var horizon = DateTimeOffset.UtcNow.AddDays(Math.Clamp(days ?? 3, 1, 90));
+        var now = DateTimeOffset.UtcNow;
+        var overrideDays = days is null ? (int?)null : Math.Clamp(days.Value, 1, 90);
+
+        // The widest horizon any pantry in this guild could ask for, so one query covers every
+        // channel and the per-channel horizon is applied to the result.
+        var configs = await ctx.PantryConfigs.AsNoTracking()
+            .Where(c => c.GuildId == guildId)
+            .ToDictionaryAsync(c => c.ChannelId, c => c.ExpiryWarningDays);
+
+        var widestDays = overrideDays
+                         ?? (configs.Count == 0 ? DefaultExpiryWarningDays : configs.Values.Max());
 
         var items = await ctx.PantryItems.AsNoTracking()
-            .Where(i => i.GuildId == guildId && i.ExpiresAt != null && i.ExpiresAt <= horizon)
+            .Where(i => i.GuildId == guildId
+                        && i.ExpiresAt != null
+                        && i.ExpiresAt <= now.AddDays(Math.Max(widestDays, DefaultExpiryWarningDays)))
             .OrderBy(i => i.ExpiresAt)
             .ToListAsync();
 
-        // Filter to pantries this member can actually see - a guest with access to the kitchen
-        // pantry shouldn't learn what's in a private one via this board.
-        var visible = new List<PantryItem>();
-        foreach (var item in items)
+        if (items.Count == 0) return Results.Ok(Array.Empty<PantryItemDto>());
+
+        // One resolve for every pantry on the board rather than one per item.
+        var visibleChannels = await permissionService.FilterChannelsWithPermissionAsync(
+            userId, guildId, items.Select(i => i.ChannelId).Distinct().ToList(), Permissions.ViewChannel);
+
+        var visible = items.Where(i =>
         {
-            if (await permissionService.CanUserPerformActionAsync(userId, item.ChannelId, Permissions.ViewChannel))
-                visible.Add(item);
-        }
+            if (!visibleChannels.Contains(i.ChannelId)) return false;
+
+            var horizonDays = overrideDays
+                              ?? (configs.TryGetValue(i.ChannelId, out var configured)
+                                  ? configured
+                                  : DefaultExpiryWarningDays);
+
+            return i.ExpiresAt <= now.AddDays(horizonDays);
+        });
 
         return Results.Ok(visible.Select(ToDto));
     }
+
+    /// <summary>Matches PantryConfig's own default, so a pantry that was never configured behaves
+    /// the same as one explicitly left at the default.</summary>
+    private const int DefaultExpiryWarningDays = 3;
 
     [WolverinePost("/api/v1/channels/{channelId}/pantry-items")]
     public async Task<IResult> CreateAsync(string channelId, CreatePantryItemDto dto,
@@ -115,7 +140,7 @@ public class PantryEndpoint
         var restocked = await restock.StageRestockAsync(item);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(item.GuildId, "guild.PantryItemCreated",
+        await household.BroadcastAsync(item.GuildId, channelId, "guild.PantryItemCreated",
             new { GuildId = item.GuildId, ChannelId = channelId, Item = ToDto(item) });
         if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
 
@@ -167,7 +192,7 @@ public class PantryEndpoint
         var restocked = await restock.StageRestockAsync(item);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(item.GuildId, "guild.PantryItemUpdated",
+        await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.PantryItemUpdated",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
         if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
 
@@ -190,7 +215,7 @@ public class PantryEndpoint
         ctx.PantryItems.Remove(item);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(item.GuildId, "guild.PantryItemDeleted",
+        await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.PantryItemDeleted",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, ItemId = itemId });
 
         return Results.NoContent();
@@ -214,7 +239,7 @@ public class PantryEndpoint
         {
             ChannelId = channelId,
             RestockListChannelId = config?.RestockListChannelId,
-            ExpiryWarningDays = config?.ExpiryWarningDays ?? 3,
+            ExpiryWarningDays = config?.ExpiryWarningDays ?? DefaultExpiryWarningDays,
         });
     }
 

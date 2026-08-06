@@ -55,4 +55,17 @@ public enum AuditActionType
     ThreadTagsUpdated,
     ThreadPinChanged,
     ThreadLockChanged,
+
+    // ── Household ──────────────────────────────────────────────────────────── The ledger is the
+    // one module where a permission lets you rewrite something that is somebody else's money, so
+    // every mutation on it is recorded.
+    ExpenseCreated,
+    ExpenseUpdated,
+    ExpenseDeleted,
+    SettlementRecorded,
+    LedgerConfigUpdated,
+
+    /// <summary>A household removed someone who moved out - the flow that stands in for
+    /// MemberKicked in a guild with the Moderation module off.</summary>
+    MemberMovedOut,
 }

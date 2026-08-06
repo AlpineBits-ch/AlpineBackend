@@ -281,6 +281,67 @@ public class GuildPermissionService(
     }
 
     /// <summary>
+    /// Which of <paramref name="channelIds"/> one user holds <paramref name="requiredPermission"/>
+    /// on.
+    /// </summary>
+    public async Task<HashSet<string>> FilterChannelsWithPermissionAsync(
+        string userId,
+        string guildId,
+        IReadOnlyCollection<string> channelIds,
+        Permissions requiredPermission)
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal);
+        if (channelIds.Count == 0 || string.IsNullOrWhiteSpace(userId)) return allowed;
+
+        // Feature gate first, exactly as both single-channel paths do.
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
+            return allowed;
+
+        var inGuild = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.GuildId == guildId && channelIds.Contains(c.Id))
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        if (inGuild.Count == 0) return allowed;
+
+        var ownerId = await ctx.Guilds
+            .AsNoTracking()
+            .Where(g => g.Id == guildId)
+            .Select(g => g.OwnerId)
+            .FirstOrDefaultAsync();
+
+        if (userId == ownerId)
+        {
+            foreach (var channelId in inGuild) allowed.Add(channelId);
+            return allowed;
+        }
+
+        var resolved = await ComputePermissionsForUserAsync(userId, guildId);
+
+        var byChannel = resolved.Permissions
+            .GroupBy(p => p.ChannelId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().Permissions, StringComparer.Ordinal);
+
+        foreach (var channelId in inGuild)
+        {
+            // A channel absent from the cached set is the stale-entry case
+            // ResolveChannelPermissionAsync documents.
+            if (!byChannel.TryGetValue(channelId, out var permissions))
+            {
+                var repaired = await ResolveChannelPermissionAsync(userId, guildId, channelId);
+                if (repaired is null) continue;
+                permissions = repaired.Permissions;
+                byChannel[channelId] = permissions;
+            }
+
+            if ((permissions & requiredPermission) == requiredPermission) allowed.Add(channelId);
+        }
+
+        return allowed;
+    }
+
+    /// <summary>
     /// The user's resolved permissions for one channel, self-healing against a stale cache.
     /// </summary>
     private async Task<GuildChannelPermission?> ResolveChannelPermissionAsync(

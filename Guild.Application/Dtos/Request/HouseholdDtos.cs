@@ -189,3 +189,12 @@ public class GrantTemporaryRoleDto
 {
     public DateTimeOffset ExpiresAt { get; set; }
 }
+
+public class MoveOutDto
+{
+    /// <summary>
+    /// Settle the departing member's ledger balances by recording the settlements that zero them,
+    /// instead of refusing the move-out.
+    /// </summary>
+    public bool WriteOffBalances { get; set; }
+}

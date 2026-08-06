@@ -8,15 +8,33 @@ namespace Guild.Application.Services;
 /// <summary>Balance computation for a ledger channel.</summary>
 public class LedgerService(MicroserviceContext ctx)
 {
+    /// <summary>Net position per member, aggregated in the database.</summary>
     public async Task<List<BalanceEntry>> GetBalancesAsync(string channelId)
     {
-        var expenses = await ctx.Expenses.AsNoTracking()
-            .Include(e => e.Shares)
+        // What each member fronted...
+        var paid = await ctx.Expenses.AsNoTracking()
             .Where(e => e.ChannelId == channelId)
+            .GroupBy(e => e.PayerUserId)
+            .Select(g => new { UserId = g.Key, Total = g.Sum(e => e.AmountMinor) })
             .ToListAsync();
 
-        var settlements = await ctx.Settlements.AsNoTracking()
+        // ...and what each member owes of it.
+        var owed = await ctx.ExpenseShares.AsNoTracking()
+            .Where(s => s.Expense.ChannelId == channelId)
+            .GroupBy(s => s.UserId)
+            .Select(g => new { UserId = g.Key, Total = g.Sum(s => s.AmountMinor) })
+            .ToListAsync();
+
+        var settlementsOut = await ctx.Settlements.AsNoTracking()
             .Where(s => s.ChannelId == channelId)
+            .GroupBy(s => s.FromUserId)
+            .Select(g => new { UserId = g.Key, Total = g.Sum(s => s.AmountMinor) })
+            .ToListAsync();
+
+        var settlementsIn = await ctx.Settlements.AsNoTracking()
+            .Where(s => s.ChannelId == channelId)
+            .GroupBy(s => s.ToUserId)
+            .Select(g => new { UserId = g.Key, Total = g.Sum(s => s.AmountMinor) })
             .ToListAsync();
 
         var net = new Dictionary<string, long>(StringComparer.Ordinal);
@@ -24,20 +42,12 @@ public class LedgerService(MicroserviceContext ctx)
         void Add(string userId, long delta) =>
             net[userId] = net.TryGetValue(userId, out var current) ? current + delta : delta;
 
-        foreach (var expense in expenses)
-        {
-            // The payer fronted the whole amount...
-            Add(expense.PayerUserId, expense.AmountMinor);
-            // ...and each participant owes their slice of it, the payer included.
-            foreach (var share in expense.Shares) Add(share.UserId, -share.AmountMinor);
-        }
+        foreach (var row in paid) Add(row.UserId, row.Total);
+        foreach (var row in owed) Add(row.UserId, -row.Total);
 
-        foreach (var settlement in settlements)
-        {
-            // Paying someone reduces what you owe and what they're owed.
-            Add(settlement.FromUserId, settlement.AmountMinor);
-            Add(settlement.ToUserId, -settlement.AmountMinor);
-        }
+        // Paying someone reduces what you owe and what they're owed.
+        foreach (var row in settlementsOut) Add(row.UserId, row.Total);
+        foreach (var row in settlementsIn) Add(row.UserId, -row.Total);
 
         return net
             .Where(kv => kv.Value != 0)
@@ -47,7 +57,7 @@ public class LedgerService(MicroserviceContext ctx)
             .ToList();
     }
 
-    public async Task<string> GetCurrencyAsync(string channelId, string guildId)
+    public async Task<string> GetCurrencyAsync(string channelId)
     {
         var config = await ctx.LedgerConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.ChannelId == channelId);
         return config?.Currency ?? "CHF";
@@ -60,6 +70,8 @@ public class LedgerService(MicroserviceContext ctx)
         IReadOnlyList<SplitParticipant> requested,
         string guildId)
     {
+        var memberSet = await GetMemberUserIdsAsync(guildId);
+
         var participants = requested;
 
         // An Equal split with no explicit participants means "everyone in the house" - by far the
@@ -67,24 +79,16 @@ public class LedgerService(MicroserviceContext ctx)
         // enumerate every time.
         if (participants.Count == 0)
         {
-            var memberIds = await ctx.GuildMembers.AsNoTracking()
-                .Where(m => m.GuildId == guildId)
-                .Select(m => m.UserId)
-                .ToListAsync();
-
-            if (memberIds.Count == 0) return "This guild has no members to split across";
-            participants = memberIds.Select(id => new SplitParticipant(id, 1)).ToList();
+            if (memberSet.Count == 0) return "This guild has no members to split across";
+            participants = memberSet.Order(StringComparer.Ordinal)
+                .Select(id => new SplitParticipant(id, 1))
+                .ToList();
         }
 
         if (participants.Select(p => p.UserId).Distinct(StringComparer.Ordinal).Count() != participants.Count)
             return "A participant may only appear once";
 
-        var memberSet = await ctx.GuildMembers.AsNoTracking()
-            .Where(m => m.GuildId == guildId)
-            .Select(m => m.UserId)
-            .ToListAsync();
-
-        if (participants.Any(p => !memberSet.Contains(p.UserId, StringComparer.Ordinal)))
+        if (participants.Any(p => !memberSet.Contains(p.UserId)))
             return "Every participant must be a member of this guild";
 
         IReadOnlyList<SplitResult> split;
@@ -112,5 +116,25 @@ public class LedgerService(MicroserviceContext ctx)
         }
 
         return null;
+    }
+
+    /// <summary>Whether every id names a current member of the guild.</summary>
+    public async Task<bool> AreMembersAsync(string guildId, params string[] userIds)
+    {
+        var distinct = userIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        if (distinct.Count == 0) return true;
+
+        var memberSet = await GetMemberUserIdsAsync(guildId);
+        return distinct.All(memberSet.Contains);
+    }
+
+    private async Task<HashSet<string>> GetMemberUserIdsAsync(string guildId)
+    {
+        var ids = await ctx.GuildMembers.AsNoTracking()
+            .Where(m => m.GuildId == guildId)
+            .Select(m => m.UserId)
+            .ToListAsync();
+
+        return ids.ToHashSet(StringComparer.Ordinal);
     }
 }

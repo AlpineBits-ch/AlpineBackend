@@ -85,6 +85,24 @@ public class Chore : BaseEntity<Chore>, IPrefixedEntity
 
         return next;
     }
+
+    /// <summary>
+    /// Drops <see cref="NextDueAt"/> forward to the most recent slot at or before <paramref
+    /// name="now"/>, and reports how many slots were passed over.
+    /// </summary>
+    public int FastForwardTo(DateTimeOffset now)
+    {
+        var interval = TimeSpan.FromDays(Math.Max(1, IntervalDays));
+
+        var skipped = 0;
+        while (skipped < 4096 && NextDueAt + interval <= now)
+        {
+            NextDueAt += interval;
+            skipped++;
+        }
+
+        return skipped;
+    }
 }
 
 /// <summary>One generated instance of a <see cref="Chore"/> - the row a member actually ticks
@@ -110,6 +128,11 @@ public class ChoreOccurrence : BaseEntity<ChoreOccurrence>, IPrefixedEntity
     public DateTimeOffset? CompletedAt { get; set; }
     public string? CompletedByUserId { get; set; }
     public DateTimeOffset? SkippedAt { get; set; }
+
+    /// <summary>
+    /// When the assignee was reminded this is due, or null if they have not been.
+    /// </summary>
+    public DateTimeOffset? RemindedAt { get; set; }
 
     public static ChoreOccurrence Create(Chore chore, DateTimeOffset dueAt, string assignedUserId)
     {

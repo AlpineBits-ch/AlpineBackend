@@ -141,9 +141,12 @@ builder.Services.AddScoped<OnboardingGrantService>();
 builder.Services.AddScoped<OnboardingConfigService>();
 builder.Services.AddScoped<ForumService>();
 builder.Services.AddScoped<HouseholdChannelService>();
+builder.Services.AddScoped<HouseholdNotifier>();
+builder.Services.AddScoped<ChoreReminderService>();
 builder.Services.AddScoped<PantryRestockService>();
 builder.Services.AddScoped<ChoreRotationService>();
 builder.Services.AddScoped<LedgerService>();
+builder.Services.AddScoped<MoveOutService>();
 builder.Services.AddScoped<HomeStatusService>();
 builder.Services.AddScoped<NotificationResolutionService>();
 // Scoped, not singleton: both take IMessageBus, which Wolverine registers per scope.

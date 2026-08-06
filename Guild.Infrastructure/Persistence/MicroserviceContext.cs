@@ -734,6 +734,10 @@ public class MicroserviceContext : DbContext
             // One occurrence per chore per due date - the guard that makes generation idempotent
             // when both ScheduleAsync and the reconcile sweep fire for the same slot.
             occurrenceBuilder.HasIndex(x => new { x.ChoreId, x.DueAt }).IsUnique();
+
+            // The reminder sweep's query: unreminded, unfinished, and due.
+            occurrenceBuilder.HasIndex(x => x.DueAt)
+                .HasFilter("reminded_at IS NULL AND completed_at IS NULL AND skipped_at IS NULL");
         });
 
         modelBuilder.Entity<Expense>(expenseBuilder =>

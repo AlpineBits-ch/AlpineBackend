@@ -100,7 +100,12 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
                 SearchValue = parameters.OwnerSearchValue,
                 OnboardingCompletedAt = date,
             }],
-            Roles = [Role.CreateEveryoneRole(id, memberId)]
+            // A Household additionally gets a Flatmates role holding the owner: it is the default
+            // chore rotation pool, and it is what separates the people who live here from a guest
+            // who joined by invite.
+            Roles = parameters.Kind == GuildKind.Household
+                ? [Role.CreateEveryoneRole(id, memberId), Role.CreateFlatmatesRole(id, memberId)]
+                : [Role.CreateEveryoneRole(id, memberId)]
         };
 
         // When default channels are skipped (Discord import), there's no text channel yet to

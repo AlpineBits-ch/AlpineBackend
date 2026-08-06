@@ -289,6 +289,46 @@ public class GuildFeatureGateTests
         });
     }
 
+    /// <summary>A household needs a role that names the people who actually live there: it is the
+    /// default chore rotation pool, and without it the only pool a chore could rotate over was
+    /// @everyone, which includes any guest who joined by invite.</summary>
+    [Test]
+    public void Create_Household_SeedsAFlatmatesRoleHoldingTheOwner()
+    {
+        var guild = Guild.Domain.Aggregates.Guild.Create(new CreateGuildParams
+        {
+            Name = "The Flat", OwnerId = OwnerId, OwnerSearchValue = "OWNER",
+            Kind = GuildKind.Household,
+        });
+
+        var flatmates = guild.Roles.SingleOrDefault(r => r.Name == Role.FlatmatesRoleName);
+        var everyone = guild.Roles.Single(r => r.Type == RoleType.Everyone);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(flatmates, Is.Not.Null);
+            Assert.That(flatmates!.Permissions, Is.EqualTo(Role.FlatmatePermissions));
+            Assert.That(flatmates.Position, Is.GreaterThan(everyone.Position),
+                "a flatmate hands out guest access; a guest never manages a flatmate");
+            Assert.That(flatmates.Members, Has.Count.EqualTo(1),
+                "the owner lives here, so the rota can assign to somebody from the first day");
+            Assert.That(flatmates.Members.Single().MemberId,
+                Is.EqualTo(guild.Members.Single().Id));
+        });
+    }
+
+    [Test]
+    public void Create_NonHousehold_SeedsOnlyEveryone()
+    {
+        var guild = Guild.Domain.Aggregates.Guild.Create(new CreateGuildParams
+        {
+            Name = "A Server", OwnerId = OwnerId, OwnerSearchValue = "OWNER",
+            Kind = GuildKind.Community,
+        });
+
+        Assert.That(guild.Roles.Select(r => r.Type), Is.EquivalentTo(new[] { RoleType.Everyone }));
+    }
+
     [Test]
     public void Create_DefaultsToCommunity()
     {

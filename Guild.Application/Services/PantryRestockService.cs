@@ -67,7 +67,7 @@ public class PantryRestockService(MicroserviceContext ctx, HouseholdChannelServi
     /// <summary>Broadcasts a staged restock after the caller has committed.</summary>
     public async Task BroadcastRestockAsync(ListItem listItem)
     {
-        await household.BroadcastAsync(listItem.GuildId, "guild.ListItemCreated", new
+        await household.BroadcastAsync(listItem.GuildId, listItem.ChannelId, "guild.ListItemCreated", new
         {
             GuildId = listItem.GuildId,
             ChannelId = listItem.ChannelId,

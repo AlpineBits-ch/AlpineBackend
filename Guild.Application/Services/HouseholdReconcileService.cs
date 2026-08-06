@@ -8,13 +8,15 @@ namespace Guild.Application.Services;
 /// <summary>Periodic sweep that keeps the household modules honest without depending on any single
 /// scheduled message having survived.
 ///
-/// Three jobs:
+/// Four jobs:
 ///  1. Generate chore occurrences that are due. Chores are also driven by Wolverine's durable
 ///     scheduler, but a rota that silently stops because one message was lost is worse than a rota
 ///     that's occasionally a few minutes late - so this is the backstop, and generation is
 ///     idempotent via the unique (ChoreId, DueAt) index.
-///  2. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
-///  3. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
+///  2. Remind assignees that a chore is due, deferred past the guild's quiet hours. See
+///     ChoreReminderService.
+///  3. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
+///  4. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
 ///     GuildPermissionService, so this is only tidying, never the thing access depends on.
 ///
 /// Modelled on VoiceHeartbeatCleanupService.</summary>
@@ -40,6 +42,12 @@ public class HouseholdReconcileService(
                 var rotation = scope.ServiceProvider.GetRequiredService<ChoreRotationService>();
 
                 await GenerateDueChoresAsync(ctx, rotation, stoppingToken);
+
+                // After generation, so an occurrence created this pass can be reminded on the same
+                // pass rather than five minutes later.
+                await scope.ServiceProvider.GetRequiredService<ChoreReminderService>()
+                    .SendDueRemindersAsync(stoppingToken);
+
                 await ExpireDecisionsAsync(ctx, stoppingToken);
                 await PurgeLapsedGuestRolesAsync(ctx, stoppingToken);
             }
@@ -60,6 +68,9 @@ public class HouseholdReconcileService(
 
         var due = await ctx.Chores
             .Where(c => !c.IsPaused && c.NextDueAt <= now)
+            // Oldest first, so a guild past the batch cap makes progress on its most overdue rota
+            // rather than on whatever the planner happened to return.
+            .OrderBy(c => c.NextDueAt)
             .Take(200)
             .ToListAsync(ct);
 

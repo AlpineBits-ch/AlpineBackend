@@ -39,8 +39,10 @@ public class LedgerEndpoint
             }).ToList(),
     };
 
+    /// <summary>The channel's expenses, newest first, in pages.</summary>
     [WolverineGet("/api/v1/channels/{channelId}/expenses")]
-    public async Task<IResult> ListAsync(string channelId, [NotBody] HouseholdChannelService household,
+    public async Task<IResult> ListAsync(string channelId, int? limit, string? cursor,
+        [NotBody] HouseholdChannelService household,
         [NotBody] LedgerService ledger, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -49,21 +51,67 @@ public class LedgerEndpoint
         var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, Permissions.ViewChannel);
         if (access.ToFailure() is { } failure) return failure;
 
-        var expenses = await ctx.Expenses.AsNoTracking()
+        var take = Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
+
+        var query = ctx.Expenses.AsNoTracking()
             .Include(e => e.Shares)
-            .Where(e => e.ChannelId == channelId)
+            .Where(e => e.ChannelId == channelId);
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            if (!TryParseCursor(cursor, out var beforeAt, out var beforeId))
+                return Results.BadRequest("Malformed cursor");
+
+            query = query.Where(e => e.OccurredAt < beforeAt
+                                     || (e.OccurredAt == beforeAt && string.Compare(e.Id, beforeId) < 0));
+        }
+
+        // One extra row is the has-more probe, so the client never has to make a second request
+        // just to learn the list ended.
+        var page = await query
             .OrderByDescending(e => e.OccurredAt)
-            .Take(200)
+            .ThenByDescending(e => e.Id)
+            .Take(take + 1)
             .ToListAsync();
 
-        var currency = await ledger.GetCurrencyAsync(channelId, access.Channel!.GuildId);
-        return Results.Ok(expenses.Select(e => ToDto(e, currency)));
+        var hasMore = page.Count > take;
+        if (hasMore) page.RemoveAt(page.Count - 1);
+
+        var currency = await ledger.GetCurrencyAsync(channelId);
+
+        return Results.Ok(new
+        {
+            Items = page.Select(e => ToDto(e, currency)).ToList(),
+            NextCursor = hasMore && page.Count > 0
+                ? $"{page[^1].OccurredAt:O}|{page[^1].Id}"
+                : null,
+        });
+    }
+
+    private const int DefaultPageSize = 50;
+    private const int MaxPageSize = 200;
+
+    private static bool TryParseCursor(string cursor, out DateTimeOffset occurredAt, out string id)
+    {
+        occurredAt = default;
+        id = "";
+
+        var separator = cursor.LastIndexOf('|');
+        if (separator <= 0 || separator == cursor.Length - 1) return false;
+
+        if (!DateTimeOffset.TryParse(cursor[..separator], null,
+                System.Globalization.DateTimeStyles.RoundtripKind, out occurredAt))
+            return false;
+
+        id = cursor[(separator + 1)..];
+        return true;
     }
 
     [WolverinePost("/api/v1/channels/{channelId}/expenses")]
     public async Task<IResult> CreateAsync(string channelId, CreateExpenseDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -85,10 +133,15 @@ public class LedgerEndpoint
             if (onBehalf.ToFailure() is { } onBehalfFailure) return onBehalfFailure;
         }
 
+        // The participants are checked inside ApplySharesAsync; the payer never was, so a mistyped
+        // or stale id became a creditor the house could never pay off.
+        if (!await ledger.AreMembersAsync(access.Channel!.GuildId, payerUserId))
+            return Results.BadRequest("The payer must be a member of this guild");
+
         var expense = Expense.Create(new CreateExpenseParams
         {
             ChannelId = channelId,
-            GuildId = access.Channel!.GuildId,
+            GuildId = access.Channel.GuildId,
             PayerUserId = payerUserId,
             Description = dto.Description.Trim(),
             AmountMinor = dto.AmountMinor,
@@ -105,11 +158,15 @@ public class LedgerEndpoint
             return Results.BadRequest(error);
 
         ctx.Expenses.Add(expense);
+
+        auditLog.Log(expense.GuildId, userId, AuditActionType.ExpenseCreated, expense.Id,
+            new { expense.AmountMinor, expense.PayerUserId, expense.Description });
+
         await ctx.SaveChangesAsync();
 
-        var currency = await ledger.GetCurrencyAsync(channelId, access.Channel.GuildId);
+        var currency = await ledger.GetCurrencyAsync(channelId);
 
-        await household.BroadcastAsync(expense.GuildId, "guild.ExpenseCreated",
+        await household.BroadcastAsync(expense.GuildId, channelId, "guild.ExpenseCreated",
             new { GuildId = expense.GuildId, ChannelId = channelId, Expense = ToDto(expense, currency) });
 
         return Results.Ok(ToDto(expense, currency));
@@ -118,7 +175,8 @@ public class LedgerEndpoint
     [WolverinePatch("/api/v1/expenses/{expenseId}")]
     public async Task<IResult> UpdateAsync(string expenseId, UpdateExpenseDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -146,7 +204,23 @@ public class LedgerEndpoint
             expense.AmountMinor = dto.AmountMinor.Value;
         }
 
-        if (dto.PayerUserId is not null) expense.PayerUserId = dto.PayerUserId;
+        // Reassigning the payer is the same act as naming someone else as payer on create, and
+        // needs the same permission.
+        if (dto.PayerUserId is not null && dto.PayerUserId != expense.PayerUserId)
+        {
+            if (dto.PayerUserId != userId)
+            {
+                var reassign = await household.ResolveAsync(
+                    expense.ChannelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+                if (reassign.ToFailure() is { } reassignFailure) return reassignFailure;
+            }
+
+            if (!await ledger.AreMembersAsync(expense.GuildId, dto.PayerUserId))
+                return Results.BadRequest("The payer must be a member of this guild");
+
+            expense.PayerUserId = dto.PayerUserId;
+        }
+
         if (dto.OccurredAt is not null) expense.OccurredAt = dto.OccurredAt.Value;
         if (dto.SplitKind is not null) expense.SplitKind = dto.SplitKind.Value;
 
@@ -159,11 +233,14 @@ public class LedgerEndpoint
         if (await ledger.ApplySharesAsync(expense, expense.SplitKind, participants, expense.GuildId) is { } error)
             return Results.BadRequest(error);
 
+        auditLog.Log(expense.GuildId, userId, AuditActionType.ExpenseUpdated, expense.Id,
+            new { expense.AmountMinor, expense.PayerUserId, expense.Description });
+
         await ctx.SaveChangesAsync();
 
-        var currency = await ledger.GetCurrencyAsync(expense.ChannelId, expense.GuildId);
+        var currency = await ledger.GetCurrencyAsync(expense.ChannelId);
 
-        await household.BroadcastAsync(expense.GuildId, "guild.ExpenseUpdated",
+        await household.BroadcastAsync(expense.GuildId, expense.ChannelId, "guild.ExpenseUpdated",
             new { GuildId = expense.GuildId, ChannelId = expense.ChannelId, Expense = ToDto(expense, currency) });
 
         return Results.Ok(ToDto(expense, currency));
@@ -171,7 +248,8 @@ public class LedgerEndpoint
 
     [WolverineDelete("/api/v1/expenses/{expenseId}")]
     public async Task<IResult> DeleteAsync(string expenseId, [NotBody] HouseholdChannelService household,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -183,10 +261,15 @@ public class LedgerEndpoint
         var access = await household.ResolveAsync(expense.ChannelId, ChannelType.Ledger, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
+        // Logged before the remove, so the entry still carries what was deleted rather than the
+        // id of a row nobody can look up any more.
+        auditLog.Log(expense.GuildId, userId, AuditActionType.ExpenseDeleted, expense.Id,
+            new { expense.AmountMinor, expense.PayerUserId, expense.Description });
+
         ctx.Expenses.Remove(expense);   // shares cascade
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(expense.GuildId, "guild.ExpenseDeleted",
+        await household.BroadcastAsync(expense.GuildId, expense.ChannelId, "guild.ExpenseDeleted",
             new { GuildId = expense.GuildId, ChannelId = expense.ChannelId, ExpenseId = expenseId });
 
         return Results.NoContent();
@@ -232,7 +315,8 @@ public class LedgerEndpoint
 
     [WolverinePost("/api/v1/channels/{channelId}/ledger/settlements")]
     public async Task<IResult> RecordSettlementAsync(string channelId, CreateSettlementDto dto,
-        [NotBody] HouseholdChannelService household, [NotBody] MicroserviceContext ctx,
+        [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
+        [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -247,13 +331,19 @@ public class LedgerEndpoint
         if (dto.AmountMinor <= 0) return Results.BadRequest("AmountMinor must be greater than zero");
         if (dto.FromUserId == dto.ToUserId) return Results.BadRequest("A settlement needs two different people");
 
+        // Both parties, for the same reason the payer is checked on create: a settlement naming
+        // somebody who is not in the guild credits a person who cannot be paid and leaves the
+        // counterparty permanently unsettleable.
+        if (!await ledger.AreMembersAsync(access.Channel!.GuildId, dto.FromUserId, dto.ToUserId))
+            return Results.BadRequest("Both parties to a settlement must be members of this guild");
+
         var settlement = new Settlement
         {
             Id = Settlement.GenerateId(),
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
             ChannelId = channelId,
-            GuildId = access.Channel!.GuildId,
+            GuildId = access.Channel.GuildId,
             FromUserId = dto.FromUserId,
             ToUserId = dto.ToUserId,
             AmountMinor = dto.AmountMinor,
@@ -262,9 +352,13 @@ public class LedgerEndpoint
         };
 
         ctx.Settlements.Add(settlement);
+
+        auditLog.Log(settlement.GuildId, userId, AuditActionType.SettlementRecorded, settlement.Id,
+            new { settlement.FromUserId, settlement.ToUserId, settlement.AmountMinor });
+
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(settlement.GuildId, "guild.SettlementRecorded", new
+        await household.BroadcastAsync(settlement.GuildId, channelId, "guild.SettlementRecorded", new
         {
             GuildId = settlement.GuildId,
             ChannelId = channelId,
@@ -300,13 +394,13 @@ public class LedgerEndpoint
         var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, Permissions.ViewChannel);
         if (access.ToFailure() is { } failure) return failure;
 
-        return Results.Ok(new { ChannelId = channelId, Currency = await ledger.GetCurrencyAsync(channelId, access.Channel!.GuildId) });
+        return Results.Ok(new { ChannelId = channelId, Currency = await ledger.GetCurrencyAsync(channelId) });
     }
 
     [WolverinePut("/api/v1/channels/{channelId}/ledger/config")]
     public async Task<IResult> UpdateConfigAsync(string channelId, UpdateLedgerConfigDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -326,8 +420,12 @@ public class LedgerEndpoint
         }
 
         // Deliberately does not convert existing amounts: this changes the label, not the money.
+        var previous = config.Currency;
         config.Currency = currency;
         config.UpdatedAt = DateTimeOffset.UtcNow;
+
+        auditLog.Log(access.Channel!.GuildId, userId, AuditActionType.LedgerConfigUpdated, channelId,
+            new { From = previous, To = currency });
 
         await ctx.SaveChangesAsync();
 

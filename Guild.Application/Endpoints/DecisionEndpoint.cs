@@ -132,7 +132,7 @@ public class DecisionEndpoint
         ctx.Decisions.Add(decision);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(decision.GuildId, "guild.DecisionCreated",
+        await household.BroadcastAsync(decision.GuildId, channelId, "guild.DecisionCreated",
             new { GuildId = decision.GuildId, ChannelId = channelId, Decision = ToDto(decision, userId) });
 
         return Results.Ok(ToDto(decision, userId));
@@ -179,7 +179,7 @@ public class DecisionEndpoint
 
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(decision.GuildId, "guild.DecisionUpdated",
+        await household.BroadcastAsync(decision.GuildId, decision.ChannelId, "guild.DecisionUpdated",
             new { GuildId = decision.GuildId, ChannelId = decision.ChannelId, Decision = ToDto(decision, userId) });
 
         return Results.Ok(ToDto(decision, userId));
@@ -207,7 +207,7 @@ public class DecisionEndpoint
 
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(decision.GuildId, "guild.DecisionClosed",
+        await household.BroadcastAsync(decision.GuildId, decision.ChannelId, "guild.DecisionClosed",
             new { GuildId = decision.GuildId, ChannelId = decision.ChannelId, Decision = ToDto(decision, userId) });
 
         return Results.Ok(ToDto(decision, userId));
@@ -231,7 +231,7 @@ public class DecisionEndpoint
         decision.Status = DecisionStatus.Cancelled;
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(decision.GuildId, "guild.DecisionCancelled",
+        await household.BroadcastAsync(decision.GuildId, decision.ChannelId, "guild.DecisionCancelled",
             new { GuildId = decision.GuildId, ChannelId = decision.ChannelId, DecisionId = decisionId });
 
         return Results.NoContent();

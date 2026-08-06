@@ -53,7 +53,31 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         Permissions.Stream |
         Permissions.CreateInvite |
         Permissions.ChangeNickname |
-        Permissions.ViewWiki;
+        Permissions.ViewWiki |
+        HouseholdEveryonePermissions;
+
+    /// <summary>
+    /// What an ordinary member of a shared household can do: participate in every module, moderate
+    /// none of it.
+    /// </summary>
+    public const Permissions HouseholdEveryonePermissions =
+        Permissions.AddListItems |
+        Permissions.CheckOffListItems |
+        Permissions.CompleteChores |
+        Permissions.AddExpenses |
+        Permissions.ManagePantry |
+        Permissions.CreateDecisions |
+        Permissions.VoteDecisions;
+
+    /// <summary>
+    /// What the seeded "Flatmates" role adds on top of <see cref="HouseholdEveryonePermissions"/>:
+    /// the asymmetric bits, the ones that let you change something that is somebody else's.
+    /// </summary>
+    public const Permissions FlatmatePermissions =
+        Permissions.ManageLists |
+        Permissions.ManageChores |
+        Permissions.ManageLedger |
+        Permissions.ManageGuests;
 
     /// <summary>
     /// The part of <see cref="DefaultEveryonePermissions"/> that an @everyone mask arriving from
@@ -64,7 +88,8 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         Permissions.EditOwnMessages |
         Permissions.DeleteOwnMessages |
         Permissions.ManageOwnThreads |
-        Permissions.ViewWiki;
+        Permissions.ViewWiki |
+        HouseholdEveryonePermissions;
 
     /// <summary>
     /// Replaces this @everyone role's permissions with a mask captured somewhere else - a Discord
@@ -107,6 +132,39 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         return role;
     }
     
+    /// <summary>The role a Household guild is seeded with, holding the owner.</summary>
+    public static Role CreateFlatmatesRole(string guildId, string memberId)
+    {
+        var roleId = GenerateId();
+        var date = DateTime.UtcNow;
+
+        return new Role
+        {
+            Id = roleId,
+            CreatedAt = date,
+            UpdatedAt = date,
+            Type = RoleType.None,
+            GuildId = guildId,
+            // Above @everyone (0), so a flatmate can hand out guest access and a guest can never
+            // manage a flatmate. Nothing else is seeded, so there is no position to collide with.
+            Position = 1,
+            Name = FlatmatesRoleName,
+            Color = "#4F8A6B",
+            Description = "Everyone who actually lives here. Chores rotate over this role.",
+            Members = [new RoleMember
+            {
+                Id = RoleMember.GenerateId(),
+                CreatedAt = date,
+                UpdatedAt = date,
+                RoleId = roleId,
+                MemberId = memberId,
+            }],
+            Permissions = FlatmatePermissions,
+        };
+    }
+
+    public const string FlatmatesRoleName = "Flatmates";
+
     public static Role Create(CreateRoleParams parameters)
     {
         var date = DateTime.UtcNow;

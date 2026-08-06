@@ -113,11 +113,11 @@ public class ChoreEndpoint
         var occurrence = await rotation.StageNextOccurrenceAsync(chore);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(chore.GuildId, "guild.ChoreCreated",
+        await household.BroadcastAsync(chore.GuildId, channelId, "guild.ChoreCreated",
             new { GuildId = chore.GuildId, ChannelId = channelId, Chore = ToDto(chore) });
 
         if (occurrence is not null)
-            await household.BroadcastAsync(chore.GuildId, "guild.ChoreOccurrenceCreated",
+            await household.BroadcastAsync(chore.GuildId, channelId, "guild.ChoreOccurrenceCreated",
                 new { GuildId = chore.GuildId, ChannelId = channelId, Occurrence = ToDto(occurrence, chore.Title, chore.GraceHours) });
 
         return Results.Ok(ToDto(chore));
@@ -178,7 +178,7 @@ public class ChoreEndpoint
 
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(chore.GuildId, "guild.ChoreUpdated",
+        await household.BroadcastAsync(chore.GuildId, chore.ChannelId, "guild.ChoreUpdated",
             new { GuildId = chore.GuildId, ChannelId = chore.ChannelId, Chore = ToDto(chore) });
 
         return Results.Ok(ToDto(chore));
@@ -200,7 +200,7 @@ public class ChoreEndpoint
         ctx.Chores.Remove(chore);   // occurrences cascade
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(chore.GuildId, "guild.ChoreDeleted",
+        await household.BroadcastAsync(chore.GuildId, chore.ChannelId, "guild.ChoreDeleted",
             new { GuildId = chore.GuildId, ChannelId = chore.ChannelId, ChoreId = choreId });
 
         return Results.NoContent();
@@ -282,7 +282,7 @@ public class ChoreEndpoint
 
         var chore = await ctx.Chores.AsNoTracking().FirstOrDefaultAsync(c => c.Id == occurrence.ChoreId);
 
-        await household.BroadcastAsync(occurrence.GuildId, "guild.ChoreOccurrenceUpdated", new
+        await household.BroadcastAsync(occurrence.GuildId, occurrence.ChannelId, "guild.ChoreOccurrenceUpdated", new
         {
             GuildId = occurrence.GuildId,
             ChannelId = occurrence.ChannelId,
@@ -313,10 +313,17 @@ public class ChoreEndpoint
         // exactly what makes the next rotation land back on the same person.
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(occurrence.GuildId, "guild.ChoreOccurrenceUpdated",
-            new { GuildId = occurrence.GuildId, ChannelId = occurrence.ChannelId, OccurrenceId = occurrenceId, Skipped = true });
+        var chore = await ctx.Chores.AsNoTracking().FirstOrDefaultAsync(c => c.Id == occurrence.ChoreId);
 
-        return Results.Ok();
+        // Same envelope as complete/uncomplete/swap.
+        await household.BroadcastAsync(occurrence.GuildId, occurrence.ChannelId, "guild.ChoreOccurrenceUpdated", new
+        {
+            GuildId = occurrence.GuildId,
+            ChannelId = occurrence.ChannelId,
+            Occurrence = ToDto(occurrence, chore?.Title ?? "", chore?.GraceHours ?? 24),
+        });
+
+        return Results.Ok(ToDto(occurrence, chore?.Title ?? "", chore?.GraceHours ?? 24));
     }
 
     /// <summary>Hands an occurrence to whoever currently has the lightest load.</summary>
@@ -346,7 +353,7 @@ public class ChoreEndpoint
         occurrence.AssignedUserId = replacement;
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(occurrence.GuildId, "guild.ChoreOccurrenceUpdated", new
+        await household.BroadcastAsync(occurrence.GuildId, occurrence.ChannelId, "guild.ChoreOccurrenceUpdated", new
         {
             GuildId = occurrence.GuildId,
             ChannelId = occurrence.ChannelId,

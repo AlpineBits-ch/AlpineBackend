@@ -100,7 +100,7 @@ public class ListEndpoint
         ctx.ListItems.Add(item);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(access.Channel.GuildId, "guild.ListItemCreated",
+        await household.BroadcastAsync(access.Channel.GuildId, channelId, "guild.ListItemCreated",
             new { GuildId = access.Channel.GuildId, ChannelId = channelId, Item = ToDto(item) });
 
         return Results.Ok(ToDto(item));
@@ -139,7 +139,7 @@ public class ListEndpoint
 
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(item.GuildId, "guild.ListItemUpdated",
+        await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.ListItemUpdated",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
 
         return Results.Ok(ToDto(item));
@@ -176,7 +176,7 @@ public class ListEndpoint
 
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(item.GuildId, "guild.ListItemChecked",
+        await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.ListItemChecked",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
 
         return Results.Ok(ToDto(item));
@@ -207,7 +207,7 @@ public class ListEndpoint
         ctx.ListItems.Remove(item);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(item.GuildId, "guild.ListItemDeleted",
+        await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.ListItemDeleted",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, ItemId = itemId });
 
         return Results.NoContent();
@@ -246,7 +246,7 @@ public class ListEndpoint
         ctx.ListItems.RemoveRange(checkedItems);
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(access.Channel!.GuildId, "guild.ListCleared",
+        await household.BroadcastAsync(access.Channel!.GuildId, channelId, "guild.ListCleared",
             new { GuildId = access.Channel.GuildId, ChannelId = channelId, RemovedCount = checkedItems.Count });
 
         return Results.NoContent();
@@ -279,7 +279,7 @@ public class ListEndpoint
 
         await ctx.SaveChangesAsync();
 
-        await household.BroadcastAsync(access.Channel!.GuildId, "guild.ListItemsReordered",
+        await household.BroadcastAsync(access.Channel!.GuildId, channelId, "guild.ListItemsReordered",
             new { GuildId = access.Channel.GuildId, ChannelId = channelId, ItemIds = dto.ItemIds });
 
         return Results.NoContent();

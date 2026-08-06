@@ -16,6 +16,7 @@ public class HouseholdChannelService(
     MicroserviceContext ctx,
     GuildPermissionService permissionService,
     GuildHydrateService hydrateService,
+    ChannelAudienceService audience,
     IHubContext<EchoRealtimeHub> hub)
 {
     public enum Access
@@ -52,10 +53,27 @@ public class HouseholdChannelService(
             : new ChannelAccess(Access.Forbidden, null);
     }
 
-    /// <summary>Broadcasts to everyone currently present in the guild.</summary>
-    public async Task BroadcastAsync(string guildId, string eventName, object payload)
+    /// <summary>
+    /// Broadcasts a channel-scoped mutation to the online members who can actually see that
+    /// channel.
+    /// </summary>
+    public async Task BroadcastAsync(string guildId, string channelId, string eventName, object payload)
     {
         var presence = await hydrateService.GetGuildPresenceAsync(guildId);
+        if (presence.Count == 0) return;
+
+        var viewers = await audience.FilterToViewersAsync(channelId, presence.Select(p => p.UserId));
+        if (viewers.Count == 0) return;
+
+        await hub.Clients.Users(viewers).SendAsync(eventName, payload);
+    }
+
+    /// <summary>Broadcasts a guild-scoped event to everyone present.</summary>
+    public async Task BroadcastGuildAsync(string guildId, string eventName, object payload)
+    {
+        var presence = await hydrateService.GetGuildPresenceAsync(guildId);
+        if (presence.Count == 0) return;
+
         await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync(eventName, payload);
     }
 }

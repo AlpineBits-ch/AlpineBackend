@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
@@ -57,7 +58,7 @@ public class HouseholdGuildEndpoint
 
         var status = await homeStatus.SetAsync(guildId, userId, dto.Kind, dto.Note, dto.ExpiresInMinutes);
 
-        await household.BroadcastAsync(guildId, "guild.HomeStatusChanged",
+        await household.BroadcastGuildAsync(guildId, "guild.HomeStatusChanged",
             new { GuildId = guildId, Status = status });
 
         return Results.Ok(status);
@@ -76,7 +77,7 @@ public class HouseholdGuildEndpoint
 
         await homeStatus.ClearAsync(guildId, userId);
 
-        await household.BroadcastAsync(guildId, "guild.HomeStatusChanged",
+        await household.BroadcastGuildAsync(guildId, "guild.HomeStatusChanged",
             new { GuildId = guildId, UserId = userId, Cleared = true });
 
         return Results.NoContent();
@@ -230,6 +231,93 @@ public class HouseholdGuildEndpoint
         }, dto.ExpiresAt);
 
         return Results.Ok(new { RoleId = roleId, UserId = targetUserId, roleMember.ExpiresAt });
+    }
+
+    // ── Move-out ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Removes someone who has moved out, and cleans up everything they were carrying.
+    /// </summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/members/{targetUserId}/move-out")]
+    public async Task<IResult> MoveOutAsync(string guildId, string targetUserId, MoveOutDto dto,
+        [NotBody] GuildPermissionService permissionService, [NotBody] MoveOutService moveOut,
+        [NotBody] HomeStatusService homeStatus, [NotBody] MicroserviceContext ctx,
+        [NotBody] AuditLogService auditLog, [NotBody] HouseholdChannelService household,
+        [NotBody] IMessageBus bus, [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageGuild))
+            return Results.Forbid();
+
+        var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.GuildId == guildId && m.UserId == targetUserId);
+        if (member is null) return Results.NotFound();
+
+        // The owner is the one member nobody can move out - same rule as kick, and for a household
+        // the honest answer is to transfer ownership or delete the guild.
+        var ownerId = await ctx.Guilds.AsNoTracking()
+            .Where(g => g.Id == guildId).Select(g => g.OwnerId).FirstOrDefaultAsync();
+        if (targetUserId == ownerId) return Results.BadRequest("The owner cannot be moved out; transfer ownership first");
+
+        if (!await permissionService.CanModerateTargetAsync(userId, targetUserId, guildId))
+            return Results.Forbid();
+
+        if (!dto.WriteOffBalances)
+        {
+            var outstanding = await moveOut.GetOutstandingBalancesAsync(guildId, targetUserId);
+            if (outstanding.Count > 0)
+            {
+                return Results.Conflict(new
+                {
+                    Error = "This member is not settled up",
+                    Outstanding = outstanding.Select(o => new
+                    {
+                        o.ChannelId,
+                        o.Currency,
+                        o.NetMinor,
+                    }),
+                });
+            }
+        }
+
+        var summary = await moveOut.StageAsync(guildId, targetUserId, userId, dto.WriteOffBalances);
+
+        ctx.GuildMembers.Remove(member);   // role memberships cascade
+
+        auditLog.Log(guildId, userId, AuditActionType.MemberMovedOut, targetUserId, new
+        {
+            dto.WriteOffBalances,
+            summary.ChoresReassigned,
+            summary.ChoresDropped,
+            summary.ChoresPaused,
+            summary.ListItemsUnassigned,
+            WrittenOffMinor = summary.BalancesWrittenOff.Sum(t => t.AmountMinor),
+        });
+
+        await ctx.SaveChangesAsync();
+
+        // Same stale-permission-cache reason as the kick path in MemberEndpoint.
+        await permissionService.InvalidateUserPermissionsCacheAsync(guildId, targetUserId);
+        await homeStatus.ClearAsync(guildId, targetUserId);
+
+        await household.BroadcastGuildAsync(guildId, "guild.MemberMovedOut", new
+        {
+            GuildId = guildId,
+            UserId = targetUserId,
+            summary.ChoresReassigned,
+            summary.ChoresDropped,
+            summary.ChoresPaused,
+        });
+
+        await bus.PublishAsync(new MemberRemovedForBots
+        {
+            GuildId = guildId,
+            UserId = targetUserId,
+            Reason = "MovedOut",
+        });
+
+        return Results.Ok(summary);
     }
 
     [WolverineDelete("/api/v1/guilds/{guildId}/members/{targetUserId}/roles/{roleId}/temporary")]

@@ -199,6 +199,70 @@ public class HouseholdDomainTests
         });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════ Backlog collapse
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void FastForwardTo_UpToDateChore_DoesNothing()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var chore = MakeChore(now.AddHours(-1), intervalDays: 7);
+
+        var skipped = chore.FastForwardTo(now);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(skipped, Is.Zero);
+            Assert.That(chore.NextDueAt, Is.EqualTo(now.AddHours(-1)));
+        });
+    }
+
+    [Test]
+    public void FastForwardTo_LongBacklog_LandsOnTheCurrentSlot()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var anchor = now.AddDays(-100);
+        var chore = MakeChore(anchor, intervalDays: 1);
+
+        var skipped = chore.FastForwardTo(now);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(skipped, Is.EqualTo(100));
+            Assert.That(chore.NextDueAt, Is.LessThanOrEqualTo(now));
+            Assert.That(chore.NextDueAt, Is.GreaterThan(now.AddDays(-1)),
+                "the surviving slot is the current period's, not one from three months ago");
+            Assert.That((chore.NextDueAt - anchor).TotalDays % 1, Is.EqualTo(0).Within(0.0001),
+                "and it is still on the anchor's cadence");
+        });
+    }
+
+    [Test]
+    public void FastForwardTo_FutureAnchor_IsNeverPulledBackwards()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var anchor = now.AddDays(5);
+        var chore = MakeChore(anchor, intervalDays: 7);
+
+        var skipped = chore.FastForwardTo(now);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(skipped, Is.Zero);
+            Assert.That(chore.NextDueAt, Is.EqualTo(anchor));
+        });
+    }
+
+    [Test]
+    public void FastForwardTo_IsBounded()
+    {
+        // A chore anchored at the epoch must terminate rather than spin, the same guard AdvanceFrom
+        // carries.
+        var chore = MakeChore(DateTimeOffset.UnixEpoch, intervalDays: 1);
+
+        Assert.That(chore.FastForwardTo(DateTimeOffset.UtcNow), Is.LessThanOrEqualTo(4096));
+    }
+
     // ══════════════════════════════════════════════════════════════════════════ Quiet hours
     // ══════════════════════════════════════════════════════════════════════════
 

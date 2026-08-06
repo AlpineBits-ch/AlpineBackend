@@ -40,6 +40,7 @@ public class InboxServiceTests(IGuildContextProvider provider)
             _context,
             new NotificationResolutionService(_context),
             permissions,
+            new InboxTaskService(_context, permissions),
             _bus,
             NullLogger<InboxService>.Instance);
     }

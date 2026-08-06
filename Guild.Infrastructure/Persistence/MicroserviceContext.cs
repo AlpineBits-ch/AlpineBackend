@@ -695,6 +695,10 @@ public class MicroserviceContext : DbContext
 
             // Drives the "eat me first" board across every pantry in a guild.
             itemBuilder.HasIndex(x => new { x.GuildId, x.ExpiresAt });
+
+            // The expiry sweep's query: dated and not yet warned about.
+            itemBuilder.HasIndex(x => x.ExpiresAt)
+                .HasFilter("expiry_notified_at IS NULL AND expires_at IS NOT NULL");
         });
 
         modelBuilder.Entity<PantryConfig>(configBuilder =>

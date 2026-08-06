@@ -68,4 +68,29 @@ internal static class RedisTestFactory
         multiplexer.GetDatabase(Arg.Any<int>(), Arg.Any<object?>()).Returns(database);
         return multiplexer;
     }
+
+    /// <summary>
+    /// A fake whose home-status hash reports <paramref name="statuses"/> for <paramref
+    /// name="guildId"/>, wired so <c>HomeStatusService.GetAsync</c> returns exactly those.
+    /// </summary>
+    public static IConnectionMultiplexer CreateWithHomeStatus(
+        string guildId, params (string UserId, string Kind)[] statuses)
+    {
+        var database = Substitute.For<IDatabase>();
+
+        var expiresAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
+
+        var entries = statuses
+            .Select(s => new HashEntry(
+                s.UserId,
+                JsonSerializer.Serialize(new { Kind = s.Kind, Note = (string?)null, ExpiresAtUnix = expiresAt })))
+            .ToArray();
+
+        database.HashGetAllAsync($"guild:homestatus:{guildId}", Arg.Any<CommandFlags>())
+            .Returns(Task.FromResult(entries));
+
+        var multiplexer = Substitute.For<IConnectionMultiplexer>();
+        multiplexer.GetDatabase(Arg.Any<int>(), Arg.Any<object?>()).Returns(database);
+        return multiplexer;
+    }
 }

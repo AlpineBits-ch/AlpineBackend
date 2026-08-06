@@ -377,7 +377,7 @@ public class HouseholdHardeningTests
         {
             Assert.That(sent, Is.EqualTo(1));
             Assert.That(occurrence.RemindedAt, Is.Not.Null);
-            Assert.That(clients.RecipientsOf("guild.ChoreReminder"), Is.EquivalentTo(new[] { "anna" }));
+            Assert.That(clients.RecipientsOf(HouseholdNotifier.AlertEventName), Is.EquivalentTo(new[] { "anna" }));
             Assert.That(bus.Published.OfType<Guild.Contracts.Bus.Events.HouseholdPushRequested>().Single().UserIds,
                 Is.EquivalentTo(new[] { "anna" }));
         });
@@ -420,7 +420,7 @@ public class HouseholdHardeningTests
         Assert.Multiple(() =>
         {
             Assert.That(sent, Is.Zero);
-            Assert.That(clients.RecipientsOf("guild.ChoreReminder"), Is.Empty);
+            Assert.That(clients.RecipientsOf(HouseholdNotifier.AlertEventName), Is.Empty);
             Assert.That(occurrence.RemindedAt, Is.Null,
                 "left unstamped so the sweep after the window closes still delivers it");
         });
@@ -473,7 +473,7 @@ public class HouseholdHardeningTests
         Assert.Multiple(() =>
         {
             Assert.That(sent, Is.Zero);
-            Assert.That(clients.RecipientsOf("guild.ChoreReminder"), Is.Empty);
+            Assert.That(clients.RecipientsOf(HouseholdNotifier.AlertEventName), Is.Empty);
             Assert.That(occurrence.RemindedAt, Is.Not.Null);
         });
     }
@@ -501,7 +501,7 @@ public class HouseholdHardeningTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(clients.RecipientsOf("guild.ChoreReminder"), Is.EquivalentTo(new[] { "anna" }),
+            Assert.That(clients.RecipientsOf(HouseholdNotifier.AlertEventName), Is.EquivalentTo(new[] { "anna" }),
                 "an open app still updates - muting is about being interrupted, not about being wrong");
             Assert.That(bus.Published.OfType<Guild.Contracts.Bus.Events.HouseholdPushRequested>(), Is.Empty,
                 "someone who muted the house does not get their phone buzzed by it");

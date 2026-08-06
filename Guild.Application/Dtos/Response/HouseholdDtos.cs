@@ -181,3 +181,78 @@ public class QuietHoursDto
     public int EndMinuteLocal { get; set; }
     public string TimeZoneId { get; set; } = null!;
 }
+
+// ── Home digest ──────────────────────────────────────────────────────────────
+
+/// <summary>
+/// Everything a home tab, a lock-screen widget or a watch face needs, in one response.
+/// </summary>
+public class HouseholdDigestDto
+{
+    public required string GuildId { get; init; }
+
+    public HouseholdDigestChoresDto? Chores { get; init; }
+    public IReadOnlyList<HouseholdDigestListDto>? Lists { get; init; }
+    public HouseholdDigestPantryDto? Pantry { get; init; }
+    public IReadOnlyList<HouseholdDigestLedgerDto>? Ledger { get; init; }
+    public HouseholdDigestDecisionsDto? Decisions { get; init; }
+    public IReadOnlyList<HomeStatusDto>? HomeStatus { get; init; }
+}
+
+public class HouseholdDigestChoresDto
+{
+    /// <summary>Yours, due inside the next day or already past due. The one thing a widget shows.</summary>
+    public required IReadOnlyList<ChoreOccurrenceDto> Mine { get; init; }
+
+    /// <summary>How many of <see cref="Mine"/> are past their grace period.</summary>
+    public required int MineOverdueCount { get; init; }
+
+    /// <summary>Overdue across the whole house, yours included - the "somebody needs to do
+    /// something" number.</summary>
+    public required int HouseOverdueCount { get; init; }
+}
+
+public class HouseholdDigestListDto
+{
+    public required string ChannelId { get; init; }
+    public required string ChannelName { get; init; }
+    public required int OpenCount { get; init; }
+
+    /// <summary>The first few unchecked lines, in board order, so a widget can render the list
+    /// itself rather than a count.</summary>
+    public required IReadOnlyList<ListItemDto> Preview { get; init; }
+}
+
+public class HouseholdDigestPantryDto
+{
+    /// <summary>How many items are inside their own pantry's warning horizon.</summary>
+    public required int ExpiringCount { get; init; }
+
+    public required IReadOnlyList<PantryItemDto> Soonest { get; init; }
+}
+
+public class HouseholdDigestLedgerDto
+{
+    public required string ChannelId { get; init; }
+    public required string ChannelName { get; init; }
+    public required string Currency { get; init; }
+
+    /// <summary>The caller's own net position. Positive means the house owes them.</summary>
+    public required long MyNetMinor { get; init; }
+}
+
+public class HouseholdDigestDecisionsDto
+{
+    public required int OpenCount { get; init; }
+
+    /// <summary>Open decisions the caller has not voted on.</summary>
+    public required IReadOnlyList<HouseholdDigestDecisionDto> AwaitingMyVote { get; init; }
+}
+
+public class HouseholdDigestDecisionDto
+{
+    public required string Id { get; init; }
+    public required string ChannelId { get; init; }
+    public required string Title { get; init; }
+    public DateTimeOffset? ClosesAt { get; init; }
+}

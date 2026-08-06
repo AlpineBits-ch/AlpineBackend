@@ -41,6 +41,11 @@ public class PantryItem : BaseEntity<PantryItem>, IPrefixedEntity
     /// list.</summary>
     public DateTimeOffset? RestockedAt { get; set; }
 
+    /// <summary>
+    /// When the pantry was warned that this item is about to go off, or null if it has not been.
+    /// </summary>
+    public DateTimeOffset? ExpiryNotifiedAt { get; set; }
+
     public string AddedByUserId { get; set; } = null!;
 
     public static PantryItem Create(CreatePantryItemParams @params)

@@ -70,24 +70,15 @@ public class ChoreReminderService(
 
             var title = chores.GetValueOrDefault(occurrence.ChoreId, "Chore");
 
-            await notifier.NotifyAsync(
+            await notifier.AlertAsync(
                 occurrence.GuildId,
                 occurrence.ChannelId,
                 [occurrence.AssignedUserId],
-                "guild.ChoreReminder",
-                new
-                {
-                    GuildId = occurrence.GuildId,
-                    ChannelId = occurrence.ChannelId,
-                    OccurrenceId = occurrence.Id,
-                    ChoreId = occurrence.ChoreId,
-                    Title = title,
-                    DueAt = occurrence.DueAt,
-                },
-                kind: "chore.due",
-                title: title,
-                body: "Your turn, and it's due now.",
-                targetId: occurrence.Id);
+                HouseholdAlertService.KindChoreDue,
+                title,
+                "Your turn, and it's due now.",
+                occurrence.Id,
+                new { occurrence.ChoreId, occurrence.DueAt });
 
             occurrence.RemindedAt = now;
             sent++;

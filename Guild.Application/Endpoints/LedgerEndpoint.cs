@@ -111,7 +111,7 @@ public class LedgerEndpoint
     public async Task<IResult> CreateAsync(string channelId, CreateExpenseDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
         [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdAlertService alerts, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -168,6 +168,11 @@ public class LedgerEndpoint
 
         await household.BroadcastAsync(expense.GuildId, channelId, "guild.ExpenseCreated",
             new { GuildId = expense.GuildId, ChannelId = channelId, Expense = ToDto(expense, currency) });
+
+        // Not on update or delete: a correction to an amount is not worth a phone buzzing, and
+        // editing a split repeatedly - which is normal while someone works out who was actually
+        // there - would send one push per attempt.
+        await alerts.ExpenseAddedAsync(expense, currency, userId);
 
         return Results.Ok(ToDto(expense, currency));
     }
@@ -317,7 +322,7 @@ public class LedgerEndpoint
     public async Task<IResult> RecordSettlementAsync(string channelId, CreateSettlementDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
         [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdAlertService alerts, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -357,6 +362,9 @@ public class LedgerEndpoint
             new { settlement.FromUserId, settlement.ToUserId, settlement.AmountMinor });
 
         await ctx.SaveChangesAsync();
+
+        var settlementCurrency = await ledger.GetCurrencyAsync(channelId);
+        await alerts.SettlementRecordedAsync(settlement, settlementCurrency, userId);
 
         await household.BroadcastAsync(settlement.GuildId, channelId, "guild.SettlementRecorded", new
         {

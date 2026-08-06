@@ -111,11 +111,60 @@ public class InboxMentionPageDto
     public string? NextCursor { get; init; }
 }
 
+/// <summary>What kind of thing is waiting on you.</summary>
+public enum InboxTaskKind
+{
+    /// <summary>A chore occurrence assigned to you that is due soon or already overdue.</summary>
+    ChoreDue,
+
+    /// <summary>An open house decision you have not voted on.</summary>
+    DecisionVote,
+
+    /// <summary>An unchecked list item assigned to you.</summary>
+    ListAssignment,
+}
+
+/// <summary>One thing waiting on the caller.</summary>
+public class InboxTaskDto
+{
+    public required InboxTaskKind Kind { get; init; }
+
+    /// <summary>The chore occurrence, decision or list item this row is about.</summary>
+    public required string TargetId { get; init; }
+
+    public required InboxBreadcrumbDto Breadcrumb { get; init; }
+
+    public required string Title { get; init; }
+
+    /// <summary>A short line under the title.</summary>
+    public required string Subtitle { get; init; }
+
+    /// <summary>When it is due, where that means anything.</summary>
+    public DateTimeOffset? DueAt { get; init; }
+
+    /// <summary>True when <see cref="DueAt"/> has passed, including the chore's grace period.</summary>
+    public required bool IsOverdue { get; init; }
+}
+
+public class InboxTaskPageDto
+{
+    /// <summary>Deadlines first, soonest at the top; everything undated after them, oldest
+    /// first.</summary>
+    public required IReadOnlyList<InboxTaskDto> Tasks { get; init; }
+
+    /// <summary>True when more were waiting than the cap returns.</summary>
+    public required bool Truncated { get; init; }
+}
+
 /// <summary>The header badge.</summary>
 public class InboxSummaryDto
 {
     public required int UnreadChannelCount { get; init; }
     public required int MentionCount { get; init; }
+
+    /// <summary>How many household items are waiting on the caller, capped the same way the others
+    /// are.</summary>
+    public required int TaskCount { get; init; }
 
     /// <summary>True when the real counts are higher than reported.</summary>
     public required bool Capped { get; init; }

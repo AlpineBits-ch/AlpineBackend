@@ -265,15 +265,10 @@ returns the updated occurrence rather than an empty `200`.
 ### Reminders
 
 The assignee is notified when an occurrence falls due - realtime **and** push, so a closed app
-still gets it.
+still gets it. This arrives as a **household alert** (§10), with `kind: "chore.due"` and
+`targetId` set to the occurrence id.
 
-```
-guild.ChoreReminder  →  { guildId, channelId, occurrenceId, choreId, title, dueAt }
-```
-
-Sent to the assignee only, at most once per occurrence. Push carries
-`type: "household", kind: "chore.due", targetId: <occurrenceId>` in its data payload; route on
-`kind` and deep-link with `targetId`.
+Sent to the assignee only, at most once per occurrence.
 
 Two behaviours to expect:
 
@@ -340,6 +335,19 @@ thresholds say.
 `expiryWarningDays`, so a freezer set to 14 days and a fridge set to 2 both behave correctly in one
 response. Pass `days` only to override every pantry at once (for a "what goes off this month" view).
 This previously ignored the config entirely and used a flat three days for everything.
+
+### The expiry sweep
+
+A background sweep now warns each pantry about stock inside **its own** `expiryWarningDays`,
+without anyone opening the board. This arrives as a household alert (§10) with
+`kind: "pantry.expiring"` and `targetId` set to the **pantry channel id**.
+
+- **One alert per pantry, not per item.** The body reads "Milk, Yoghurt and 2 more are about to go
+  off"; the full list is in `data.items`.
+- **At most once per item.** Editing `expiresAt` releases the stamp, so a corrected date warns
+  again on the new date. Clearing it stops the warning entirely.
+- **Nothing arrives for something more than 7 days past its date.** That is compost, not news, and
+  it is what stops a guild returning from an outage announcing a year of leftovers.
 
 Realtime: `guild.PantryItemCreated` · `guild.PantryItemUpdated` · `guild.PantryItemDeleted`.
 An automatic restock also emits `guild.ListItemCreated` on the **list** channel.
@@ -607,7 +615,136 @@ Realtime: `guild.MemberMovedOut` (guild-wide), plus `MemberRemovedForBots` on th
 
 ---
 
-## 10. What will bite you otherwise
+## 10. Household alerts
+
+Everything above emits `guild.*Created`-style **collaborative broadcasts** - the row that changed,
+sent to whoever is currently looking at that channel. They are for keeping two open clients in
+sync, and they must never buzz a phone: somebody ticking milk off the list is not worth waking you
+up for.
+
+Alerts are the opposite. Few recipients, each of whom needs to know **with the app closed**. They
+arrive on one realtime event and, for anyone entitled to a push, as a push carrying the same title,
+body and target.
+
+```
+guild.HouseholdAlert  →  {
+  guildId, channelId, kind, targetId, title, body, data
+}
+```
+
+Push data payload: `type: "household"`, plus the same `kind` and `targetId`. Route on `kind`,
+deep-link with `targetId`, and render `title` / `body` as given - they are written server-side so a
+client needs no per-kind copy.
+
+**One event for every kind, deliberately.** Alert kinds keep being added, and a client that forgot
+to subscribe to `guild.SomethingNewAlert` would silently stop being told about it.
+
+| `kind` | Who gets it | `targetId` |
+|---|---|---|
+| `chore.due` | The assignee, once per occurrence, deferred past quiet hours | Occurrence id |
+| `ledger.expense` | Everyone with a share, and the payer if somebody else recorded it. Not the person who entered it | Expense id |
+| `ledger.settlement` | The counterparty; both parties when a third person recorded it | Settlement id |
+| `decision.opened` | Everyone who can see the channel, except the author | Decision id |
+| `decision.blocked` | The author and anyone who already voted, except the blocker | Decision id |
+| `pantry.restock` | Only members whose home status is `Out` or `OnMyWay` | List item id |
+| `pantry.expiring` | Everyone who can see that pantry, batched per pantry | **Channel** id |
+
+Things worth knowing before you build against these:
+
+- **`ledger.expense` fires on create only.** Not on edit or delete - correcting a split repeatedly
+  while you work out who was actually there would otherwise send one push per attempt.
+- **`decision.blocked` fires on the transition into a block.** Rewording the reason does not
+  re-alert, so one person cannot buzz the house at will.
+- **`pantry.restock` needs the Presence module.** Without a home-status board there is no way to
+  know who is out, and the alert simply does not fire rather than buzzing everyone.
+- **Every recipient set is `ViewChannel`-filtered.** A title carrying an expense description is
+  subject to exactly the permission the `GET` is.
+- **Muting the guild suppresses the push, not the realtime event.**
+
+---
+
+## 11. The home digest
+
+```
+GET /api/v1/guild/guilds/{guildId}/home
+```
+
+Everything a home tab, a lock-screen widget or a watch complication needs, in one request. This
+replaces six.
+
+```ts
+interface HouseholdDigest {
+  guildId: string;
+  chores?: {
+    mine: ChoreOccurrence[];      // due within a day or already past due, max 10
+    mineOverdueCount: number;
+    houseOverdueCount: number;    // everyone's, not just yours
+  } | null;
+  lists?: { channelId: string; channelName: string; openCount: number; preview: ListItem[] }[] | null;
+  pantry?: { expiringCount: number; soonest: PantryItem[] } | null;
+  ledger?: { channelId: string; channelName: string; currency: string; myNetMinor: number }[] | null;
+  decisions?: {
+    openCount: number;
+    awaitingMyVote: { id: string; channelId: string; title: string; closesAt?: string | null }[];
+  } | null;
+  homeStatus?: HomeStatus[] | null;
+}
+```
+
+**A null section means "render nothing".** It covers both "the module is off" and "you can see no
+channel of that type", and the two are deliberately not distinguished - telling an outsider there
+is a ledger they cannot see is a disclosure for no gain.
+
+**Everything is capped.** This is a glance; the module endpoints in §3-§8 remain the way to read a
+whole board. `myNetMinor` is your own position only - positive means the house owes you.
+
+**Conditional requests are supported.** The response carries a strong `ETag`; send it back as
+`If-None-Match` and an unchanged digest returns `304` with no body. Use this for widget refresh.
+Note it saves the transfer, not the server work: there is no single timestamp that moves when any
+of six modules changes, so the digest is assembled either way.
+
+The response is `Cache-Control: private, no-cache`. It is per-user - never put it in a shared cache.
+
+---
+
+## 12. Waiting on you
+
+```
+GET /api/v1/guild/inbox/tasks?limit=25
+```
+
+The other half of the inbox. `/inbox/unread` will never show a household channel, because a list
+has no message history and so can never be unread - which left the modules people most want
+reminding about with no inbox presence at all.
+
+```ts
+interface InboxTask {
+  kind: 'ChoreDue' | 'DecisionVote' | 'ListAssignment';
+  targetId: string;               // occurrence / decision / list item
+  breadcrumb: InboxBreadcrumb;    // same shape the unread tab uses
+  title: string;
+  subtitle: string;
+  dueAt?: string | null;          // null for a list assignment
+  isOverdue: boolean;
+}
+
+interface InboxTaskPage { tasks: InboxTask[]; truncated: boolean }
+```
+
+- **Ordering:** anything with a deadline first, soonest at the top; undated items after, oldest
+  first.
+- **`isOverdue` respects the chore's grace period.** A chore two hours late inside a 24-hour grace
+  is not overdue; a decision is overdue the moment it closes.
+- **No cursor.** It is a to-do list. `truncated` tells you more were waiting.
+- **Handle an unrecognised `kind` by rendering `title` / `subtitle` and deep-linking on
+  `targetId`** - more kinds will be added.
+
+`GET /inbox/summary` now also returns **`taskCount`**, capped at 99 like the others, so the header
+badge needs no second request.
+
+---
+
+## 13. What will bite you otherwise
 
 **1. Household channels have no messages.** No composer, no message history, no `POST /messages`.
 Route by `channel.type` before rendering, and treat unknown types as inert rather than as `Text`.
@@ -637,7 +774,7 @@ expense" on a lock screen, say so - it does not exist yet.
 
 ---
 
-## 11. Compatibility
+## 14. Compatibility
 
 - **Community guilds are unaffected.** All eight modules are off, so every endpoint above returns
   `403` and no new channel type can be created.
@@ -661,7 +798,11 @@ expense" on a lock screen, say so - it does not exist yet.
 | `@everyone` gained seven household bits | Members can suddenly do things. Re-fetch `/@me` permissions. |
 | `Flatmates` role seeded on new households | One extra role in the list; default `rotationRoleId`. |
 | `POST .../move-out` | New. Without it a household cannot remove anyone. |
-| `guild.ChoreReminder` + household push | New. Ignore the event and the push if you have no UI yet. |
 | `GET /pantry/expiring` honours per-pantry `expiryWarningDays` | Result set changes when `days` is omitted. |
 | Non-member payer / settlement party rejected | `400` where a typo used to be accepted silently. |
 | `PATCH /expenses` payer reassignment needs `ManageLedger` | `403` on a path that used to succeed. |
+| `guild.ChoreReminder` replaced by `guild.HouseholdAlert` | **Breaking, if you built against it.** Same content, unified envelope; `occurrenceId` moved to `targetId`, `choreId` / `dueAt` into `data`. See §10. |
+| Six more alert kinds + push | New. Route on `kind`; ignore unknown kinds. |
+| `GET /guilds/{id}/home` | New. One call instead of six; `ETag` / `If-None-Match` supported. See §11. |
+| `GET /inbox/tasks` | New. Household items waiting on the caller. See §12. |
+| `GET /inbox/summary` gained `taskCount` | Additive. Fold into the header badge. |

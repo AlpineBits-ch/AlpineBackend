@@ -78,4 +78,36 @@ public class InboxQueryTranslationTests
 
         Assert.That(sql, Does.Contain("SELECT"));
     }
+
+    // ── Waiting-on-you ───────────────────────────────────────────────────────
+
+    [Test]
+    public void BuildChoreQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildChoreQuery(_context, "user-1", DateTimeOffset.UtcNow.AddDays(1))
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    /// <summary>The correlated <c>!Votes.Any(...)</c> is the part most likely to stop
+    /// translating.</summary>
+    [Test]
+    public void BuildDecisionQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildDecisionQuery(_context, "user-1", DateTimeOffset.UtcNow)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    [Test]
+    public void BuildAssignmentQuery_translates()
+    {
+        var sql = InboxTaskService.BuildAssignmentQuery(_context, "user-1").ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
 }

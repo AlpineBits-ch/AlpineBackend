@@ -108,6 +108,9 @@ Muted channels, categories and guilds (a mute is "not now"); channels set to not
 channels the caller can no longer see; household-module channels, which keep no message history.
 Muted channels **do** still appear under Mentions.
 
+Household channels are not unread-able, but they can still be waiting on you - that lives under
+`/inbox/tasks` below.
+
 ### Paging
 
 Keyset, not offset - the list reorders under you as messages arrive. Follow `nextCursor` until it is
@@ -172,11 +175,54 @@ shorter than `limit` while more pages exist. Same rule as Unread: page until `ne
 The header badge.
 
 ```jsonc
-{ "unreadChannelCount": 4, "mentionCount": 12, "capped": false }
+{ "unreadChannelCount": 4, "mentionCount": 12, "taskCount": 2, "capped": false }
 ```
 
 `capped: true` means the real numbers are higher than reported - render as `99+`. Counting further
 would mean an unbounded scan for a number that renders the same either way.
+
+`taskCount` is the Waiting-on-you tab below, capped the same way, so the header needs one request
+rather than two.
+
+---
+
+## `GET /api/v1/guild/inbox/tasks`
+
+Household items waiting on the caller, across every guild they are in: a chore due, a decision
+unvoted, a list item assigned to them.
+
+Separate from Unread because it answers a different question. A list channel holds no messages, so
+it can never be unread - which left the modules people most want reminding about with no inbox
+presence at all.
+
+```jsonc
+{
+  "tasks": [
+    {
+      "kind": "ChoreDue",           // ChoreDue | DecisionVote | ListAssignment
+      "targetId": "choc_...",       // occurrence / decision / list item
+      "breadcrumb": { /* same shape as Unread */ },
+      "title": "Bins",
+      "subtitle": "Your turn",
+      "dueAt": "2026-08-06T18:00:00Z",
+      "isOverdue": false
+    }
+  ],
+  "truncated": false
+}
+```
+
+`?limit=` defaults to 25, max 50.
+
+- **Ordering:** deadlines first, soonest at the top; undated items after, oldest first.
+- **`isOverdue` respects a chore's grace period.** Two hours late inside a 24-hour grace is not
+  overdue. A decision is overdue the moment it closes.
+- **No cursor.** It is a to-do list; `truncated` says more were waiting.
+- Feature-gated and `ViewChannel`-filtered per row, the same as Unread.
+- **Render an unrecognised `kind` from `title` / `subtitle` and deep-link on `targetId`.** More
+  kinds will be added.
+
+Full detail in [household-frontend-guide.md](./household-frontend-guide.md) §12.
 
 ---
 

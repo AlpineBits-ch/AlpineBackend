@@ -17,6 +17,27 @@ public class HouseholdNotifier(
     IHubContext<EchoRealtimeHub> hub,
     IMessageBus bus)
 {
+    /// <summary>The single realtime event every household alert arrives on.</summary>
+    public const string AlertEventName = "guild.HouseholdAlert";
+
+    /// <summary>Sends one household alert.</summary>
+    public Task<List<string>> AlertAsync(
+        string guildId, string? channelId, IReadOnlyCollection<string> userIds,
+        string kind, string title, string body, string? targetId = null, object? data = null) =>
+        NotifyAsync(
+            guildId, channelId, userIds, AlertEventName,
+            new
+            {
+                GuildId = guildId,
+                ChannelId = channelId,
+                Kind = kind,
+                TargetId = targetId,
+                Title = title,
+                Body = body,
+                Data = data,
+            },
+            kind, title, body, targetId);
+
     /// <summary>
     /// Sends to <paramref name="userIds"/>: a realtime event immediately, and a push for those
     /// entitled to one.

@@ -17,6 +17,7 @@ public class InboxService(
     MicroserviceContext ctx,
     NotificationResolutionService notifications,
     GuildPermissionService permissions,
+    InboxTaskService tasks,
     IMessageBus bus,
     ILogger<InboxService> logger)
 {
@@ -131,6 +132,10 @@ public class InboxService(
         {
             UnreadChannelCount = page.Count,
             MentionCount = Math.Min(mentionCounts.Values.Sum(), MaxSummaryCount),
+            // Counted here rather than left to a second request, because the badge is one number to
+            // the person looking at it and two round trips to draw it is how a header ends up
+            // flickering.
+            TaskCount = await tasks.CountAsync(userId),
             Capped = capped || mentionCounts.Values.Sum() > MaxSummaryCount,
         };
     }

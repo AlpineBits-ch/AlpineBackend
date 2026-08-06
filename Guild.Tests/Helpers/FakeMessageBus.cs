@@ -14,7 +14,7 @@ public class FakeMessageBus : IMessageBus
 {
     public List<object> Published { get; } = new();
 
-    public ValueTask PublishAsync<T>(T message, DeliveryOptions? options = null)
+    public virtual ValueTask PublishAsync<T>(T message, DeliveryOptions? options = null)
     {
         if (message is not null) Published.Add(message);
         return ValueTask.CompletedTask;
@@ -39,4 +39,13 @@ public class FakeMessageBus : IMessageBus
     public IReadOnlyList<Envelope> PreviewSubscriptions(object message, DeliveryOptions options) => throw new NotImplementedException();
     public IDestinationEndpoint EndpointFor(Uri uri) => throw new NotImplementedException();
     public IDestinationEndpoint EndpointFor(string endpointName) => throw new NotImplementedException();
+}
+
+/// <summary>A bus whose publish always fails, for asserting that a best-effort side effect stays
+/// best-effort. Used by the household alerts, which run after their caller has already committed:
+/// an exception there would fail a request whose work is done and cannot be undone.</summary>
+public class ThrowingMessageBus : FakeMessageBus
+{
+    public override ValueTask PublishAsync<T>(T message, DeliveryOptions? options = null) =>
+        throw new InvalidOperationException("the broker is down");
 }

@@ -111,7 +111,8 @@ public class PantryEndpoint
     [WolverinePost("/api/v1/channels/{channelId}/pantry-items")]
     public async Task<IResult> CreateAsync(string channelId, CreatePantryItemDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] PantryRestockService restock,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdAlertService alerts, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -142,7 +143,12 @@ public class PantryEndpoint
 
         await household.BroadcastAsync(item.GuildId, channelId, "guild.PantryItemCreated",
             new { GuildId = item.GuildId, ChannelId = channelId, Item = ToDto(item) });
-        if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
+
+        if (restocked is not null)
+        {
+            await restock.BroadcastRestockAsync(restocked);
+            await alerts.RestockAddedAsync(restocked, userId);
+        }
 
         return Results.Ok(ToDto(item));
     }
@@ -150,7 +156,8 @@ public class PantryEndpoint
     [WolverinePatch("/api/v1/pantry-items/{itemId}")]
     public async Task<IResult> UpdateAsync(string itemId, UpdatePantryItemDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] PantryRestockService restock,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdAlertService alerts, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -183,8 +190,18 @@ public class PantryEndpoint
             item.LowThreshold = dto.LowThreshold;
         }
 
-        if (dto.ClearExpiresAt == true) item.ExpiresAt = null;
-        else if (dto.ExpiresAt is not null) item.ExpiresAt = dto.ExpiresAt;
+        // Moving the date makes any previous warning stale, so the stamp is released and the sweep
+        // may warn again.
+        if (dto.ClearExpiresAt == true)
+        {
+            item.ExpiresAt = null;
+            item.ExpiryNotifiedAt = null;
+        }
+        else if (dto.ExpiresAt is not null && dto.ExpiresAt != item.ExpiresAt)
+        {
+            item.ExpiresAt = dto.ExpiresAt;
+            item.ExpiryNotifiedAt = null;
+        }
 
         // Restocked back above the threshold: release the stamp so the next dip re-adds it.
         if (item.LowThreshold is null || item.Quantity > item.LowThreshold) item.RestockedAt = null;
@@ -194,7 +211,12 @@ public class PantryEndpoint
 
         await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.PantryItemUpdated",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
-        if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
+
+        if (restocked is not null)
+        {
+            await restock.BroadcastRestockAsync(restocked);
+            await alerts.RestockAddedAsync(restocked, userId);
+        }
 
         return Results.Ok(ToDto(item));
     }

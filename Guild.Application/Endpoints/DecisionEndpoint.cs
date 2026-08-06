@@ -87,7 +87,7 @@ public class DecisionEndpoint
     [WolverinePost("/api/v1/channels/{channelId}/decisions")]
     public async Task<IResult> CreateAsync(string channelId, CreateDecisionDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdAlertService alerts, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -135,13 +135,15 @@ public class DecisionEndpoint
         await household.BroadcastAsync(decision.GuildId, channelId, "guild.DecisionCreated",
             new { GuildId = decision.GuildId, ChannelId = channelId, Decision = ToDto(decision, userId) });
 
+        await alerts.DecisionOpenedAsync(decision, userId);
+
         return Results.Ok(ToDto(decision, userId));
     }
 
     [WolverinePut("/api/v1/decisions/{decisionId}/vote")]
     public async Task<IResult> VoteAsync(string decisionId, CastDecisionVoteDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdAlertService alerts, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -173,6 +175,9 @@ public class DecisionEndpoint
             decision.Votes.Add(existing);
         }
 
+        // Only the transition into a block is news.
+        var newlyBlocked = dto.Kind == DecisionVoteKind.Block && existing.Kind != DecisionVoteKind.Block;
+
         existing.Kind = dto.Kind;
         existing.OptionId = dto.Kind == DecisionVoteKind.Abstain ? null : dto.OptionId;
         existing.Reason = dto.Kind == DecisionVoteKind.Block ? dto.Reason!.Trim() : null;
@@ -181,6 +186,8 @@ public class DecisionEndpoint
 
         await household.BroadcastAsync(decision.GuildId, decision.ChannelId, "guild.DecisionUpdated",
             new { GuildId = decision.GuildId, ChannelId = decision.ChannelId, Decision = ToDto(decision, userId) });
+
+        if (newlyBlocked) await alerts.DecisionBlockedAsync(decision, userId, existing.Reason ?? "");
 
         return Results.Ok(ToDto(decision, userId));
     }

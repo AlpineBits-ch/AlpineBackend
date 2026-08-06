@@ -42,6 +42,22 @@ public class InboxEndpoint
         return Results.Ok(await inbox.GetSummaryAsync(userId));
     }
 
+    /// <summary>
+    /// The Waiting-on-you tab: chores due, decisions unvoted, list items assigned to the caller,
+    /// across every guild they are in.
+    /// </summary>
+    [WolverineGet("/api/v1/inbox/tasks")]
+    public async Task<IResult> GetTasks(
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] InboxTaskService tasks,
+        int? limit = null)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        return Results.Ok(await tasks.GetTasksAsync(userId, limit ?? InboxTaskService.DefaultPageSize));
+    }
+
     /// <summary>The Mentions tab.</summary>
     [WolverineGet("/api/v1/inbox/mentions")]
     public async Task<IResult> GetMentions(

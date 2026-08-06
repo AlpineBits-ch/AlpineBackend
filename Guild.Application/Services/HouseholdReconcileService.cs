@@ -8,15 +8,17 @@ namespace Guild.Application.Services;
 /// <summary>Periodic sweep that keeps the household modules honest without depending on any single
 /// scheduled message having survived.
 ///
-/// Four jobs:
+/// Five jobs:
 ///  1. Generate chore occurrences that are due. Chores are also driven by Wolverine's durable
 ///     scheduler, but a rota that silently stops because one message was lost is worse than a rota
 ///     that's occasionally a few minutes late - so this is the backstop, and generation is
 ///     idempotent via the unique (ChoreId, DueAt) index.
 ///  2. Remind assignees that a chore is due, deferred past the guild's quiet hours. See
 ///     ChoreReminderService.
-///  3. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
-///  4. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
+///  3. Warn pantries about stock that's about to go off, at each pantry's own horizon. See
+///     PantryExpiryService.
+///  4. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
+///  5. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
 ///     GuildPermissionService, so this is only tidying, never the thing access depends on.
 ///
 /// Modelled on VoiceHeartbeatCleanupService.</summary>
@@ -47,6 +49,9 @@ public class HouseholdReconcileService(
                 // pass rather than five minutes later.
                 await scope.ServiceProvider.GetRequiredService<ChoreReminderService>()
                     .SendDueRemindersAsync(stoppingToken);
+
+                await scope.ServiceProvider.GetRequiredService<PantryExpiryService>()
+                    .SendDueWarningsAsync(stoppingToken);
 
                 await ExpireDecisionsAsync(ctx, stoppingToken);
                 await PurgeLapsedGuestRolesAsync(ctx, stoppingToken);

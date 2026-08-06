@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual escape hatch: when a push never gets dispatched (GitHub incident,
+  # a run that had to be cancelled), this re-runs the whole thing off a ref
+  # without needing an empty commit.
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io

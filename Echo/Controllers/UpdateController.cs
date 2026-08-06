@@ -13,10 +13,9 @@ public class UpdateController(IGitHubClient client, ILogger<UpdateController> lo
 
     private readonly string GitHubToken = Env.PersonalAccessToken;
 
-    // Tauri v2 platform keys: windows-x86_64-msi = MSI, windows-x86_64 = NSIS (.exe)
-    private static readonly (string Platform, string Suffix, string SigSuffix)[] PlatformAssets =
+    /// <summary>Tauri v2 platform keys.</summary>
+    internal static readonly (string Platform, string Suffix, string SigSuffix)[] PlatformAssets =
     [
-        ("windows-x86_64-msi", "_en-US.msi",        "_en-US.msi.sig"),
         ("windows-x86_64",     "_x64-setup.exe",    "_x64-setup.exe.sig"),
         ("linux-x86_64",       "_amd64.deb",        "_amd64.deb.sig"),
         ("linux-x86_64-rpm",   ".x86_64.rpm",       ".x86_64.rpm.sig"),

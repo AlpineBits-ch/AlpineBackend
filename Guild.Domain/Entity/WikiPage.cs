@@ -17,6 +17,8 @@ public class CreateWikiPageParams
     public WikiVisibility Visibility { get; init; } = WikiVisibility.Public;
     public List<string> Tags { get; init; } = [];
     public bool IsPinned { get; init; }
+    public string? Icon { get; init; }
+    public string? CoverUrl { get; init; }
 }
 
 public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
@@ -34,6 +36,12 @@ public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
     public WikiVisibility Visibility { get; set; } = WikiVisibility.Public;
     public List<string> Tags { get; set; } = [];
     public bool IsPinned { get; set; }
+
+    /// <summary>A single emoji shown next to the page title.</summary>
+    public string? Icon { get; set; }
+
+    /// <summary>Absolute or app-relative URL of an already-uploaded cover image.</summary>
+    public string? CoverUrl { get; set; }
 
     public virtual ICollection<WikiRevision> Revisions { get; set; } = [];
 
@@ -56,6 +64,8 @@ public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
             Visibility = @params.Visibility,
             Tags = @params.Tags,
             IsPinned = @params.IsPinned,
+            Icon = @params.Icon,
+            CoverUrl = @params.CoverUrl,
         };
         page.Revisions.Add(WikiRevision.Create(new CreateWikiRevisionParams
         {

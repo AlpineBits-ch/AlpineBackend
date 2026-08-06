@@ -4,6 +4,7 @@ using Facet.Extensions.EFCore;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
+using Guild.Domain;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Domain.Events.Wiki;
@@ -17,6 +18,10 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class WikiEndpoint
 {
+    /// <summary>Cover urls point at already-uploaded storage; the cap only exists so the column
+    /// cannot be used as a text field.</summary>
+    private const int MaxCoverUrlLength = 2048;
+
     /// <param name="includeContent">Returns each page's body alongside its summary.</param>
     [WolverineGet("/api/v1/guilds/{guildId}/wiki")]
     public async Task<IResult> GetWiki(
@@ -120,6 +125,11 @@ public class WikiEndpoint
         var canCreate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.CreateWikiPages);
         if (!canCreate) return Results.Forbid();
 
+        if (!string.IsNullOrEmpty(dto.Icon) && !EmojiText.IsSingleEmoji(dto.Icon))
+            return Results.BadRequest("Page icon must be a single emoji.");
+        if (dto.CoverUrl is { Length: > MaxCoverUrlLength })
+            return Results.BadRequest($"Cover url must be at most {MaxCoverUrlLength} characters.");
+
         var page = WikiPage.Create(new CreateWikiPageParams
         {
             GuildId = guildId,
@@ -131,6 +141,8 @@ public class WikiEndpoint
             Visibility = dto.Visibility ?? WikiVisibility.Public,
             Tags = dto.Tags ?? [],
             IsPinned = dto.IsPinned ?? false,
+            Icon = string.IsNullOrEmpty(dto.Icon) ? null : dto.Icon,
+            CoverUrl = string.IsNullOrWhiteSpace(dto.CoverUrl) ? null : dto.CoverUrl.Trim(),
         });
 
         ctx.WikiPages.Add(page);
@@ -162,7 +174,8 @@ public class WikiEndpoint
         // ManageWikiStructure already governs for categories.
         var movesPage = dto.ParentPageId.HasValue || dto.CategoryId.HasValue;
         var changesContent = dto.Title is not null || dto.Content is not null || dto.Visibility is not null
-                             || dto.Tags is not null || dto.IsPinned is not null;
+                             || dto.Tags is not null || dto.IsPinned is not null
+                             || dto.Icon.HasValue || dto.CoverUrl.HasValue;
 
         var isOwn = page.AuthorId == userId;
         var requiredPermission = isOwn ? Permissions.EditOwnWikiPages : Permissions.EditAnyWikiPage;
@@ -175,6 +188,11 @@ public class WikiEndpoint
             if (!canManageStructure) return Results.Forbid();
         }
 
+        if (!string.IsNullOrEmpty(dto.Icon.Value) && !EmojiText.IsSingleEmoji(dto.Icon.Value))
+            return Results.BadRequest("Page icon must be a single emoji.");
+        if (dto.CoverUrl.Value is { Length: > MaxCoverUrlLength })
+            return Results.BadRequest($"Cover url must be at most {MaxCoverUrlLength} characters.");
+
         var contentChanged = dto.Content is not null && dto.Content != page.Content;
 
         if (dto.Title is not null) page.Title = dto.Title;
@@ -186,6 +204,10 @@ public class WikiEndpoint
         if (dto.Visibility is not null) page.Visibility = dto.Visibility.Value;
         if (dto.Tags is not null) page.Tags = dto.Tags;
         if (dto.IsPinned is not null) page.IsPinned = dto.IsPinned.Value;
+        // Empty string clears as well as null, so a client that binds an icon picker to a text
+        // input does not have to translate "" into a JSON null to mean the same thing.
+        if (dto.Icon.HasValue) page.Icon = string.IsNullOrEmpty(dto.Icon.Value) ? null : dto.Icon.Value;
+        if (dto.CoverUrl.HasValue) page.CoverUrl = dto.CoverUrl.Value?.Trim() is { Length: > 0 } url ? url : null;
         page.LastEditorId = userId;
 
         if (contentChanged)

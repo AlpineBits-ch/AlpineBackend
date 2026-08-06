@@ -541,6 +541,119 @@ public class WikiEndpointTests
     }
 
 
+    // ══════════════════════════════════════════════════════════════════════ Page icon and cover
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task CreateWikiPage_WithIconAndCover_PersistsBoth()
+    {
+        await SeedMember(Permissions.CreateWikiPages);
+
+        var result = await _endpoint.CreateWikiPage(GuildId,
+            new CreateWikiPageDto { Title = "Runbook", Icon = "📘", CoverUrl = "https://cdn.example/c.png" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiPageDto>;
+        Assert.That(ok!.Value!.Icon, Is.EqualTo("📘"));
+        Assert.That(ok.Value.CoverUrl, Is.EqualTo("https://cdn.example/c.png"));
+        var created = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == ok.Value.Id);
+        Assert.That(created.Icon, Is.EqualTo("📘"));
+    }
+
+    // The icon column is a single emoji, not a free text field.
+    [Test]
+    public async Task CreateWikiPage_IconIsNotAnEmoji_ReturnsBadRequest()
+    {
+        await SeedMember(Permissions.CreateWikiPages);
+
+        var result = await _endpoint.CreateWikiPage(GuildId,
+            new CreateWikiPageDto { Title = "t", Icon = "not an emoji" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateWikiPage_CoverUrlTooLong_ReturnsBadRequest()
+    {
+        await SeedMember(Permissions.CreateWikiPages);
+
+        var result = await _endpoint.CreateWikiPage(GuildId,
+            new CreateWikiPageDto { Title = "t", CoverUrl = new string('x', 2049) },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    // The reason Icon/CoverUrl are three-state instead of following ParentPageId's
+    // null-means-clear rule: the client autosaves content, and a save that only carries the body
+    // must not wipe the page's identity.
+    [Test]
+    public async Task UpdateWikiPage_OmittingIcon_LeavesItAlone()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage(content: "v1");
+        page.Icon = "📘";
+        page.CoverUrl = "https://cdn.example/c.png";
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.That(reloaded.Icon, Is.EqualTo("📘"));
+        Assert.That(reloaded.CoverUrl, Is.EqualTo("https://cdn.example/c.png"));
+    }
+
+    [Test]
+    public async Task UpdateWikiPage_EmptyIcon_ClearsIt()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage();
+        page.Icon = "📘";
+        page.CoverUrl = "https://cdn.example/c.png";
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Icon = Optional<string>.Of(""), CoverUrl = Optional<string>.Of("") },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.That(reloaded.Icon, Is.Null);
+        Assert.That(reloaded.CoverUrl, Is.Null);
+    }
+
+    [Test]
+    public async Task UpdateWikiPage_IconIsNotAnEmoji_ReturnsBadRequest()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage();
+
+        var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Icon = Optional<string>.Of("ab") },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    // The tree renders the icon, so the summary listing has to carry it too.
+    [Test]
+    public async Task GetWiki_SummaryCarriesIconAndCover()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        page.Icon = "📘";
+        page.CoverUrl = "https://cdn.example/c.png";
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].Icon, Is.EqualTo("📘"));
+        Assert.That(ok.Value.Pages[0].CoverUrl, Is.EqualTo("https://cdn.example/c.png"));
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Partial update: absent
     // vs explicitly null
 
@@ -606,6 +719,23 @@ public class WikiEndpointTests
             Assert.That(reloaded.CategoryId, Is.EqualTo("wkca_y"));
             Assert.That(reloaded.ParentPageId, Is.EqualTo("wkpg_p"));
         });
+    }
+
+    // Icon and cover follow the same rule, and additionally accept "" as a clear.
+    [Test]
+    public async Task UpdateWikiPage_ExplicitNullIcon_ClearsIt()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage();
+        page.Icon = "📘";
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"icon":null}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.That(reloaded.Icon, Is.Null);
     }
 
     // ══════════════════════════════════════════════════════════════════════ Moving a page vs

@@ -23,6 +23,12 @@ public class UpdateWikiPageDto
     public List<string>? Tags { get; set; }
     public bool? IsPinned { get; set; }
 
+    /// <summary>A single emoji shown next to the title.</summary>
+    public Optional<string> Icon { get; set; }
+
+    /// <summary>URL of an already-uploaded cover image.</summary>
+    public Optional<string> CoverUrl { get; set; }
+
     /// <summary>
     /// Optional note describing what changed, stored on the revision this update creates.
     /// </summary>

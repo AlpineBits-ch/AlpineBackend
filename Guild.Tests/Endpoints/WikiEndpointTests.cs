@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Guild.Application.Dtos;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Endpoints;
 using Guild.Application.Services;
@@ -537,4 +539,148 @@ public class WikiEndpointTests
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(await _context.WikiCategories.AsNoTracking().AnyAsync(c => c.Id == category.Id), Is.False);
     }
+
+
+    // ══════════════════════════════════════════════════════════════════════ Partial update: absent
+    // vs explicitly null
+
+    private static UpdateWikiPageDto Deserialize(string json) =>
+        JsonSerializer.Deserialize<UpdateWikiPageDto>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    [Test]
+    public async Task UpdateWikiPage_OmittingCategoryAndParent_LeavesThemAlone()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage(content: "v1");
+        page.CategoryId = "wkca_x";
+        page.ParentPageId = "wkpg_parent";
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"content":"v2"}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.CategoryId, Is.EqualTo("wkca_x"));
+            Assert.That(reloaded.ParentPageId, Is.EqualTo("wkpg_parent"));
+        });
+    }
+
+    // The client's "No category" / "Top level" options.
+    [Test]
+    public async Task UpdateWikiPage_ExplicitNullCategoryAndParent_ClearsThem()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage();
+        page.CategoryId = "wkca_x";
+        page.ParentPageId = "wkpg_parent";
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":null,"parentPageId":null}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.CategoryId, Is.Null);
+            Assert.That(reloaded.ParentPageId, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task UpdateWikiPage_ExplicitCategoryAndParent_SetsThem()
+    {
+        await SeedMember(Permissions.EditOwnWikiPages);
+        var page = await SeedPage();
+
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y","parentPageId":"wkpg_p"}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.CategoryId, Is.EqualTo("wkca_y"));
+            Assert.That(reloaded.ParentPageId, Is.EqualTo("wkpg_p"));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Moving a page vs
+    // editing it ══════════════════════════════════════════════════════════════════════
+
+    // Where a page sits is the wiki's shape, which is what ManageWikiStructure governs everywhere
+    // else. A structure manager who cannot edit the page can still move it.
+    [Test]
+    public async Task UpdateWikiPage_MoveOnly_IsAllowedByManageWikiStructureAlone()
+    {
+        await SeedMember(Permissions.ManageWikiStructure);
+        var page = await SeedPage(authorId: "someone-else");
+
+        var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y"}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.WikiPageDto>>());
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.That(reloaded.CategoryId, Is.EqualTo("wkca_y"));
+    }
+
+    // ...but a move must not launder a content change through the weaker permission.
+    [Test]
+    public async Task UpdateWikiPage_MovePlusContent_StillNeedsEditPermission()
+    {
+        await SeedMember(Permissions.ManageWikiStructure);
+        var page = await SeedPage(authorId: "someone-else", content: "v1");
+
+        var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y","content":"v2"}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+        var reloaded = await _context.WikiPages.AsNoTracking().FirstAsync(p => p.Id == page.Id);
+        Assert.That(reloaded.Content, Is.EqualTo("v1"));
+    }
+
+    // Pinning and tags are page content, not structure - the client gates them on edit permission
+    // and the server agrees.
+    [Test]
+    public async Task UpdateWikiPage_PinOnly_IsNotAllowedByManageWikiStructure()
+    {
+        await SeedMember(Permissions.ManageWikiStructure);
+        var page = await SeedPage(authorId: "someone-else");
+
+        var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"isPinned":true}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    // An empty body is not a move, so it does not get the structure manager's discount.
+    [Test]
+    public async Task UpdateWikiPage_EmptyBody_StillNeedsEditPermission()
+    {
+        await SeedMember(Permissions.ManageWikiStructure);
+        var page = await SeedPage(authorId: "someone-else");
+
+        var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("{}"),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    // Neither permission is still no.
+    [Test]
+    public async Task UpdateWikiPage_MoveOnly_WithoutEitherPermission_ReturnsForbid()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage(authorId: "someone-else");
+
+        var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y"}"""),
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
 }

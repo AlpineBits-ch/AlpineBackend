@@ -6,6 +6,7 @@ using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
+using Guild.Domain.Events.Wiki;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -101,7 +102,7 @@ public class WikiEndpoint
         var dto = page.ToFacet<WikiPage, WikiPageDto>();
         dto.RevisionCount = await ctx.WikiRevisions
             .CountAsync(r => r.PageId == pageId);
-        
+
         return Results.Ok(dto);
     }
 
@@ -157,17 +158,31 @@ public class WikiEndpoint
 
         if (page is null) return Results.NotFound();
 
+        // Where a page sits is the wiki's shape, not the page's content - the same thing
+        // ManageWikiStructure already governs for categories.
+        var movesPage = dto.ParentPageId.HasValue || dto.CategoryId.HasValue;
+        var changesContent = dto.Title is not null || dto.Content is not null || dto.Visibility is not null
+                             || dto.Tags is not null || dto.IsPinned is not null;
+
         var isOwn = page.AuthorId == userId;
         var requiredPermission = isOwn ? Permissions.EditOwnWikiPages : Permissions.EditAnyWikiPage;
         var canEdit = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
-        if (!canEdit) return Results.Forbid();
+        if (!canEdit)
+        {
+            if (changesContent || !movesPage) return Results.Forbid();
+
+            var canManageStructure = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+            if (!canManageStructure) return Results.Forbid();
+        }
 
         var contentChanged = dto.Content is not null && dto.Content != page.Content;
 
         if (dto.Title is not null) page.Title = dto.Title;
         if (dto.Content is not null) page.Content = dto.Content;
-        page.ParentPageId = dto.ParentPageId;
-        page.CategoryId = dto.CategoryId;
+        // HasValue, not "is not null": an omitted property leaves the page alone, an explicit null
+        // clears it.
+        if (dto.ParentPageId.HasValue) page.ParentPageId = dto.ParentPageId.Value;
+        if (dto.CategoryId.HasValue) page.CategoryId = dto.CategoryId.Value;
         if (dto.Visibility is not null) page.Visibility = dto.Visibility.Value;
         if (dto.Tags is not null) page.Tags = dto.Tags;
         if (dto.IsPinned is not null) page.IsPinned = dto.IsPinned.Value;
@@ -378,4 +393,5 @@ public class WikiEndpoint
 
         return Results.NoContent();
     }
+
 }

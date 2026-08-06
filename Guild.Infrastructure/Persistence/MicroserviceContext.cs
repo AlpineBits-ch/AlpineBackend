@@ -26,6 +26,7 @@ public class MicroserviceContext : DbContext
     public DbSet<WikiRevision> WikiRevisions { get; set; }
     public DbSet<WikiPageReaction> WikiPageReactions { get; set; }
     public DbSet<WikiPageWatcher> WikiPageWatchers { get; set; }
+    public DbSet<WikiComment> WikiComments { get; set; }
 
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
     public DbSet<GuildAuditLogEntry> AuditLogEntries { get; set; }
@@ -429,6 +430,16 @@ public class MicroserviceContext : DbContext
             // The fan-out on every page edit is "who watches this page", which the primary key's
             // leading column already covers.
             watcherBuilder.HasIndex(w => new { w.GuildId, w.UserId });
+        });
+
+        modelBuilder.Entity<WikiComment>(commentBuilder =>
+        {
+            commentBuilder.HasOne<WikiPage>()
+                .WithMany()
+                .HasForeignKey(c => c.PageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            commentBuilder.HasIndex(c => new { c.PageId, c.CreatedAt });
         });
 
         modelBuilder.Entity<GuildAuditLogEntry>(auditLogBuilder =>

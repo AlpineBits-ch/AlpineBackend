@@ -71,4 +71,83 @@ public class WikiEngagementTests
             Assert.That(watcher.CreatedAt, Is.Not.EqualTo(default(DateTime)));
         });
     }
+
+    // ── Comments ─────────────────────────────────────────────────────────────
+
+    private static WikiComment MakeComment(string content = "looks good") =>
+        WikiComment.Create(new CreateWikiCommentParams
+        {
+            PageId = "wkpg_abc", GuildId = "gild_abc", AuthorId = "user_1", Content = content,
+        });
+
+    [Test]
+    public void Comment_Create_GeneratesIdWithCorrectPrefixAndTrimsContent()
+    {
+        var comment = MakeComment("  looks good  ");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(comment.Id, Does.StartWith("wkcm"));
+            Assert.That(comment.Content, Is.EqualTo("looks good"));
+            Assert.That(comment.EditedAt, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Comment_Create_RaisesCreated()
+    {
+        var comment = MakeComment();
+
+        var evt = comment.GetDomainEvents().OfType<WikiCommentCreated>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt.CommentId, Is.EqualTo(comment.Id));
+            Assert.That(evt.PageId, Is.EqualTo("wkpg_abc"));
+            Assert.That(evt.AuthorId, Is.EqualTo("user_1"));
+        });
+    }
+
+    [TestCase("")]
+    [TestCase("   ")]
+    public void Comment_Create_RejectsBlankContent(string content) =>
+        Assert.Throws<ArgumentException>(() => MakeComment(content));
+
+    // EditedAt is what the client's "(edited)" marker reads.
+    [Test]
+    public void Comment_Edit_SetsEditedAt()
+    {
+        var comment = MakeComment();
+
+        comment.Edit("  fixed  ");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(comment.Content, Is.EqualTo("fixed"));
+            Assert.That(comment.EditedAt, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public void Comment_Edit_RejectsBlankContent()
+    {
+        var comment = MakeComment();
+        Assert.Throws<ArgumentException>(() => comment.Edit("   "));
+    }
+
+    [Test]
+    public void Comment_RaiseUpdatedAndDeleted_CarryPageAndGuild()
+    {
+        var comment = MakeComment();
+        comment.RaiseUpdated();
+        comment.RaiseDeleted();
+
+        var updated = comment.GetDomainEvents().OfType<WikiCommentUpdated>().Single();
+        var deleted = comment.GetDomainEvents().OfType<WikiCommentDeleted>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(updated.PageId, Is.EqualTo("wkpg_abc"));
+            Assert.That(updated.GuildId, Is.EqualTo("gild_abc"));
+            Assert.That(deleted.CommentId, Is.EqualTo(comment.Id));
+        });
+    }
 }

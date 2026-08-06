@@ -22,6 +22,9 @@ public class WikiEndpoint
     /// cannot be used as a text field.</summary>
     private const int MaxCoverUrlLength = 2048;
 
+    /// <summary>A comment is a paragraph, not a page. Anything longer belongs in the wiki.</summary>
+    private const int MaxCommentLength = 4000;
+
     /// <param name="includeContent">Returns each page's body alongside its summary.</param>
     [WolverineGet("/api/v1/guilds/{guildId}/wiki")]
     public async Task<IResult> GetWiki(
@@ -73,6 +76,13 @@ public class WikiEndpoint
                 .ToListAsync())
             .ToDictionary(x => x.PageId, x => x.Count);
 
+        var commentCounts = (await ctx.WikiComments
+                .Where(c => pageIds.Contains(c.PageId))
+                .GroupBy(c => c.PageId)
+                .Select(g => new { PageId = g.Key, Count = g.Count() })
+                .ToListAsync())
+            .ToDictionary(x => x.PageId, x => x.Count);
+
         // Only this caller's watches - one query for the whole wiki instead of one per page.
         var watchedPageIds = (await ctx.WikiPageWatchers
                 .Where(w => w.UserId == userId && w.GuildId == guildId)
@@ -96,6 +106,7 @@ public class WikiEndpoint
                 // A page with no revisions has no group and so no row at all.
                 summary.RevisionCount = revisionCounts.GetValueOrDefault(p.Id);
                 summary.ReactionCount = reactionCounts.GetValueOrDefault(p.Id);
+                summary.CommentCount = commentCounts.GetValueOrDefault(p.Id);
                 summary.IsWatching = watchedPageIds.Contains(p.Id);
                 if (includeContent) summary.Content = p.Content;
                 return summary;
@@ -597,6 +608,146 @@ public class WikiEndpoint
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
+    // Comments
+
+    [WolverineGet("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments")]
+    public async Task<IResult> GetWikiPageComments(
+        string guildId,
+        string pageId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return Results.NotFound();
+
+        var canModerate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ModerateWikiComments);
+
+        var comments = await ctx.WikiComments
+            .Where(c => c.PageId == pageId)
+            .OrderBy(c => c.CreatedAt)
+            .ToListAsync();
+
+        return Results.Ok(comments.Select(c => ToCommentDto(c, userId, canModerate)).ToList());
+    }
+
+    [WolverinePost("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments")]
+    public async Task<IResult> CreateWikiComment(
+        string guildId,
+        string pageId,
+        CreateWikiCommentDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return Results.NotFound();
+
+        if (dto.Content is { Length: > MaxCommentLength })
+            return Results.BadRequest($"Comment must be at most {MaxCommentLength} characters.");
+
+        WikiComment comment;
+        try
+        {
+            comment = WikiComment.Create(new CreateWikiCommentParams
+            {
+                PageId = pageId, GuildId = guildId, AuthorId = userId, Content = dto.Content,
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
+        ctx.WikiComments.Add(comment);
+
+        return Results.Ok(ToCommentDto(comment, userId, canModerate: false));
+    }
+
+    /// <summary>
+    /// Author only, deliberately: ModerateWikiComments lets a moderator remove a comment, not
+    /// rewrite what somebody said under their own name.
+    /// </summary>
+    [WolverinePut("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments/{commentId}")]
+    public async Task<IResult> UpdateWikiComment(
+        string guildId,
+        string pageId,
+        string commentId,
+        UpdateWikiCommentDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var comment = await ctx.WikiComments
+            .FirstOrDefaultAsync(c => c.Id == commentId && c.PageId == pageId && c.GuildId == guildId);
+        if (comment is null) return Results.NotFound();
+
+        if (comment.AuthorId != userId) return Results.Forbid();
+
+        if (dto.Content is { Length: > MaxCommentLength })
+            return Results.BadRequest($"Comment must be at most {MaxCommentLength} characters.");
+
+        try
+        {
+            comment.Edit(dto.Content);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
+        comment.RaiseUpdated();
+
+        return Results.Ok(ToCommentDto(comment, userId, canModerate: false));
+    }
+
+    /// <summary>Own comment, or anyone holding ModerateWikiComments.</summary>
+    [WolverineDelete("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments/{commentId}")]
+    public async Task<IResult> DeleteWikiComment(
+        string guildId,
+        string pageId,
+        string commentId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var comment = await ctx.WikiComments
+            .FirstOrDefaultAsync(c => c.Id == commentId && c.PageId == pageId && c.GuildId == guildId);
+        if (comment is null) return Results.NotFound();
+
+        var isOwn = comment.AuthorId == userId;
+        var requiredPermission = isOwn ? Permissions.ViewWiki : Permissions.ModerateWikiComments;
+        var canDelete = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
+        if (!canDelete) return Results.Forbid();
+
+        comment.RaiseDeleted();
+        ctx.WikiComments.Remove(comment);
+
+        return Results.NoContent();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
 
@@ -607,6 +758,7 @@ public class WikiEndpoint
         dto.Reactions = AggregateReactions(reactions, userId);
         dto.WatcherCount = await ctx.WikiPageWatchers.CountAsync(w => w.PageId == pageId);
         dto.IsWatching = await ctx.WikiPageWatchers.AnyAsync(w => w.PageId == pageId && w.UserId == userId);
+        dto.CommentCount = await ctx.WikiComments.CountAsync(c => c.PageId == pageId);
     }
 
     /// <summary>Busiest emoji first, ties broken by codepoint so the order is stable across
@@ -623,4 +775,10 @@ public class WikiEndpoint
             .ThenBy(r => r.Emoji, StringComparer.Ordinal)
             .ToList();
 
+    private static WikiCommentDto ToCommentDto(WikiComment comment, string userId, bool canModerate)
+    {
+        var dto = comment.ToFacet<WikiComment, WikiCommentDto>();
+        dto.CanDelete = comment.AuthorId == userId || canModerate;
+        return dto;
+    }
 }

@@ -18,4 +18,7 @@ public partial class WikiPageDto
 
     /// <summary>How many users watch this page, the caller included.</summary>
     public int WatcherCount { get; set; }
+
+    /// <summary>How many comments the page has.</summary>
+    public int CommentCount { get; set; }
 }

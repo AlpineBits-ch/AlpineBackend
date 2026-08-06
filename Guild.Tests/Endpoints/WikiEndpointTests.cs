@@ -540,7 +540,6 @@ public class WikiEndpointTests
         Assert.That(await _context.WikiCategories.AsNoTracking().AnyAsync(c => c.Id == category.Id), Is.False);
     }
 
-
     // ══════════════════════════════════════════════════════════════════════ Page icon and cover
     // ══════════════════════════════════════════════════════════════════════
 
@@ -981,6 +980,232 @@ public class WikiEndpointTests
         Assert.That(ok!.Value!.Pages[0].IsWatching, Is.True);
     }
 
+    // ══════════════════════════════════════════════════════════════════════ Comments
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task CreateWikiComment_Unauthenticated_ReturnsUnauthorized()
+    {
+        var result = await _endpoint.CreateWikiComment(GuildId, "nonexistent", new CreateWikiCommentDto { Content = "hi" },
+            _permissionService, _context, TestPrincipal.CreateAnonymous());
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    // Commenting is gated on ViewWiki: the permission enum has ModerateWikiComments but no
+    // "post a comment" bit, which is the original design saying reading earns commenting.
+    [Test]
+    public async Task CreateWikiComment_LacksViewWiki_ReturnsForbid()
+    {
+        await SeedMember(Permissions.None);
+        var result = await _endpoint.CreateWikiComment(GuildId, "nonexistent", new CreateWikiCommentDto { Content = "hi" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task CreateWikiComment_PageDoesNotExist_ReturnsNotFound()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var result = await _endpoint.CreateWikiComment(GuildId, "nonexistent", new CreateWikiCommentDto { Content = "hi" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task CreateWikiComment_Valid_Persists()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var result = await _endpoint.CreateWikiComment(GuildId, page.Id, new CreateWikiCommentDto { Content = "  looks good  " },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiCommentDto>;
+        Assert.That(ok!.Value!.Content, Is.EqualTo("looks good"));
+        Assert.That(ok.Value.AuthorId, Is.EqualTo(UserId));
+        Assert.That(ok.Value.EditedAt, Is.Null);
+        Assert.That(ok.Value.CanDelete, Is.True);
+        Assert.That(await _context.WikiComments.AsNoTracking().CountAsync(c => c.PageId == page.Id), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task CreateWikiComment_Blank_ReturnsBadRequest()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var result = await _endpoint.CreateWikiComment(GuildId, page.Id, new CreateWikiCommentDto { Content = "   " },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateWikiComment_TooLong_ReturnsBadRequest()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var result = await _endpoint.CreateWikiComment(GuildId, page.Id, new CreateWikiCommentDto { Content = new string('x', 4001) },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    // Flat and chronological - see the remarks on WikiComment for why there is no tree.
+    [Test]
+    public async Task GetWikiPageComments_ReturnsOldestFirst()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        await SeedComment(page.Id, "first", UserId, DateTime.UtcNow.AddMinutes(-5));
+        await SeedComment(page.Id, "second", UserId, DateTime.UtcNow);
+
+        var result = await _endpoint.GetWikiPageComments(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiCommentDto>>;
+        Assert.That(ok!.Value!.Select(c => c.Content), Is.EqualTo(new[] { "first", "second" }));
+    }
+
+    [Test]
+    public async Task GetWikiPageComments_CanDelete_IsOwnCommentsOnlyWithoutModeration()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        await SeedComment(page.Id, "mine", UserId);
+        await SeedComment(page.Id, "theirs", "someone-else");
+
+        var result = await _endpoint.GetWikiPageComments(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiCommentDto>>;
+        Assert.That(ok!.Value!.Single(c => c.Content == "mine").CanDelete, Is.True);
+        Assert.That(ok.Value.Single(c => c.Content == "theirs").CanDelete, Is.False);
+    }
+
+    [Test]
+    public async Task GetWikiPageComments_Moderator_CanDeleteEverything()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.ModerateWikiComments);
+        var page = await SeedPage();
+        await SeedComment(page.Id, "theirs", "someone-else");
+
+        var result = await _endpoint.GetWikiPageComments(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiCommentDto>>;
+        Assert.That(ok!.Value!.Single().CanDelete, Is.True);
+    }
+
+    [Test]
+    public async Task UpdateWikiComment_Author_SetsEditedAt()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        var comment = await SeedComment(page.Id, "typo", UserId);
+
+        var result = await _endpoint.UpdateWikiComment(GuildId, page.Id, comment.Id, new UpdateWikiCommentDto { Content = "fixed" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiCommentDto>;
+        Assert.That(ok!.Value!.Content, Is.EqualTo("fixed"));
+        Assert.That(ok.Value.EditedAt, Is.Not.Null);
+    }
+
+    // ModerateWikiComments removes a comment; it does not rewrite what someone said under their
+    // own name.
+    [Test]
+    public async Task UpdateWikiComment_ModeratorOnSomeoneElsesComment_ReturnsForbid()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.ModerateWikiComments);
+        var page = await SeedPage();
+        var comment = await SeedComment(page.Id, "theirs", "someone-else");
+
+        var result = await _endpoint.UpdateWikiComment(GuildId, page.Id, comment.Id, new UpdateWikiCommentDto { Content = "rewritten" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task UpdateWikiComment_DoesNotExist_ReturnsNotFound()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var result = await _endpoint.UpdateWikiComment(GuildId, page.Id, "nonexistent", new UpdateWikiCommentDto { Content = "x" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task DeleteWikiComment_Own_Deletes()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        var comment = await SeedComment(page.Id, "mine", UserId);
+
+        var result = await _endpoint.DeleteWikiComment(GuildId, page.Id, comment.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<NoContent>());
+        Assert.That(await _context.WikiComments.AsNoTracking().AnyAsync(c => c.Id == comment.Id), Is.False);
+    }
+
+    [Test]
+    public async Task DeleteWikiComment_SomeoneElsesWithoutModeration_ReturnsForbid()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        var comment = await SeedComment(page.Id, "theirs", "someone-else");
+
+        var result = await _endpoint.DeleteWikiComment(GuildId, page.Id, comment.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task DeleteWikiComment_SomeoneElsesWithModeration_Deletes()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.ModerateWikiComments);
+        var page = await SeedPage();
+        var comment = await SeedComment(page.Id, "theirs", "someone-else");
+
+        var result = await _endpoint.DeleteWikiComment(GuildId, page.Id, comment.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<NoContent>());
+        Assert.That(await _context.WikiComments.AsNoTracking().AnyAsync(c => c.Id == comment.Id), Is.False);
+    }
+
+    [Test]
+    public async Task GetWikiPage_ReturnsCommentCount()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        await SeedComment(page.Id, "a", UserId);
+        await SeedComment(page.Id, "b", "u2");
+
+        var result = await _endpoint.GetWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiPageDto>;
+        Assert.That(ok!.Value!.CommentCount, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task GetWiki_SummaryCarriesCommentCount()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        await SeedComment(page.Id, "a", UserId);
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].CommentCount, Is.EqualTo(1));
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Partial update: absent
     // vs explicitly null
 
@@ -1140,4 +1365,15 @@ public class WikiEndpointTests
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
+    private async Task<WikiComment> SeedComment(string pageId, string content, string authorId, DateTime? createdAt = null)
+    {
+        var comment = WikiComment.Create(new CreateWikiCommentParams
+        {
+            PageId = pageId, GuildId = GuildId, AuthorId = authorId, Content = content,
+        });
+        if (createdAt is not null) comment.CreatedAt = createdAt.Value;
+        _context.WikiComments.Add(comment);
+        await _context.SaveChangesAsync();
+        return comment;
+    }
 }

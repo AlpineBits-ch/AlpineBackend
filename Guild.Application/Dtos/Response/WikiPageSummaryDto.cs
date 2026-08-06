@@ -18,6 +18,9 @@ public partial class WikiPageSummaryDto
     /// per-emoji breakdown. Fetch the page itself for that.</summary>
     public int ReactionCount { get; set; }
 
+    /// <summary>How many comments the page has.</summary>
+    public int CommentCount { get; set; }
+
     /// <summary>Whether the calling user is watching this page.</summary>
     public bool IsWatching { get; set; }
 }

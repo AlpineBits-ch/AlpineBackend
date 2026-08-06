@@ -64,6 +64,15 @@ public class WikiEndpoint
                 .ToListAsync())
             .ToDictionary(x => x.PageId, x => x.Count);
 
+        // Same grouped-count shape as the revisions above, for the same reason: the tree wants a
+        // badge number per page, not the rows behind it.
+        var reactionCounts = (await ctx.WikiPageReactions
+                .Where(r => pageIds.Contains(r.PageId))
+                .GroupBy(r => r.PageId)
+                .Select(g => new { PageId = g.Key, Count = g.Count() })
+                .ToListAsync())
+            .ToDictionary(x => x.PageId, x => x.Count);
+
         var categories = await ctx.WikiCategories
             .Where(c => c.GuildId == guildId)
             .OrderBy(c => c.Position)
@@ -79,6 +88,7 @@ public class WikiEndpoint
                 var summary = p.ToFacet<WikiPage, WikiPageSummaryDto>();
                 // A page with no revisions has no group and so no row at all.
                 summary.RevisionCount = revisionCounts.GetValueOrDefault(p.Id);
+                summary.ReactionCount = reactionCounts.GetValueOrDefault(p.Id);
                 if (includeContent) summary.Content = p.Content;
                 return summary;
             }).ToList(),
@@ -107,6 +117,7 @@ public class WikiEndpoint
         var dto = page.ToFacet<WikiPage, WikiPageDto>();
         dto.RevisionCount = await ctx.WikiRevisions
             .CountAsync(r => r.PageId == pageId);
+        await HydrateEngagementAsync(dto, pageId, userId, ctx);
 
         return Results.Ok(dto);
     }
@@ -237,6 +248,7 @@ public class WikiEndpoint
 
         var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
         responseDto.RevisionCount = page.Revisions.Count;
+        await HydrateEngagementAsync(responseDto, page.Id, userId, ctx);
         return Results.Ok(responseDto);
     }
 
@@ -332,6 +344,7 @@ public class WikiEndpoint
 
         var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
         responseDto.RevisionCount = page.Revisions.Count;
+        await HydrateEngagementAsync(responseDto, page.Id, userId, ctx);
         return Results.Ok(responseDto);
     }
 
@@ -415,5 +428,130 @@ public class WikiEndpoint
 
         return Results.NoContent();
     }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // Reactions
+
+    /// <summary>
+    /// Idempotent: reacting twice with the same emoji is the same row, and the second call emits no
+    /// event.
+    /// </summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/reactions")]
+    public async Task<(IResult, WikiPageReactionAdded?)> AddWikiPageReaction(
+        string guildId,
+        string pageId,
+        CreateWikiPageReactionDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
+
+        var canReact = await permissionService.CanUserPerformActionOnGuildAsync(
+            userId, guildId, Permissions.ViewWiki | Permissions.AddReactions);
+        if (!canReact) return (Results.Forbid(), null);
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return (Results.NotFound(), null);
+
+        // The whole page's reactions, because the response is the fresh aggregate either way and a
+        // page carries a handful of rows.
+        var rows = await ctx.WikiPageReactions.Where(r => r.PageId == pageId).ToListAsync();
+
+        if (rows.Any(r => r.UserId == userId && r.Emoji == dto.Emoji))
+            return (Results.Ok(AggregateReactions(rows, userId)), null);
+
+        WikiPageReaction reaction;
+        try
+        {
+            reaction = WikiPageReaction.Create(new CreateWikiPageReactionParams
+            {
+                PageId = pageId, GuildId = guildId, UserId = userId, Emoji = dto.Emoji,
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            return (Results.BadRequest(ex.Message), null);
+        }
+
+        ctx.WikiPageReactions.Add(reaction);
+        rows.Add(reaction);
+
+        return (Results.Ok(AggregateReactions(rows, userId)), new WikiPageReactionAdded
+        {
+            CorrelationId = pageId,
+            PageId = pageId,
+            GuildId = guildId,
+            UserId = userId,
+            Emoji = dto.Emoji,
+        });
+    }
+
+    /// <summary>
+    /// Removes only the caller's own reaction - there is no "clear everyone's 👍" here, matching
+    /// message reactions.
+    /// </summary>
+    [WolverineDelete("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/reactions/{emoji}")]
+    public async Task<(IResult, WikiPageReactionRemoved?)> RemoveWikiPageReaction(
+        string guildId,
+        string pageId,
+        string emoji,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
+
+        // Only ViewWiki: taking your own reaction back is not an act of reacting, so someone whose
+        // AddReactions was revoked after the fact can still undo what they did.
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return (Results.Forbid(), null);
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return (Results.NotFound(), null);
+
+        var rows = await ctx.WikiPageReactions.Where(r => r.PageId == pageId).ToListAsync();
+        var mine = rows.FirstOrDefault(r => r.UserId == userId && r.Emoji == emoji);
+        if (mine is null) return (Results.Ok(AggregateReactions(rows, userId)), null);
+
+        ctx.WikiPageReactions.Remove(mine);
+        rows.Remove(mine);
+
+        return (Results.Ok(AggregateReactions(rows, userId)), new WikiPageReactionRemoved
+        {
+            CorrelationId = pageId,
+            PageId = pageId,
+            GuildId = guildId,
+            UserId = userId,
+            Emoji = emoji,
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // Helpers
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Fills the engagement fields of a page DTO.</summary>
+    private static async Task HydrateEngagementAsync(WikiPageDto dto, string pageId, string userId, MicroserviceContext ctx)
+    {
+        var reactions = await ctx.WikiPageReactions.Where(r => r.PageId == pageId).ToListAsync();
+        dto.Reactions = AggregateReactions(reactions, userId);
+    }
+
+    /// <summary>Busiest emoji first, ties broken by codepoint so the order is stable across
+    /// requests rather than whatever the database happened to return.</summary>
+    private static List<WikiReactionDto> AggregateReactions(IEnumerable<WikiPageReaction> rows, string userId) =>
+        rows.GroupBy(r => r.Emoji)
+            .Select(g => new WikiReactionDto
+            {
+                Emoji = g.Key,
+                Count = g.Count(),
+                Me = g.Any(r => r.UserId == userId),
+            })
+            .OrderByDescending(r => r.Count)
+            .ThenBy(r => r.Emoji, StringComparer.Ordinal)
+            .ToList();
 
 }

@@ -7,4 +7,9 @@ namespace Guild.Application.Dtos.Response;
 public partial class WikiPageDto
 {
     public int RevisionCount { get; set; }
+
+    /// <summary>Aggregated emoji reactions, ordered by count descending then emoji, with
+    /// <see cref="WikiReactionDto.Me"/> answering "did I react" for the calling user. Empty rather
+    /// than null when nobody has reacted.</summary>
+    public List<WikiReactionDto> Reactions { get; set; } = [];
 }

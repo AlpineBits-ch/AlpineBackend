@@ -654,6 +654,216 @@ public class WikiEndpointTests
         Assert.That(ok.Value.Pages[0].CoverUrl, Is.EqualTo("https://cdn.example/c.png"));
     }
 
+    // ══════════════════════════════════════════════════════════════════════ Reactions
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task AddWikiPageReaction_Unauthenticated_ReturnsUnauthorized()
+    {
+        var (result, _) = await _endpoint.AddWikiPageReaction(GuildId, "nonexistent", new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.CreateAnonymous());
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    // Reacting is gated on the guild-wide AddReactions bit that already gates message reactions,
+    // not on a new wiki-only permission. ViewWiki alone is not enough.
+    [Test]
+    public async Task AddWikiPageReaction_LacksAddReactions_ReturnsForbid()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var (result, _) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task AddWikiPageReaction_PageDoesNotExist_ReturnsNotFound()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+
+        var (result, _) = await _endpoint.AddWikiPageReaction(GuildId, "nonexistent", new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task AddWikiPageReaction_Valid_PersistsAndReturnsAggregate()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        var page = await SeedPage();
+
+        var (result, evt) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiReactionDto>>;
+        Assert.That(ok!.Value, Has.Count.EqualTo(1));
+        Assert.That(ok.Value![0].Emoji, Is.EqualTo("👍"));
+        Assert.That(ok.Value[0].Count, Is.EqualTo(1));
+        Assert.That(ok.Value[0].Me, Is.True);
+        Assert.That(evt, Is.Not.Null);
+        Assert.That(evt!.UserId, Is.EqualTo(UserId));
+        Assert.That(await _context.WikiPageReactions.AsNoTracking().CountAsync(r => r.PageId == page.Id), Is.EqualTo(1));
+    }
+
+    // (PageId, UserId, Emoji) is the primary key, so a double-tap has to be a no-op rather than a
+    // duplicate-key crash - and it must not emit a second event either, or every client would
+    // double-count.
+    [Test]
+    public async Task AddWikiPageReaction_Twice_IsIdempotentAndEmitsNoSecondEvent()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        var page = await SeedPage();
+
+        await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var (result, evt) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiReactionDto>>;
+        Assert.That(ok!.Value![0].Count, Is.EqualTo(1));
+        Assert.That(evt, Is.Null);
+        Assert.That(await _context.WikiPageReactions.AsNoTracking().CountAsync(r => r.PageId == page.Id), Is.EqualTo(1));
+    }
+
+    // Same single-grapheme rule as message reactions.
+    [Test]
+    public async Task AddWikiPageReaction_NotAnEmoji_ReturnsBadRequest()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        var page = await SeedPage();
+
+        var (result, evt) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "lgtm" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.That(evt, Is.Null);
+    }
+
+    // Me answers "did I react", not "did anyone".
+    [Test]
+    public async Task AddWikiPageReaction_CountsOthersButMeIsCallerOnly()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        var page = await SeedPage();
+        _context.WikiPageReactions.Add(WikiPageReaction.Create(new CreateWikiPageReactionParams
+        {
+            PageId = page.Id, GuildId = GuildId, UserId = "someone-else", Emoji = "🎉",
+        }));
+        await _context.SaveChangesAsync();
+
+        var (result, _) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiReactionDto>>;
+        var mine = ok!.Value!.Single(r => r.Emoji == "👍");
+        var theirs = ok.Value.Single(r => r.Emoji == "🎉");
+        Assert.That(mine.Me, Is.True);
+        Assert.That(theirs.Me, Is.False);
+        Assert.That(theirs.Count, Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task RemoveWikiPageReaction_RemovesOnlyTheCallersOwn()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        var page = await SeedPage();
+        _context.WikiPageReactions.AddRange(
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍" }),
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = "someone-else", Emoji = "👍" }));
+        await _context.SaveChangesAsync();
+
+        var (result, evt) = await _endpoint.RemoveWikiPageReaction(GuildId, page.Id, "👍",
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<List<Guild.Application.Dtos.Response.WikiReactionDto>>;
+        Assert.That(ok!.Value![0].Count, Is.EqualTo(1));
+        Assert.That(ok.Value[0].Me, Is.False);
+        Assert.That(evt, Is.Not.Null);
+        Assert.That(await _context.WikiPageReactions.AsNoTracking().AnyAsync(r => r.UserId == "someone-else"), Is.True);
+    }
+
+    [Test]
+    public async Task RemoveWikiPageReaction_NeverReacted_IsOkWithNoEvent()
+    {
+        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        var page = await SeedPage();
+
+        var (result, evt) = await _endpoint.RemoveWikiPageReaction(GuildId, page.Id, "👍",
+            _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<Ok<List<Guild.Application.Dtos.Response.WikiReactionDto>>>());
+        Assert.That(evt, Is.Null);
+    }
+
+    // Taking your own reaction back is not an act of reacting, so a member whose AddReactions was
+    // revoked afterwards can still undo what they did.
+    [Test]
+    public async Task RemoveWikiPageReaction_WithoutAddReactions_IsStillAllowed()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        _context.WikiPageReactions.Add(WikiPageReaction.Create(new CreateWikiPageReactionParams
+        {
+            PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍",
+        }));
+        await _context.SaveChangesAsync();
+
+        var (result, evt) = await _endpoint.RemoveWikiPageReaction(GuildId, page.Id, "👍",
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<List<Guild.Application.Dtos.Response.WikiReactionDto>>>());
+        Assert.That(evt, Is.Not.Null);
+        Assert.That(await _context.WikiPageReactions.AsNoTracking().AnyAsync(r => r.PageId == page.Id), Is.False);
+    }
+
+    [Test]
+    public async Task GetWikiPage_ReturnsAggregatedReactions()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        _context.WikiPageReactions.AddRange(
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍" }),
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = "u2", Emoji = "👍" }),
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = "u3", Emoji = "🎉" }));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiPageDto>;
+        // Busiest first, so the client can render without sorting.
+        Assert.That(ok!.Value!.Reactions[0].Emoji, Is.EqualTo("👍"));
+        Assert.That(ok.Value.Reactions[0].Count, Is.EqualTo(2));
+        Assert.That(ok.Value.Reactions[0].Me, Is.True);
+        Assert.That(ok.Value.Reactions[1].Count, Is.EqualTo(1));
+    }
+
+    // A page carries a badge in the tree, not the per-emoji breakdown.
+    [Test]
+    public async Task GetWiki_SummaryCarriesTotalReactionCount()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        _context.WikiPageReactions.AddRange(
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍" }),
+            WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = "u3", Emoji = "🎉" }));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].ReactionCount, Is.EqualTo(2));
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Partial update: absent
     // vs explicitly null
 

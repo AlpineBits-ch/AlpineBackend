@@ -13,4 +13,8 @@ public partial class WikiPageSummaryDto
     /// doing full-text search or backlink indexing need.
     /// </summary>
     public string? Content { get; set; }
+
+    /// <summary>Total reactions on the page across all emoji - a badge number for the tree, not the
+    /// per-emoji breakdown. Fetch the page itself for that.</summary>
+    public int ReactionCount { get; set; }
 }

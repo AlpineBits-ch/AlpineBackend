@@ -24,7 +24,8 @@ public class MicroserviceContext : DbContext
     public DbSet<WikiPage> WikiPages { get; set; }
     public DbSet<WikiCategory> WikiCategories { get; set; }
     public DbSet<WikiRevision> WikiRevisions { get; set; }
-    
+    public DbSet<WikiPageReaction> WikiPageReactions { get; set; }
+
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
     public DbSet<GuildAuditLogEntry> AuditLogEntries { get; set; }
     public DbSet<GuildBan> GuildBans { get; set; }
@@ -393,6 +394,25 @@ public class MicroserviceContext : DbContext
                 .WithMany()
                 .HasForeignKey(c => c.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Reactions hang off WikiPage by foreign key with no navigation property on the page. That
+        // is deliberate: WikiPageDto/WikiPageSummaryDto are Facets over WikiPage, so every
+        // collection added to the entity has to be named in an exclusion list to stay out of the
+        // wire shape, and any stray Include() would drag the whole set into memory the way
+        // Include(p => p.Revisions) used to. They are read as an aggregate instead.
+        modelBuilder.Entity<WikiPageReaction>(reactionBuilder =>
+        {
+            // One row per (page, user, emoji) makes reacting twice a no-op instead of a duplicate.
+            reactionBuilder.HasKey(r => new { r.PageId, r.UserId, r.Emoji });
+
+            reactionBuilder.HasOne<WikiPage>()
+                .WithMany()
+                .HasForeignKey(r => r.PageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // No separate index on PageId: it leads the primary key, whose index already serves
+            // "every reaction on this page" - the only query this table has.
         });
 
         modelBuilder.Entity<GuildAuditLogEntry>(auditLogBuilder =>

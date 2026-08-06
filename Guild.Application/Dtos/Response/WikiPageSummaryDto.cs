@@ -17,4 +17,7 @@ public partial class WikiPageSummaryDto
     /// <summary>Total reactions on the page across all emoji - a badge number for the tree, not the
     /// per-emoji breakdown. Fetch the page itself for that.</summary>
     public int ReactionCount { get; set; }
+
+    /// <summary>Whether the calling user is watching this page.</summary>
+    public bool IsWatching { get; set; }
 }

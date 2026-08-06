@@ -52,4 +52,23 @@ public class WikiEngagementTests
     [TestCase("  ", false)]
     public void EmojiText_MatchesTheMessageReactionRule(string value, bool expected) =>
         Assert.That(EmojiText.IsSingleEmoji(value), Is.EqualTo(expected));
+
+    // ── Watchers ─────────────────────────────────────────────────────────────
+
+    [Test]
+    public void Watcher_Create_SetsAllPropertiesFromParams()
+    {
+        var watcher = WikiPageWatcher.Create(new CreateWikiPageWatcherParams
+        {
+            PageId = "wkpg_abc", GuildId = "gild_abc", UserId = "user_1",
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(watcher.PageId, Is.EqualTo("wkpg_abc"));
+            Assert.That(watcher.GuildId, Is.EqualTo("gild_abc"));
+            Assert.That(watcher.UserId, Is.EqualTo("user_1"));
+            Assert.That(watcher.CreatedAt, Is.Not.EqualTo(default(DateTime)));
+        });
+    }
 }

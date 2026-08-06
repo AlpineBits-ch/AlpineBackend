@@ -78,8 +78,9 @@ public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
         return page;
     }
 
-    public void RaiseUpdated() =>
-        AddDomainEvent(new WikiPageUpdated { PageId = Id, GuildId = GuildId });
+    /// <param name="editorId">Who made the change.</param>
+    public void RaiseUpdated(string? editorId = null) =>
+        AddDomainEvent(new WikiPageUpdated { PageId = Id, GuildId = GuildId, EditorId = editorId });
 
     public void RaiseDeleted() =>
         AddDomainEvent(new WikiPageDeleted { PageId = Id, GuildId = GuildId });

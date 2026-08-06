@@ -864,6 +864,123 @@ public class WikiEndpointTests
         Assert.That(ok!.Value!.Pages[0].ReactionCount, Is.EqualTo(2));
     }
 
+    // ══════════════════════════════════════════════════════════════════════ Watchers
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task WatchWikiPage_LacksViewWiki_ReturnsForbid()
+    {
+        await SeedMember(Permissions.None);
+        var result = await _endpoint.WatchWikiPage(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task WatchWikiPage_PageDoesNotExist_ReturnsNotFound()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var result = await _endpoint.WatchWikiPage(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task WatchWikiPage_Valid_PersistsAndReportsState()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var result = await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiWatchStateDto>;
+        Assert.That(ok!.Value!.IsWatching, Is.True);
+        Assert.That(ok.Value.WatcherCount, Is.EqualTo(1));
+        Assert.That(await _context.WikiPageWatchers.AsNoTracking().AnyAsync(w => w.PageId == page.Id && w.UserId == UserId), Is.True);
+    }
+
+    [Test]
+    public async Task WatchWikiPage_Twice_IsIdempotent()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+        var result = await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiWatchStateDto>;
+        Assert.That(ok!.Value!.WatcherCount, Is.EqualTo(1));
+        Assert.That(await _context.WikiPageWatchers.AsNoTracking().CountAsync(w => w.PageId == page.Id), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task UnwatchWikiPage_Removes()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.UnwatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiWatchStateDto>;
+        Assert.That(ok!.Value!.IsWatching, Is.False);
+        Assert.That(ok.Value.WatcherCount, Is.EqualTo(0));
+        Assert.That(await _context.WikiPageWatchers.AsNoTracking().AnyAsync(w => w.PageId == page.Id), Is.False);
+    }
+
+    [Test]
+    public async Task UnwatchWikiPage_NotWatching_IsIdempotent()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+
+        var result = await _endpoint.UnwatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiWatchStateDto>;
+        Assert.That(ok!.Value!.IsWatching, Is.False);
+        Assert.That(ok.Value.WatcherCount, Is.EqualTo(0));
+    }
+
+    // IsWatching is per-caller: another member's watch must not light up this caller's toggle.
+    [Test]
+    public async Task GetWikiPage_IsWatchingIsPerCaller()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        _context.WikiPageWatchers.Add(WikiPageWatcher.Create(new CreateWikiPageWatcherParams
+        {
+            PageId = page.Id, GuildId = GuildId, UserId = "someone-else",
+        }));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiPageDto>;
+        Assert.That(ok!.Value!.IsWatching, Is.False);
+        Assert.That(ok.Value.WatcherCount, Is.EqualTo(1));
+    }
+
+    // One query for the whole wiki, so the tree can mark watched pages without a request per page.
+    [Test]
+    public async Task GetWiki_MarksWatchedPagesInTheSummary()
+    {
+        await SeedMember(Permissions.ViewWiki);
+        var page = await SeedPage();
+        _context.WikiPageWatchers.Add(WikiPageWatcher.Create(new CreateWikiPageWatcherParams
+        {
+            PageId = page.Id, GuildId = GuildId, UserId = UserId,
+        }));
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.WikiDto>;
+        Assert.That(ok!.Value!.Pages[0].IsWatching, Is.True);
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Partial update: absent
     // vs explicitly null
 

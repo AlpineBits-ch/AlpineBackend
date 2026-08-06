@@ -25,6 +25,7 @@ public class MicroserviceContext : DbContext
     public DbSet<WikiCategory> WikiCategories { get; set; }
     public DbSet<WikiRevision> WikiRevisions { get; set; }
     public DbSet<WikiPageReaction> WikiPageReactions { get; set; }
+    public DbSet<WikiPageWatcher> WikiPageWatchers { get; set; }
 
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
     public DbSet<GuildAuditLogEntry> AuditLogEntries { get; set; }
@@ -413,6 +414,21 @@ public class MicroserviceContext : DbContext
 
             // No separate index on PageId: it leads the primary key, whose index already serves
             // "every reaction on this page" - the only query this table has.
+        });
+
+        // Same FK-without-navigation shape as the reactions above, for the same reason.
+        modelBuilder.Entity<WikiPageWatcher>(watcherBuilder =>
+        {
+            watcherBuilder.HasKey(w => new { w.PageId, w.UserId });
+
+            watcherBuilder.HasOne<WikiPage>()
+                .WithMany()
+                .HasForeignKey(w => w.PageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The fan-out on every page edit is "who watches this page", which the primary key's
+            // leading column already covers.
+            watcherBuilder.HasIndex(w => new { w.GuildId, w.UserId });
         });
 
         modelBuilder.Entity<GuildAuditLogEntry>(auditLogBuilder =>

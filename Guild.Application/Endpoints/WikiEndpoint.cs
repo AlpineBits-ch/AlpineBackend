@@ -73,6 +73,13 @@ public class WikiEndpoint
                 .ToListAsync())
             .ToDictionary(x => x.PageId, x => x.Count);
 
+        // Only this caller's watches - one query for the whole wiki instead of one per page.
+        var watchedPageIds = (await ctx.WikiPageWatchers
+                .Where(w => w.UserId == userId && w.GuildId == guildId)
+                .Select(w => w.PageId)
+                .ToListAsync())
+            .ToHashSet();
+
         var categories = await ctx.WikiCategories
             .Where(c => c.GuildId == guildId)
             .OrderBy(c => c.Position)
@@ -89,6 +96,7 @@ public class WikiEndpoint
                 // A page with no revisions has no group and so no row at all.
                 summary.RevisionCount = revisionCounts.GetValueOrDefault(p.Id);
                 summary.ReactionCount = reactionCounts.GetValueOrDefault(p.Id);
+                summary.IsWatching = watchedPageIds.Contains(p.Id);
                 if (includeContent) summary.Content = p.Content;
                 return summary;
             }).ToList(),
@@ -244,7 +252,7 @@ public class WikiEndpoint
             ctx.WikiRevisions.Add(revision);
         }
 
-        page.RaiseUpdated();
+        page.RaiseUpdated(userId);
 
         var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
         responseDto.RevisionCount = page.Revisions.Count;
@@ -340,7 +348,7 @@ public class WikiEndpoint
         // above; EF's change-tracker fixup already appends it once tracked via the DbSet.
         ctx.WikiRevisions.Add(restoredRevision);
 
-        page.RaiseUpdated();
+        page.RaiseUpdated(userId);
 
         var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
         responseDto.RevisionCount = page.Revisions.Count;
@@ -530,6 +538,65 @@ public class WikiEndpoint
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
+    // Watchers
+
+    /// <summary>Idempotent - watching an already-watched page is a no-op returning 200.</summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/watch")]
+    public async Task<IResult> WatchWikiPage(
+        string guildId,
+        string pageId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return Results.NotFound();
+
+        var already = await ctx.WikiPageWatchers.AnyAsync(w => w.PageId == pageId && w.UserId == userId);
+        if (!already)
+        {
+            ctx.WikiPageWatchers.Add(WikiPageWatcher.Create(new CreateWikiPageWatcherParams
+            {
+                PageId = pageId, GuildId = guildId, UserId = userId,
+            }));
+        }
+
+        var watcherCount = await ctx.WikiPageWatchers.CountAsync(w => w.PageId == pageId) + (already ? 0 : 1);
+        return Results.Ok(new WikiWatchStateDto { PageId = pageId, IsWatching = true, WatcherCount = watcherCount });
+    }
+
+    /// <summary>Idempotent - unwatching a page you do not watch is a no-op returning 200.</summary>
+    [WolverineDelete("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/watch")]
+    public async Task<IResult> UnwatchWikiPage(
+        string guildId,
+        string pageId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (!pageExists) return Results.NotFound();
+
+        var watch = await ctx.WikiPageWatchers.FirstOrDefaultAsync(w => w.PageId == pageId && w.UserId == userId);
+        if (watch is not null) ctx.WikiPageWatchers.Remove(watch);
+
+        var watcherCount = await ctx.WikiPageWatchers.CountAsync(w => w.PageId == pageId) - (watch is null ? 0 : 1);
+        return Results.Ok(new WikiWatchStateDto { PageId = pageId, IsWatching = false, WatcherCount = watcherCount });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
 
@@ -538,6 +605,8 @@ public class WikiEndpoint
     {
         var reactions = await ctx.WikiPageReactions.Where(r => r.PageId == pageId).ToListAsync();
         dto.Reactions = AggregateReactions(reactions, userId);
+        dto.WatcherCount = await ctx.WikiPageWatchers.CountAsync(w => w.PageId == pageId);
+        dto.IsWatching = await ctx.WikiPageWatchers.AnyAsync(w => w.PageId == pageId && w.UserId == userId);
     }
 
     /// <summary>Busiest emoji first, ties broken by codepoint so the order is stable across

@@ -12,4 +12,10 @@ public partial class WikiPageDto
     /// <see cref="WikiReactionDto.Me"/> answering "did I react" for the calling user. Empty rather
     /// than null when nobody has reacted.</summary>
     public List<WikiReactionDto> Reactions { get; set; } = [];
+
+    /// <summary>Whether the calling user is watching this page.</summary>
+    public bool IsWatching { get; set; }
+
+    /// <summary>How many users watch this page, the caller included.</summary>
+    public int WatcherCount { get; set; }
 }

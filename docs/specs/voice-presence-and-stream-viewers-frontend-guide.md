@@ -145,6 +145,61 @@ twice, right behind the VoIP push that already fired.
 
 ---
 
+## 5. Learning what to pull in a call (`call.ParticipantJoined`)
+
+A client never discovers another participant's audio by inspecting the SFU: it is told, over
+SignalR, which Cloudflare session and track name to pull. `call.ParticipantJoined` is that telling,
+and it is the **only** live source for a call — `GET /api/v1/messaging/voice/conversations/{id}/call`
+deliberately omits both fields (§3), and `GET /api/v1/messaging/voice/call/{callId}` carries them
+but is a catch-up read the client has to decide to make.
+
+```jsonc
+{
+  "callId": "call_01K…",   // added — the engine runs several calls at once
+  "userId": "user-2",
+  "cfSessionId": "…",      // the session that participant PUBLISHES on
+  "audioTrackName": "audio"
+}
+```
+
+`callId` is new and additive; the other three fields are unchanged.
+
+**When it is sent.** Three moments, all server-side:
+
+1. **Somebody publishes.** `POST /calls/{callId}/cf/tracks/new` carrying a `local` track named
+   `audio` announces that participant to every *connected* participant. Never before the publish — a
+   session id with no track behind it names something Cloudflare has nothing for, the subscribe
+   fails, and because clients dedupe subscriptions per user the failed attempt burns the guard and
+   the real announcement moments later is dropped as a duplicate. One-way silence for the rest of
+   the call.
+2. **In return.** That same request replays every *other* participant who is already publishing back
+   to the publisher.
+3. **On entering the media path.** `POST /calls/{callId}/session?primary=true` replays every
+   participant who is already publishing to whoever made that request. It announces *nothing about
+   them*: they have opened a session and published nothing.
+
+(3) exists because the two sides of a call are not symmetric. The **callee** is `Connected` the
+instant `PUT /call/{callId}/accept` returns, before any media work starts. The **caller** never
+accepts their own call: `POST /session?primary=true` is the only thing that marks them `Connected`,
+and a client issues it from its audio publisher at the end of a multi-second startup (open the
+microphone, build the peer connection, gather ICE). Until it lands they are `Pending`, and (1) skips
+them deliberately — an invitee who is still ringing has no business holding anyone's session id.
+Without (3) a callee who answered quickly published inside that window and the caller was never
+told, with nothing anywhere to repeat it: SignalR does not replay, and calls have no heartbeat sweep
+the way guild voice does. The caller stayed deaf to the callee for the whole call while being heard
+perfectly.
+
+**What the client has to get right.** Announcements are never repeated, so one that arrives before
+the client can act on it is lost for good. If your audio publisher is started by a blocking call —
+as on desktop, where the Rust engine's `voice_start` does not return until it has published — then
+(2) and (3) both arrive *while that call is still in flight*, and a subscribe handler that discards
+an announcement because "the publication does not exist yet" discards exactly the ones that matter.
+Wait for the publication rather than dropping the announcement; the guild path has carried that wait
+since the equivalent bug there. `GET /voice/call/{callId}` is the catch-up if you would rather
+reconcile — but call it *after* the publisher is up, not before.
+
+---
+
 ## Not covered here
 
 Per-viewer stream quality (Auto/720p/480p) is not implemented. It needs simulcast layers from the

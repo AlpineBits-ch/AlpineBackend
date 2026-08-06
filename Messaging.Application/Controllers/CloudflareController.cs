@@ -104,6 +104,10 @@ public class CloudflareController(
             {
                 await bus.PublishAsync(evt);
             }
+
+            // The backfill that makes the announcement contract survive a slow joiner - see
+            // ReplayPublishedParticipantsAsync.
+            await ReplayPublishedParticipantsAsync(call, ct);
         }
 
         // Store reverse mapping so OnDisconnectedAsync can find this user's call
@@ -227,22 +231,57 @@ public class CloudflareController(
             .Where(p => p.UserId != UserId && p.Status == CallStatus.Connected)
             .ToList();
 
-        var joinedPayload = new { userId = UserId, cfSessionId, audioTrackName = "audio" };
+        logger.LogInformation(
+            "ExchangeParticipantJoined: call {CallId}, publisher {UserId}, participants: {Participants}",
+            callId, UserId,
+            string.Join(", ", call.Participants.Select(p =>
+                $"{p.UserId}({p.Status}, cfSessionId={p.CfSessionId ?? "null"}, audioTrackName={p.AudioTrackName ?? "null"})")));
+
+        var joinedPayload = new { callId, userId = UserId, cfSessionId, audioTrackName = "audio" };
         var tasks = connectedOthers
             .Select(p => hub.Clients.User(p.UserId).SendAsync("call.ParticipantJoined", joinedPayload, ct))
             .ToList();
 
-        // Send existing participants back to the joiner
+        // Send existing participants back to the joiner.
         tasks.AddRange(connectedOthers
-            .Where(p => p.CfSessionId is not null)
+            .Where(p => p.CfSessionId is not null && p.AudioTrackName is not null)
             .Select(p => hub.Clients.User(UserId).SendAsync("call.ParticipantJoined", new
             {
+                callId,
                 userId = p.UserId,
                 cfSessionId = p.CfSessionId,
-                audioTrackName = p.AudioTrackName ?? "audio",
+                audioTrackName = p.AudioTrackName,
             }, ct)));
 
         await Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Hands a participant who has just entered the media path the session and track name of
+    /// everyone in this call who is already publishing audio.
+    /// </summary>
+    private async Task ReplayPublishedParticipantsAsync(Call call, CancellationToken ct)
+    {
+        var publishing = call.Participants
+            .Where(p => p.UserId != UserId
+                        && p.Status == CallStatus.Connected
+                        && p.CfSessionId is not null
+                        && p.AudioTrackName is not null)
+            .ToList();
+        if (publishing.Count == 0) return;
+
+        logger.LogInformation(
+            "Replaying {Count} publishing participant(s) to {UserId} joining call {CallId}: {Participants}",
+            publishing.Count, UserId, call.Id, string.Join(", ", publishing.Select(p => p.UserId)));
+
+        await Task.WhenAll(publishing.Select(p => hub.Clients.User(UserId).SendAsync(
+            "call.ParticipantJoined", new
+            {
+                callId = call.Id,
+                userId = p.UserId,
+                cfSessionId = p.CfSessionId,
+                audioTrackName = p.AudioTrackName,
+            }, ct)));
     }
 
     private async Task EmitTrackPublished(string callId, string cfSessionId, List<CfTrackNew> tracks, CancellationToken ct)

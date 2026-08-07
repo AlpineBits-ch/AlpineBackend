@@ -39,6 +39,26 @@ public class PaymentHandleDirectoryDto
     public required int MemberRosterVersion { get; set; }
 
     public List<SealedPaymentHandlesDto> Members { get; set; } = [];
+
+    /// <summary>The phone numbers of the members who chose to show theirs to this guild.</summary>
+    public List<SharedPhoneNumberDto> PhoneNumbers { get; set; } = [];
+
+    /// <summary>The caller's own opt-in, echoed so the settings toggle can render without a second
+    /// round trip. Only ever the caller's own: whether anybody else has opted in is visible from
+    /// <see cref="PhoneNumbers"/>, and not otherwise.</summary>
+    public required bool SharingPhoneNumber { get; set; }
+}
+
+/// <summary>One member's phone number, as they typed it.</summary>
+public class SharedPhoneNumberDto
+{
+    public required string UserId { get; set; }
+
+    /// <summary>E.164, normalised by Identity on write.</summary>
+    public required string PhoneNumber { get; set; }
+
+    /// <summary>When the owner last wrote it.</summary>
+    public required DateTimeOffset UpdatedAt { get; set; }
 }
 
 /// <summary>One device a client may need to seal to, and the key to seal to it with.</summary>
@@ -64,6 +84,18 @@ public class PaymentHandleRecipientDto
 
     /// <summary>False for a device its owner has marked removed.</summary>
     public required bool IsActive { get; set; }
+
+    /// <summary>
+    /// The device certificate itself, so a client can check <see cref="HasValidCertificate"/>
+    /// rather than believe it.
+    /// </summary>
+    public byte[]? Certificate { get; set; }
+
+    public DateTimeOffset? CertificateIssuedAt { get; set; }
+    public DateTimeOffset? CertificateExpiresAt { get; set; }
+
+    /// <summary>Which generation of the account identity key signed the certificate.</summary>
+    public int? IdentityKeyVersion { get; set; }
 }
 
 public class PaymentHandleRecipientsDto

@@ -77,6 +77,12 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     /// </summary>
     public DateTimeOffset? OnboardingCompletedAt { get; set; } = DateTimeOffset.UtcNow;
 
+    /// <summary>
+    /// Whether this member has agreed to show their phone number to the other people in this guild,
+    /// so they can be paid back.
+    /// </summary>
+    public bool SharePhoneForPayments { get; set; }
+
     public virtual ICollection<RoleMember> RoleMembers { get; set; } = [];
     public virtual ICollection<ChannelPermission> PermissionOverwrites { get; set; } = [];
     public virtual ICollection<ReadState> ReadStates { get; set; } = [];

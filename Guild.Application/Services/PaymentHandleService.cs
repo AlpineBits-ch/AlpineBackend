@@ -123,6 +123,46 @@ public class PaymentHandleService(MicroserviceContext ctx)
     }
 
     /// <summary>
+    /// Which of <paramref name="memberUserIds"/> have agreed to show their phone number to this
+    /// guild.
+    /// </summary>
+    public async Task<List<string>> GetPhoneSharingMemberIdsAsync(
+        string guildId, IReadOnlyCollection<string> memberUserIds)
+    {
+        if (memberUserIds.Count == 0) return [];
+
+        return await ctx.GuildMembers.AsNoTracking()
+            .Where(m => m.GuildId == guildId
+                        && m.SharePhoneForPayments
+                        && memberUserIds.Contains(m.UserId))
+            .Select(m => m.UserId)
+            .ToListAsync();
+    }
+
+    /// <summary>Whether one member has opted in, for echoing the caller's own state back to
+    /// them.</summary>
+    public async Task<bool> IsSharingPhoneAsync(string guildId, string userId) =>
+        await ctx.GuildMembers.AsNoTracking()
+            .Where(m => m.GuildId == guildId && m.UserId == userId)
+            .Select(m => m.SharePhoneForPayments)
+            .FirstOrDefaultAsync();
+
+    /// <summary>
+    /// Sets the caller's own opt-in, returning false when there is no member row to set it on.
+    /// </summary>
+    public async Task<bool> SetPhoneSharingAsync(string guildId, string userId, bool share)
+    {
+        var member = await ctx.GuildMembers
+            .FirstOrDefaultAsync(m => m.GuildId == guildId && m.UserId == userId);
+        if (member is null) return false;
+
+        member.SharePhoneForPayments = share;
+        member.UpdatedAt = DateTimeOffset.UtcNow;
+
+        return true;
+    }
+
+    /// <summary>
     /// Every current member's sealed handles, carrying the content key for exactly one device.
     /// </summary>
     public async Task<List<SealedPaymentHandlesDto>> ReadForDeviceAsync(

@@ -70,6 +70,12 @@ public static class IdentityAuditActions
     /// Admin.
     /// </summary>
     public const string StaffRoleChanged = "moderation.role-changed";
+
+    /// <summary>The account set or replaced its phone number.</summary>
+    public const string PhoneNumberChanged = "phone.changed";
+
+    /// <summary>The account removed its phone number.</summary>
+    public const string PhoneNumberRemoved = "phone.removed";
 }
 
 public class CreateIdentityAuditEventParams

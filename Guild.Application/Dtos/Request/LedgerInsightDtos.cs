@@ -24,6 +24,15 @@ public class SealPaymentHandlesDto
     public List<PaymentHandleWrapDto> Wraps { get; set; } = [];
 }
 
+/// <summary>Turns the caller's phone number on or off for this one guild.</summary>
+public class SetPhoneSharingDto
+{
+    /// <summary>True to show the number recorded on the caller's Echo account to the other members
+    /// of this guild. False to stop showing it. There is no field for <i>whose</i> number - see
+    /// <c>PaymentHandleEndpoint.SetPhoneSharingAsync</c>.</summary>
+    public bool Share { get; set; }
+}
+
 public class PaymentHandleWrapDto
 {
     public required string RecipientUserId { get; set; }

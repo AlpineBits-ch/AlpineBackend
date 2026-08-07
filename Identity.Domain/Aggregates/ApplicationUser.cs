@@ -40,8 +40,10 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
     private readonly Lock _lock = new();
 
     public DateOnly BirthDate { get; set; }
-    
+
+    /// <summary>Deliberately unused.</summary>
     public DateTimeOffset? PhoneVerifiedAt { get; set; }
+
     public DateTimeOffset? EmailVerifiedAt { get; set; }
 
     public AgeVerification AgeVerification { get; set; } = null!;

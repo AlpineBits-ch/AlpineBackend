@@ -19,13 +19,16 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class PaymentHandleEndpoint
 {
-    /// <summary>Every member's sealed handles, with the content key for the calling device where
-    /// that member has shared with it.</summary>
+    /// <summary>
+    /// Every member's sealed handles, with the content key for the calling device where that member
+    /// has shared with it - and, separately, the plaintext phone numbers of the members who opted
+    /// in to showing theirs here.
+    /// </summary>
     [WolverineGet("/api/v1/guilds/{guildId}/payment-handles")]
     public async Task<IResult> GetAsync(string guildId,
         [NotBody] GuildPermissionService permissionService, [NotBody] DeviceIdResolver devices,
         [NotBody] LedgerService ledger, [NotBody] PaymentHandleService handles,
-        [NotBody] HttpContext http, [NotBody] ClaimsPrincipal user)
+        [NotBody] IMessageBus bus, [NotBody] HttpContext http, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -42,13 +45,66 @@ public class PaymentHandleEndpoint
             return Results.BadRequest(
                 $"A registered {DeviceIdentity.HeaderName} is required to read sealed payment handles");
 
+        // The consent gate, and the only one there is.
+        var sharingMembers = await handles.GetPhoneSharingMemberIdsAsync(guildId, members);
+
+        // Short-circuited rather than left to the handler's own empty-list guard, so a household
+        // where nobody shares a number never puts a message on the bus at all.
+        List<SharedPhoneNumberDto> phoneNumbers = sharingMembers.Count == 0
+            ? []
+            : await ReadSharedPhoneNumbersAsync(bus, sharingMembers);
+
         return Results.Ok(new PaymentHandleDirectoryDto
         {
             GuildId = guildId,
             DeviceId = deviceId,
             MemberRosterVersion = LedgerService.ComputeRosterVersion(members),
             Members = await handles.ReadForDeviceAsync(guildId, deviceId, members),
+            PhoneNumbers = phoneNumbers,
+            SharingPhoneNumber = sharingMembers.Contains(userId, StringComparer.Ordinal),
         });
+    }
+
+    /// <summary>Fetches the numbers of an already-consented set of members from Identity.</summary>
+    private static async Task<List<SharedPhoneNumberDto>> ReadSharedPhoneNumbersAsync(
+        IMessageBus bus, List<string> sharingMemberIds)
+    {
+        var consented = sharingMemberIds.ToHashSet(StringComparer.Ordinal);
+
+        var response = await bus.InvokeAsync<GetUserPhoneNumbersResponse>(
+            new GetUserPhoneNumbersRequest { UserIds = sharingMemberIds });
+
+        return response.PhoneNumbers
+            .Where(p => consented.Contains(p.UserId))
+            .OrderBy(p => p.UserId, StringComparer.Ordinal)
+            .Select(p => new SharedPhoneNumberDto
+            {
+                UserId = p.UserId,
+                PhoneNumber = p.PhoneNumber,
+                UpdatedAt = p.UpdatedAt,
+            })
+            .ToList();
+    }
+
+    /// <summary>Turns the caller's own phone number on or off for this guild.</summary>
+    [WolverinePut("/api/v1/guilds/{guildId}/payment-handles/phone-sharing")]
+    public async Task<IResult> SetPhoneSharingAsync(string guildId, SetPhoneSharingDto dto,
+        [NotBody] GuildPermissionService permissionService, [NotBody] PaymentHandleService handles,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissionService.IsFeatureEnabledAsync(guildId, GuildFeatures.Ledger))
+            return Results.Forbid();
+
+        // Membership is checked by the write finding a member row, not by a separate roster read:
+        // the two cannot then disagree, and a non-member has nothing to write to.
+        if (!await handles.SetPhoneSharingAsync(guildId, userId, dto.Share)) return Results.Forbid();
+
+        await ctx.SaveChangesAsync();
+
+        return Results.Ok(new { GuildId = guildId, SharingPhoneNumber = dto.Share });
     }
 
     /// <summary>
@@ -97,6 +153,12 @@ public class PaymentHandleEndpoint
                     HasValidCertificate = d.HasValidCertificate,
                     CertificateRevokedAt = d.CertificateRevokedAt,
                     IsActive = d.IsActive,
+                    // The certificate travels with the key it is issued over, in one response, so
+                    // the server cannot pair one device's key with another device's certificate.
+                    Certificate = d.Certificate,
+                    CertificateIssuedAt = d.CertificateIssuedAt,
+                    CertificateExpiresAt = d.CertificateExpiresAt,
+                    IdentityKeyVersion = d.CertificateIdentityKeyVersion,
                 })
                 .ToList(),
 

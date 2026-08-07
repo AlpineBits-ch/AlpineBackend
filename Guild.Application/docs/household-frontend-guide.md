@@ -846,11 +846,22 @@ Everything is whole minor units, so both breakdowns sum back to `totalMinor` exa
 ## 10. Getting paid back - encrypted payment handles
 
 ```
-GET    /api/v1/guild/guilds/{guildId}/payment-handles              every member's sealed blob
-GET    /api/v1/guild/guilds/{guildId}/payment-handles/recipients   the devices to seal to
-PUT    /api/v1/guild/guilds/{guildId}/payment-handles              your own only
-DELETE /api/v1/guild/guilds/{guildId}/payment-handles              your own only
+GET    /api/v1/guild/guilds/{guildId}/payment-handles                 every member's sealed blob,
+                                                                     plus shared phone numbers
+GET    /api/v1/guild/guilds/{guildId}/payment-handles/recipients      the devices to seal to
+PUT    /api/v1/guild/guilds/{guildId}/payment-handles                 your own only
+DELETE /api/v1/guild/guilds/{guildId}/payment-handles                 your own only
+PUT    /api/v1/guild/guilds/{guildId}/payment-handles/phone-sharing   your own opt-in
+
+PUT    /api/v1/identity/users/self/phone                               your own number
+DELETE /api/v1/identity/users/self/phone                               your own number
 ```
+
+**Two kinds of payment detail live on this screen and they do not have the same protection.** The
+sealed handles are ciphertext the server cannot open. The phone number is plaintext the server read,
+could log, and would hand over with the database. They arrive in separate lists for that reason -
+see §10.6. Do not merge them into one "payment details" collection in your model; once you have, no
+UI you write afterwards can tell a user which is which.
 
 **The server holds ciphertext and nothing else.** There is no plaintext IBAN column, no provider
 column, no validation of either, and no code anywhere in Guild that builds a payment link. Every one
@@ -891,7 +902,7 @@ interface PaymentHandleDirectory {
   guildId: string;
   deviceId: string;              // echoed back - see below
   memberRosterVersion: number;
-  members: {
+  members: {                     // ciphertext the server cannot open
     userId: string;
     ciphertext: string;          // base64
     nonce: string;               // base64
@@ -900,6 +911,12 @@ interface PaymentHandleDirectory {
     updatedAt: string;
     wrappedKey?: string | null;  // base64, or null
   }[];
+  phoneNumbers: {                // plaintext the server read - not the same thing
+    userId: string;
+    phoneNumber: string;         // E.164
+    updatedAt: string;
+  }[];
+  sharingPhoneNumber: boolean;   // your own opt-in, echoed for the settings toggle
 }
 ```
 
@@ -984,10 +1001,61 @@ structured address mandatory since November 2025, reference type `NON`, EC level
 overlay. Generated on the debtor's device from the creditor's decrypted IBAN and scanned in their
 banking app. **This is the one to build.**
 
-**Phone numbers are not in the blob.** Identity owns the user's number and its verification state; a
-copy sealed in a household blob would be a second number that drifts and that nothing on this side
-can read to reconcile. The per-household opt-in for exposing it is cross-service work in flight -
-leave a clean seam and do not build the storage path here.
+**Phone numbers are not in the blob.** Identity owns the number; a copy sealed in a household blob
+would be a second number that drifts and that nothing on this side can read to reconcile. The
+per-household opt-in is §10.6.
+
+### 10.6 The phone number, and why it is the weakest thing on this screen
+
+TWINT's ceiling, per the research above, is *a phone number shown large with a copy button*. So the
+number carries real money, and it is the one value here that nothing checks.
+
+**Two separate acts, two separate calls.** Entering a number is `PUT /api/v1/identity/users/self/phone`
+with `{ phoneNumber }` and is account-wide. Showing it to a household is
+`PUT .../payment-handles/phone-sharing` with `{ share: boolean }` and is **per guild, off until
+turned on**. A number entered once must not follow the account into every server it joins, so there
+is no single switch that does both and you should not build UI that implies there is.
+
+- Identity normalises to E.164 and `400`s anything it cannot: no leading `+`, a leading `00`, a
+  leading zero after the `+`, stray letters, under 6 or over 15 digits. Spaces, hyphens, dots and
+  brackets are stripped, so a paste from a contact card is fine. `00` is refused rather than
+  rewritten, because rewriting it is wrong in enough countries to silently produce a stranger's
+  number - surface the `400` and ask the user to fix it.
+- `DELETE` on the same path removes it, idempotently, `204` either way.
+- `GET /api/v1/identity/users/self` already returns `phoneNumber`, so there is no `GET` here.
+- Deleting the number does **not** clear any guild opt-in, and does not need to: a guild with an
+  opt-in and no number behind it produces exactly the same response as no opt-in.
+
+**Nothing verifies the number.** SMS verification was designed and dropped: with Firebase Phone Auth
+the client calls Google directly, so the SMS is sent and paid for before our backend is ever
+involved and no server-side limit can gate the spend - the controls that would have to carry it (App
+Check enforced, project quotas, region policy, a billing kill switch) are all Firebase console
+configuration. A paid provider was not worth it at this volume. **Do not render a verification
+badge**; there is no field for one and there will not be a false one added, because a badge that
+always reads "unverified" teaches people to stop reading badges. Say it in words next to the number
+instead, once: *this is the number Anna entered, we have not checked it*.
+
+Two consequences you have to design for:
+
+- **Two accounts may hold the same number, deliberately.** Uniqueness is only safe when something
+  proves the claim. Without that, one person mistyping a digit into a stranger's real number would
+  permanently lock that stranger out of ever entering their own, unrecoverably. So there is no
+  conflict error to handle.
+- **`updatedAt` is the only signal there is**, and it is a weak one. Worth showing when a number is
+  old; not worth dressing up as assurance.
+
+**Absence means nothing in particular, and must keep meaning nothing in particular.** A member with
+no entry in `phoneNumbers` has either not opted in for this guild or not entered a number at all,
+and the response deliberately does not say which. That is not an oversight to work around by
+cross-referencing another endpoint: telling one flatmate that another *specifically declined to
+share with them* is a worse disclosure than the number. Render the absence as
+**"Anna hasn't shared a number"** and stop there.
+
+Gated on `GuildFeatures.Ledger` and on membership, like the rest of §10. There is no permission bit
+and no route that sets somebody else's opt-in - publishing a person's phone number is not a
+moderator action. The change is not broadcast over realtime either: an event would announce the
+moment somebody withdrew their number, which is the one change a person might reasonably make
+quietly. Clients pick it up on the next directory read.
 
 **The number is not SMS-verified**, and your copy must not imply it is. Never label it "verified".
 The real check happens inside TWINT, which shows the recipient's name once a number is entered: tell

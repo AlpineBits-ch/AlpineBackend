@@ -35,5 +35,23 @@ public class RestockPantryItemDto
     public decimal? Amount { get; set; }
 }
 
+/// <summary>
+/// "This is what we call this code." The house stating a name for a barcode as its own act, with no
+/// stock movement of any kind.
+/// </summary>
+public class TeachPantryBarcodeDto
+{
+    /// <summary>Required. There is no other field this request is really about.</summary>
+    public string Name { get; set; } = null!;
+
+    /// <summary>Null means "leave whatever is there", not "clear it" - see
+    /// <c>PantryBarcode.StateName</c>. A correction made from a scanner toast knows the name and
+    /// nothing else.</summary>
+    public string? Unit { get; set; }
+
+    /// <summary>How much one scan of this code should add in future. Null leaves it alone.</summary>
+    public decimal? DefaultQuantity { get; set; }
+}
+
 // Barcode and ClearBarcode live on CreatePantryItemDto / UpdatePantryItemDto in
 // Dtos/Request/HouseholdDtos.cs, alongside every other field of the same shape.

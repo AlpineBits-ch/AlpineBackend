@@ -69,7 +69,10 @@ public class PantryCaptureTests
             NullLogger<HouseholdAlertService>.Instance);
 
         _restock = new PantryRestockService(_context, _household, alerts);
-        _catalog = new ProductCatalogService(_context);
+        // A stub that would answer if it were ever reached, and a rate limiter with no budget so it
+        // is not. Nothing in this fixture is about the catalog; wiring it offline keeps that true.
+        _catalog = new ProductCatalogService(
+            _context, ProductCatalogHarness.Lookups(StubProductApi.FindsNothing(), budget: 0));
         _capture = new PantryCaptureService(_context, _restock, _household, _catalog);
         _endpoint = new PantryCaptureEndpoint();
         _pantry = new PantryEndpoint();
@@ -677,6 +680,154 @@ public class PantryCaptureTests
         await SeedAsync(GuildFeaturePresets.Household & ~GuildFeatures.Pantry);
 
         Assert.That(await BarcodesAsync(), Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    // ── Stating a name for a barcode, which moves no stock ───────────────────
+
+    private Task<IResult> TeachAsync(
+        string barcode, TeachPantryBarcodeDto dto, string guildId = GuildId, string user = Anna) =>
+        _endpoint.TeachBarcodeAsync(
+            guildId, barcode, dto, _permissions, _capture, _context, TestPrincipal.Create(user));
+
+    private static TeachPantryBarcodeResultDto TeachBody(IResult result) =>
+        ((Ok<TeachPantryBarcodeResultDto>)result).Value!;
+
+    [Test]
+    public async Task Teach_ABarcodeTheHouseHasNeverSeen_LearnsItWithoutAScan()
+    {
+        await SeedAsync();
+
+        var body = TeachBody(await TeachAsync("111", new TeachPantryBarcodeDto { Name = "Milk" }));
+
+        var taught = await _context.PantryBarcodes.SingleAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(body.Learned, Is.True);
+            Assert.That(taught.Name, Is.EqualTo("Milk"));
+
+            // Not a sighting.
+            Assert.That(taught.TimesSeen, Is.Zero);
+
+            // The point of the whole route: nothing was added to any fridge.
+            Assert.That(_context.PantryItems.Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Teach_CorrectingAName_MovesNoStockAndKeepsTheLearnedDefault()
+    {
+        await SeedAsync();
+
+        // Taught the old way, with a scan that stated a quantity of six.
+        await ScanAsync(new ScanPantryItemDto { Barcode = "111", Name = "Bier", Quantity = 6m });
+
+        var before = await _context.PantryItems.SingleAsync(i => i.Barcode == "111");
+        var quantityBefore = before.Quantity;
+
+        var body = TeachBody(await TeachAsync("111", new TeachPantryBarcodeDto { Name = "Beer" }));
+
+        var taught = await _context.PantryBarcodes.SingleAsync();
+        var item = await _context.PantryItems.SingleAsync(i => i.Barcode == "111");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(body.Learned, Is.False, "the house already knew this code");
+            Assert.That(taught.Name, Is.EqualTo("Beer"));
+
+            // The three things a client would have had to compensate for if correcting a name meant
+            // re-scanning: stock added, a quantity it could not decline, and a default quantity
+            // silently rewritten by whatever the correction happened to carry.
+            Assert.That(item.Quantity, Is.EqualTo(quantityBefore));
+            Assert.That(taught.DefaultQuantity, Is.EqualTo(6m));
+            Assert.That(taught.TimesSeen, Is.EqualTo(1), "still one scan, because there was one");
+        });
+    }
+
+    [Test]
+    public async Task Teach_OmittingUnitAndQuantity_LeavesThemRatherThanClearingThem()
+    {
+        await SeedAsync();
+
+        await ScanAsync(new ScanPantryItemDto
+        {
+            Barcode = "111", Name = "Milch", Unit = "L", Quantity = 2m,
+        });
+
+        await TeachAsync("111", new TeachPantryBarcodeDto { Name = "Milk" });
+
+        var taught = await _context.PantryBarcodes.SingleAsync();
+
+        Assert.Multiple(() =>
+        {
+            // A correction made from a scanner toast knows the name and nothing else.
+            Assert.That(taught.Unit, Is.EqualTo("L"));
+            Assert.That(taught.DefaultQuantity, Is.EqualTo(2m));
+        });
+    }
+
+    [Test]
+    public async Task Teach_RejectsTheThingsAScanRejects()
+    {
+        await SeedAsync();
+
+        var noName = await TeachAsync("111", new TeachPantryBarcodeDto { Name = "   " });
+        var tooLong = await TeachAsync("111", new TeachPantryBarcodeDto { Name = new string('x', 101) });
+        var zero = await TeachAsync("111",
+            new TeachPantryBarcodeDto { Name = "Milk", DefaultQuantity = 0m });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noName, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(tooLong, Is.InstanceOf<BadRequest<string>>());
+
+            // Rejected rather than ignored: the only thing a client can mean by zero here is a scan
+            // that adds nothing, which is not a thing.
+            Assert.That(zero, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(_context.PantryBarcodes.Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Teach_ANonMember_IsForbidden()
+    {
+        await SeedAsync();
+
+        Assert.That(
+            await TeachAsync("111", new TeachPantryBarcodeDto { Name = "Milk" }, user: "stranger"),
+            Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task Teach_WithThePantryModuleOff_IsForbidden()
+    {
+        await SeedAsync(GuildFeaturePresets.Household & ~GuildFeatures.Pantry);
+
+        Assert.That(
+            await TeachAsync("111", new TeachPantryBarcodeDto { Name = "Milk" }),
+            Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task Teach_CannotReachAnotherHouseholdsBarcode()
+    {
+        await SeedAsync();
+        await SeedOtherGuildAsync();
+
+        await TeachAsync("111", new TeachPantryBarcodeDto { Name = "Milk" });
+
+        // Ben is in the first guild only.
+        var refused = await TeachAsync(
+            "111", new TeachPantryBarcodeDto { Name = "Whatever" }, guildId: OtherGuildId, user: Ben);
+
+        var rows = await _context.PantryBarcodes.ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(refused, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(rows, Has.Count.EqualTo(1));
+            Assert.That(rows[0].GuildId, Is.EqualTo(GuildId));
+        });
     }
 
     // ══════════════════════════════════════════════════════════════════════════

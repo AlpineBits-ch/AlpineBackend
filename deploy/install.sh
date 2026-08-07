@@ -688,6 +688,19 @@ UNFURL_ALLOW_PRIVATE_TARGETS="false"
 # previews pointing at the old address.
 UNFURL_PUBLIC_BASE_URL="$INSTANCE_URL"
 
+# ── The pantry's product lookup ──────────────────────────────────────────────────────
+# Scanning a barcode a household has not seen before asks Open Food Facts, a public product
+# database, what it is - which saves somebody typing a name for every packet in the bag. It works
+# as shipped; nothing below has to be changed for it to run.
+#
+# Open Food Facts ask callers to identify themselves, and this is the address they are told. Put
+# your own in: the lookups are your server's traffic, and this is who they would write to about
+# it. An empty string turns the lookup off entirely.
+PRODUCT_CATALOG_CONTACT_EMAIL="${PRODUCT_CATALOG_CONTACT_EMAIL:-hello@alpinebits.ch}"
+# Set to false if this server should never ask a third party what your flatmates bought. Scans
+# still work: they ask for a name the first time they see a code, and never again after that.
+PRODUCT_CATALOG_LIVE_FILL_ENABLED="${PRODUCT_CATALOG_LIVE_FILL_ENABLED:-true}"
+
 # ── Misc ─────────────────────────────────────────────────────────────────────────────
 SENTRY_URL="${SENTRY_URL:-}"
 PERSONAL_ACCESS_TOKEN="${PERSONAL_ACCESS_TOKEN:-}"

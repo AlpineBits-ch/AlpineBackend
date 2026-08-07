@@ -168,6 +168,119 @@ public class PantryCaptureService(
         }, null);
     }
 
+    /// <summary>Everything one <see cref="TeachBarcodeAsync"/> staged.</summary>
+    public class TeachResult
+    {
+        public required PantryBarcode Barcode { get; init; }
+
+        /// <summary>The guild had no row for this code before.</summary>
+        public required bool Learned { get; init; }
+
+        public IReadOnlyList<PantryItem> RenamedItems { get; init; } = [];
+    }
+
+    /// <summary>The house states what a barcode is called.</summary>
+    public async Task<(TeachResult? Result, string? Error)> TeachBarcodeAsync(
+        string guildId, string barcode, TeachPantryBarcodeDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(barcode)) return (null, "Barcode is required");
+
+        var code = barcode.Trim();
+        if (code.Length > MaxBarcodeLength)
+            return (null, $"Barcode must be {MaxBarcodeLength} characters or fewer");
+
+        if (string.IsNullOrWhiteSpace(dto.Name)) return (null, "Name is required");
+
+        var name = dto.Name.Trim();
+        if (name.Length > MaxNameLength)
+            return (null, $"Name must be {MaxNameLength} characters or fewer");
+
+        // Rejected rather than ignored: a client sending zero means something by it, and the only
+        // thing it could mean here is a scan that adds nothing.
+        if (dto.DefaultQuantity is <= 0)
+            return (null, "DefaultQuantity must be greater than zero");
+
+        var unit = string.IsNullOrWhiteSpace(dto.Unit) ? null : dto.Unit.Trim();
+
+        var known = await ctx.Set<PantryBarcode>()
+            .FirstOrDefaultAsync(b => b.GuildId == guildId && b.Barcode == code);
+
+        var learned = known is null;
+
+        if (known is null)
+        {
+            known = PantryBarcode.Create(new CreatePantryBarcodeParams
+            {
+                GuildId = guildId,
+                Barcode = code,
+                Name = name,
+                Unit = unit,
+                DefaultQuantity = dto.DefaultQuantity is > 0 ? dto.DefaultQuantity.Value : DefaultScanQuantity,
+            });
+
+            ctx.Set<PantryBarcode>().Add(known);
+        }
+        else
+        {
+            known.StateName(name, unit, dto.DefaultQuantity);
+        }
+
+        return (new TeachResult
+        {
+            Barcode = known,
+            Learned = learned,
+            RenamedItems = await AdoptNameAsync(guildId, code, name),
+        }, null);
+    }
+
+    /// <summary>
+    /// Renames the items in this guild that are still showing the catalog's suggestion for this
+    /// code, and returns them.
+    /// </summary>
+    private async Task<IReadOnlyList<PantryItem>> AdoptNameAsync(
+        string guildId, string code, string name)
+    {
+        var suggestion = await ctx.ProductCatalogEntries.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.Barcode == code);
+
+        if (suggestion is null) return [];
+
+        // Every language the scan could have picked, because a French-speaking flat and a German one
+        // scanning the same code get different suggestions from the same row.
+        var suggested = new[] { suggestion.NameDe, suggestion.NameFr, suggestion.NameIt, suggestion.NameEn }
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
+            .Select(candidate => candidate!.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (suggested.Count == 0) return [];
+
+        var carrying = await ctx.PantryItems
+            .Where(i => i.GuildId == guildId && i.Barcode == code)
+            .ToListAsync();
+
+        var renamed = new List<PantryItem>();
+        var now = DateTimeOffset.UtcNow;
+
+        foreach (var item in carrying)
+        {
+            if (item.Name == name || !suggested.Contains(item.Name.Trim())) continue;
+
+            item.Name = name;
+            item.UpdatedAt = now;
+            renamed.Add(item);
+        }
+
+        return renamed;
+    }
+
+    /// <summary>Tells the rest of the house about the jars a correction renamed.</summary>
+    public async Task PublishTeachAsync(TeachResult result)
+    {
+        foreach (var item in result.RenamedItems)
+            await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.PantryItemUpdated",
+                new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
+    }
+
     /// <summary>Takes stock off an item and runs the low-stock loop over the result.</summary>
     public async Task<CaptureResult> ConsumeAsync(PantryItem item, decimal amount, bool all)
     {

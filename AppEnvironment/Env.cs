@@ -74,32 +74,54 @@ public static class Env
 public class ProductCatalogConfiguration
 {
     /// <summary>
-    /// Whether the background sweep may ask the live source about barcodes the local catalog could
-    /// not answer.
+    /// Whether this instance may ask the live source about barcodes the local catalog could not
+    /// answer - both inline on a scan and on the background sweep.
     /// </summary>
     public bool LiveFillEnabled { get; set; } =
         GetEnvironmentVariable("PRODUCT_CATALOG_LIVE_FILL_ENABLED")
-            ?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+            ?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true;
 
     /// <summary>Contact address put in the outbound User-Agent.</summary>
     public string ContactEmail { get; set; } =
-        GetEnvironmentVariable("PRODUCT_CATALOG_CONTACT_EMAIL") ?? string.Empty;
+        GetEnvironmentVariable("PRODUCT_CATALOG_CONTACT_EMAIL") ?? "hello@alpinebits.ch";
 
+    /// <summary>Where lookups go.</summary>
     public string ApiBaseUrl { get; set; } =
         GetEnvironmentVariable("PRODUCT_CATALOG_API_BASE_URL") ?? "https://world.openfoodfacts.org/";
 
     /// <summary>
-    /// Sent on every outbound lookup, in the shape the source's documentation asks for.
+    /// Sent on every outbound lookup, in the exact shape the source's documentation specifies:
+    /// <c>AppName/Version (ContactEmail)</c>.
     /// </summary>
     public string UserAgent =>
         GetEnvironmentVariable("PRODUCT_CATALOG_USER_AGENT")
-        ?? $"EchoPantry/1.0 ({(string.IsNullOrWhiteSpace(ContactEmail) ? "unconfigured" : ContactEmail)})";
+        ?? $"VentaPantry/1.0 ({(string.IsNullOrWhiteSpace(ContactEmail) ? "unconfigured" : ContactEmail)})";
 
-    /// <summary>Barcodes asked about per sweep.</summary>
+    /// <summary>
+    /// Sustained lookups per minute for the whole instance, scans and sweep together.
+    /// </summary>
+    public int RequestsPerMinute { get; set; } =
+        int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_REQUESTS_PER_MINUTE"), out var r) ? r : 10;
+
+    /// <summary>
+    /// How many tokens the bucket holds, and therefore how many scans in a row can resolve inline
+    /// before the rest fall through to the sweep.
+    /// </summary>
+    public int BurstCapacity { get; set; } =
+        int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_BURST_CAPACITY"), out var c) ? c : 4;
+
+    /// <summary>Barcodes the sweep asks about per tick.</summary>
     public int FillBatchSize { get; set; } =
         int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_FILL_BATCH_SIZE"), out var b) ? b : 5;
 
-    /// <summary>Budget for one lookup.</summary>
+    /// <summary>
+    /// Budget for a lookup made inline on a scan, where somebody is holding a phone and waiting.
+    /// </summary>
+    public TimeSpan InlineTimeout { get; set; } =
+        TimeSpan.FromMilliseconds(
+            int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_INLINE_TIMEOUT_MS"), out var i) ? i : 1000);
+
+    /// <summary>Budget for a lookup made on the sweep, where nothing waits on it.</summary>
     public TimeSpan RequestTimeout { get; set; } =
         TimeSpan.FromSeconds(
             int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_REQUEST_TIMEOUT_SECONDS"), out var t) ? t : 5);

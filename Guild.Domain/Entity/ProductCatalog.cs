@@ -193,5 +193,6 @@ public class ProductCatalogMiss
     }
 }
 
-// ── Integrator: paste into MicroserviceContext.OnModelCreating ─────────────── Both blocks are
-// already present in Guild.Infrastructure/Persistence/MicroserviceContext.cs.
+// ── Integrator ─────────────────────────────────────────────────────────────── Model configuration
+// lives in Guild.Infrastructure/Persistence/MicroserviceContext.cs and the tables are created by
+// 20260807203125_AddProductCatalog.

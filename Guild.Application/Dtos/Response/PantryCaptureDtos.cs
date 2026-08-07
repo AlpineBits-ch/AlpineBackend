@@ -112,3 +112,14 @@ public class PantryBarcodeDto
     public required int TimesSeen { get; init; }
     public required DateTimeOffset LastUsedAt { get; init; }
 }
+
+/// <summary>What stating a name for a barcode changed.</summary>
+public class TeachPantryBarcodeResultDto
+{
+    public required PantryBarcodeDto Barcode { get; init; }
+
+    /// <summary>True when this guild had no row for the code before.</summary>
+    public required bool Learned { get; init; }
+
+    public required IReadOnlyList<PantryItemDto> RenamedItems { get; init; }
+}

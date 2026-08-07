@@ -154,6 +154,9 @@ builder.Services.AddScoped<PantryCaptureService>();
 builder.Services.AddScoped<ProductCatalogService>();
 builder.Services.AddScoped<ProductCatalogImportService>();
 builder.Services.AddScoped<ProductCatalogFillService>();
+// Singletons, and both for the same reason: they hold the one thing that must not be per-request.
+builder.Services.AddSingleton<ProductCatalogRateLimiter>();
+builder.Services.AddSingleton<ProductCatalogLookupService>();
 builder.Services.AddScoped<AbsenceService>();
 builder.Services.AddScoped<LedgerSummaryService>();
 builder.Services.AddScoped<PaymentHandleService>();
@@ -191,11 +194,12 @@ builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 
-// The one outbound client the pantry has, and it is dormant unless
-// PRODUCT_CATALOG_LIVE_FILL_ENABLED is set with a contact address.
-builder.Services.AddHttpClient(ProductCatalogFillService.HttpClientName, client =>
+// The one outbound client the pantry has.
+builder.Services.AddHttpClient(ProductCatalogLookupService.HttpClientName, client =>
 {
     client.BaseAddress = new Uri(Env.ProductCatalog.ApiBaseUrl);
+
+    // The outer bound only.
     client.Timeout = Env.ProductCatalog.RequestTimeout;
 
     // TryAddWithoutValidation rather than ParseAdd: the source asks for a specific User-Agent shape

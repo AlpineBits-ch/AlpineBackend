@@ -79,6 +79,20 @@ public class PantryBarcode : BaseEntity<PantryBarcode>, IPrefixedEntity
         LastUsedAt = DateTimeOffset.UtcNow;
         UpdatedAt = LastUsedAt;
     }
+
+    /// <summary>
+    /// The house states what this code is called, as its own act rather than as a side effect of
+    /// scanning something.
+    /// </summary>
+    public void StateName(string name, string? unit, decimal? defaultQuantity)
+    {
+        Name = name;
+
+        if (unit is not null) Unit = unit;
+        if (defaultQuantity is > 0) DefaultQuantity = defaultQuantity.Value;
+
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
 }
 
 // ── Integrator: paste into MicroserviceContext.OnModelCreating ───────────────

@@ -109,6 +109,8 @@ public sealed class EchoTestStack : IAsyncDisposable
         // pantry expiry and low-stock warnings, cooking reminders, and maintenance service and
         // warranty warnings are all sweep-driven, and none of them can be triggered by a request.
         guildEnv["HOUSEHOLD_SWEEP_INTERVAL_SECONDS"] = "2";
+        // The one setting here that turns a shipped default off rather than shrinking it.
+        guildEnv["PRODUCT_CATALOG_LIVE_FILL_ENABLED"] = "false";
         stack.MessagingDatabaseName = $"messaging_{databaseSuffix}";
         var messagingEnv = Common(stack.MessagingDatabaseName);
         messagingEnv["INSTANCE_URL"] = identityUrl;

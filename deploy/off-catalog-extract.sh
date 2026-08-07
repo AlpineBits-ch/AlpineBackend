@@ -10,6 +10,34 @@
 #   columns the pantry stores, and writes newline-delimited JSON that
 #   POST /api/v1/pantry/catalog/import reads directly.
 #
+# WHY BULK IS THE RECOMMENDED WAY TO POPULATE, AND WHY IT IS NOT A PREREQUISITE
+#
+#   The service also asks the API about single barcodes, inline on a scan and again on a background
+#   sweep, so an instance that never runs this script still works: the first scan of a common
+#   grocery resolves live, and anything else asks the user for a name exactly as it did before the
+#   catalog existed. What the script buys is coverage on day one instead of coverage accumulated one
+#   scan at a time.
+#
+#   Bulk is nonetheless the recommended path, for two reasons that both come from Open Food Facts
+#   rather than from us. Their API documentation asks for it directly - "for bulk data needs,
+#   download the data as a CSV or JSONL file directly rather than making repeated API calls" - and
+#   they rate-limit product reads to 15 per minute per IP address, which is a limit on a whole
+#   deployment and not on a household. At that rate a market's worth of products is measured in
+#   weeks of being the noisiest client on a volunteer-run database. The API is not the problem; it
+#   is fast and it is reliable. It is simply not a loading mechanism.
+#
+#   (An earlier version of this comment said bulk was chosen because the API returned HTTP 503 about
+#   half the time. That measurement was taken against the search endpoint, which is heavily loaded.
+#   The product-by-barcode endpoint used here answers in 44-66 ms. The claim was wrong and the two
+#   reasons above are the real ones.)
+#
+# TESTING AGAINST THE STAGING ENVIRONMENT
+#
+#   Open Food Facts run a staging instance at https://world.openfoodfacts.net (HTTP basic auth
+#   off / off) and ask that applications be tested against it rather than production. Point
+#   PRODUCT_CATALOG_API_BASE_URL there for any manual verification of the live lookup. This script
+#   reads the published Parquet export rather than the API and is unaffected.
+#
 # WHY THIS IS A SCRIPT AND NOT CODE IN THE SERVICE
 #
 #   The obvious alternative is to take a Parquet reader (Parquet.Net) into Guild.Application and do

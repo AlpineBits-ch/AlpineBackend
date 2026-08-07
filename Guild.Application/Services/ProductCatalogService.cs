@@ -1,3 +1,4 @@
+using AppEnvironment;
 using Guild.Application.Dtos.Response;
 using Guild.Domain.Entity;
 using Guild.Persistence.Persistence;
@@ -7,9 +8,10 @@ using Microsoft.Net.Http.Headers;
 namespace Guild.Application.Services;
 
 /// <summary>
-/// Reads the shared product catalog, and records the barcodes it could not answer.
+/// Resolves a barcode for a scan: from the local catalog first, from the live source second, and
+/// from a miss row and a request to type a name when neither can answer.
 /// </summary>
-public class ProductCatalogService(MicroserviceContext ctx)
+public class ProductCatalogService(MicroserviceContext ctx, ProductCatalogLookupService lookups)
 {
     /// <summary>A catalog row plus the name that was actually chosen from it, so the caller does not
     /// have to redo the language selection to know what it got.</summary>
@@ -19,28 +21,107 @@ public class ProductCatalogService(MicroserviceContext ctx)
     public async Task<Match?> ResolveForScanAsync(
         string barcode, IReadOnlyList<string>? languages, CancellationToken ct = default)
     {
-        var entry = await ctx.ProductCatalogEntries.AsNoTracking()
+        // Tracked rather than AsNoTracking, for the rare row that exists with no name in any
+        // language: the live lookup below fills that row in place.
+        var entry = await ctx.ProductCatalogEntries
             .FirstOrDefaultAsync(e => e.Barcode == barcode, ct);
 
         if (entry?.NameFor(languages) is { } name)
             return new Match(entry, name.Text, name.Language);
 
-        await StageMissAsync(barcode, ct);
-        return null;
+        var miss = await StageMissAsync(barcode, ct);
+
+        return await FillFromSourceAsync(barcode, entry, miss, languages, ct);
     }
 
-    /// <summary>Adds a miss row unless this barcode already has one.</summary>
-    private async Task StageMissAsync(string barcode, CancellationToken ct)
+    /// <summary>
+    /// Asks the live source, inline, and writes what comes back into the catalog.
+    /// </summary>
+    private async Task<Match?> FillFromSourceAsync(
+        string barcode, ProductCatalogEntry? existing, ProductCatalogMiss miss,
+        IReadOnlyList<string>? languages, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        if (!miss.MayQuery(now)) return null;
+
+        var outcome = await lookups.LookupAsync(barcode, Env.ProductCatalog.InlineTimeout, ct: ct);
+
+        switch (outcome.Kind)
+        {
+            case ProductCatalogLookupService.LookupKind.Found:
+                var fetched = ProductCatalogLookupService.BuildEntry(
+                    barcode, outcome.Product!, miss.Source, now);
+
+                // The source has the product and cannot name it in any language.
+                if (fetched is null)
+                {
+                    miss.RecordAbsent(now);
+                    return null;
+                }
+
+                // Overwritten in place when a nameless row was already there, added otherwise.
+                var stored = existing ?? fetched;
+                if (existing is not null) Overwrite(existing, fetched);
+                else ctx.ProductCatalogEntries.Add(fetched);
+
+                // Removed rather than settled: the question it existed to ask has been answered,
+                // and leaving it would have the sweep asking about a product we now hold.
+                ctx.ProductCatalogMisses.Remove(miss);
+
+                return stored.NameFor(languages) is { } name
+                    ? new Match(stored, name.Text, name.Language)
+                    : null;
+
+            case ProductCatalogLookupService.LookupKind.Absent:
+                miss.RecordAbsent(now);
+                return null;
+
+            case ProductCatalogLookupService.LookupKind.Unreachable:
+                miss.RecordUnreachable(now);
+                return null;
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Copies a freshly fetched row onto the one already stored, field for field.
+    /// </summary>
+    private static void Overwrite(ProductCatalogEntry stored, ProductCatalogEntry fetched)
+    {
+        stored.NameDe = fetched.NameDe;
+        stored.NameFr = fetched.NameFr;
+        stored.NameIt = fetched.NameIt;
+        stored.NameEn = fetched.NameEn;
+        stored.Brand = fetched.Brand;
+        stored.Quantity = fetched.Quantity;
+        stored.QuantityUnit = fetched.QuantityUnit;
+        stored.Source = fetched.Source;
+        stored.SourceVersion = fetched.SourceVersion;
+        stored.ImportedAt = fetched.ImportedAt;
+    }
+
+    /// <summary>Returns this barcode's miss row, adding one if it has none.</summary>
+    private async Task<ProductCatalogMiss> StageMissAsync(string barcode, CancellationToken ct)
     {
         // Local before the database: two scans of the same unknown code inside one request would
         // otherwise both see "no row" and both add one, which the primary key then rejects at
         // commit and takes the scan down with it.
-        if (ctx.ProductCatalogMisses.Local.Any(m => m.Barcode == barcode)) return;
+        if (ctx.ProductCatalogMisses.Local.FirstOrDefault(m => m.Barcode == barcode) is { } staged)
+            return staged;
 
-        if (await ctx.ProductCatalogMisses.AnyAsync(m => m.Barcode == barcode, ct)) return;
+        // Tracked, unlike the catalog read above, because the outcome of a live lookup is written
+        // straight back onto this row.
+        if (await ctx.ProductCatalogMisses.FirstOrDefaultAsync(m => m.Barcode == barcode, ct) is { } known)
+            return known;
 
-        ctx.ProductCatalogMisses.Add(ProductCatalogMiss.Create(
-            barcode, ProductCatalogSources.OpenFoodFacts, DateTimeOffset.UtcNow));
+        var miss = ProductCatalogMiss.Create(
+            barcode, ProductCatalogSources.OpenFoodFacts, DateTimeOffset.UtcNow);
+
+        ctx.ProductCatalogMisses.Add(miss);
+        return miss;
     }
 
     /// <summary>

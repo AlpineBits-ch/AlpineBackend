@@ -25,9 +25,10 @@ namespace Guild.Application.Services;
 ///  7. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
 ///  8. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
 ///     GuildPermissionService, so this is only tidying, never the thing access depends on.
-///  9. Ask a public product database about barcodes the local catalog could not resolve. A no-op
-///     unless an operator switched it on, and the only job here that talks to anything outside this
-///     instance. See ProductCatalogFillService.
+///  9. Ask a public product database about barcodes that could not be resolved during the scan
+///     itself - because the instance was out of its 15-per-minute budget at that moment, or because
+///     the source did not answer. The second chance rather than the main path, and the only job
+///     here that talks to anything outside this instance. See ProductCatalogFillService.
 ///
 /// Modelled on VoiceHeartbeatCleanupService.</summary>
 public class HouseholdReconcileService(

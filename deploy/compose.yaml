@@ -313,6 +313,28 @@ services:
       DATABASE_NAME: guild_db
       FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64: "${FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
       GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64: "${GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
+      # The pantry scanner's product lookup, which works with none of this set. Open Food Facts ask
+      # callers to identify themselves as AppName/Version (ContactEmail); unset, that is this
+      # project's address. **Put your own here.** The lookups are your users' and your traffic, and
+      # this is who Open Food Facts would write to about them. Setting it to an empty string turns
+      # the lookup off, which is a decision rather than a default.
+      PRODUCT_CATALOG_CONTACT_EMAIL: "${PRODUCT_CATALOG_CONTACT_EMAIL:-hello@alpinebits.ch}"
+      # false stops every outbound product lookup, inline and on the sweep. For an operator who does
+      # not want their server asking a third party what their flatmates bought.
+      PRODUCT_CATALOG_LIVE_FILL_ENABLED: "${PRODUCT_CATALOG_LIVE_FILL_ENABLED:-true}"
+      # Open Food Facts allow 15 product reads per minute per IP address, for this whole deployment
+      # rather than per household. These two are the sustained rate and the burst, and a token
+      # bucket's worst case in any sliding minute is their sum - so raising either past 15 between
+      # them is asking to be throttled, not asking for more coverage.
+      PRODUCT_CATALOG_REQUESTS_PER_MINUTE: "${PRODUCT_CATALOG_REQUESTS_PER_MINUTE:-10}"
+      PRODUCT_CATALOG_BURST_CAPACITY: "${PRODUCT_CATALOG_BURST_CAPACITY:-4}"
+      # What one scan will wait for an answer before giving up and asking the user for a name.
+      # Measured round trip is 44-66 ms; this is the ceiling that keeps a bad day at the source from
+      # becoming a slow scanner.
+      PRODUCT_CATALOG_INLINE_TIMEOUT_MS: "${PRODUCT_CATALOG_INLINE_TIMEOUT_MS:-1000}"
+      # Point at https://world.openfoodfacts.net (basic auth off / off) to test against their
+      # staging environment, which is what they ask applications to do.
+      PRODUCT_CATALOG_API_BASE_URL: "${PRODUCT_CATALOG_API_BASE_URL:-https://world.openfoodfacts.org/}"
     healthcheck:
       test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/guild/health"]
       interval: 15s

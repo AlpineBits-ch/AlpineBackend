@@ -147,15 +147,55 @@ public class PantryCaptureEndpoint
             .Take(MaxBarcodeResults)
             .ToListAsync();
 
-        return Results.Ok(barcodes.Select(b => new PantryBarcodeDto
-        {
-            Barcode = b.Barcode,
-            Name = b.Name,
-            Unit = b.Unit,
-            DefaultQuantity = b.DefaultQuantity,
-            LowThreshold = b.LowThreshold,
-            TimesSeen = b.TimesSeen,
-            LastUsedAt = b.LastUsedAt,
-        }));
+        return Results.Ok(barcodes.Select(ToDto));
     }
+
+    /// <summary>
+    /// "This is what we call this." The house stating a name for a barcode, moving no stock.
+    /// </summary>
+    [WolverinePut("/api/v1/guilds/{guildId}/pantry/barcodes/{barcode}")]
+    public async Task<IResult> TeachBarcodeAsync(string guildId, string barcode,
+        TeachPantryBarcodeDto dto, [NotBody] GuildPermissionService permissionService,
+        [NotBody] PantryCaptureService capture, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        // One call rather than a feature check and a permission check: this gates on the Pantry
+        // feature before it resolves a single role, so nothing a member holds can outrank a module
+        // the guild has switched off.
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePantry))
+            return Results.Forbid();
+
+        // Membership on top of the permission, because @everyone in a guild this account is not in
+        // must not be a route into another household's barcode table.
+        if (!await ctx.GuildMembers.AnyAsync(m => m.GuildId == guildId && m.UserId == userId))
+            return Results.Forbid();
+
+        var (result, error) = await capture.TeachBarcodeAsync(guildId, barcode, dto);
+
+        if (error is not null) return Results.BadRequest(error);
+
+        await ctx.SaveChangesAsync();
+        await capture.PublishTeachAsync(result!);
+
+        return Results.Ok(new TeachPantryBarcodeResultDto
+        {
+            Barcode = ToDto(result!.Barcode),
+            Learned = result.Learned,
+            RenamedItems = result.RenamedItems.Select(PantryCaptureService.ToDto).ToList(),
+        });
+    }
+
+    private static PantryBarcodeDto ToDto(PantryBarcode barcode) => new()
+    {
+        Barcode = barcode.Barcode,
+        Name = barcode.Name,
+        Unit = barcode.Unit,
+        DefaultQuantity = barcode.DefaultQuantity,
+        LowThreshold = barcode.LowThreshold,
+        TimesSeen = barcode.TimesSeen,
+        LastUsedAt = barcode.LastUsedAt,
+    };
 }

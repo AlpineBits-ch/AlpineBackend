@@ -407,6 +407,11 @@ $Defaults = @{
     # Link previews. UNFURL_ALLOW_PRIVATE_TARGETS stays 'false': true would let any posted link
     # make this server fetch its own private network, including the cloud metadata endpoint.
     UNFURL_ENABLED = 'true'; UNFURL_ALLOW_PRIVATE_TARGETS = 'false'
+    # The pantry's barcode lookup, which works as shipped. Open Food Facts ask callers to identify
+    # themselves; this is the address they are told, and a self-hoster should replace it with their
+    # own since the traffic is theirs. An empty address turns the lookup off.
+    PRODUCT_CATALOG_LIVE_FILL_ENABLED = 'true'
+    PRODUCT_CATALOG_CONTACT_EMAIL = 'hello@alpinebits.ch'
     FEDERATION_PRIVATE_KEY_BASE_64 = ''; FEDERATION_PUBLIC_KEY_BASE_64 = ''; IDENTITY_SIGNING_CERT = ''
     # Generated once and then carried forward by the loop below, which only fills keys that are
     # missing or empty: the value has to match what the generated Caddyfile sends, and rotating
@@ -677,6 +682,15 @@ ISLE_RCON_PASSWORD="$($Config['ISLE_RCON_PASSWORD'])"
 UNFURL_ENABLED="$($Config['UNFURL_ENABLED'])"
 UNFURL_ALLOW_PRIVATE_TARGETS="$($Config['UNFURL_ALLOW_PRIVATE_TARGETS'])"
 UNFURL_PUBLIC_BASE_URL="$($Config['INSTANCE_URL'])"
+
+# -- The pantry's product lookup --------------------------------------------------------
+# Scanning a barcode a household has not seen before asks Open Food Facts, a public product
+# database, what it is - which saves somebody typing a name for every packet in the bag. It works
+# as shipped. Open Food Facts ask callers to identify themselves, and PRODUCT_CATALOG_CONTACT_EMAIL
+# is the address they are told; put your own in, since the traffic is your server's. An empty
+# address turns the lookup off, and scans then ask for a name the first time they see a code.
+PRODUCT_CATALOG_LIVE_FILL_ENABLED="$($Config['PRODUCT_CATALOG_LIVE_FILL_ENABLED'])"
+PRODUCT_CATALOG_CONTACT_EMAIL="$($Config['PRODUCT_CATALOG_CONTACT_EMAIL'])"
 
 # -- Misc -----------------------------------------------------------------------------
 SENTRY_URL="$($Config['SENTRY_URL'])"

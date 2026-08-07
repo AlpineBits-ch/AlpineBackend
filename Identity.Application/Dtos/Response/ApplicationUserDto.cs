@@ -6,9 +6,12 @@ using Identity.Domain.ValueObjects;
 namespace Identity.Application.Dtos.Response;
 
 /// <summary>The self view of an account (<c>GET /api/v1/users/self</c>).</summary>
+// PhoneVerifiedAt is excluded deliberately, and this is the only place that decision is
+// enforceable.
 [Facet(typeof(ApplicationUser), nameof(ApplicationUser.PasswordHash), nameof(ApplicationUser.SecurityStamp), nameof(ApplicationUser.ConcurrencyStamp),
     nameof(ApplicationUser.UserKeys), nameof(ApplicationUser.PushTokens), nameof(ApplicationUser.Backups),
     nameof(ApplicationUser.Interests), nameof(ApplicationUser.UserPrivacySettings),
+    nameof(ApplicationUser.PhoneVerifiedAt),
     NestedFacets = [typeof(EncryptedMasterKeyDto), typeof(UserPreferencesDto), typeof(UserDeviceDto), typeof(UserKeyPackageDto)])]
 public partial class ApplicationUserDto
 {

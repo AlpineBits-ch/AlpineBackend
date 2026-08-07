@@ -125,9 +125,14 @@ public class GuildVoiceMediaController(
         }
         catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.TrackNotFound)
         {
-            // The publisher stopped between the roster check and the pull.
+            // The roster said this track exists - it passed the pre-check above - and the SFU says
+            // it does not.
+            var blamed = VoiceRoomService.AttributableSubscribes(body.Tracks);
+            var missing = await voice.RecordTracksMissingAsync(Room(channelId), blamed, ct);
             logger.LogInformation(
-                "Subscribe raced a publisher going away for user {UserId}: {Detail}", UserId, ex.Detail);
+                "Subscribe found media the roster still advertised for user {UserId}: {Detail}. "
+                + "Pruned [{Tracks}]; room is now v{Version}",
+                UserId, ex.Detail, string.Join(", ", blamed), missing?.Version);
             return Conflict(new { error = "staleSubscription", action = "refetchSnapshot" });
         }
         catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)

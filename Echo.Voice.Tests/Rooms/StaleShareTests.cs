@@ -23,6 +23,8 @@ public class StaleShareTests(string kind)
         _key = new VoiceRoomKey(kind, "room-1");
     }
 
+    private string Event(string name) => (kind == VoiceRoomKind.Call ? "call." : "guild.voice.") + name;
+
     private static string ScreenTrack => $"screen-{ShareId}";
     private static string ScreenAudioTrack => $"screen-audio-{ShareId}";
 
@@ -186,5 +188,135 @@ public class StaleShareTests(string kind)
         Assert.That(stale, Is.EqualTo(new[] { ScreenTrack }),
             "answered from the roster in one Redis read, instead of six seconds of SFU retries "
             + "ending in a 502 that lights up the status page");
+    }
+
+    // ── When the publisher never says anything at all ─────────────────────────
+
+    [Test]
+    public async Task Media_the_sfu_says_is_gone_is_dropped_from_the_roster()
+    {
+        await PublishedShareAsync();
+
+        // No SetStreamingAsync and no close-tracks: the publisher's stop never arrived.
+        await _h.Service.RecordTracksMissingAsync(_key, [ScreenTrack, ScreenAudioTrack]);
+
+        var me = (await _h.Rooms.LoadAsync(_key))!.Find(Publisher)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(me.ActiveScreenShares, Is.Empty);
+            Assert.That(me.IsStreaming, Is.False, "the flag must not outlive the list");
+        });
+    }
+
+    [Test]
+    public async Task The_next_subscribe_for_that_media_never_reaches_the_sfu()
+    {
+        await PublishedShareAsync();
+        await _h.Service.RecordTracksMissingAsync(_key, [ScreenTrack]);
+
+        var stale = await _h.Service.FindStaleSubscriptionsAsync(_key,
+            [new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-publisher", TrackName: ScreenTrack)]);
+
+        Assert.That(stale, Is.EqualTo(new[] { ScreenTrack }),
+            "this is the loop, closed: the second attempt is now answered from a corrected roster");
+    }
+
+    [Test]
+    public async Task Everyone_is_told_including_the_publisher()
+    {
+        await PublishedShareAsync();
+        _h.ClearSends();
+
+        await _h.Service.RecordTracksMissingAsync(_key, [ScreenTrack, ScreenAudioTrack]);
+
+        var closed = _h.SendsOf(Event(VoiceEvents.TrackClosed));
+        Assert.That(closed, Is.Not.Empty, "peers hold a dead track until they are told otherwise");
+        Assert.That(closed.Any(s => s.Target.Contains(Publisher)), Is.True,
+            "the publisher is the one client that still believes it is sharing");
+    }
+
+    [Test]
+    public async Task Another_share_by_the_same_publisher_survives()
+    {
+        await PublishedShareAsync();
+        await _h.Service.SetStreamingAsync(_key, Publisher, isStreaming: true, "second-share");
+        await _h.Service.RecordTracksAsync(_key, Publisher, "cf-publisher", ["screen-second-share"]);
+
+        await _h.Service.RecordTracksMissingAsync(_key, [ScreenTrack, ScreenAudioTrack]);
+
+        var me = (await _h.Rooms.LoadAsync(_key))!.Find(Publisher)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(me.ActiveScreenShares.Select(s => s.ShareId), Is.EqualTo(new[] { "second-share" }));
+            Assert.That(me.IsStreaming, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task A_track_nobody_was_publishing_changes_nothing()
+    {
+        await PublishedShareAsync();
+        _h.Sends.Clear();
+
+        await _h.Service.RecordTracksMissingAsync(_key, ["screen-never-existed"]);
+
+        var me = (await _h.Rooms.LoadAsync(_key))!.Find(Publisher)!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(me.ActiveScreenShares, Is.Not.Empty, "the live share must be untouched");
+            Assert.That(_h.SendsOf(Event(VoiceEvents.TrackClosed)), Is.Empty,
+                "announcing a track nobody owns would have peers drop media that is still live");
+        });
+    }
+
+    /// <summary>
+    /// The microphone is deliberately out of scope: every participant's track is called "audio",
+    /// so the name identifies nobody, and pruning on it would silence an arbitrary person.
+    /// </summary>
+    [Test]
+    public async Task A_missing_microphone_track_is_left_alone()
+    {
+        await PublishedShareAsync();
+
+        await _h.Service.RecordTracksMissingAsync(_key, ["audio"]);
+
+        var me = (await _h.Rooms.LoadAsync(_key))!.Find(Publisher)!;
+        Assert.That(me.MediaSessionId, Is.EqualTo("cf-publisher"));
+    }
+
+    // ── Which track a failure can be blamed on ────────────────────────────────
+
+    [Test]
+    public void A_single_track_subscribe_is_attributable()
+    {
+        var blamed = VoiceRoomService.AttributableSubscribes(
+            [new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-publisher", TrackName: ScreenTrack)]);
+
+        Assert.That(blamed, Is.EqualTo(new[] { ScreenTrack }));
+    }
+
+    [Test]
+    public void A_multi_track_subscribe_is_not()
+    {
+        // The SFU rejects the request without saying which track was missing.
+        var blamed = VoiceRoomService.AttributableSubscribes(
+        [
+            new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-publisher", TrackName: ScreenTrack),
+            new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-publisher", TrackName: ScreenAudioTrack),
+        ]);
+
+        Assert.That(blamed, Is.Empty);
+    }
+
+    [Test]
+    public void Publishes_are_never_blamed()
+    {
+        var blamed = VoiceRoomService.AttributableSubscribes(
+        [
+            new VoiceTrackRef(VoiceTrackDirection.Publish, MediaSessionId: "cf-publisher", TrackName: ScreenTrack),
+            new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-publisher", TrackName: ScreenAudioTrack),
+        ]);
+
+        Assert.That(blamed, Is.EqualTo(new[] { ScreenAudioTrack }));
     }
 }

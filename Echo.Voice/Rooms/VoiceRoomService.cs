@@ -124,6 +124,67 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         return room;
     }
 
+    /// <summary>
+    /// The subscribed tracks a <c>TrackNotFound</c> can be blamed on, for <see
+    /// cref="RecordTracksMissingAsync"/>.
+    /// </summary>
+    public static IReadOnlyList<string> AttributableSubscribes(IEnumerable<VoiceTrackRef> tracks)
+    {
+        var subscribes = tracks
+            .Where(t => t.Direction == VoiceTrackDirection.Subscribe && t.TrackName is not null)
+            .ToList();
+        return subscribes.Count == 1 ? [subscribes[0].TrackName!] : [];
+    }
+
+    /// <summary>Forgets tracks the SFU says do not exist, whoever published them.</summary>
+    public async Task<VoiceRoom?> RecordTracksMissingAsync(
+        VoiceRoomKey key, IReadOnlyList<string> trackNames, CancellationToken ct = default)
+    {
+        var described = trackNames.Select(TrackNaming.Describe).ToList();
+        // Resolved inside the mutation, because the announcement has to name the publisher and the
+        // request that triggered this came from a subscriber, who does not know who that is.
+        var owners = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        var room = await rooms.MutateExistingAsync(key, r =>
+        {
+            foreach (var track in described)
+            {
+                // Microphone tracks are deliberately left alone.
+                if (TrackNaming.IsMicrophone(track.TrackName)) continue;
+
+                foreach (var participant in r.Participants)
+                {
+                    if (!participant.ActiveScreenShares.Any(s => s.TrackNames.Contains(track.TrackName)))
+                        continue;
+
+                    owners[track.TrackName] = participant.UserId;
+                    foreach (var share in participant.ActiveScreenShares)
+                        share.TrackNames.Remove(track.TrackName);
+                    participant.ActiveScreenShares.RemoveAll(s => s.TrackNames.Count == 0);
+                    // Consistent with SetStreamingAsync: still streaming only while some other
+                    // share of theirs survives, so the flag can never contradict the list.
+                    participant.IsStreaming = participant.ActiveScreenShares.Count > 0;
+                }
+            }
+        }, ct);
+        if (room is null) return null;
+
+        foreach (var track in described)
+        {
+            // Only what was actually on the roster.
+            if (!owners.TryGetValue(track.TrackName, out var userId)) continue;
+
+            await announcer.ToAllAsync(room, VoiceEvents.TrackClosed, new
+            {
+                userId,
+                trackName = track.TrackName,
+                shareId = track.ShareId,
+            }, ct);
+        }
+
+        return room;
+    }
+
     /// <summary>Forgets closed tracks and tells the room, so peers drop them rather than waiting
     /// on media that has stopped.</summary>
     public async Task<VoiceRoom?> RecordTracksClosedAsync(
@@ -249,9 +310,12 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         var room = await rooms.LoadAsync(key, ct);
         if (room is null) return subscribes.Select(t => t.TrackName ?? "?").ToList();
 
+        // Keyed by share, but carrying the track names, because a share is not all-or-nothing: the
+        // video half can die while the audio half is still live, and a check that only asked
+        // whether the *share* existed would go on accepting subscribes for the dead half of it.
         var liveShares = room.Participants
-            .SelectMany(p => p.ActiveScreenShares.Select(s => s.ShareId))
-            .ToHashSet(StringComparer.Ordinal);
+            .SelectMany(p => p.ActiveScreenShares)
+            .ToDictionary(s => s.ShareId, s => s.TrackNames, StringComparer.Ordinal);
 
         var publishingSessions = room.Participants
             .Where(p => p.PublishState == VoicePublishState.Publishing)
@@ -265,7 +329,10 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             var described = TrackNaming.Describe(name);
 
             var missing = described.ShareId is { } shareId
-                ? !liveShares.Contains(shareId)
+                // A share that lists no tracks at all is one nothing can judge, so it is let
+                // through rather than reported stale on a technicality.
+                ? !liveShares.TryGetValue(shareId, out var names)
+                  || (names.Count > 0 && !names.Contains(name))
                 : TrackNaming.IsMicrophone(name)
                   && (track.MediaSessionId is null || !publishingSessions.Contains(track.MediaSessionId));
 

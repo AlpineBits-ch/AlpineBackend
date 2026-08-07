@@ -107,16 +107,6 @@
                       ],
                       "Properties": {}
                     },
-                    "cfSessionId": {
-                      "Type": "string",
-                      "Nullable": true,
-                      "Properties": {}
-                    },
-                    "audioTrackName": {
-                      "Type": "string",
-                      "Nullable": true,
-                      "Properties": {}
-                    },
                     "activeDeviceId": {
                       "Type": "string",
                       "Nullable": true,
@@ -295,16 +285,6 @@
                       ],
                       "Properties": {}
                     },
-                    "cfSessionId": {
-                      "Type": "string",
-                      "Nullable": true,
-                      "Properties": {}
-                    },
-                    "audioTrackName": {
-                      "Type": "string",
-                      "Nullable": true,
-                      "Properties": {}
-                    },
                     "activeDeviceId": {
                       "Type": "string",
                       "Nullable": true,
@@ -464,41 +444,12 @@
       ]
     },
     {
-      "name": "call.CameraChanged",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Handler/Realtime/CallCameraHandler.cs",
-          "line": 22,
-          "clrType": "\u003Canonymous type: string userId, bool isCameraOn\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isCameraOn\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "isCameraOn": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "call.IncomingCall",
       "shapeCount": 1,
       "sites": [
         {
           "file": "Messaging.Application/Controllers/VoiceController.cs",
-          "line": 122,
+          "line": 152,
           "clrType": "Messaging.Domain.Entities.Call",
           "anonymous": false,
           "schema": {
@@ -598,16 +549,6 @@
                       ],
                       "Properties": {}
                     },
-                    "cfSessionId": {
-                      "Type": "string",
-                      "Nullable": true,
-                      "Properties": {}
-                    },
-                    "audioTrackName": {
-                      "Type": "string",
-                      "Nullable": true,
-                      "Properties": {}
-                    },
                     "activeDeviceId": {
                       "Type": "string",
                       "Nullable": true,
@@ -646,259 +587,90 @@
       ]
     },
     {
-      "name": "call.MuteChanged",
+      "name": "conversation.CallStateChanged",
       "shapeCount": 1,
       "sites": [
         {
-          "file": "Messaging.Application/Handler/Realtime/CallMuteHandler.cs",
-          "line": 22,
-          "clrType": "\u003Canonymous type: string userId, bool isMuted\u003E",
+          "file": "Messaging.Application/Controllers/VoiceController.cs",
+          "line": 298,
+          "clrType": "\u003Canonymous type: string conversationId, string callId, string status, string? reason, System.Collections.Generic.List\u003Cstring\u003E participantIds\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isMuted\u003E",
+            "ClrType": "\u003Canonymous type: string conversationId, string callId, string status, string reason, System.Collections.Generic.List\u003Cstring\u003E participantIds\u003E",
             "Properties": {
-              "userId": {
+              "conversationId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "isMuted": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "call.ParticipantJoined",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Controllers/CloudflareController.cs",
-          "line": 272,
-          "clrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName\u003E",
-            "Properties": {
-              "userId": {
+              "callId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "cfSessionId": {
+              "status": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "audioTrackName": {
+              "reason": {
                 "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "participantIds": {
+                "Type": "array",
                 "Nullable": false,
+                "Items": {
+                  "Type": "string",
+                  "Nullable": false,
+                  "Properties": {}
+                },
                 "Properties": {}
               }
             }
           }
         },
         {
-          "file": "Messaging.Application/Controllers/CloudflareController.cs",
-          "line": 278,
-          "clrType": "\u003Canonymous type: string userId, string? cfSessionId, string audioTrackName\u003E",
+          "file": "Messaging.Application/Handler/Call/CallEndedHandler.cs",
+          "line": 57,
+          "clrType": "\u003Canonymous type: string conversationId, string callId, string status, string reason, string[] participantIds\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName\u003E",
+            "ClrType": "\u003Canonymous type: string conversationId, string callId, string status, string reason, string[] participantIds\u003E",
             "Properties": {
-              "userId": {
+              "conversationId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "audioTrackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "call.ScreenShareStarted",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Handler/Realtime/CallScreenShareStartHandler.cs",
-          "line": 25,
-          "clrType": "\u003Canonymous type: string shareId, string userId, string? cfSessionId, string trackName\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string shareId, string userId, string cfSessionId, string trackName\u003E",
-            "Properties": {
-              "shareId": {
+              "callId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "userId": {
+              "status": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "call.ScreenShareStopped",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Handler/Realtime/CallScreenShareStopHandler.cs",
-          "line": 22,
-          "clrType": "\u003Canonymous type: string shareId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string shareId\u003E",
-            "Properties": {
-              "shareId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "call.SpeakingChanged",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Handler/Realtime/CallSpeakingHandler.cs",
-          "line": 22,
-          "clrType": "\u003Canonymous type: string userId, bool isSpeaking\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isSpeaking\u003E",
-            "Properties": {
-              "userId": {
+              "reason": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "isSpeaking": {
-                "Type": "boolean",
+              "participantIds": {
+                "Type": "array",
                 "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "call.TrackClosed",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Controllers/CloudflareController.cs",
-          "line": 232,
-          "clrType": "\u003Canonymous type: string userId, string trackName, string? shareId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string trackName, string shareId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "shareId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "call.TrackPublished",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Messaging.Application/Controllers/CloudflareController.cs",
-          "line": 307,
-          "clrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string? shareId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string shareId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "kind": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "shareId": {
-                "Type": "string",
-                "Nullable": true,
+                "Items": {
+                  "Type": "string",
+                  "Nullable": false,
+                  "Properties": {}
+                },
                 "Properties": {}
               }
             }
@@ -1219,7 +991,9 @@
                   "Message",
                   "Invite",
                   "GuildMemberJoin",
-                  "GuildMemberLeave"
+                  "GuildMemberLeave",
+                  "CallEnded",
+                  "CallMissed"
                 ],
                 "Properties": {}
               },
@@ -2600,7 +2374,7 @@
     },
     {
       "name": "guild.ChoreOccurrenceUpdated",
-      "shapeCount": 2,
+      "shapeCount": 1,
       "sites": [
         {
           "file": "Guild.Application/Endpoints/ChoreEndpoint.cs",
@@ -2692,13 +2466,13 @@
         },
         {
           "file": "Guild.Application/Endpoints/ChoreEndpoint.cs",
-          "line": 321,
-          "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string OccurrenceId, bool Skipped\u003E",
+          "line": 326,
+          "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string GuildId, string ChannelId, string OccurrenceId, bool Skipped\u003E",
+            "ClrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
             "Properties": {
               "guildId": {
                 "Type": "string",
@@ -2710,22 +2484,77 @@
                 "Nullable": false,
                 "Properties": {}
               },
-              "occurrenceId": {
-                "Type": "string",
+              "occurrence": {
+                "Type": "object",
                 "Nullable": false,
-                "Properties": {}
-              },
-              "skipped": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
+                "ClrType": "Guild.Application.Dtos.Response.ChoreOccurrenceDto",
+                "Properties": {
+                  "id": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "choreId": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "channelId": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "title": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "dueAt": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "assignedUserId": {
+                    "Type": "string",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "effortMinutes": {
+                    "Type": "integer",
+                    "Nullable": false,
+                    "Properties": {}
+                  },
+                  "completedAt": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "completedByUserId": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Properties": {}
+                  },
+                  "skippedAt": {
+                    "Type": "string",
+                    "Nullable": true,
+                    "Format": "date-time",
+                    "Properties": {}
+                  },
+                  "isOverdue": {
+                    "Type": "boolean",
+                    "Nullable": false,
+                    "Properties": {}
+                  }
+                }
               }
             }
           }
         },
         {
           "file": "Guild.Application/Endpoints/ChoreEndpoint.cs",
-          "line": 355,
+          "line": 364,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
           "anonymous": true,
           "schema": {
@@ -2917,7 +2746,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/DecisionEndpoint.cs",
-          "line": 241,
+          "line": 249,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string DecisionId\u003E",
           "anonymous": true,
           "schema": {
@@ -2951,7 +2780,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/DecisionEndpoint.cs",
-          "line": 217,
+          "line": 225,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.DecisionDto Decision\u003E",
           "anonymous": true,
           "schema": {
@@ -3295,7 +3124,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/DecisionEndpoint.cs",
-          "line": 188,
+          "line": 194,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.DecisionDto Decision\u003E",
           "anonymous": true,
           "schema": {
@@ -3804,7 +3633,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/LedgerEndpoint.cs",
-          "line": 117,
+          "line": 182,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ExpenseDto Expense\u003E",
           "anonymous": true,
           "schema": {
@@ -3920,7 +3749,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/LedgerEndpoint.cs",
-          "line": 194,
+          "line": 291,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string ExpenseId\u003E",
           "anonymous": true,
           "schema": {
@@ -3954,7 +3783,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/LedgerEndpoint.cs",
-          "line": 171,
+          "line": 262,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ExpenseDto Expense\u003E",
           "anonymous": true,
           "schema": {
@@ -4403,7 +4232,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Consumers/ImportGuildStructureHandler.cs",
-          "line": 185,
+          "line": 190,
           "clrType": "Guild.Application.Dtos.Response.GuildDto",
           "anonymous": false,
           "schema": {
@@ -5695,7 +5524,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/HouseholdGuildEndpoint.cs",
-          "line": 61,
+          "line": 62,
           "clrType": "\u003Canonymous type: string GuildId, Guild.Application.Dtos.Response.HomeStatusDto Status\u003E",
           "anonymous": true,
           "schema": {
@@ -5750,7 +5579,7 @@
         },
         {
           "file": "Guild.Application/Endpoints/HouseholdGuildEndpoint.cs",
-          "line": 80,
+          "line": 81,
           "clrType": "\u003Canonymous type: string GuildId, string UserId, bool Cleared\u003E",
           "anonymous": true,
           "schema": {
@@ -5771,6 +5600,61 @@
               "cleared": {
                 "Type": "boolean",
                 "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "guild.HouseholdAlert",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Guild.Application/Services/HouseholdNotifier.cs",
+          "line": 42,
+          "clrType": "\u003Canonymous type: string GuildId, string? ChannelId, string Kind, string? TargetId, string Title, string Body, object? Data\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string GuildId, string ChannelId, string Kind, string TargetId, string Title, string Body, object Data\u003E",
+            "Properties": {
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "channelId": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "kind": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "targetId": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "title": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "body": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "data": {
+                "Type": "object",
+                "Nullable": true,
+                "ClrType": "object",
                 "Properties": {}
               }
             }
@@ -6401,6 +6285,50 @@
       ]
     },
     {
+      "name": "guild.MemberMovedOut",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Guild.Application/Endpoints/HouseholdGuildEndpoint.cs",
+          "line": 316,
+          "clrType": "\u003Canonymous type: string GuildId, string UserId, int ChoresReassigned, int ChoresDropped, int ChoresPaused\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string GuildId, string UserId, int ChoresReassigned, int ChoresDropped, int ChoresPaused\u003E",
+            "Properties": {
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "userId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "choresReassigned": {
+                "Type": "integer",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "choresDropped": {
+                "Type": "integer",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "choresPaused": {
+                "Type": "integer",
+                "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "guild.MemberMuted",
       "shapeCount": 1,
       "sites": [
@@ -6504,7 +6432,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Messages/MessageCreatedHandler.cs",
-          "line": 55,
+          "line": 68,
           "clrType": "Guild.Contracts.Bus.Events.MessageCreatedForChannel",
           "anonymous": false,
           "schema": {
@@ -6936,7 +6864,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/PantryEndpoint.cs",
-          "line": 123,
+          "line": 157,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.PantryItemDto Item\u003E",
           "anonymous": true,
           "schema": {
@@ -7024,7 +6952,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/PantryEndpoint.cs",
-          "line": 199,
+          "line": 255,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string ItemId\u003E",
           "anonymous": true,
           "schema": {
@@ -7058,7 +6986,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/PantryEndpoint.cs",
-          "line": 176,
+          "line": 227,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.PantryItemDto Item\u003E",
           "anonymous": true,
           "schema": {
@@ -7146,7 +7074,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 127,
+          "line": 128,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
           "anonymous": true,
           "schema": {
@@ -7275,7 +7203,7 @@
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 140,
+          "line": 141,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
           "anonymous": true,
           "schema": {
@@ -7404,7 +7332,7 @@
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 348,
+          "line": 349,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
           "anonymous": true,
           "schema": {
@@ -7562,7 +7490,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/LedgerEndpoint.cs",
-          "line": 273,
+          "line": 384,
           "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.SettlementDto Settlement\u003E",
           "anonymous": true,
           "schema": {
@@ -7964,6 +7892,113 @@
       ]
     },
     {
+      "name": "guild.WikiCommentCreated",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Guild.Application/Bus/Events/Wiki/WikiCommentCreatedHandler.cs",
+          "line": 14,
+          "clrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId, string AuthorId\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId, string AuthorId\u003E",
+            "Properties": {
+              "commentId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "pageId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "authorId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "guild.WikiCommentDeleted",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Guild.Application/Bus/Events/Wiki/WikiCommentDeletedHandler.cs",
+          "line": 14,
+          "clrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+            "Properties": {
+              "commentId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "pageId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "guild.WikiCommentUpdated",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Guild.Application/Bus/Events/Wiki/WikiCommentUpdatedHandler.cs",
+          "line": 14,
+          "clrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+            "Properties": {
+              "commentId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "pageId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "guild.WikiPageCreated",
       "shapeCount": 1,
       "sites": [
@@ -8022,18 +8057,18 @@
       ]
     },
     {
-      "name": "guild.WikiPageUpdated",
+      "name": "guild.WikiPageReactionAdded",
       "shapeCount": 1,
       "sites": [
         {
-          "file": "Guild.Application/Bus/Events/Wiki/WikiPageUpdatedHandler.cs",
+          "file": "Guild.Application/Bus/Events/Wiki/WikiPageReactionAddedHandler.cs",
           "line": 14,
-          "clrType": "\u003Canonymous type: string PageId, string GuildId\u003E",
+          "clrType": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string PageId, string GuildId\u003E",
+            "ClrType": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
             "Properties": {
               "pageId": {
                 "Type": "string",
@@ -8044,37 +8079,13 @@
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "guild.voice.CameraChanged",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 116,
-          "clrType": "\u003Canonymous type: string userId, bool isCameraOn, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isCameraOn, string channelId\u003E",
-            "Properties": {
+              },
               "userId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "isCameraOn": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
+              "emoji": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
@@ -8085,70 +8096,110 @@
       ]
     },
     {
-      "name": "guild.voice.DeafenChanged",
+      "name": "guild.WikiPageReactionRemoved",
       "shapeCount": 1,
       "sites": [
         {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 97,
-          "clrType": "\u003Canonymous type: string userId, bool isDeafened, string channelId, bool serverForced\u003E",
+          "file": "Guild.Application/Bus/Events/Wiki/WikiPageReactionRemovedHandler.cs",
+          "line": 14,
+          "clrType": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isDeafened, string channelId, bool serverForced\u003E",
+            "ClrType": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
             "Properties": {
+              "pageId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
               "userId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "isDeafened": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
+              "emoji": {
                 "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "serverForced": {
-                "Type": "boolean",
                 "Nullable": false,
                 "Properties": {}
               }
             }
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "guild.WikiPageUpdated",
+      "shapeCount": 1,
+      "sites": [
         {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 217,
-          "clrType": "\u003Canonymous type: string userId, bool isDeafened, string channelId, bool serverForced\u003E",
+          "file": "Guild.Application/Bus/Events/Wiki/WikiPageUpdatedHandler.cs",
+          "line": 16,
+          "clrType": "\u003Canonymous type: string PageId, string GuildId, string? EditorId\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
             "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isDeafened, string channelId, bool serverForced\u003E",
+            "ClrType": "\u003Canonymous type: string PageId, string GuildId, string EditorId\u003E",
             "Properties": {
-              "userId": {
+              "pageId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "isDeafened": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
+              "guildId": {
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
               },
-              "serverForced": {
-                "Type": "boolean",
+              "editorId": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "guild.WikiPageWatchedUpdate",
+      "shapeCount": 1,
+      "sites": [
+        {
+          "file": "Guild.Application/Bus/Events/Wiki/WikiPageUpdatedHandler.cs",
+          "line": 49,
+          "clrType": "\u003Canonymous type: string PageId, string GuildId, string? Title, string? EditorId\u003E",
+          "anonymous": true,
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "\u003Canonymous type: string PageId, string GuildId, string Title, string EditorId\u003E",
+            "Properties": {
+              "pageId": {
+                "Type": "string",
                 "Nullable": false,
+                "Properties": {}
+              },
+              "guildId": {
+                "Type": "string",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "title": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "editorId": {
+                "Type": "string",
+                "Nullable": true,
                 "Properties": {}
               }
             }
@@ -8162,7 +8213,7 @@
       "sites": [
         {
           "file": "Guild.Application/Controllers/GuildVoiceController.cs",
-          "line": 141,
+          "line": 134,
           "clrType": "\u003Canonymous type: string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -8191,7 +8242,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 306,
+          "line": 199,
           "clrType": "\u003Canonymous type: string channelId, string guildId, string movedBy\u003E",
           "anonymous": true,
           "schema": {
@@ -8220,383 +8271,12 @@
       ]
     },
     {
-      "name": "guild.voice.MuteChanged",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 72,
-          "clrType": "\u003Canonymous type: string userId, bool isMuted, string channelId, bool serverForced\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isMuted, string channelId, bool serverForced\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "isMuted": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "serverForced": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        },
-        {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 193,
-          "clrType": "\u003Canonymous type: string userId, bool isMuted, string channelId, bool serverForced\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, bool isMuted, string channelId, bool serverForced\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "isMuted": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "serverForced": {
-                "Type": "boolean",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "guild.voice.ParticipantJoined",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Controllers/GuildCloudflareController.cs",
-          "line": 288,
-          "clrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "audioTrackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        },
-        {
-          "file": "Guild.Application/Controllers/GuildCloudflareController.cs",
-          "line": 302,
-          "clrType": "\u003Canonymous type: string userId, string? cfSessionId, string? audioTrackName, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "audioTrackName": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "guild.voice.ScreenShareStarted",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 144,
-          "clrType": "\u003Canonymous type: string userId, string shareId, string trackName, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string shareId, string trackName, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "shareId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        },
-        {
-          "file": "Guild.Application/Controllers/GuildCloudflareController.cs",
-          "line": 315,
-          "clrType": "\u003Canonymous type: string userId, string shareId, string trackName, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string shareId, string trackName, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "shareId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "guild.voice.ScreenShareStopped",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 169,
-          "clrType": "\u003Canonymous type: string shareId, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string shareId, string channelId\u003E",
-            "Properties": {
-              "shareId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "guild.voice.TrackClosed",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Controllers/GuildCloudflareController.cs",
-          "line": 233,
-          "clrType": "\u003Canonymous type: string userId, string trackName, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string trackName, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "guild.voice.TrackPublished",
-      "shapeCount": 1,
-      "sites": [
-        {
-          "file": "Guild.Application/Controllers/GuildCloudflareController.cs",
-          "line": 331,
-          "clrType": "\u003Canonymous type: string userId, string? cfSessionId, string trackName, string kind, string? shareId, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string shareId, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "kind": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "shareId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        },
-        {
-          "file": "Guild.Application/Controllers/GuildCloudflareController.cs",
-          "line": 391,
-          "clrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string? shareId, string channelId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string shareId, string channelId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "cfSessionId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "kind": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "shareId": {
-                "Type": "string",
-                "Nullable": true,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "guild.voice.UserJoinedVoice",
       "shapeCount": 1,
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 302,
+          "line": 196,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -8624,7 +8304,7 @@
         },
         {
           "file": "Guild.Application/Controllers/GuildVoiceController.cs",
-          "line": 111,
+          "line": 107,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -8686,7 +8366,7 @@
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-          "line": 294,
+          "line": 185,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -8714,7 +8394,7 @@
         },
         {
           "file": "Guild.Application/Controllers/GuildVoiceController.cs",
-          "line": 224,
+          "line": 246,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
           "anonymous": true,
           "schema": {
@@ -8742,8 +8422,8 @@
         },
         {
           "file": "Guild.Application/Services/VoiceHeartbeatCleanupService.cs",
-          "line": 99,
-          "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
+          "line": 149,
+          "clrType": "\u003Canonymous type: string userId, string channelId, string? guildId\u003E",
           "anonymous": true,
           "schema": {
             "Type": "object",
@@ -8762,7 +8442,7 @@
               },
               "guildId": {
                 "Type": "string",
-                "Nullable": false,
+                "Nullable": true,
                 "Properties": {}
               }
             }
@@ -9024,7 +8704,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Messages/MessageCreatedHandler.cs",
-          "line": 268,
+          "line": 281,
           "clrType": "\u003Canonymous type: string MessageId, string ChannelId, string GuildId, string? ConversationId, string AuthorId, string Kind, System.DateTimeOffset CreatedAt\u003E",
           "anonymous": true,
           "schema": {
@@ -9079,7 +8759,7 @@
       "sites": [
         {
           "file": "Guild.Application/Endpoints/InboxEndpoint.cs",
-          "line": 162,
+          "line": 183,
           "clrType": "\u003Canonymous type: string ChannelId, string LastReadMessageId, int MentionCount\u003E",
           "anonymous": true,
           "schema": {
@@ -9107,7 +8787,7 @@
         },
         {
           "file": "Guild.Application/Endpoints/InboxEndpoint.cs",
-          "line": 248,
+          "line": 269,
           "clrType": "\u003Canonymous type: bool All\u003E",
           "anonymous": true,
           "schema": {
@@ -11046,11 +10726,6 @@
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
               }
             }
           }
@@ -11231,7 +10906,7 @@
       "name": "guild.voice.CameraChanged",
       "clrMethod": "EchoRealtimeHub.GuildVoiceCameraChanged",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 152,
+      "line": 163,
       "parameters": [
         {
           "Name": "cmd",
@@ -11265,7 +10940,7 @@
       "name": "guild.voice.DeafenChanged",
       "clrMethod": "EchoRealtimeHub.GuildVoiceDeafenChanged",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 148,
+      "line": 159,
       "parameters": [
         {
           "Name": "cmd",
@@ -11296,17 +10971,10 @@
       ]
     },
     {
-      "name": "guild.voice.Heartbeat",
-      "clrMethod": "EchoRealtimeHub.GuildVoiceHeartbeat",
-      "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 140,
-      "parameters": []
-    },
-    {
       "name": "guild.voice.MoveUser",
       "clrMethod": "EchoRealtimeHub.GuildVoiceMoveUser",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 172,
+      "line": 183,
       "parameters": [
         {
           "Name": "cmd",
@@ -11345,7 +11013,7 @@
       "name": "guild.voice.MuteChanged",
       "clrMethod": "EchoRealtimeHub.GuildVoiceMuteChanged",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 144,
+      "line": 155,
       "parameters": [
         {
           "Name": "cmd",
@@ -11379,7 +11047,7 @@
       "name": "guild.voice.ScreenShareStarted",
       "clrMethod": "EchoRealtimeHub.GuildVoiceScreenShareStarted",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 156,
+      "line": 167,
       "parameters": [
         {
           "Name": "cmd",
@@ -11403,11 +11071,6 @@
                 "Type": "string",
                 "Nullable": false,
                 "Properties": {}
-              },
-              "trackName": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
               }
             }
           }
@@ -11418,7 +11081,7 @@
       "name": "guild.voice.ScreenShareStopped",
       "clrMethod": "EchoRealtimeHub.GuildVoiceScreenShareStopped",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 160,
+      "line": 171,
       "parameters": [
         {
           "Name": "cmd",
@@ -11452,7 +11115,7 @@
       "name": "guild.voice.ServerDeafen",
       "clrMethod": "EchoRealtimeHub.GuildVoiceServerDeafen",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 168,
+      "line": 179,
       "parameters": [
         {
           "Name": "cmd",
@@ -11491,7 +11154,7 @@
       "name": "guild.voice.ServerMute",
       "clrMethod": "EchoRealtimeHub.GuildVoiceServerMute",
       "file": "Echo.Realtime/EchoRealtimeHub.cs",
-      "line": 164,
+      "line": 175,
       "parameters": [
         {
           "Name": "cmd",
@@ -11519,6 +11182,64 @@
               "isMuted": {
                 "Type": "boolean",
                 "Nullable": false,
+                "Properties": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "voice.Heartbeat",
+      "clrMethod": "EchoRealtimeHub.VoiceHeartbeat",
+      "summary": "The state-asserting heartbeat, for guild channels and direct calls alike. \u003Cpara\u003ERouted to the owning service by room kind, because Wolverine dispatches on the concrete message type. The user id is server-authoritative as everywhere else here, so a client can only ever assert something about itself.\u003C/para\u003E",
+      "file": "Echo.Realtime/EchoRealtimeHub.cs",
+      "line": 149,
+      "parameters": [
+        {
+          "Name": "roomKind",
+          "clrType": "string",
+          "schema": {
+            "Type": "string",
+            "Nullable": false,
+            "Properties": {}
+          }
+        },
+        {
+          "Name": "roomId",
+          "clrType": "string",
+          "schema": {
+            "Type": "string",
+            "Nullable": false,
+            "Properties": {}
+          }
+        },
+        {
+          "Name": "state",
+          "clrType": "Echo.Realtime.VoiceHeartbeatState",
+          "schema": {
+            "Type": "object",
+            "Nullable": false,
+            "ClrType": "Echo.Realtime.VoiceHeartbeatState",
+            "Properties": {
+              "knownInstanceId": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "knownVersion": {
+                "Type": "integer",
+                "Nullable": false,
+                "Properties": {}
+              },
+              "mediaSessionId": {
+                "Type": "string",
+                "Nullable": true,
+                "Properties": {}
+              },
+              "audioTrackName": {
+                "Type": "string",
+                "Nullable": true,
                 "Properties": {}
               }
             }

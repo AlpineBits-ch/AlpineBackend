@@ -1,11 +1,14 @@
-# Voice presence, stream viewers and call history — frontend guide
+# Voice presence, stream viewers and call history - frontend guide
 
 Backend contract for four client features that had no server support: a voice indicator in the
 server list, viewer counts on screen shares, joining a call already in progress, and calls appearing
-in the conversation history. Guild voice channels and 1:1/group calls are covered symmetrically —
+in the conversation history. Guild voice channels and 1:1/group calls are covered symmetrically -
 where the two differ, it is noted.
 
-Nothing here changes an existing payload. Everything is additive.
+> **Paths below are service-internal.** The public surface is behind the gateway, which strips a
+> service prefix: prepend `/api/v1/guild` for guild routes and `/api/v1/messaging` for call and
+> conversation routes, replacing their own `/api/v1`. A client that copies these literally gets a
+> 404.
 
 ---
 
@@ -34,7 +37,7 @@ Nothing here changes an existing payload. Everything is additive.
 
 Guilds with nobody in voice are **omitted**, not returned empty. Channels the caller cannot
 `ViewChannel` are filtered out per viewer, and a guild whose only occupied channel is hidden does
-not appear at all — a bare "something is happening here" would still leak a private channel.
+not appear at all - a bare "something is happening here" would still leak a private channel.
 
 **This is a snapshot, not a subscription.** Live updates already exist and need no new events:
 `guild.voice.UserJoinedVoice` and `guild.voice.UserLeftVoice` carry `{ userId, channelId, guildId }`
@@ -46,7 +49,7 @@ Screen-share state rides along: `guild.voice.ScreenShareStarted` / `ScreenShareS
 
 Backed by a per-guild index (`voice:guild:{guildId}`) written by join/leave/move/screen-share, and
 rebuilt from the authoritative channel rosters by the 60-second heartbeat sweep. A dropped write
-therefore self-heals within one interval rather than persisting — but it also means the endpoint can
+therefore self-heals within one interval rather than persisting - but it also means the endpoint can
 lag reality by up to that interval in the rare drift case. Treat live events as the fresher truth.
 
 ---
@@ -104,16 +107,16 @@ refused) → else `403`. The whole table is dropped when the call ends.
 ```
 
 Answers for **any member of the conversation**, including one who declined, one who left, and one
-who was never invited — none of whom the existing signals reach (`call.IncomingCall` is addressed to
+who was never invited - none of whom the existing signals reach (`call.IncomingCall` is addressed to
 invitees and never replayed; `voice/call/pending` answers only for someone currently being rung).
-A non-member gets `404`, not `403` — the existence of the call is itself withheld.
+A non-member gets `404`, not `403` - the existence of the call is itself withheld.
 
-**Deliberately not the `Call` object.** It carries no `cfSessionId` and no `audioTrackName`: those
-are a live capability over media on a shared Cloudflare Calls app, and guild voice withholds the
-same two fields from its own HTTP state for the same reason. They arrive over SignalR once you have
-actually joined.
+**Deliberately not the `Call` object.** It carries no `mediaSessionId` and no `audioTrackName`:
+those are a live capability over media on a shared SFU app, and a member who is not in the call has
+no business holding them. Once you have actually joined, they come from the room snapshot - see
+[voice-frontend-guide.md](voice-frontend-guide.md).
 
-Live counterpart — **`conversation.CallStateChanged`**, sent to every member of the conversation:
+Live counterpart - **`conversation.CallStateChanged`**, sent to every member of the conversation:
 
 ```jsonc
 { "conversationId": "conv-1", "callId": "call-1", "status": "Ongoing" | "Ended",
@@ -134,74 +137,43 @@ Emitted when a call is placed, when someone accepts (so the roster stays right),
 | `CallEnded` | whole seconds as plain text, e.g. `"184"` | a call that somebody answered |
 | `CallMissed` | empty | the call ended with nobody but the caller ever connecting |
 
-One entry per call, written when it ends, authored by **whoever placed the call** — which is what
+One entry per call, written when it ends, authored by **whoever placed the call** - which is what
 lets a client render "you missed a call from X" without a second lookup. A ring timeout, a decline,
 and an unanswered cancel all produce `CallMissed`; answering and hanging up seconds later produces
 `CallEnded`, never `CallMissed`.
 
 These arrive through the normal `conversation.MessageCreated` fan-out. **They send no push
-notification** — the recipient just lived through the call, and a missed one would otherwise alert
+notification** - the recipient just lived through the call, and a missed one would otherwise alert
 twice, right behind the VoIP push that already fired.
 
 ---
 
-## 5. Learning what to pull in a call (`call.ParticipantJoined`)
+## 5. Everything about joining, publishing and subscribing
 
-A client never discovers another participant's audio by inspecting the SFU: it is told, over
-SignalR, which Cloudflare session and track name to pull. `call.ParticipantJoined` is that telling,
-and it is the **only** live source for a call — `GET /api/v1/messaging/voice/conversations/{id}/call`
-deliberately omits both fields (§3), and `GET /api/v1/messaging/voice/call/{callId}` carries them
-but is a catch-up read the client has to decide to make.
+**See [voice-frontend-guide.md](voice-frontend-guide.md).**
 
-```jsonc
-{
-  "callId": "call_01K…",   // added — the engine runs several calls at once
-  "userId": "user-2",
-  "cfSessionId": "…",      // the session that participant PUBLISHES on
-  "audioTrackName": "audio"
-}
-```
+This document used to carry its own account of how a client learns which session and track to pull
+in a call. That is gone, because the mechanism it described is gone. Guild channels and calls now
+run one implementation with one contract: rooms, a versioned snapshot that is sufficient on its own,
+and a heartbeat that repairs drift. Anything that section told you is either restated properly there
+or no longer true - in particular:
 
-`callId` is new and additive; the other three fields are unchanged.
+- `cfSessionId` is now `mediaSessionId`, and `POST .../cf/tracks/new` is now `POST .../tracks` with
+  `direction: "publish"` / `"subscribe"`.
+- Announcements *are* now repeatable. The old section's central warning - that a missed
+  announcement is lost for good, so a client must never drop one - was true and is not any more.
+  Missing an event is recoverable from the version and the snapshot.
+- The media handles no longer live on the `Call` object at all, so `GET .../voice/call/{callId}` no
+  longer carries them. Use `GET .../voice/call/{callId}/snapshot`.
+- Calls now have the same liveness sweep as guild channels.
 
-**When it is sent.** Three moments, all server-side:
-
-1. **Somebody publishes.** `POST /calls/{callId}/cf/tracks/new` carrying a `local` track named
-   `audio` announces that participant to every *connected* participant. Never before the publish — a
-   session id with no track behind it names something Cloudflare has nothing for, the subscribe
-   fails, and because clients dedupe subscriptions per user the failed attempt burns the guard and
-   the real announcement moments later is dropped as a duplicate. One-way silence for the rest of
-   the call.
-2. **In return.** That same request replays every *other* participant who is already publishing back
-   to the publisher.
-3. **On entering the media path.** `POST /calls/{callId}/session?primary=true` replays every
-   participant who is already publishing to whoever made that request. It announces *nothing about
-   them*: they have opened a session and published nothing.
-
-(3) exists because the two sides of a call are not symmetric. The **callee** is `Connected` the
-instant `PUT /call/{callId}/accept` returns, before any media work starts. The **caller** never
-accepts their own call: `POST /session?primary=true` is the only thing that marks them `Connected`,
-and a client issues it from its audio publisher at the end of a multi-second startup (open the
-microphone, build the peer connection, gather ICE). Until it lands they are `Pending`, and (1) skips
-them deliberately — an invitee who is still ringing has no business holding anyone's session id.
-Without (3) a callee who answered quickly published inside that window and the caller was never
-told, with nothing anywhere to repeat it: SignalR does not replay, and calls have no heartbeat sweep
-the way guild voice does. The caller stayed deaf to the callee for the whole call while being heard
-perfectly.
-
-**What the client has to get right.** Announcements are never repeated, so one that arrives before
-the client can act on it is lost for good. If your audio publisher is started by a blocking call —
-as on desktop, where the Rust engine's `voice_start` does not return until it has published — then
-(2) and (3) both arrive *while that call is still in flight*, and a subscribe handler that discards
-an announcement because "the publication does not exist yet" discards exactly the ones that matter.
-Wait for the publication rather than dropping the announcement; the guild path has carried that wait
-since the equivalent bug there. `GET /voice/call/{callId}` is the catch-up if you would rather
-reconcile — but call it *after* the publisher is up, not before.
+What stays here is the part that is genuinely not the room contract: the guild voice-activity index
+(§1), viewer counts (§2), discovering a call already in progress (§3), and call history (§4).
 
 ---
 
 ## Not covered here
 
 Per-viewer stream quality (Auto/720p/480p) is not implemented. It needs simulcast layers from the
-publisher, which is client-side encoder work; the backend piece is a passthrough parameter on
-`cf/tracks/new` and can follow once the publisher sends more than one encoding.
+publisher, which is client-side encoder work; the backend piece is a passthrough parameter on the
+negotiate call and can follow once the publisher sends more than one encoding.

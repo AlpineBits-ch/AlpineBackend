@@ -7418,7 +7418,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ChoreEndpoint.cs",
-        "line": 367
+        "line": 376
       },
       "summary": "Who is actually carrying the house",
       "description": "Who is actually carrying the house. This is the number that turns \u0022you never clean\u0022 from an argument into a fact."
@@ -7652,11 +7652,84 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "x-clr-type": "System.Collections.Generic.IEnumerable\u003CGuild.Application.Dtos.Response.ExpenseDto\u003E"
+                "x-clr-type": "\u003Canonymous type: System.Collections.Generic.List\u003CGuild.Application.Dtos.Response.ExpenseDto\u003E Items, string NextCursor\u003E",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.ExpenseDto",
+                      "properties": {
+                        "amountMinor": {
+                          "type": "integer"
+                        },
+                        "channelId": {
+                          "type": "string"
+                        },
+                        "createdByUserId": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "occurredAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "payerUserId": {
+                          "type": "string"
+                        },
+                        "shares": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "x-clr-type": "Guild.Application.Dtos.Response.ExpenseShareEntryDto",
+                            "properties": {
+                              "amountMinor": {
+                                "type": "integer"
+                              },
+                              "shareValue": {
+                                "type": "number"
+                              },
+                              "userId": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "splitKind": {
+                          "type": "string",
+                          "enum": [
+                            "Equal",
+                            "Shares",
+                            "Exact"
+                          ],
+                          "x-clr-type": "Guild.Domain.Enums.ExpenseSplitKind",
+                          "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                        }
+                      }
+                    }
+                  },
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
               }
             }
           },
-          "x-clr-type": "System.Collections.Generic.IEnumerable\u003CGuild.Application.Dtos.Response.ExpenseDto\u003E"
+          "x-clr-type": "\u003Canonymous type: System.Collections.Generic.List\u003CGuild.Application.Dtos.Response.ExpenseDto\u003E Items, string? NextCursor\u003E"
+        },
+        "400": {
+          "description": "Invalid request"
         },
         "401": {
           "description": "Not authenticated"
@@ -7670,8 +7743,10 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 47
-      }
+        "line": 55
+      },
+      "summary": "The channel\u0027s expenses, newest first, in pages",
+      "description": "The channel\u0027s expenses, newest first, in pages.  Keyset rather than the flat Take(200) this used to be: a ledger is append-only and a house that has been running for three years has more than two hundred expenses, so the old shape silently stopped showing history at an arbitrary point with no way to ask for the rest. Cursor is \u0060{occurredAt:O}|{id}\u0060, the same composite-key convention the rest of the service pages on, because OccurredAt alone is not unique - a bulk import can land a dozen expenses on the same timestamp and a timestamp-only cursor would skip them."
     },
     {
       "project": "Guild.Application",
@@ -7761,7 +7836,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 68
+        "line": 122
       }
     },
     {
@@ -7794,7 +7869,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 200
+        "line": 297
       }
     },
     {
@@ -7835,7 +7910,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 299
+        "line": 410
       }
     },
     {
@@ -7879,7 +7954,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 312
+        "line": 423
       }
     },
     {
@@ -7912,7 +7987,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 217
+        "line": 314
       },
       "summary": "The minimal-ish set of payments that clears the house",
       "description": "The minimal-ish set of payments that clears the house. Four flatmates settle up with two transfers instead of six."
@@ -7971,7 +8046,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 239
+        "line": 336
       }
     },
     {
@@ -8358,7 +8433,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-        "line": 91
+        "line": 124
       }
     },
     {
@@ -8405,7 +8480,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-        "line": 205
+        "line": 261
       }
     },
     {
@@ -8455,7 +8530,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-        "line": 227
+        "line": 283
       }
     },
     {
@@ -13852,7 +13927,63 @@
       "clrMethod": "ChoreEndpoint.SkipAsync",
       "responses": {
         "200": {
-          "description": "Success"
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.ChoreOccurrenceDto",
+                "properties": {
+                  "assignedUserId": {
+                    "type": "string"
+                  },
+                  "channelId": {
+                    "type": "string"
+                  },
+                  "choreId": {
+                    "type": "string"
+                  },
+                  "completedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "completedByUserId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dueAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "effortMinutes": {
+                    "type": "integer"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "isOverdue": {
+                    "type": "boolean"
+                  },
+                  "skippedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "title": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.ChoreOccurrenceDto"
         },
         "401": {
           "description": "Not authenticated"
@@ -13949,7 +14080,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ChoreEndpoint.cs",
-        "line": 329
+        "line": 338
       },
       "summary": "Hands an occurrence to whoever currently has the lightest load",
       "description": "Hands an occurrence to whoever currently has the lightest load. The point is that \u0022I can\u0027t do the bins tonight\u0022 resolves itself without anybody having to negotiate."
@@ -14084,7 +14215,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\DecisionEndpoint.cs",
-        "line": 223
+        "line": 231
       }
     },
     {
@@ -14235,7 +14366,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\DecisionEndpoint.cs",
-        "line": 196
+        "line": 204
       },
       "summary": "Resolves the decision from the votes cast so far",
       "description": "Resolves the decision from the votes cast so far. Anyone who can create decisions may close one - a house doesn\u0027t need a chairperson."
@@ -14388,7 +14519,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\DecisionEndpoint.cs",
-        "line": 147
+        "line": 149
       }
     },
     {
@@ -14579,7 +14710,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 177
+        "line": 268
       }
     },
     {
@@ -14670,7 +14801,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-        "line": 123
+        "line": 193
       }
     },
     {
@@ -19311,6 +19442,370 @@
     },
     {
       "project": "Guild.Application",
+      "verb": "get",
+      "path": "/api/v1/guilds/{guildId}/home",
+      "clrMethod": "HouseholdDigestEndpoint.GetAsync",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestDto",
+                "properties": {
+                  "chores": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestChoresDto",
+                    "properties": {
+                      "houseOverdueCount": {
+                        "type": "integer"
+                      },
+                      "mine": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "x-clr-type": "Guild.Application.Dtos.Response.ChoreOccurrenceDto",
+                          "properties": {
+                            "assignedUserId": {
+                              "type": "string"
+                            },
+                            "channelId": {
+                              "type": "string"
+                            },
+                            "choreId": {
+                              "type": "string"
+                            },
+                            "completedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "completedByUserId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "dueAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "effortMinutes": {
+                              "type": "integer"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "isOverdue": {
+                              "type": "boolean"
+                            },
+                            "skippedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "mineOverdueCount": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "decisions": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestDecisionsDto",
+                    "properties": {
+                      "awaitingMyVote": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestDecisionDto",
+                          "properties": {
+                            "channelId": {
+                              "type": "string"
+                            },
+                            "closesAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "openCount": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "guildId": {
+                    "type": "string"
+                  },
+                  "homeStatus": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.HomeStatusDto",
+                      "properties": {
+                        "expiresAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "Home",
+                            "Out",
+                            "Asleep",
+                            "DoNotDisturb",
+                            "OnMyWay"
+                          ],
+                          "x-clr-type": "Guild.Domain.Enums.HomeStatusKind",
+                          "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "userId": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "ledger": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestLedgerDto",
+                      "properties": {
+                        "channelId": {
+                          "type": "string"
+                        },
+                        "channelName": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "myNetMinor": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  },
+                  "lists": {
+                    "type": [
+                      "array",
+                      "null"
+                    ],
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestListDto",
+                      "properties": {
+                        "channelId": {
+                          "type": "string"
+                        },
+                        "channelName": {
+                          "type": "string"
+                        },
+                        "openCount": {
+                          "type": "integer"
+                        },
+                        "preview": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "x-clr-type": "Guild.Application.Dtos.Response.ListItemDto",
+                            "properties": {
+                              "addedByUserId": {
+                                "type": "string"
+                              },
+                              "assigneeUserId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "channelId": {
+                                "type": "string"
+                              },
+                              "checkedAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "date-time"
+                              },
+                              "checkedByUserId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "isChecked": {
+                                "type": "boolean"
+                              },
+                              "note": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "position": {
+                                "type": "integer"
+                              },
+                              "quantity": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "section": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "sourcePantryItemId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "text": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "pantry": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestPantryDto",
+                    "properties": {
+                      "expiringCount": {
+                        "type": "integer"
+                      },
+                      "soonest": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "x-clr-type": "Guild.Application.Dtos.Response.PantryItemDto",
+                          "properties": {
+                            "addedByUserId": {
+                              "type": "string"
+                            },
+                            "channelId": {
+                              "type": "string"
+                            },
+                            "expiresAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "isLow": {
+                              "type": "boolean"
+                            },
+                            "lowThreshold": {
+                              "type": [
+                                "number",
+                                "null"
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "quantity": {
+                              "type": "number"
+                            },
+                            "restockedAt": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "unit": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.HouseholdDigestDto"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdDigestEndpoint.cs",
+        "line": 32
+      },
+      "summary": "Chores, lists, pantry, ledger, decisions and who\u0027s home, for one guild",
+      "description": "Chores, lists, pantry, ledger, decisions and who\u0027s home, for one guild.  Replaces the six calls a home tab used to make. Sections are null where the module is off or nothing is visible to the caller; every list inside is capped, because this is a glance and the module endpoints remain the way to read a whole board.   Conditional. The response carries a strong \u0060ETag\u0060 over its own content and honours \u0060If-None-Match\u0060 with a 304. That saves the transfer, not the work - the digest is assembled either way, because there is no single timestamp that changes when any of six modules does and inventing one would mean a cache that lies. Worth it regardless: a widget refreshing every fifteen minutes mostly finds nothing has changed, and on a metered radio the bytes are the expensive part."
+    },
+    {
+      "project": "Guild.Application",
       "verb": "delete",
       "path": "/api/v1/guilds/{guildId}/home-status",
       "clrMethod": "HouseholdGuildEndpoint.ClearHomeStatusAsync",
@@ -19327,7 +19822,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 67
+        "line": 68
       }
     },
     {
@@ -19387,7 +19882,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 23
+        "line": 24
       }
     },
     {
@@ -19447,7 +19942,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 42
+        "line": 43
       },
       "summary": "Sets your own status",
       "description": "Sets your own status. There is no permission bit for this and no way to set someone else\u0027s - \u0022Anna is asleep\u0022 is only ever Anna\u0027s to assert."
@@ -21432,6 +21927,100 @@
     },
     {
       "project": "Guild.Application",
+      "verb": "post",
+      "path": "/api/v1/guilds/{guildId}/members/{targetUserId}/move-out",
+      "clrMethod": "HouseholdGuildEndpoint.MoveOutAsync",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Services.MoveOutSummary",
+                "properties": {
+                  "balancesWrittenOff": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Domain.Services.TransferSuggestion",
+                      "properties": {
+                        "amountMinor": {
+                          "type": "integer"
+                        },
+                        "fromUserId": {
+                          "type": "string"
+                        },
+                        "toUserId": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "choresDropped": {
+                    "type": "integer"
+                  },
+                  "choresPaused": {
+                    "type": "integer"
+                  },
+                  "choresReassigned": {
+                    "type": "integer"
+                  },
+                  "listItemsUnassigned": {
+                    "type": "integer"
+                  },
+                  "userId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Services.MoveOutSummary"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        },
+        "409": {
+          "description": "Conflict with current state",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "\u003Canonymous type: string Error, System.Collections.Generic.IEnumerable\u003C\u003Canonymous type: string ChannelId, string Currency, long NetMinor\u003E\u003E Outstanding\u003E",
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  },
+                  "outstanding": {
+                    "type": "object",
+                    "x-clr-type": "System.Collections.Generic.IEnumerable\u003C\u003Canonymous type: string ChannelId, string Currency, long NetMinor\u003E\u003E"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "\u003Canonymous type: string Error, System.Collections.Generic.IEnumerable\u003C\u003Canonymous type: string ChannelId, string Currency, long NetMinor\u003E\u003E Outstanding\u003E"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
+        "line": 253
+      },
+      "summary": "Removes someone who has moved out, and cleans up everything they were carrying",
+      "description": "Removes someone who has moved out, and cleans up everything they were carrying.  A household has no kick. \u003Csee cref=\u0022F:Guild.Domain.Enums.GuildFeaturePresets.Household\u0022/\u003E leaves the Moderation module off on purpose, which strips \u003Csee cref=\u0022F:Guild.Domain.Enums.Permissions.KickMembers\u0022/\u003E for everybody including the owner - so until this existed, a flatmate who moved out and stopped answering their phone could not be removed at all. Gated on \u003Csee cref=\u0022F:Guild.Domain.Enums.Permissions.ManageGuild\u0022/\u003E, which is never feature-gated, plus the same role-hierarchy rule as any other action against a member.   Refuses with 409 while the member is not square in a ledger channel. That is the point of the flow: a departing debtor whose balance is never resolved makes every future settle-suggestion wrong for everyone staying, and the house has to make the call - chase them, or write it off - rather than discover it months later. \u0060writeOffBalances\u0060 is that call, made explicitly and written to the audit log."
+    },
+    {
+      "project": "Guild.Application",
       "verb": "delete",
       "path": "/api/v1/guilds/{guildId}/members/{targetUserId}/roles/{roleId}/temporary",
       "clrMethod": "HouseholdGuildEndpoint.RevokeTemporaryRoleAsync",
@@ -21451,7 +22040,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 236
+        "line": 335
       }
     },
     {
@@ -21502,7 +22091,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 171
+        "line": 172
       },
       "summary": "Grants a role that lapses on its own - the pet sitter gets five days of access to the\u2026",
       "description": "Grants a role that lapses on its own - the pet sitter gets five days of access to the house manual and the calendar, and nobody has to remember to take it away."
@@ -22305,12 +22894,61 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "x-clr-type": "System.Collections.Generic.IEnumerable\u003CGuild.Application.Dtos.Response.PantryItemDto\u003E"
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "x-clr-type": "Guild.Application.Dtos.Response.PantryItemDto",
+                  "properties": {
+                    "addedByUserId": {
+                      "type": "string"
+                    },
+                    "channelId": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "isLow": {
+                      "type": "boolean"
+                    },
+                    "lowThreshold": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "restockedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
               }
             }
           },
-          "x-clr-type": "System.Collections.Generic.IEnumerable\u003CGuild.Application.Dtos.Response.PantryItemDto\u003E"
+          "x-clr-type": "Guild.Application.Dtos.Response.PantryItemDto[]"
         },
         "401": {
           "description": "Not authenticated"
@@ -22321,10 +22959,10 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-        "line": 58
+        "line": 64
       },
       "summary": "The \u0022eat me first\u0022 board: what\u0027s about to go off, soonest first",
-      "description": "The \u0022eat me first\u0022 board: what\u0027s about to go off, soonest first. Spans every pantry channel in the guild the caller can see, because \u0022what needs eating\u0022 is a question about the house, not about the fridge specifically."
+      "description": "The \u0022eat me first\u0022 board: what\u0027s about to go off, soonest first. Spans every pantry channel in the guild the caller can see, because \u0022what needs eating\u0022 is a question about the house, not about the fridge specifically.  Without an explicit \u003Cparamref name=\u0022days\u0022/\u003E each pantry uses its own \u003Csee cref=\u0022P:Guild.Domain.Entity.PantryConfig.ExpiryWarningDays\u0022/\u003E. That setting was previously write-only - the endpoint always used a flat three days and nothing else read it - so a freezer configured for a fortnight\u0027s warning behaved exactly like the fridge. Per-channel is the right default because the horizon that matters is a property of what is stored there."
     },
     {
       "project": "Guild.Application",
@@ -22417,7 +23055,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 88
+        "line": 89
       }
     },
     {
@@ -22464,7 +23102,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-        "line": 114
+        "line": 115
       }
     },
     {
@@ -22884,6 +23522,21 @@
                             "null"
                           ]
                         },
+                        "commentCount": {
+                          "type": "integer"
+                        },
+                        "content": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "coverUrl": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
                         "createdAt": {
                           "type": "string",
                           "format": "date-time"
@@ -22891,10 +23544,19 @@
                         "guildId": {
                           "type": "string"
                         },
+                        "icon": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
                         "id": {
                           "type": "string"
                         },
                         "isPinned": {
+                          "type": "boolean"
+                        },
+                        "isWatching": {
                           "type": "boolean"
                         },
                         "lastEditorId": {
@@ -22908,6 +23570,9 @@
                             "string",
                             "null"
                           ]
+                        },
+                        "reactionCount": {
+                          "type": "integer"
                         },
                         "revisionCount": {
                           "type": "integer"
@@ -22955,7 +23620,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 19
+        "line": 33
       }
     },
     {
@@ -23013,7 +23678,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 281
+        "line": 379
       }
     },
     {
@@ -23037,7 +23702,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 339
+        "line": 437
       }
     },
     {
@@ -23098,7 +23763,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 312
+        "line": 410
       }
     },
     {
@@ -23124,8 +23789,17 @@
                       "null"
                     ]
                   },
+                  "commentCount": {
+                    "type": "integer"
+                  },
                   "content": {
                     "type": "string"
+                  },
+                  "coverUrl": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "createdAt": {
                     "type": "string",
@@ -23134,10 +23808,19 @@
                   "guildId": {
                     "type": "string"
                   },
+                  "icon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "id": {
                     "type": "string"
                   },
                   "isPinned": {
+                    "type": "boolean"
+                  },
+                  "isWatching": {
                     "type": "boolean"
                   },
                   "lastEditorId": {
@@ -23151,6 +23834,24 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "reactions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.WikiReactionDto",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "emoji": {
+                          "type": "string"
+                        },
+                        "me": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
                   },
                   "revisionCount": {
                     "type": "integer"
@@ -23179,12 +23880,18 @@
                     ],
                     "x-clr-type": "Guild.Domain.Enums.WikiVisibility",
                     "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                  },
+                  "watcherCount": {
+                    "type": "integer"
                   }
                 }
               }
             }
           },
           "x-clr-type": "Guild.Application.Dtos.Response.WikiPageDto"
+        },
+        "400": {
+          "description": "Invalid request"
         },
         "401": {
           "description": "Not authenticated"
@@ -23195,7 +23902,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 91
+        "line": 148
       }
     },
     {
@@ -23219,7 +23926,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 186
+        "line": 283
       }
     },
     {
@@ -23245,8 +23952,17 @@
                       "null"
                     ]
                   },
+                  "commentCount": {
+                    "type": "integer"
+                  },
                   "content": {
                     "type": "string"
+                  },
+                  "coverUrl": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "createdAt": {
                     "type": "string",
@@ -23255,10 +23971,19 @@
                   "guildId": {
                     "type": "string"
                   },
+                  "icon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "id": {
                     "type": "string"
                   },
                   "isPinned": {
+                    "type": "boolean"
+                  },
+                  "isWatching": {
                     "type": "boolean"
                   },
                   "lastEditorId": {
@@ -23272,6 +23997,24 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "reactions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.WikiReactionDto",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "emoji": {
+                          "type": "string"
+                        },
+                        "me": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
                   },
                   "revisionCount": {
                     "type": "integer"
@@ -23300,6 +24043,9 @@
                     ],
                     "x-clr-type": "Guild.Domain.Enums.WikiVisibility",
                     "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                  },
+                  "watcherCount": {
+                    "type": "integer"
                   }
                 }
               }
@@ -23319,7 +24065,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 65
+        "line": 121
       }
     },
     {
@@ -23345,8 +24091,17 @@
                       "null"
                     ]
                   },
+                  "commentCount": {
+                    "type": "integer"
+                  },
                   "content": {
                     "type": "string"
+                  },
+                  "coverUrl": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "createdAt": {
                     "type": "string",
@@ -23355,10 +24110,19 @@
                   "guildId": {
                     "type": "string"
                   },
+                  "icon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "id": {
                     "type": "string"
                   },
                   "isPinned": {
+                    "type": "boolean"
+                  },
+                  "isWatching": {
                     "type": "boolean"
                   },
                   "lastEditorId": {
@@ -23372,6 +24136,24 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "reactions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.WikiReactionDto",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "emoji": {
+                          "type": "string"
+                        },
+                        "me": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
                   },
                   "revisionCount": {
                     "type": "integer"
@@ -23400,12 +24182,18 @@
                     ],
                     "x-clr-type": "Guild.Domain.Enums.WikiVisibility",
                     "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                  },
+                  "watcherCount": {
+                    "type": "integer"
                   }
                 }
               }
             }
           },
           "x-clr-type": "Guild.Application.Dtos.Response.WikiPageDto"
+        },
+        "400": {
+          "description": "Invalid request"
         },
         "401": {
           "description": "Not authenticated"
@@ -23419,8 +24207,350 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 125
+        "line": 189
       }
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "get",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments",
+      "clrMethod": "WikiEndpoint.GetWikiPageComments",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "x-clr-type": "Guild.Application.Dtos.Response.WikiCommentDto",
+                  "properties": {
+                    "authorId": {
+                      "type": "string"
+                    },
+                    "canDelete": {
+                      "type": "boolean"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "editedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "guildId": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "pageId": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "System.Collections.Generic.List\u003CGuild.Application.Dtos.Response.WikiCommentDto\u003E"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 648
+      }
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "post",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments",
+      "clrMethod": "WikiEndpoint.CreateWikiComment",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.WikiCommentDto",
+                "properties": {
+                  "authorId": {
+                    "type": "string"
+                  },
+                  "canDelete": {
+                    "type": "boolean"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "editedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "guildId": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "pageId": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.WikiCommentDto"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 675
+      }
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "delete",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments/{commentId}",
+      "clrMethod": "WikiEndpoint.DeleteWikiComment",
+      "responses": {
+        "204": {
+          "description": "Success, no content"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 759
+      },
+      "summary": "Own comment, or anyone holding ModerateWikiComments",
+      "description": "Own comment, or anyone holding ModerateWikiComments."
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "put",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/comments/{commentId}",
+      "clrMethod": "WikiEndpoint.UpdateWikiComment",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.WikiCommentDto",
+                "properties": {
+                  "authorId": {
+                    "type": "string"
+                  },
+                  "canDelete": {
+                    "type": "boolean"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "editedAt": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "guildId": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "pageId": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.WikiCommentDto"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 719
+      },
+      "summary": "Author only, deliberately: ModerateWikiComments lets a moderator \u003Ci\u003Eremove\u003C/i\u003E a comment\u2026",
+      "description": "Author only, deliberately: ModerateWikiComments lets a moderator \u003Ci\u003Eremove\u003C/i\u003E a comment, not rewrite what somebody said under their own name. Same line EditAnyWikiPage does not cross either - it edits a shared document, and a comment is not one."
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "post",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/reactions",
+      "clrMethod": "WikiEndpoint.AddWikiPageReaction",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "x-clr-type": "Guild.Application.Dtos.Response.WikiReactionDto",
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "emoji": {
+                      "type": "string"
+                    },
+                    "me": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "System.Collections.Generic.List\u003CGuild.Application.Dtos.Response.WikiReactionDto\u003E"
+        },
+        "400": {
+          "description": "Invalid request"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 475
+      },
+      "summary": "Idempotent: reacting twice with the same emoji is the same row, and the second call emits\u2026",
+      "description": "Idempotent: reacting twice with the same emoji is the same row, and the second call emits no event. Requires ViewWiki (you cannot react to a page you cannot read) *and* AddReactions - the guild-wide reaction bit that already gates message reactions, rather than a new wiki-only permission. Both are in the @everyone defaults, so this works out of the box."
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "delete",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/reactions/{emoji}",
+      "clrMethod": "WikiEndpoint.RemoveWikiPageReaction",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "x-clr-type": "Guild.Application.Dtos.Response.WikiReactionDto",
+                  "properties": {
+                    "count": {
+                      "type": "integer"
+                    },
+                    "emoji": {
+                      "type": "string"
+                    },
+                    "me": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "System.Collections.Generic.List\u003CGuild.Application.Dtos.Response.WikiReactionDto\u003E"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 533
+      },
+      "summary": "Removes only the caller\u0027s own reaction - there is no \u0022clear everyone\u0027s \uD83D\uDC4D\u0022 here, matching\u2026",
+      "description": "Removes only the caller\u0027s own reaction - there is no \u0022clear everyone\u0027s \uD83D\uDC4D\u0022 here, matching message reactions. Idempotent: removing one that is not there returns the current aggregate and emits nothing. The emoji travels in the path (percent-encoded), not in a DELETE body."
     },
     {
       "project": "Guild.Application",
@@ -23486,7 +24616,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 209
+        "line": 306
       }
     },
     {
@@ -23512,8 +24642,17 @@
                       "null"
                     ]
                   },
+                  "commentCount": {
+                    "type": "integer"
+                  },
                   "content": {
                     "type": "string"
+                  },
+                  "coverUrl": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "createdAt": {
                     "type": "string",
@@ -23522,10 +24661,19 @@
                   "guildId": {
                     "type": "string"
                   },
+                  "icon": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "id": {
                     "type": "string"
                   },
                   "isPinned": {
+                    "type": "boolean"
+                  },
+                  "isWatching": {
                     "type": "boolean"
                   },
                   "lastEditorId": {
@@ -23539,6 +24687,24 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "reactions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.WikiReactionDto",
+                      "properties": {
+                        "count": {
+                          "type": "integer"
+                        },
+                        "emoji": {
+                          "type": "string"
+                        },
+                        "me": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
                   },
                   "revisionCount": {
                     "type": "integer"
@@ -23567,6 +24733,9 @@
                     ],
                     "x-clr-type": "Guild.Domain.Enums.WikiVisibility",
                     "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                  },
+                  "watcherCount": {
+                    "type": "integer"
                   }
                 }
               }
@@ -23586,8 +24755,100 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
-        "line": 234
+        "line": 331
       }
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "delete",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/watch",
+      "clrMethod": "WikiEndpoint.UnwatchWikiPage",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.WikiWatchStateDto",
+                "properties": {
+                  "isWatching": {
+                    "type": "boolean"
+                  },
+                  "pageId": {
+                    "type": "string"
+                  },
+                  "watcherCount": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.WikiWatchStateDto"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 613
+      },
+      "summary": "Idempotent - unwatching a page you do not watch is a no-op returning 200",
+      "description": "Idempotent - unwatching a page you do not watch is a no-op returning 200."
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "post",
+      "path": "/api/v1/guilds/{guildId}/wiki/pages/{pageId}/watch",
+      "clrMethod": "WikiEndpoint.WatchWikiPage",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.WikiWatchStateDto",
+                "properties": {
+                  "isWatching": {
+                    "type": "boolean"
+                  },
+                  "pageId": {
+                    "type": "string"
+                  },
+                  "watcherCount": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.WikiWatchStateDto"
+        },
+        "401": {
+          "description": "Not authenticated"
+        },
+        "403": {
+          "description": "Not permitted"
+        },
+        "404": {
+          "description": "Not found"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\WikiEndpoint.cs",
+        "line": 582
+      },
+      "summary": "Idempotent - watching an already-watched page is a no-op returning 200",
+      "description": "Idempotent - watching an already-watched page is a no-op returning 200."
     },
     {
       "project": "Guild.Application",
@@ -24722,7 +25983,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
-        "line": 128
+        "line": 149
       },
       "summary": "REST twin of the existing \u0060guild.UpdateLastRead\u0060 hub method",
       "description": "REST twin of the existing \u0060guild.UpdateLastRead\u0060 hub method. Both funnel into the same handler. This exists so the check button works without a live hub connection - and so the behaviour is reachable from an E2E test, which a hub-only path is not."
@@ -24914,7 +26175,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
-        "line": 60
+        "line": 81
       },
       "summary": "The Mentions tab",
       "description": "The Mentions tab. Merges Messaging\u0027s per-user index (direct and @here) with Guild\u0027s own broadcast rows (@everyone and @role), which are evaluated against membership here rather than fanned out when they were sent."
@@ -24937,7 +26198,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
-        "line": 92
+        "line": 113
       },
       "summary": "Dismisses one mention - the X in the UI",
       "description": "Dismisses one mention - the X in the UI. Idempotent: dismissing twice is 204 both times, because the caller has nothing useful to do with the difference."
@@ -24957,7 +26218,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
-        "line": 180
+        "line": 201
       },
       "summary": "Marks every unread channel read at once - the header\u0027s check button",
       "description": "Marks every unread channel read at once - the header\u0027s check button.  Set-based by necessity. Someone in 200 guilds across 50 channels each is 10,000 rows; a per-channel loop would be 10,000 round trips, which is the shape this whole feature exists to avoid. Existing read states are bulk-updated from the channel row they point at, and the channels that have never been opened get rows inserted in one batch."
@@ -24982,6 +26243,9 @@
                   "mentionCount": {
                     "type": "integer"
                   },
+                  "taskCount": {
+                    "type": "integer"
+                  },
                   "unreadChannelCount": {
                     "type": "integer"
                   }
@@ -25001,6 +26265,129 @@
       },
       "summary": "The header badge",
       "description": "The header badge."
+    },
+    {
+      "project": "Guild.Application",
+      "verb": "get",
+      "path": "/api/v1/inbox/tasks",
+      "clrMethod": "InboxEndpoint.GetTasks",
+      "responses": {
+        "200": {
+          "description": "Success",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "x-clr-type": "Guild.Application.Dtos.Response.InboxTaskPageDto",
+                "properties": {
+                  "tasks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "x-clr-type": "Guild.Application.Dtos.Response.InboxTaskDto",
+                      "properties": {
+                        "breadcrumb": {
+                          "type": "object",
+                          "x-clr-type": "Guild.Application.Dtos.Response.InboxBreadcrumbDto",
+                          "properties": {
+                            "categoryId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "categoryName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "channelId": {
+                              "type": "string"
+                            },
+                            "channelName": {
+                              "type": "string"
+                            },
+                            "channelType": {
+                              "type": "integer"
+                            },
+                            "guildIconThumbnailUrl": {
+                              "type": "string"
+                            },
+                            "guildIconUrl": {
+                              "type": "string"
+                            },
+                            "guildId": {
+                              "type": "string"
+                            },
+                            "guildName": {
+                              "type": "string"
+                            },
+                            "parentChannelId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "parentChannelName": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          }
+                        },
+                        "dueAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "format": "date-time"
+                        },
+                        "isOverdue": {
+                          "type": "boolean"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "ChoreDue",
+                            "DecisionVote",
+                            "ListAssignment"
+                          ],
+                          "x-clr-type": "Guild.Application.Dtos.Response.InboxTaskKind",
+                          "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
+                        },
+                        "subtitle": {
+                          "type": "string"
+                        },
+                        "targetId": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "x-clr-type": "Guild.Application.Dtos.Response.InboxTaskPageDto"
+        },
+        "401": {
+          "description": "Not authenticated"
+        }
+      },
+      "x-source": {
+        "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
+        "line": 64
+      },
+      "summary": "The Waiting-on-you tab: chores due, decisions unvoted, list items assigned to the caller\u2026",
+      "description": "The Waiting-on-you tab: chores due, decisions unvoted, list items assigned to the caller, across every guild they are in.  Separate from Unread because it answers a different question. Household channels hold no messages, so they can never be unread - which meant that until this existed, the modules people are most likely to want reminding about were the only ones with no inbox presence at all."
     },
     {
       "project": "Guild.Application",
@@ -30651,7 +32038,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-        "line": 183
+        "line": 239
       }
     },
     {
@@ -30733,7 +32120,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-        "line": 130
+        "line": 169
       }
     },
     {
@@ -31046,6 +32433,9 @@
                             "color": {
                               "type": "string"
                             },
+                            "isEveryone": {
+                              "type": "boolean"
+                            },
                             "name": {
                               "type": "string"
                             },
@@ -31176,7 +32566,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\GuildTemplateEndpoint.cs",
-        "line": 100
+        "line": 103
       }
     },
     {
@@ -31217,7 +32607,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\GuildTemplateEndpoint.cs",
-        "line": 121
+        "line": 124
       },
       "summary": "Creates a brand new guild from a template - mirrors GuildEndpoint.CreateGuild\u0027s\u2026",
       "description": "Creates a brand new guild from a template - mirrors GuildEndpoint.CreateGuild\u0027s owner/system-channel setup, then replays the snapshot on top instead of the usual two-category default."
@@ -36089,7 +37479,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\BlockEndpoint.cs",
-        "line": 162
+        "line": 163
       },
       "summary": "The caller\u0027s own block list",
       "description": "The caller\u0027s own block list. Scoped to rows the caller owns, which is also why there is no \u0022who blocked me\u0022 counterpart and never will be."
@@ -36184,7 +37574,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\BlockEndpoint.cs",
-        "line": 116
+        "line": 117
       },
       "summary": "Lifts a block",
       "description": "Lifts a block. Idempotent: unblocking someone who is not blocked is a 204.  The rows are deleted rather than parked at \u003Csee cref=\u0022F:Social.Domain.Enums.RelationshipStatus.None\u0022/\u003E. A lingering row for the pair would trip the \u0022relationship already exists\u0022 guard in \u0060POST /api/v1/relationships\u0060 forever, so an unblocked pair could never become friends - the block would go on costing them something after it was lifted."
@@ -36210,7 +37600,7 @@
       },
       "x-source": {
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Social.Application\\Endpoints\\BlockEndpoint.cs",
-        "line": 44
+        "line": 45
       },
       "summary": "Blocks \u003Cparamref name=\u0022userId\u0022/\u003E",
       "description": "Blocks \u003Cparamref name=\u0022userId\u0022/\u003E. Idempotent: blocking someone already blocked is a 204 that changes nothing and republishes nothing.  Tears down whatever relationship existed first - an accepted friendship, a pending request in either direction - because a block that left a live friendship in place would keep the DM and call paths (both gated on friendship) open to the person just blocked."

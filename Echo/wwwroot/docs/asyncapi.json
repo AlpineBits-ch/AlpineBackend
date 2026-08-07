@@ -39,32 +39,11 @@
         "call_CallParticipantLeft": {
           "$ref": "#/components/messages/call_CallParticipantLeft"
         },
-        "call_CameraChanged": {
-          "$ref": "#/components/messages/call_CameraChanged"
-        },
         "call_IncomingCall": {
           "$ref": "#/components/messages/call_IncomingCall"
         },
-        "call_MuteChanged": {
-          "$ref": "#/components/messages/call_MuteChanged"
-        },
-        "call_ParticipantJoined": {
-          "$ref": "#/components/messages/call_ParticipantJoined"
-        },
-        "call_ScreenShareStarted": {
-          "$ref": "#/components/messages/call_ScreenShareStarted"
-        },
-        "call_ScreenShareStopped": {
-          "$ref": "#/components/messages/call_ScreenShareStopped"
-        },
-        "call_SpeakingChanged": {
-          "$ref": "#/components/messages/call_SpeakingChanged"
-        },
-        "call_TrackClosed": {
-          "$ref": "#/components/messages/call_TrackClosed"
-        },
-        "call_TrackPublished": {
-          "$ref": "#/components/messages/call_TrackPublished"
+        "conversation_CallStateChanged": {
+          "$ref": "#/components/messages/conversation_CallStateChanged"
         },
         "conversation_ConversationCreated": {
           "$ref": "#/components/messages/conversation_ConversationCreated"
@@ -237,6 +216,9 @@
         "guild_HomeStatusChanged": {
           "$ref": "#/components/messages/guild_HomeStatusChanged"
         },
+        "guild_HouseholdAlert": {
+          "$ref": "#/components/messages/guild_HouseholdAlert"
+        },
         "guild_ListCleared": {
           "$ref": "#/components/messages/guild_ListCleared"
         },
@@ -266,6 +248,9 @@
         },
         "guild_MemberLeft": {
           "$ref": "#/components/messages/guild_MemberLeft"
+        },
+        "guild_MemberMovedOut": {
+          "$ref": "#/components/messages/guild_MemberMovedOut"
         },
         "guild_MemberMuted": {
           "$ref": "#/components/messages/guild_MemberMuted"
@@ -336,44 +321,38 @@
         "guild_WikiCategoryUpdated": {
           "$ref": "#/components/messages/guild_WikiCategoryUpdated"
         },
+        "guild_WikiCommentCreated": {
+          "$ref": "#/components/messages/guild_WikiCommentCreated"
+        },
+        "guild_WikiCommentDeleted": {
+          "$ref": "#/components/messages/guild_WikiCommentDeleted"
+        },
+        "guild_WikiCommentUpdated": {
+          "$ref": "#/components/messages/guild_WikiCommentUpdated"
+        },
         "guild_WikiPageCreated": {
           "$ref": "#/components/messages/guild_WikiPageCreated"
         },
         "guild_WikiPageDeleted": {
           "$ref": "#/components/messages/guild_WikiPageDeleted"
         },
+        "guild_WikiPageReactionAdded": {
+          "$ref": "#/components/messages/guild_WikiPageReactionAdded"
+        },
+        "guild_WikiPageReactionRemoved": {
+          "$ref": "#/components/messages/guild_WikiPageReactionRemoved"
+        },
         "guild_WikiPageUpdated": {
           "$ref": "#/components/messages/guild_WikiPageUpdated"
         },
-        "guild_voice_CameraChanged": {
-          "$ref": "#/components/messages/guild_voice_CameraChanged"
-        },
-        "guild_voice_DeafenChanged": {
-          "$ref": "#/components/messages/guild_voice_DeafenChanged"
+        "guild_WikiPageWatchedUpdate": {
+          "$ref": "#/components/messages/guild_WikiPageWatchedUpdate"
         },
         "guild_voice_KickedByOtherDevice": {
           "$ref": "#/components/messages/guild_voice_KickedByOtherDevice"
         },
         "guild_voice_MovedToChannel": {
           "$ref": "#/components/messages/guild_voice_MovedToChannel"
-        },
-        "guild_voice_MuteChanged": {
-          "$ref": "#/components/messages/guild_voice_MuteChanged"
-        },
-        "guild_voice_ParticipantJoined": {
-          "$ref": "#/components/messages/guild_voice_ParticipantJoined"
-        },
-        "guild_voice_ScreenShareStarted": {
-          "$ref": "#/components/messages/guild_voice_ScreenShareStarted"
-        },
-        "guild_voice_ScreenShareStopped": {
-          "$ref": "#/components/messages/guild_voice_ScreenShareStopped"
-        },
-        "guild_voice_TrackClosed": {
-          "$ref": "#/components/messages/guild_voice_TrackClosed"
-        },
-        "guild_voice_TrackPublished": {
-          "$ref": "#/components/messages/guild_voice_TrackPublished"
         },
         "guild_voice_UserJoinedVoice": {
           "$ref": "#/components/messages/guild_voice_UserJoinedVoice"
@@ -444,6 +423,21 @@
         "status_SummaryChanged": {
           "$ref": "#/components/messages/status_SummaryChanged"
         },
+        "call_CameraChanged": {
+          "$ref": "#/components/messages/call_CameraChanged"
+        },
+        "call_MuteChanged": {
+          "$ref": "#/components/messages/call_MuteChanged"
+        },
+        "call_ScreenShareStarted": {
+          "$ref": "#/components/messages/call_ScreenShareStarted"
+        },
+        "call_ScreenShareStopped": {
+          "$ref": "#/components/messages/call_ScreenShareStopped"
+        },
+        "call_SpeakingChanged": {
+          "$ref": "#/components/messages/call_SpeakingChanged"
+        },
         "conversation_StartTyping": {
           "$ref": "#/components/messages/conversation_StartTyping"
         },
@@ -456,17 +450,32 @@
         "guild_UpdateLastRead": {
           "$ref": "#/components/messages/guild_UpdateLastRead"
         },
-        "guild_voice_Heartbeat": {
-          "$ref": "#/components/messages/guild_voice_Heartbeat"
+        "guild_voice_CameraChanged": {
+          "$ref": "#/components/messages/guild_voice_CameraChanged"
+        },
+        "guild_voice_DeafenChanged": {
+          "$ref": "#/components/messages/guild_voice_DeafenChanged"
         },
         "guild_voice_MoveUser": {
           "$ref": "#/components/messages/guild_voice_MoveUser"
+        },
+        "guild_voice_MuteChanged": {
+          "$ref": "#/components/messages/guild_voice_MuteChanged"
+        },
+        "guild_voice_ScreenShareStarted": {
+          "$ref": "#/components/messages/guild_voice_ScreenShareStarted"
+        },
+        "guild_voice_ScreenShareStopped": {
+          "$ref": "#/components/messages/guild_voice_ScreenShareStopped"
         },
         "guild_voice_ServerDeafen": {
           "$ref": "#/components/messages/guild_voice_ServerDeafen"
         },
         "guild_voice_ServerMute": {
           "$ref": "#/components/messages/guild_voice_ServerMute"
+        },
+        "voice_Heartbeat": {
+          "$ref": "#/components/messages/voice_Heartbeat"
         }
       }
     }
@@ -549,17 +558,6 @@
         }
       ]
     },
-    "receive_call_CameraChanged": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_CameraChanged"
-        }
-      ]
-    },
     "receive_call_IncomingCall": {
       "action": "receive",
       "channel": {
@@ -571,80 +569,14 @@
         }
       ]
     },
-    "receive_call_MuteChanged": {
+    "receive_conversation_CallStateChanged": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/hub"
       },
       "messages": [
         {
-          "$ref": "#/channels/hub/messages/call_MuteChanged"
-        }
-      ]
-    },
-    "receive_call_ParticipantJoined": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_ParticipantJoined"
-        }
-      ]
-    },
-    "receive_call_ScreenShareStarted": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_ScreenShareStarted"
-        }
-      ]
-    },
-    "receive_call_ScreenShareStopped": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_ScreenShareStopped"
-        }
-      ]
-    },
-    "receive_call_SpeakingChanged": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_SpeakingChanged"
-        }
-      ]
-    },
-    "receive_call_TrackClosed": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_TrackClosed"
-        }
-      ]
-    },
-    "receive_call_TrackPublished": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/call_TrackPublished"
+          "$ref": "#/channels/hub/messages/conversation_CallStateChanged"
         }
       ]
     },
@@ -1275,6 +1207,17 @@
         }
       ]
     },
+    "receive_guild_HouseholdAlert": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_HouseholdAlert"
+        }
+      ]
+    },
     "receive_guild_ListCleared": {
       "action": "receive",
       "channel": {
@@ -1382,6 +1325,17 @@
       "messages": [
         {
           "$ref": "#/channels/hub/messages/guild_MemberLeft"
+        }
+      ]
+    },
+    "receive_guild_MemberMovedOut": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_MemberMovedOut"
         }
       ]
     },
@@ -1638,6 +1592,39 @@
         }
       ]
     },
+    "receive_guild_WikiCommentCreated": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_WikiCommentCreated"
+        }
+      ]
+    },
+    "receive_guild_WikiCommentDeleted": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_WikiCommentDeleted"
+        }
+      ]
+    },
+    "receive_guild_WikiCommentUpdated": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_WikiCommentUpdated"
+        }
+      ]
+    },
     "receive_guild_WikiPageCreated": {
       "action": "receive",
       "channel": {
@@ -1660,6 +1647,28 @@
         }
       ]
     },
+    "receive_guild_WikiPageReactionAdded": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_WikiPageReactionAdded"
+        }
+      ]
+    },
+    "receive_guild_WikiPageReactionRemoved": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/guild_WikiPageReactionRemoved"
+        }
+      ]
+    },
     "receive_guild_WikiPageUpdated": {
       "action": "receive",
       "channel": {
@@ -1671,25 +1680,14 @@
         }
       ]
     },
-    "receive_guild_voice_CameraChanged": {
+    "receive_guild_WikiPageWatchedUpdate": {
       "action": "receive",
       "channel": {
         "$ref": "#/channels/hub"
       },
       "messages": [
         {
-          "$ref": "#/channels/hub/messages/guild_voice_CameraChanged"
-        }
-      ]
-    },
-    "receive_guild_voice_DeafenChanged": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_DeafenChanged"
+          "$ref": "#/channels/hub/messages/guild_WikiPageWatchedUpdate"
         }
       ]
     },
@@ -1712,72 +1710,6 @@
       "messages": [
         {
           "$ref": "#/channels/hub/messages/guild_voice_MovedToChannel"
-        }
-      ]
-    },
-    "receive_guild_voice_MuteChanged": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_MuteChanged"
-        }
-      ]
-    },
-    "receive_guild_voice_ParticipantJoined": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_ParticipantJoined"
-        }
-      ]
-    },
-    "receive_guild_voice_ScreenShareStarted": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_ScreenShareStarted"
-        }
-      ]
-    },
-    "receive_guild_voice_ScreenShareStopped": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_ScreenShareStopped"
-        }
-      ]
-    },
-    "receive_guild_voice_TrackClosed": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_TrackClosed"
-        }
-      ]
-    },
-    "receive_guild_voice_TrackPublished": {
-      "action": "receive",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_TrackPublished"
         }
       ]
     },
@@ -2155,17 +2087,6 @@
         }
       ]
     },
-    "send_guild_voice_Heartbeat": {
-      "action": "send",
-      "channel": {
-        "$ref": "#/channels/hub"
-      },
-      "messages": [
-        {
-          "$ref": "#/channels/hub/messages/guild_voice_Heartbeat"
-        }
-      ]
-    },
     "send_guild_voice_MoveUser": {
       "action": "send",
       "channel": {
@@ -2231,6 +2152,17 @@
           "$ref": "#/channels/hub/messages/guild_voice_ServerMute"
         }
       ]
+    },
+    "send_voice_Heartbeat": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/hub"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/hub/messages/voice_Heartbeat"
+        }
+      ]
     }
   },
   "components": {
@@ -2270,18 +2202,6 @@
                 "x-clr-type": "Messaging.Domain.Entities.CallParticipant",
                 "properties": {
                   "activeDeviceId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "audioTrackName": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "cfSessionId": {
                     "type": [
                       "string",
                       "null"
@@ -2426,18 +2346,6 @@
                 "x-clr-type": "Messaging.Domain.Entities.CallParticipant",
                 "properties": {
                   "activeDeviceId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "audioTrackName": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "cfSessionId": {
                     "type": [
                       "string",
                       "null"
@@ -2621,30 +2529,6 @@
           }
         ]
       },
-      "call_CameraChanged": {
-        "name": "call.CameraChanged",
-        "title": "call.CameraChanged",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallCameraChanged.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.CallCameraCommand",
-          "properties": {
-            "callId": {
-              "type": "string"
-            },
-            "isCameraOn": {
-              "type": "boolean"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 112
-        }
-      },
       "call_IncomingCall": {
         "name": "call.IncomingCall",
         "title": "call.IncomingCall",
@@ -2680,18 +2564,6 @@
                 "x-clr-type": "Messaging.Domain.Entities.CallParticipant",
                 "properties": {
                   "activeDeviceId": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "audioTrackName": {
-                    "type": [
-                      "string",
-                      "null"
-                    ]
-                  },
-                  "cfSessionId": {
                     "type": [
                       "string",
                       "null"
@@ -2766,209 +2638,54 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\VoiceController.cs",
-            "line": 122,
+            "line": 152,
             "clrType": "Messaging.Domain.Entities.Call",
             "anonymous": false
           }
         ]
       },
-      "call_MuteChanged": {
-        "name": "call.MuteChanged",
-        "title": "call.MuteChanged",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallMuteChanged.",
+      "conversation_CallStateChanged": {
+        "name": "conversation.CallStateChanged",
+        "title": "conversation.CallStateChanged",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
         "payload": {
           "type": "object",
-          "x-clr-type": "Echo.Realtime.CallMuteCommand",
+          "x-clr-type": "\u003Canonymous type: string conversationId, string callId, string status, string reason, System.Collections.Generic.List\u003Cstring\u003E participantIds\u003E",
           "properties": {
             "callId": {
               "type": "string"
             },
-            "isMuted": {
-              "type": "boolean"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 108
-        }
-      },
-      "call_ParticipantJoined": {
-        "name": "call.ParticipantJoined",
-        "title": "call.ParticipantJoined",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName\u003E",
-          "properties": {
-            "audioTrackName": {
+            "conversationId": {
               "type": "string"
             },
-            "cfSessionId": {
-              "type": "string"
+            "participantIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
-            "userId": {
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "status": {
               "type": "string"
             }
           }
         },
         "x-sites": [
           {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\CloudflareController.cs",
-            "line": 272,
-            "clrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName\u003E",
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\VoiceController.cs",
+            "line": 298,
+            "clrType": "\u003Canonymous type: string conversationId, string callId, string status, string? reason, System.Collections.Generic.List\u003Cstring\u003E participantIds\u003E",
             "anonymous": true
           },
           {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\CloudflareController.cs",
-            "line": 278,
-            "clrType": "\u003Canonymous type: string userId, string? cfSessionId, string audioTrackName\u003E",
-            "anonymous": true
-          }
-        ]
-      },
-      "call_ScreenShareStarted": {
-        "name": "call.ScreenShareStarted",
-        "title": "call.ScreenShareStarted",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallScreenShareStarted.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.CallScreenShareStartCommand",
-          "properties": {
-            "callId": {
-              "type": "string"
-            },
-            "shareId": {
-              "type": "string"
-            },
-            "trackName": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 120
-        }
-      },
-      "call_ScreenShareStopped": {
-        "name": "call.ScreenShareStopped",
-        "title": "call.ScreenShareStopped",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallScreenShareStopped.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.CallScreenShareStopCommand",
-          "properties": {
-            "callId": {
-              "type": "string"
-            },
-            "shareId": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 124
-        }
-      },
-      "call_SpeakingChanged": {
-        "name": "call.SpeakingChanged",
-        "title": "call.SpeakingChanged",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallSpeakingChanged.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.CallSpeakingCommand",
-          "properties": {
-            "callId": {
-              "type": "string"
-            },
-            "isSpeaking": {
-              "type": "boolean"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 116
-        }
-      },
-      "call_TrackClosed": {
-        "name": "call.TrackClosed",
-        "title": "call.TrackClosed",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string userId, string trackName, string shareId\u003E",
-          "properties": {
-            "shareId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "trackName": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-sites": [
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\CloudflareController.cs",
-            "line": 232,
-            "clrType": "\u003Canonymous type: string userId, string trackName, string? shareId\u003E",
-            "anonymous": true
-          }
-        ]
-      },
-      "call_TrackPublished": {
-        "name": "call.TrackPublished",
-        "title": "call.TrackPublished",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string shareId\u003E",
-          "properties": {
-            "cfSessionId": {
-              "type": "string"
-            },
-            "kind": {
-              "type": "string"
-            },
-            "shareId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "trackName": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-sites": [
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Controllers\\CloudflareController.cs",
-            "line": 307,
-            "clrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string? shareId\u003E",
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Handler\\Call\\CallEndedHandler.cs",
+            "line": 57,
+            "clrType": "\u003Canonymous type: string conversationId, string callId, string status, string reason, string[] participantIds\u003E",
             "anonymous": true
           }
         ]
@@ -3237,7 +2954,9 @@
                 "Message",
                 "Invite",
                 "GuildMemberJoin",
-                "GuildMemberLeave"
+                "GuildMemberLeave",
+                "CallEnded",
+                "CallMissed"
               ],
               "x-clr-type": "Messaging.Domain.Enums.MessageType",
               "description": "int when serialised by a host without JsonStringEnumConverter (see the gateway)"
@@ -4398,92 +4117,69 @@
       "guild_ChoreOccurrenceUpdated": {
         "name": "guild.ChoreOccurrenceUpdated",
         "title": "guild.ChoreOccurrenceUpdated",
-        "summary": "Pushed by the server. WARNING: 2 different payload shapes are sent under this name.",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
         "payload": {
-          "oneOf": [
-            {
-              "type": "object",
-              "x-clr-type": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
-              "properties": {
-                "channelId": {
-                  "type": "string"
-                },
-                "guildId": {
-                  "type": "string"
-                },
-                "occurrence": {
-                  "type": "object",
-                  "x-clr-type": "Guild.Application.Dtos.Response.ChoreOccurrenceDto",
-                  "properties": {
-                    "assignedUserId": {
-                      "type": "string"
-                    },
-                    "channelId": {
-                      "type": "string"
-                    },
-                    "choreId": {
-                      "type": "string"
-                    },
-                    "completedAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "format": "date-time"
-                    },
-                    "completedByUserId": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "dueAt": {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    "effortMinutes": {
-                      "type": "integer"
-                    },
-                    "id": {
-                      "type": "string"
-                    },
-                    "isOverdue": {
-                      "type": "boolean"
-                    },
-                    "skippedAt": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "format": "date-time"
-                    },
-                    "title": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
+          "properties": {
+            "channelId": {
+              "type": "string"
             },
-            {
+            "guildId": {
+              "type": "string"
+            },
+            "occurrence": {
               "type": "object",
-              "x-clr-type": "\u003Canonymous type: string GuildId, string ChannelId, string OccurrenceId, bool Skipped\u003E",
+              "x-clr-type": "Guild.Application.Dtos.Response.ChoreOccurrenceDto",
               "properties": {
+                "assignedUserId": {
+                  "type": "string"
+                },
                 "channelId": {
                   "type": "string"
                 },
-                "guildId": {
+                "choreId": {
                   "type": "string"
                 },
-                "occurrenceId": {
+                "completedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "completedByUserId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "dueAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "effortMinutes": {
+                  "type": "integer"
+                },
+                "id": {
                   "type": "string"
                 },
-                "skipped": {
+                "isOverdue": {
                   "type": "boolean"
+                },
+                "skippedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "title": {
+                  "type": "string"
                 }
               }
             }
-          ],
-          "description": "Sent with 2 different payload shapes - see x-sites."
+          }
         },
         "x-sites": [
           {
@@ -4494,13 +4190,13 @@
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ChoreEndpoint.cs",
-            "line": 321,
-            "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string OccurrenceId, bool Skipped\u003E",
+            "line": 326,
+            "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ChoreEndpoint.cs",
-            "line": 355,
+            "line": 364,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ChoreOccurrenceDto Occurrence\u003E",
             "anonymous": true
           }
@@ -4606,7 +4302,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\DecisionEndpoint.cs",
-            "line": 241,
+            "line": 249,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string DecisionId\u003E",
             "anonymous": true
           }
@@ -4750,7 +4446,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\DecisionEndpoint.cs",
-            "line": 217,
+            "line": 225,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.DecisionDto Decision\u003E",
             "anonymous": true
           }
@@ -5038,7 +4734,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\DecisionEndpoint.cs",
-            "line": 188,
+            "line": 194,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.DecisionDto Decision\u003E",
             "anonymous": true
           }
@@ -5401,7 +5097,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-            "line": 117,
+            "line": 182,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ExpenseDto Expense\u003E",
             "anonymous": true
           }
@@ -5429,7 +5125,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-            "line": 194,
+            "line": 291,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string ExpenseId\u003E",
             "anonymous": true
           }
@@ -5513,7 +5209,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-            "line": 171,
+            "line": 262,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ExpenseDto Expense\u003E",
             "anonymous": true
           }
@@ -6848,7 +6544,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Consumers\\ImportGuildStructureHandler.cs",
-            "line": 185,
+            "line": 190,
             "clrType": "Guild.Application.Dtos.Response.GuildDto",
             "anonymous": false
           }
@@ -6965,14 +6661,64 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-            "line": 61,
+            "line": 62,
             "clrType": "\u003Canonymous type: string GuildId, Guild.Application.Dtos.Response.HomeStatusDto Status\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
-            "line": 80,
+            "line": 81,
             "clrType": "\u003Canonymous type: string GuildId, string UserId, bool Cleared\u003E",
+            "anonymous": true
+          }
+        ]
+      },
+      "guild_HouseholdAlert": {
+        "name": "guild.HouseholdAlert",
+        "title": "guild.HouseholdAlert",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string GuildId, string ChannelId, string Kind, string TargetId, string Title, string Body, object Data\u003E",
+          "properties": {
+            "body": {
+              "type": "string"
+            },
+            "channelId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "data": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "x-clr-type": "object"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "targetId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Services\\HouseholdNotifier.cs",
+            "line": 42,
+            "clrType": "\u003Canonymous type: string GuildId, string? ChannelId, string Kind, string? TargetId, string Title, string Body, object? Data\u003E",
             "anonymous": true
           }
         ]
@@ -7520,6 +7266,40 @@
           }
         ]
       },
+      "guild_MemberMovedOut": {
+        "name": "guild.MemberMovedOut",
+        "title": "guild.MemberMovedOut",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string GuildId, string UserId, int ChoresReassigned, int ChoresDropped, int ChoresPaused\u003E",
+          "properties": {
+            "choresDropped": {
+              "type": "integer"
+            },
+            "choresPaused": {
+              "type": "integer"
+            },
+            "choresReassigned": {
+              "type": "integer"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\HouseholdGuildEndpoint.cs",
+            "line": 316,
+            "clrType": "\u003Canonymous type: string GuildId, string UserId, int ChoresReassigned, int ChoresDropped, int ChoresPaused\u003E",
+            "anonymous": true
+          }
+        ]
+      },
       "guild_MemberMuted": {
         "name": "guild.MemberMuted",
         "title": "guild.MemberMuted",
@@ -7740,7 +7520,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Messages\\MessageCreatedHandler.cs",
-            "line": 55,
+            "line": 68,
             "clrType": "Guild.Contracts.Bus.Events.MessageCreatedForChannel",
             "anonymous": false
           }
@@ -8029,7 +7809,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-            "line": 123,
+            "line": 157,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.PantryItemDto Item\u003E",
             "anonymous": true
           }
@@ -8057,7 +7837,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-            "line": 199,
+            "line": 255,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string ItemId\u003E",
             "anonymous": true
           }
@@ -8132,7 +7912,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-            "line": 176,
+            "line": 227,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.PantryItemDto Item\u003E",
             "anonymous": true
           }
@@ -8288,19 +8068,19 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 127,
+            "line": 128,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 140,
+            "line": 141,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 348,
+            "line": 349,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
             "anonymous": true
           }
@@ -8452,7 +8232,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\LedgerEndpoint.cs",
-            "line": 273,
+            "line": 384,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.SettlementDto Settlement\u003E",
             "anonymous": true
           }
@@ -8700,6 +8480,93 @@
           }
         ]
       },
+      "guild_WikiCommentCreated": {
+        "name": "guild.WikiCommentCreated",
+        "title": "guild.WikiCommentCreated",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string CommentId, string PageId, string GuildId, string AuthorId\u003E",
+          "properties": {
+            "authorId": {
+              "type": "string"
+            },
+            "commentId": {
+              "type": "string"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "pageId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiCommentCreatedHandler.cs",
+            "line": 14,
+            "clrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId, string AuthorId\u003E",
+            "anonymous": true
+          }
+        ]
+      },
+      "guild_WikiCommentDeleted": {
+        "name": "guild.WikiCommentDeleted",
+        "title": "guild.WikiCommentDeleted",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+          "properties": {
+            "commentId": {
+              "type": "string"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "pageId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiCommentDeletedHandler.cs",
+            "line": 14,
+            "clrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+            "anonymous": true
+          }
+        ]
+      },
+      "guild_WikiCommentUpdated": {
+        "name": "guild.WikiCommentUpdated",
+        "title": "guild.WikiCommentUpdated",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+          "properties": {
+            "commentId": {
+              "type": "string"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "pageId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiCommentUpdatedHandler.cs",
+            "line": 14,
+            "clrType": "\u003Canonymous type: string CommentId, string PageId, string GuildId\u003E",
+            "anonymous": true
+          }
+        ]
+      },
       "guild_WikiPageCreated": {
         "name": "guild.WikiPageCreated",
         "title": "guild.WikiPageCreated",
@@ -8750,14 +8617,82 @@
           }
         ]
       },
+      "guild_WikiPageReactionAdded": {
+        "name": "guild.WikiPageReactionAdded",
+        "title": "guild.WikiPageReactionAdded",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
+          "properties": {
+            "emoji": {
+              "type": "string"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "pageId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiPageReactionAddedHandler.cs",
+            "line": 14,
+            "clrType": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
+            "anonymous": true
+          }
+        ]
+      },
+      "guild_WikiPageReactionRemoved": {
+        "name": "guild.WikiPageReactionRemoved",
+        "title": "guild.WikiPageReactionRemoved",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
+          "properties": {
+            "emoji": {
+              "type": "string"
+            },
+            "guildId": {
+              "type": "string"
+            },
+            "pageId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiPageReactionRemovedHandler.cs",
+            "line": 14,
+            "clrType": "\u003Canonymous type: string PageId, string GuildId, string UserId, string Emoji\u003E",
+            "anonymous": true
+          }
+        ]
+      },
       "guild_WikiPageUpdated": {
         "name": "guild.WikiPageUpdated",
         "title": "guild.WikiPageUpdated",
         "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
         "payload": {
           "type": "object",
-          "x-clr-type": "\u003Canonymous type: string PageId, string GuildId\u003E",
+          "x-clr-type": "\u003Canonymous type: string PageId, string GuildId, string EditorId\u003E",
           "properties": {
+            "editorId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "guildId": {
               "type": "string"
             },
@@ -8769,59 +8704,48 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiPageUpdatedHandler.cs",
-            "line": 14,
-            "clrType": "\u003Canonymous type: string PageId, string GuildId\u003E",
+            "line": 16,
+            "clrType": "\u003Canonymous type: string PageId, string GuildId, string? EditorId\u003E",
             "anonymous": true
           }
         ]
       },
-      "guild_voice_CameraChanged": {
-        "name": "guild.voice.CameraChanged",
-        "title": "guild.voice.CameraChanged",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceCameraChanged.",
+      "guild_WikiPageWatchedUpdate": {
+        "name": "guild.WikiPageWatchedUpdate",
+        "title": "guild.WikiPageWatchedUpdate",
+        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
         "payload": {
           "type": "object",
-          "x-clr-type": "Echo.Realtime.GuildVoiceCameraCommand",
+          "x-clr-type": "\u003Canonymous type: string PageId, string GuildId, string Title, string EditorId\u003E",
           "properties": {
-            "channelId": {
+            "editorId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "guildId": {
               "type": "string"
             },
-            "isCameraOn": {
-              "type": "boolean"
-            },
-            "userId": {
+            "pageId": {
               "type": "string"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 152
-        }
-      },
-      "guild_voice_DeafenChanged": {
-        "name": "guild.voice.DeafenChanged",
-        "title": "guild.voice.DeafenChanged",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceDeafenChanged.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.GuildVoiceDeafenCommand",
-          "properties": {
-            "channelId": {
-              "type": "string"
-            },
-            "isDeafened": {
-              "type": "boolean"
-            },
-            "userId": {
-              "type": "string"
-            }
+        "x-sites": [
+          {
+            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Wiki\\WikiPageUpdatedHandler.cs",
+            "line": 49,
+            "clrType": "\u003Canonymous type: string PageId, string GuildId, string? Title, string? EditorId\u003E",
+            "anonymous": true
           }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 148
-        }
+        ]
       },
       "guild_voice_KickedByOtherDevice": {
         "name": "guild.voice.KickedByOtherDevice",
@@ -8842,7 +8766,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildVoiceController.cs",
-            "line": 141,
+            "line": 134,
             "clrType": "\u003Canonymous type: string channelId, string guildId\u003E",
             "anonymous": true
           }
@@ -8870,197 +8794,8 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildVoiceStateHandler.cs",
-            "line": 306,
+            "line": 199,
             "clrType": "\u003Canonymous type: string channelId, string guildId, string movedBy\u003E",
-            "anonymous": true
-          }
-        ]
-      },
-      "guild_voice_MuteChanged": {
-        "name": "guild.voice.MuteChanged",
-        "title": "guild.voice.MuteChanged",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceMuteChanged.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.GuildVoiceMuteCommand",
-          "properties": {
-            "channelId": {
-              "type": "string"
-            },
-            "isMuted": {
-              "type": "boolean"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 144
-        }
-      },
-      "guild_voice_ParticipantJoined": {
-        "name": "guild.voice.ParticipantJoined",
-        "title": "guild.voice.ParticipantJoined",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName, string channelId\u003E",
-          "properties": {
-            "audioTrackName": {
-              "type": "string"
-            },
-            "cfSessionId": {
-              "type": "string"
-            },
-            "channelId": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-sites": [
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildCloudflareController.cs",
-            "line": 288,
-            "clrType": "\u003Canonymous type: string userId, string cfSessionId, string audioTrackName, string channelId\u003E",
-            "anonymous": true
-          },
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildCloudflareController.cs",
-            "line": 302,
-            "clrType": "\u003Canonymous type: string userId, string? cfSessionId, string? audioTrackName, string channelId\u003E",
-            "anonymous": true
-          }
-        ]
-      },
-      "guild_voice_ScreenShareStarted": {
-        "name": "guild.voice.ScreenShareStarted",
-        "title": "guild.voice.ScreenShareStarted",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceScreenShareStarted.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.GuildVoiceScreenShareStartCommand",
-          "properties": {
-            "channelId": {
-              "type": "string"
-            },
-            "shareId": {
-              "type": "string"
-            },
-            "trackName": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 156
-        }
-      },
-      "guild_voice_ScreenShareStopped": {
-        "name": "guild.voice.ScreenShareStopped",
-        "title": "guild.voice.ScreenShareStopped",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceScreenShareStopped.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "Echo.Realtime.GuildVoiceScreenShareStopCommand",
-          "properties": {
-            "channelId": {
-              "type": "string"
-            },
-            "shareId": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-source": {
-          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 160
-        }
-      },
-      "guild_voice_TrackClosed": {
-        "name": "guild.voice.TrackClosed",
-        "title": "guild.voice.TrackClosed",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string userId, string trackName, string channelId\u003E",
-          "properties": {
-            "channelId": {
-              "type": "string"
-            },
-            "trackName": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-sites": [
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildCloudflareController.cs",
-            "line": 233,
-            "clrType": "\u003Canonymous type: string userId, string trackName, string channelId\u003E",
-            "anonymous": true
-          }
-        ]
-      },
-      "guild_voice_TrackPublished": {
-        "name": "guild.voice.TrackPublished",
-        "title": "guild.voice.TrackPublished",
-        "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
-        "payload": {
-          "type": "object",
-          "x-clr-type": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string shareId, string channelId\u003E",
-          "properties": {
-            "cfSessionId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "channelId": {
-              "type": "string"
-            },
-            "kind": {
-              "type": "string"
-            },
-            "shareId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "trackName": {
-              "type": "string"
-            },
-            "userId": {
-              "type": "string"
-            }
-          }
-        },
-        "x-sites": [
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildCloudflareController.cs",
-            "line": 331,
-            "clrType": "\u003Canonymous type: string userId, string? cfSessionId, string trackName, string kind, string? shareId, string channelId\u003E",
-            "anonymous": true
-          },
-          {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildCloudflareController.cs",
-            "line": 391,
-            "clrType": "\u003Canonymous type: string userId, string cfSessionId, string trackName, string kind, string? shareId, string channelId\u003E",
             "anonymous": true
           }
         ]
@@ -9087,13 +8822,13 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildVoiceStateHandler.cs",
-            "line": 302,
+            "line": 196,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildVoiceController.cs",
-            "line": 111,
+            "line": 107,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
             "anonymous": true
           }
@@ -9127,20 +8862,20 @@
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildVoiceStateHandler.cs",
-            "line": 294,
+            "line": 185,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Controllers\\GuildVoiceController.cs",
-            "line": 224,
+            "line": 246,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Services\\VoiceHeartbeatCleanupService.cs",
-            "line": 99,
-            "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
+            "line": 149,
+            "clrType": "\u003Canonymous type: string userId, string channelId, string? guildId\u003E",
             "anonymous": true
           }
         ]
@@ -9389,7 +9124,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Messages\\MessageCreatedHandler.cs",
-            "line": 268,
+            "line": 281,
             "clrType": "\u003Canonymous type: string MessageId, string ChannelId, string GuildId, string? ConversationId, string AuthorId, string Kind, System.DateTimeOffset CreatedAt\u003E",
             "anonymous": true
           }
@@ -9431,13 +9166,13 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
-            "line": 162,
+            "line": 183,
             "clrType": "\u003Canonymous type: string ChannelId, string LastReadMessageId, int MentionCount\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\InboxEndpoint.cs",
-            "line": 248,
+            "line": 269,
             "clrType": "\u003Canonymous type: bool All\u003E",
             "anonymous": true
           }
@@ -10358,6 +10093,126 @@
           }
         ]
       },
+      "call_CameraChanged": {
+        "name": "call.CameraChanged",
+        "title": "call.CameraChanged",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallCameraChanged.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.CallCameraCommand",
+          "properties": {
+            "callId": {
+              "type": "string"
+            },
+            "isCameraOn": {
+              "type": "boolean"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 112
+        }
+      },
+      "call_MuteChanged": {
+        "name": "call.MuteChanged",
+        "title": "call.MuteChanged",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallMuteChanged.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.CallMuteCommand",
+          "properties": {
+            "callId": {
+              "type": "string"
+            },
+            "isMuted": {
+              "type": "boolean"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 108
+        }
+      },
+      "call_ScreenShareStarted": {
+        "name": "call.ScreenShareStarted",
+        "title": "call.ScreenShareStarted",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallScreenShareStarted.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.CallScreenShareStartCommand",
+          "properties": {
+            "callId": {
+              "type": "string"
+            },
+            "shareId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 120
+        }
+      },
+      "call_ScreenShareStopped": {
+        "name": "call.ScreenShareStopped",
+        "title": "call.ScreenShareStopped",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallScreenShareStopped.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.CallScreenShareStopCommand",
+          "properties": {
+            "callId": {
+              "type": "string"
+            },
+            "shareId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 124
+        }
+      },
+      "call_SpeakingChanged": {
+        "name": "call.SpeakingChanged",
+        "title": "call.SpeakingChanged",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.CallSpeakingChanged.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.CallSpeakingCommand",
+          "properties": {
+            "callId": {
+              "type": "string"
+            },
+            "isSpeaking": {
+              "type": "boolean"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 116
+        }
+      },
       "conversation_StartTyping": {
         "name": "conversation.StartTyping",
         "title": "conversation.StartTyping",
@@ -10430,18 +10285,52 @@
           "line": 134
         }
       },
-      "guild_voice_Heartbeat": {
-        "name": "guild.voice.Heartbeat",
-        "title": "guild.voice.Heartbeat",
-        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceHeartbeat.",
+      "guild_voice_CameraChanged": {
+        "name": "guild.voice.CameraChanged",
+        "title": "guild.voice.CameraChanged",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceCameraChanged.",
         "payload": {
-          "type": "array",
-          "prefixItems": [],
-          "description": "Positional hub-method arguments."
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.GuildVoiceCameraCommand",
+          "properties": {
+            "channelId": {
+              "type": "string"
+            },
+            "isCameraOn": {
+              "type": "boolean"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
         },
         "x-source": {
           "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 140
+          "line": 163
+        }
+      },
+      "guild_voice_DeafenChanged": {
+        "name": "guild.voice.DeafenChanged",
+        "title": "guild.voice.DeafenChanged",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceDeafenChanged.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.GuildVoiceDeafenCommand",
+          "properties": {
+            "channelId": {
+              "type": "string"
+            },
+            "isDeafened": {
+              "type": "boolean"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 159
         }
       },
       "guild_voice_MoveUser": {
@@ -10468,7 +10357,79 @@
         },
         "x-source": {
           "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 172
+          "line": 183
+        }
+      },
+      "guild_voice_MuteChanged": {
+        "name": "guild.voice.MuteChanged",
+        "title": "guild.voice.MuteChanged",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceMuteChanged.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.GuildVoiceMuteCommand",
+          "properties": {
+            "channelId": {
+              "type": "string"
+            },
+            "isMuted": {
+              "type": "boolean"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 155
+        }
+      },
+      "guild_voice_ScreenShareStarted": {
+        "name": "guild.voice.ScreenShareStarted",
+        "title": "guild.voice.ScreenShareStarted",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceScreenShareStarted.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.GuildVoiceScreenShareStartCommand",
+          "properties": {
+            "channelId": {
+              "type": "string"
+            },
+            "shareId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 167
+        }
+      },
+      "guild_voice_ScreenShareStopped": {
+        "name": "guild.voice.ScreenShareStopped",
+        "title": "guild.voice.ScreenShareStopped",
+        "summary": "Invoked by the client. Handled by EchoRealtimeHub.GuildVoiceScreenShareStopped.",
+        "payload": {
+          "type": "object",
+          "x-clr-type": "Echo.Realtime.GuildVoiceScreenShareStopCommand",
+          "properties": {
+            "channelId": {
+              "type": "string"
+            },
+            "shareId": {
+              "type": "string"
+            },
+            "userId": {
+              "type": "string"
+            }
+          }
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 171
         }
       },
       "guild_voice_ServerDeafen": {
@@ -10495,7 +10456,7 @@
         },
         "x-source": {
           "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 168
+          "line": 179
         }
       },
       "guild_voice_ServerMute": {
@@ -10522,7 +10483,55 @@
         },
         "x-source": {
           "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
-          "line": 164
+          "line": 175
+        }
+      },
+      "voice_Heartbeat": {
+        "name": "voice.Heartbeat",
+        "title": "voice.Heartbeat",
+        "summary": "The state-asserting heartbeat, for guild channels and direct calls alike. \u003Cpara\u003ERouted to the owning service by room kind, because Wolverine dispatches on the concrete message type. The user id is server-authoritative as everywhere else here, so a client can only ever assert something about itself.\u003C/para\u003E",
+        "payload": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "x-clr-type": "Echo.Realtime.VoiceHeartbeatState",
+              "properties": {
+                "audioTrackName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "knownInstanceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "knownVersion": {
+                  "type": "integer"
+                },
+                "mediaSessionId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          ],
+          "description": "Positional hub-method arguments."
+        },
+        "x-source": {
+          "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Echo.Realtime\\EchoRealtimeHub.cs",
+          "line": 149
         }
       }
     }

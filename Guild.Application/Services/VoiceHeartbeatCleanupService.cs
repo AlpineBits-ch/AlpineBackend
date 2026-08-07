@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Voice.Rooms;
 
 using Guild.Application.Models;
 using Guild.Contracts.Bus.Events;
@@ -16,7 +17,7 @@ namespace Guild.Application.Services;
 public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
-    LockedJsonCacheStore voiceStore,
+    VoiceRoomStore rooms,
     GuildVoiceActivityStore activityStore,
     StreamViewerStore viewers,
     IHubContext<EchoRealtimeHub> hub,
@@ -50,7 +51,14 @@ public class VoiceHeartbeatCleanupService(
     private async Task EvictStaleParticipantsAsync(CancellationToken ct)
     {
         var server = redis.GetServer(redis.GetEndPoints().First());
-        var keys = server.Keys(pattern: "voice:channel:*");
+
+        // Both patterns.
+        var keys = server.Keys(pattern: "voice:room:channel:*")
+            .Select(k => k.ToString()["voice:room:channel:".Length..])
+            .Concat(server.Keys(pattern: "voice:channel:*")
+                .Select(k => k.ToString()["voice:channel:".Length..]))
+            .Distinct()
+            .ToList();
 
         // Accumulated as the sweep goes, then written back per guild.
         var rebuilt = new Dictionary<string, Dictionary<string, ChannelVoiceActivity>>();
@@ -59,15 +67,15 @@ public class VoiceHeartbeatCleanupService(
         {
             if (ct.IsCancellationRequested) break;
 
-            var channelId = key.ToString()["voice:channel:".Length..];
-            var loaded = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
+            var channelId = key;
+            var loaded = await rooms.LoadAsync(VoiceRoomKey.Channel(channelId), ct);
             if (loaded is null) continue;
 
-            var stale = new List<VoiceState>();
+            var stale = new List<VoiceParticipant>();
             foreach (var participant in loaded.Participants)
             {
                 var heartbeat = await cache.GetStringAsync(
-                    ChannelVoiceState.GetHeartbeatCacheKey(participant.UserId), ct);
+                    VoiceReconciler.LivenessKey(participant.UserId), ct);
                 if (heartbeat is null)
                     stale.Add(participant);
             }
@@ -82,16 +90,15 @@ public class VoiceHeartbeatCleanupService(
             // Locked: this background sweep racing a live Join/mute/etc. write for the same channel
             // was another instance of the same read-modify-write class of bug -see
             // GuildVoiceController.Join.
-            var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(
-                ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
-                vs => vs.Participants.RemoveAll(p => staleIds.Contains(p.UserId)),
-                ChannelCacheOptions, ct);
+            var voiceState = await rooms.MutateExistingAsync(
+                VoiceRoomKey.Channel(channelId),
+                r => r.Participants.RemoveAll(p => staleIds.Contains(p.UserId)), ct);
             if (voiceState is null) continue;
 
             Record(rebuilt, voiceState);
 
             // An evicted participant's watch claims and their own shares both die with them.
-            var viewerScope = StreamViewerStore.ChannelScope(channelId);
+            var viewerScope = VoiceRoomKey.Channel(channelId).ViewerScope;
             foreach (var participant in stale)
             {
                 await viewers.RemoveViewerAsync(viewerScope, participant.UserId, ct);
@@ -131,7 +138,7 @@ public class VoiceHeartbeatCleanupService(
     /// <summary>Folds one channel's authoritative roster into the guild index being rebuilt.</summary>
     internal static void Record(
         Dictionary<string, Dictionary<string, ChannelVoiceActivity>> rebuilt,
-        ChannelVoiceState state)
+        VoiceRoom state)
     {
         if (string.IsNullOrWhiteSpace(state.GuildId)) return;
 
@@ -143,7 +150,7 @@ public class VoiceHeartbeatCleanupService(
 
         // Recorded even when empty: a guild whose last participant just left still has to be
         // written back, or the index would keep reporting the roster it had before.
-        channels[state.ChannelId] = new ChannelVoiceActivity
+        channels[state.RoomId] = new ChannelVoiceActivity
         {
             UserIds = state.Participants.Select(p => p.UserId).ToList(),
             StreamerIds = state.Participants.Where(p => p.IsStreaming).Select(p => p.UserId).ToList(),

@@ -1,3 +1,5 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
 using System.Text.Json;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
@@ -53,10 +55,11 @@ public class GuildVoiceActivityTests
         var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
 
         _voice = new GuildVoiceController(
-            permissions, _hub, _cache, voiceStore, locks,
+            permissions, _hub, _cache,
             StubCloudflareHttp.CreateService(), _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
-            _activity, _viewers, _bus)
+            _activity, _viewers,
+            VoiceTestHarness.ServiceFor(_cache, locks, _hub), VoiceTestHarness.StoreFor(_cache, locks), _bus)
         {
             ControllerContext = Context(MemberId),
         };
@@ -332,30 +335,30 @@ public class GuildVoiceActivityTests
     /// GuildCloudflareController does once the screen tracks are published.</summary>
     private async Task SetActiveShareAsync(string userId, string shareId)
     {
-        var raw = await _cache.GetStringAsync(ChannelVoiceState.GetCacheKey(ChannelId));
-        var state = JsonSerializer.Deserialize<ChannelVoiceState>(raw!)!;
+        var raw = await _cache.GetStringAsync(VoiceRoomKey.Channel(ChannelId).CacheKey);
+        var state = JsonSerializer.Deserialize<VoiceRoom>(raw!)!;
         var participant = state.Participants.First(p => p.UserId == userId);
         participant.IsStreaming = true;
         participant.ActiveScreenShares.Add(new ActiveScreenShare { ShareId = shareId, TrackNames = [$"screen-{shareId}"] });
-        _cache.SetEntry(ChannelVoiceState.GetCacheKey(ChannelId), JsonSerializer.Serialize(state));
+        _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(state));
     }
 
     private Task SeedChannelStateAsync(string userId, string shareId)
     {
-        var state = new ChannelVoiceState
+        var state = new VoiceRoom
         {
-            ChannelId = ChannelId,
+            RoomId = ChannelId, Kind = VoiceRoomKind.Channel,
             GuildId = GuildId,
             Participants =
             [
-                new VoiceState
+                new VoiceParticipant
                 {
-                    UserId = userId, ChannelId = ChannelId, GuildId = GuildId, IsStreaming = true,
+                    UserId = userId, IsStreaming = true,
                     ActiveScreenShares = [new ActiveScreenShare { ShareId = shareId, TrackNames = [$"screen-{shareId}"] }],
                 },
             ],
         };
-        _cache.SetEntry(ChannelVoiceState.GetCacheKey(ChannelId), JsonSerializer.Serialize(state));
+        _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(state));
         return Task.CompletedTask;
     }
 }

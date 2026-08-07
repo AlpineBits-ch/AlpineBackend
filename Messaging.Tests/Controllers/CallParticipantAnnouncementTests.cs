@@ -1,3 +1,6 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
+using Echo.Voice.Sessions;
 using System.Text;
 using System.Text.Json;
 using Echo.Realtime.Caching;
@@ -68,8 +71,11 @@ public class CallParticipantAnnouncementTests
         var http = new DefaultHttpContext { User = TestPrincipal.ForUser(userId) };
         http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
         return new CloudflareController(
-            StubCloudflareHttp.CreateService(), _hub, _cache, _callStore, _bus,
+            StubCloudflareHttp.CreateService(), _cache, _callStore, _bus,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
+            new SfuSessionOwnership(_cache),
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub),
+            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
             NullLogger<CloudflareController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = http },
@@ -106,8 +112,14 @@ public class CallParticipantAnnouncementTests
             .Select(s => (s.Target, JsonSerializer.Serialize(s.Args[0])))
             .ToList();
 
+    /// <summary>Announcements this user actually received.</summary>
     private List<string> AnnouncementsTo(string userId) =>
-        Announcements().Where(a => a.Target == $"user:{userId}").Select(a => a.Payload).ToList();
+        Announcements()
+            .Where(a => a.Target == $"user:{userId}"
+                        || (a.Target.StartsWith("users:")
+                            && a.Target["users:".Length..].Split(',').Contains(userId)))
+            .Select(a => a.Payload)
+            .ToList();
 
     private CallParticipant Participant(string userId)
     {
@@ -139,20 +151,28 @@ public class CallParticipantAnnouncementTests
         await PublishAudioAsync(CalleeId, CalleeDevice, CalleeRustSession);
 
         Assert.That(AnnouncementsTo(CallerId), Is.Empty,
-            "precondition: a Pending participant is deliberately not announced to - the fix is to "
-            + "replay it when they connect, not to disclose session ids to someone still ringing");
+            "precondition: someone still ringing is deliberately not handed session ids");
 
-        // The caller's publisher session finally lands.
+        // The caller's publisher session finally lands, which is what puts them in the room.
         await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
 
-        Assert.That(
-            AnnouncementsTo(CallerId).Any(p => p.Contains(CalleeId) && p.Contains(CalleeRustSession)
-                                               && p.Contains("\"audioTrackName\":\"audio\"")),
-            Is.True,
-            "the caller entered the media path after the callee published and was never told which "
-            + "session to pull their audio from - nothing else ever repeats that announcement. Sent: "
-            + string.Join(" | ", Announcements().Select(a => a.Target + " " + a.Payload)));
+        // They learn what to pull from the snapshot the join hands back, not from a replayed
+        // per-peer event.
+        var callee = SnapshotTo(CallerId)!.Participants.Single(p => p.UserId == CalleeId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(callee.CfSessionId, Is.EqualTo(CalleeRustSession));
+            Assert.That(callee.AudioTrackName, Is.EqualTo("audio"));
+            Assert.That(callee.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
+        });
     }
+
+    /// <summary>The last snapshot pushed to <paramref name="userId"/>.</summary>
+    private VoiceRoomSnapshot? SnapshotTo(string userId) =>
+        ((FakeHubClients)_hub.Clients).Sends
+            .Where(s => s.Target == $"user:{userId}" && s.Method == "call.Snapshot")
+            .Select(s => s.Args[0] as VoiceRoomSnapshot)
+            .LastOrDefault();
 
     [Test]
     public async Task JoiningTheMediaPath_DoesNotAnnounceTheJoinerToAnybodyElse()
@@ -177,7 +197,10 @@ public class CallParticipantAnnouncementTests
         // The callee is Connected and holds a session, but has published no track yet.
         Accept(CalleeId, CalleeDevice);
         await OpenPrimarySessionAsync(CalleeId, CalleeDevice, CalleeRustSession);
-        Assert.That(Participant(CalleeId).AudioTrackName, Is.Null, "precondition");
+
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Call(CallId));
+        Assert.That(room!.Find(CalleeId)!.PublishState, Is.EqualTo(VoicePublishState.Joined),
+            "precondition: a session without a track is not publishing");
 
         await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
 
@@ -201,12 +224,18 @@ public class CallParticipantAnnouncementTests
 
         Assert.Multiple(() =>
         {
+            // The caller was already in the room, so the callee's publish reaches them as a live
+            // announcement.
             Assert.That(
                 AnnouncementsTo(CallerId).Any(p => p.Contains(CalleeId) && p.Contains(CalleeRustSession)),
                 Is.True, "the caller was never told about the callee's audio");
-            Assert.That(
-                AnnouncementsTo(CalleeId).Any(p => p.Contains(CallerId) && p.Contains(CallerRustSession)),
-                Is.True, "the callee was never told about the caller's audio");
+
+            // The callee joined after the caller had already published, so there was no live event
+            // left to receive - they learn it from the snapshot their join hands back.
+            var caller = SnapshotTo(CalleeId)!.Participants.Single(p => p.UserId == CallerId);
+            Assert.That(caller.CfSessionId, Is.EqualTo(CallerRustSession),
+                "the callee was never told about the caller's audio");
+            Assert.That(caller.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
         });
     }
 

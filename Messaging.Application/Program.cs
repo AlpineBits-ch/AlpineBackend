@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
+using Echo.Voice;
 using AppEnvironment;
 using StackExchange.Redis;
 using Domain;
@@ -44,6 +45,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 builder.Services.AddSingleton<IDistributedLockService, RedisDistributedLockService>();
 builder.Services.AddSingleton<LockedJsonCacheStore>();
 builder.Services.AddSingleton<StreamViewerStore>();
+builder.Services.AddVoiceRooms();
 // Scoped: it takes IMessageBus, which Wolverine registers per scope.
 builder.Services.AddScoped<DeviceIdResolver>();
 builder.Services.AddSignalR(config =>

@@ -17,8 +17,8 @@ public class CallParticipant
     public string UserId { get; set; }
     public DateTime JoinedAt { get; set; }
     public CallStatus Status { get; set; } = CallStatus.Pending;
-    public string? CfSessionId { get; set; }
-    public string? AudioTrackName { get; set; }
+
+    // CfSessionId/AudioTrackName used to live here.
 
     /// <summary>The device currently connected to this call's audio for this participant, if
     /// any. A user can only be actively connected from one device at a time - accepting from a
@@ -52,12 +52,17 @@ public class Call : Aggregate<Call>, IPrefixedEntity
         });
     }
 
-    public void Accept(string userId, string deviceId)
+    /// <param name="oldCfSessionId">The superseded device's session, read from the voice room by the
+    /// caller - see <see cref="ConnectDevice"/>. Without it a callee answering on a second device
+    /// would leave their first device's Cloudflare session publishing.</param>
+    /// <param name="oldAudioTrackName">As above.</param>
+    public void Accept(string userId, string deviceId,
+        string? oldCfSessionId = null, string? oldAudioTrackName = null)
     {
         var participant = Participants.FirstOrDefault(p => p.UserId == userId);
         if(participant is null) return;
 
-        ConnectDevice(participant, deviceId);
+        ConnectDevice(participant, deviceId, oldCfSessionId, oldAudioTrackName);
         this.Status = CallStatus.Connected;
 
         this.AddDomainEvent(new CallAccepted()
@@ -69,7 +74,12 @@ public class Call : Aggregate<Call>, IPrefixedEntity
     }
 
     /// <summary>Marks a participant's media session as connected from a specific device.</summary>
-    public void ConnectDevice(CallParticipant participant, string deviceId)
+    /// <param name="oldCfSessionId">
+    /// The superseded device's session, read from the voice room by the caller.
+    /// </param>
+    /// <param name="oldAudioTrackName">As above.</param>
+    public void ConnectDevice(CallParticipant participant, string deviceId,
+        string? oldCfSessionId = null, string? oldAudioTrackName = null)
     {
         var wasConnected = participant.Status == CallStatus.Connected;
         var previousDevice = participant.ActiveDeviceId;
@@ -87,11 +97,9 @@ public class Call : Aggregate<Call>, IPrefixedEntity
                 UserId = participant.UserId,
                 OldDeviceId = previousDevice,
                 NewDeviceId = deviceId,
-                OldCfSessionId = participant.CfSessionId,
-                OldAudioTrackName = participant.AudioTrackName,
+                OldCfSessionId = oldCfSessionId,
+                OldAudioTrackName = oldAudioTrackName,
             });
-            participant.CfSessionId = null;
-            participant.AudioTrackName = null;
         }
         else if (!wasConnected)
         {

@@ -1,169 +1,198 @@
-using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Voice.Rooms;
+using Echo.Voice.Testing;
 using Messaging.Application.Handler.Realtime;
-using Messaging.Domain.Entities;
 using Messaging.Tests.Helpers;
 
 namespace Messaging.Tests.Handlers.Realtime;
 
 /// <summary>
-/// Covers the small in-call broadcast handlers (CallCameraHandler, CallMuteHandler,
-/// CallScreenShareStartHandler, CallScreenShareStopHandler, CallSpeakingHandler): all share the
-/// exact same shape - look the active Call up in the distributed cache by
-/// Call.GetCacheId(callId), no-op if it's missing (call already ended / never existed), otherwise
-/// broadcast to every OTHER participant over the hub, excluding the acting user themselves.
+/// Covers <see cref="CallVoiceStateHandler"/>, which replaces the five near-identical handlers that
+/// used to relay camera, mute, speaking and screen-share state for a call.
 /// </summary>
 [TestFixture]
 public class CallRealtimeCommandHandlersTests
 {
+    private const string CallId = "call-1";
+    private const string Alice = "user-alice";
+    private const string Bob = "user-bob";
+    private const string Stranger = "user-stranger";
+
     private FakeDistributedCache _cache = null!;
     private FakeMessagingHubContext _hub = null!;
     private StreamViewerStore _viewers = null!;
+    private VoiceRoomService _voice = null!;
+    private CallVoiceStateHandler _handler = null!;
 
     [SetUp]
     public void SetUp()
     {
         _cache = new FakeDistributedCache();
         _hub = new FakeMessagingHubContext();
-        _viewers = new StreamViewerStore(new FakeDistributedLockService(), _cache);
+        var locks = new FakeDistributedLockService();
+        _viewers = new StreamViewerStore(locks, _cache);
+        _voice = VoiceTestHarness.ServiceFor(_cache, locks, _hub);
+        _handler = new CallVoiceStateHandler();
     }
 
-    private async Task SeedCall(string callId, params string[] participantUserIds)
-    {
-        var call = new Call
+    private static VoiceRoomKey Room => VoiceRoomKey.Call(CallId);
+
+    /// <summary>Puts the given users in the call's voice room, which is what membership now means.</summary>
+    private Task SeedRoomAsync(params string[] userIds) =>
+        VoiceTestHarness.SeedRoomAsync(_cache, new VoiceRoom
         {
-            Id = callId,
-            ConversationId = "conv-1",
-            CreatorId = participantUserIds.First(),
-            Participants = participantUserIds.Select(id => new CallParticipant { UserId = id }).ToList(),
-        };
-        await _cache.SetAsync(Call.GetCacheId(callId), System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
-    }
+            RoomId = CallId,
+            Kind = VoiceRoomKind.Call,
+            Participants = userIds.Select(id => new VoiceParticipant { UserId = id }).ToList(),
+        });
 
     private FakeHubClients HubClients => (FakeHubClients)_hub.Clients;
 
-    // ══════════════════════════════════════════════════════════════════════════ CallCameraHandler
-    // ══════════════════════════════════════════════════════════════════════════
+    private List<string> TargetsOf(string method) =>
+        HubClients.Sends.Where(s => s.Method == method).Select(s => s.Target).ToList();
+
+    // ══════════════════════════════════════════════════════════════════════════ The relay still
+    // works ══════════════════════════════════════════════════════════════════════════
 
     [Test]
-    public async Task CallCamera_CallNotInCache_IsNoOp()
+    public async Task Camera_BroadcastsToOtherParticipants_ExcludingSelf()
     {
-        await CallCameraHandler.Handle(new CallCameraCommand("user-1", "call-missing", true), _cache, _hub);
+        await SeedRoomAsync(Alice, Bob);
 
-        Assert.That(HubClients.SentMessages, Is.Empty);
+        await _handler.Handle(new CallCameraCommand(Alice, CallId, true), _voice);
+
+        Assert.That(TargetsOf("call.CameraChanged"), Is.EqualTo(new[] { $"users:{Bob}" }));
     }
 
     [Test]
-    public async Task CallCamera_BroadcastsToOtherParticipants_ExcludingSelf()
+    public async Task Mute_BroadcastsToOtherParticipants_AndIsRecorded()
     {
-        await SeedCall("call-1", "user-1", "user-2", "user-3");
+        await SeedRoomAsync(Alice, Bob);
 
-        await CallCameraHandler.Handle(new CallCameraCommand("user-1", "call-1", true), _cache, _hub);
+        await _handler.Handle(new CallMuteCommand(Alice, CallId, true), _voice);
 
-        Assert.That(HubClients.SentMessages, Has.Count.EqualTo(1));
-        Assert.That(HubClients.SentMessages[0].Method, Is.EqualTo("call.CameraChanged"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════ CallMuteHandler
-    // ══════════════════════════════════════════════════════════════════════════
-
-    [Test]
-    public async Task CallMute_CallNotInCache_IsNoOp()
-    {
-        await CallMuteHandler.Handle(new CallMuteCommand("user-1", "call-missing", true), _cache, _hub);
-
-        Assert.That(HubClients.SentMessages, Is.Empty);
-    }
-
-    [Test]
-    public async Task CallMute_BroadcastsToOtherParticipants()
-    {
-        await SeedCall("call-1", "user-1", "user-2");
-
-        await CallMuteHandler.Handle(new CallMuteCommand("user-1", "call-1", true), _cache, _hub);
-
-        Assert.That(HubClients.SentMessages, Has.Count.EqualTo(1));
-        Assert.That(HubClients.SentMessages[0].Method, Is.EqualTo("call.MuteChanged"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // CallSpeakingHandler
-    // ══════════════════════════════════════════════════════════════════════════
-
-    [Test]
-    public async Task CallSpeaking_CallNotInCache_IsNoOp()
-    {
-        await CallSpeakingHandler.Handle(new CallSpeakingCommand("user-1", "call-missing", true), _cache, _hub);
-
-        Assert.That(HubClients.SentMessages, Is.Empty);
-    }
-
-    [Test]
-    public async Task CallSpeaking_BroadcastsToOtherParticipants()
-    {
-        await SeedCall("call-1", "user-1", "user-2");
-
-        await CallSpeakingHandler.Handle(new CallSpeakingCommand("user-1", "call-1", true), _cache, _hub);
-
-        Assert.That(HubClients.SentMessages, Has.Count.EqualTo(1));
-        Assert.That(HubClients.SentMessages[0].Method, Is.EqualTo("call.SpeakingChanged"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // CallScreenShareStartHandler
-    // ══════════════════════════════════════════════════════════════════════════
-
-    [Test]
-    public async Task ScreenShareStart_CallNotInCache_IsNoOp()
-    {
-        await CallScreenShareStartHandler.Handle(new CallScreenShareStartCommand("user-1", "call-missing", "share-1", "track-1"), _cache, _hub);
-
-        Assert.That(HubClients.SentMessages, Is.Empty);
-    }
-
-    [Test]
-    public async Task ScreenShareStart_BroadcastsToOtherParticipants_WithSharerCfSessionId()
-    {
-        var call = new Call
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, Room);
+        Assert.Multiple(() =>
         {
-            Id = "call-1",
-            ConversationId = "conv-1",
-            CreatorId = "user-1",
-            Participants =
-            [
-                new CallParticipant { UserId = "user-1", CfSessionId = "cf-session-abc" },
-                new CallParticipant { UserId = "user-2" },
-            ],
-        };
-        await _cache.SetAsync(Call.GetCacheId("call-1"), System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
-
-        await CallScreenShareStartHandler.Handle(new CallScreenShareStartCommand("user-1", "call-1", "share-1", "track-1"), _cache, _hub);
-
-        Assert.That(HubClients.SentMessages, Has.Count.EqualTo(1));
-        Assert.That(HubClients.SentMessages[0].Method, Is.EqualTo("call.ScreenShareStarted"));
-    }
-
-    // ══════════════════════════════════════════════════════════════════════════
-    // CallScreenShareStopHandler
-    // ══════════════════════════════════════════════════════════════════════════
-
-    [Test]
-    public async Task ScreenShareStop_CallNotInCache_IsNoOp()
-    {
-        await CallScreenShareStopHandler.Handle(new CallScreenShareStopCommand("user-1", "call-missing", "share-1"), _cache, _viewers, _hub);
-
-        Assert.That(HubClients.SentMessages, Is.Empty);
+            Assert.That(TargetsOf("call.MuteChanged"), Is.EqualTo(new[] { $"users:{Bob}" }));
+            Assert.That(room!.Find(Alice)!.IsSelfMuted, Is.True,
+                "mute is roster state, not just a relay - a client joining later has to see it");
+        });
     }
 
     [Test]
-    public async Task ScreenShareStop_BroadcastsToOtherParticipants()
+    public async Task Speaking_BroadcastsToOtherParticipants()
     {
-        await SeedCall("call-1", "user-1", "user-2");
+        await SeedRoomAsync(Alice, Bob);
 
-        await CallScreenShareStopHandler.Handle(new CallScreenShareStopCommand("user-1", "call-1", "share-1"), _cache, _viewers, _hub);
+        await _handler.Handle(new CallSpeakingCommand(Alice, CallId, true), _voice);
 
-        Assert.That(HubClients.SentMessages, Has.Count.EqualTo(1));
-        Assert.That(HubClients.SentMessages[0].Method, Is.EqualTo("call.ScreenShareStopped"));
+        Assert.That(TargetsOf("call.SpeakingChanged"), Is.EqualTo(new[] { $"users:{Bob}" }));
+    }
+
+    [Test]
+    public async Task ScreenShareStart_BroadcastsAndMarksTheSharerStreaming()
+    {
+        await SeedRoomAsync(Alice, Bob);
+
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1", "screen-share-1"), _voice);
+
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, Room);
+        Assert.Multiple(() =>
+        {
+            Assert.That(TargetsOf("call.ScreenShareStarted"), Is.EqualTo(new[] { $"users:{Bob}" }));
+            Assert.That(room!.Find(Alice)!.IsStreaming, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task ScreenShareStop_BroadcastsAndDropsTheShareAudience()
+    {
+        await SeedRoomAsync(Alice, Bob);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1", "screen-share-1"), _voice);
+        await _viewers.WatchAsync(Room.ViewerScope, "share-1", Bob);
+
+        await _handler.Handle(new CallScreenShareStopCommand(Alice, CallId, "share-1"), _voice, _viewers);
+
+        var snapshot = await _viewers.SnapshotAsync(Room.ViewerScope);
+        Assert.Multiple(() =>
+        {
+            Assert.That(TargetsOf("call.ScreenShareStopped"), Is.EqualTo(new[] { $"users:{Bob}" }));
+            Assert.That(snapshot, Does.Not.ContainKey("share-1"),
+                "the audience of a stopped share is undefined, not empty - a later share reusing the "
+                + "id must not inherit it");
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ No room, no
+    // broadcast ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task NoRoom_IsANoOpForEveryCommand()
+    {
+        await _handler.Handle(new CallCameraCommand(Alice, CallId, true), _voice);
+        await _handler.Handle(new CallMuteCommand(Alice, CallId, true), _voice);
+        await _handler.Handle(new CallSpeakingCommand(Alice, CallId, true), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "s", "screen-s"), _voice);
+        await _handler.Handle(new CallScreenShareStopCommand(Alice, CallId, "s"), _voice, _viewers);
+
+        Assert.That(HubClients.Sends, Is.Empty,
+            "a call that ended or never existed has nobody to tell");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // The hole these handlers used to have
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// A non-participant holding a call id could previously broadcast any of these to everyone in
+    /// the call.
+    /// </summary>
+    [Test]
+    public async Task AStranger_CannotBroadcastAnyStateIntoACallTheyAreNotIn()
+    {
+        await SeedRoomAsync(Alice, Bob);
+
+        await _handler.Handle(new CallCameraCommand(Stranger, CallId, true), _voice);
+        await _handler.Handle(new CallMuteCommand(Stranger, CallId, true), _voice);
+        await _handler.Handle(new CallSpeakingCommand(Stranger, CallId, true), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Stranger, CallId, "s", "screen-s"), _voice);
+
+        Assert.That(HubClients.Sends, Is.Empty);
+    }
+
+    /// <summary>
+    /// The stop handler additionally cleared the viewer table, so a stranger could wipe the audience
+    /// of somebody else's live share. Gated on the membership result now.
+    /// </summary>
+    [Test]
+    public async Task AStranger_CannotClearTheViewerTableOfALiveShare()
+    {
+        await SeedRoomAsync(Alice, Bob);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1", "screen-share-1"), _voice);
+        await _viewers.WatchAsync(Room.ViewerScope, "share-1", Bob);
+        HubClients.Sends.Clear();
+
+        await _handler.Handle(new CallScreenShareStopCommand(Stranger, CallId, "share-1"), _voice, _viewers);
+
+        var snapshot = await _viewers.SnapshotAsync(Room.ViewerScope);
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot, Does.ContainKey("share-1"), "the share's audience survives");
+            Assert.That(HubClients.Sends, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task AStrangersMuteDoesNotLandOnTheRoster()
+    {
+        await SeedRoomAsync(Alice, Bob);
+
+        await _handler.Handle(new CallMuteCommand(Stranger, CallId, true), _voice);
+
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, Room);
+        Assert.That(room!.Participants.Any(p => p.UserId == Stranger), Is.False,
+            "a rejected command must not conjure the sender into the roster either");
     }
 }

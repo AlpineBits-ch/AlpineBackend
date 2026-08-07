@@ -39,7 +39,22 @@ public record UpdateGuildReadCommand(string UserId, string ChannelId, string Id)
 
 // ---- Guild voice (Guild service) ----
 
+/// <summary>What a client asserts about itself on every beat.</summary>
+public record VoiceHeartbeatState(
+    string? KnownInstanceId,
+    long KnownVersion,
+    string? CfSessionId,
+    string? AudioTrackName);
+
+/// <summary>Liveness only.</summary>
 public record GuildVoiceHeartbeatCommand(string UserId);
+
+// Two records rather than one carrying a room kind, purely because Wolverine routes on the concrete
+// message type and these two go to different services.
+
+public record GuildVoiceReconcileCommand(string UserId, string ChannelId, VoiceHeartbeatState State);
+
+public record CallVoiceReconcileCommand(string UserId, string CallId, VoiceHeartbeatState State);
 
 public record GuildVoiceMuteCommand(string UserId, string ChannelId, bool IsMuted);
 

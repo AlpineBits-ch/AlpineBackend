@@ -25,11 +25,12 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="NUnit.Framework"/>
+        <Using Include="NUnit.Framework" />
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Messaging.Application\Messaging.Application.csproj" />
+        <ProjectReference Include="..\Echo.Voice.Testing\Echo.Voice.Testing.csproj" />
     </ItemGroup>
 
 </Project>

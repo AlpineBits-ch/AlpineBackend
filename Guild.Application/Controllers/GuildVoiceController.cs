@@ -4,6 +4,7 @@ using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
+using Echo.Voice.Rooms;
 
 using Guild.Application.Models;
 using Guild.Application.Services;
@@ -26,13 +27,13 @@ public class GuildVoiceController(
     GuildPermissionService permissions,
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
-    LockedJsonCacheStore voiceStore,
-    IDistributedLockService locks,
     CloudflareService cfService,
     MicroserviceContext db,
     DeviceIdResolver devices,
     GuildVoiceActivityStore activity,
     StreamViewerStore viewers,
+    VoiceRoomService voice,
+    VoiceRoomStore rooms,
     IMessageBus bus) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -42,17 +43,16 @@ public class GuildVoiceController(
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-    /// <summary>See Messaging.Application.Controllers.VoiceController.ResolveDeviceAsync - one
-    /// shared resolver, same fallback for pre-update clients, same rejection of an id this user
-    /// has no registered device for.</summary>
+    private static VoiceRoomKey Room(string channelId) => VoiceRoomKey.Channel(channelId);
+
     private Task<DeviceIdResult> ResolveDeviceAsync(CancellationToken ct = default) =>
         devices.ResolveAsync(Request, UserId, ct);
 
     [HttpPost("join")]
     public async Task<IActionResult> Join(string guildId, string channelId, CancellationToken ct)
     {
-        var canConnect = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect);
-        if (!canConnect) return Forbid();
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect))
+            return Forbid();
 
         var channel = await db.Channels
             .AsNoTracking()
@@ -67,35 +67,27 @@ public class GuildVoiceController(
             return BadRequest($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
         var deviceId = device.DeviceId;
 
-        // A user can only be in one voice channel, on one device, at a time, app-wide. If
-        // they're already active somewhere else, resolve that first:
-        //  - same channel, different device -> takeover (kick the old device, keep the roster
-        //    entry, transfer it to the new device)
-        //  - anywhere else (any other channel, in this guild or a different one) -> stale
-        //    presence, clean leave
+        // A user can only be in one voice channel, on one device, at a time, app-wide.
         var existingChannelJson = await cache.GetStringAsync(ChannelVoiceState.GetUserCacheKey(UserId), ct);
-        if (existingChannelJson is not null)
+        if (existingChannelJson is not null
+            && JsonSerializer.Deserialize<UserVoiceLocation>(existingChannelJson) is { } existing)
         {
-            var existing = JsonSerializer.Deserialize<UserVoiceLocation>(existingChannelJson);
-            if (existing is not null)
+            if (existing.ChannelId == channelId)
             {
-                if (existing.ChannelId == channelId)
-                {
-                    if (existing.DeviceId is not null && existing.DeviceId != deviceId)
-                        await TakeoverDeviceAsync(guildId, channelId, UserId, existing.DeviceId, deviceId, ct);
-                }
-                else
-                {
-                    await LeaveChannelAsync(existing.ChannelId, UserId, ct);
-                }
+                if (existing.DeviceId is not null && existing.DeviceId != deviceId)
+                    await TakeoverDeviceAsync(guildId, channelId, UserId, existing.DeviceId, deviceId, ct);
+            }
+            else
+            {
+                await LeaveChannelAsync(existing.ChannelId, UserId, ct);
             }
         }
 
-        // Add user to the target channel voice state.
-        var voiceState = await JoinChannelVoiceStateAsync(channelId, guildId, deviceId, ct);
+        // Roster first, media later.
+        var room = await voice.JoinAsync(Room(channelId), UserId, deviceId, guildId, ct);
 
         // Guild-level index, so the server list can answer "is anyone in voice here" without
-        // reading every channel of every guild.
+        // reading every channel of every guild. Derived from the roster, never the source of truth.
         await activity.AddParticipantAsync(guildId, channelId, UserId, ct);
 
         await cache.SetStringAsync(
@@ -103,41 +95,38 @@ public class GuildVoiceController(
             JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId, DeviceId = deviceId }),
             CacheOptions, ct);
         await cache.SetStringAsync(
-            ChannelVoiceState.GetHeartbeatCacheKey(UserId),
-            "1",
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(90) },
+            VoiceReconciler.LivenessKey(UserId), Room(channelId).ToString(),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = VoiceReconciler.LivenessTtl },
             ct);
 
+        // Guild-wide presence fan-out.
         var onlineUserIds = await GetOnlineGuildMemberIdsAsync(guildId);
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserJoinedVoice",
             new { userId = UserId, channelId, guildId }, ct);
 
         await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = UserId, ChannelId = channelId });
 
-        return Ok(ChannelVoiceStateResponse.From(voiceState));
+        return Ok(ChannelVoiceStateResponse.From(room));
     }
 
-    /// <summary>Same user, same channel, a different device just joined - transfer the
-    /// connection instead of running two. Tells exactly the old device to disconnect, and
-    /// best-effort closes its stale Cloudflare session server-side too (the device may be
-    /// backgrounded/unreachable and never process the push).</summary>
+    /// <summary>Same user, same channel, a different device just joined - transfer the connection
+    /// instead of running two. Tells exactly the old device to disconnect, and best-effort closes
+    /// its stale Cloudflare session server-side too.</summary>
     private async Task TakeoverDeviceAsync(string guildId, string channelId, string userId, string oldDeviceId, string newDeviceId, CancellationToken ct)
     {
         string? oldCfSessionId = null;
         string? oldAudioTrackName = null;
 
-        await voiceStore.UpdateAsync<ChannelVoiceState>(
-            ChannelVoiceState.GetCacheKey(channelId), ChannelVoiceState.GetCacheKey(channelId),
-            vs =>
-            {
-                var participant = vs.Participants.FirstOrDefault(p => p.UserId == userId);
-                if (participant is null) return;
-                oldCfSessionId = participant.CfSessionId;
-                oldAudioTrackName = participant.AudioTrackName;
-                participant.DeviceId = newDeviceId;
-                participant.CfSessionId = null;
-                participant.AudioTrackName = null;
-            }, CacheOptions, ct);
+        await rooms.MutateExistingAsync(Room(channelId), r =>
+        {
+            var participant = r.Find(userId);
+            if (participant is null) return;
+            oldCfSessionId = participant.CfSessionId;
+            oldAudioTrackName = participant.AudioTrackName;
+            participant.DeviceId = newDeviceId;
+            participant.CfSessionId = null;
+            participant.AudioTrackName = null;
+        }, ct);
 
         await hub.Clients.Group(EchoRealtimeHub.DeviceGroup(userId, oldDeviceId))
             .SendAsync("guild.voice.KickedByOtherDevice", new { channelId, guildId }, ct);
@@ -160,15 +149,33 @@ public class GuildVoiceController(
         return NoContent();
     }
 
+    /// <summary>The pre-unification state read.</summary>
     [HttpGet]
     public async Task<IActionResult> GetVoiceState(string guildId, string channelId, CancellationToken ct)
     {
-        var canView = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel);
-        if (!canView) return Forbid();
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel))
+            return Forbid();
 
-        var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct)
-            ?? new ChannelVoiceState { ChannelId = channelId, GuildId = guildId };
-        return Ok(ChannelVoiceStateResponse.From(voiceState));
+        var room = await rooms.LoadAsync(Room(channelId), ct);
+        return Ok(room is null
+            ? ChannelVoiceStateResponse.Empty(channelId, guildId)
+            : ChannelVoiceStateResponse.From(room));
+    }
+
+    /// <summary>
+    /// The authoritative state of this channel's voice room, sufficient on its own for a client to
+    /// be fully correct however much it missed.
+    /// </summary>
+    [HttpGet("snapshot")]
+    public async Task<IActionResult> GetSnapshot(string guildId, string channelId, CancellationToken ct)
+    {
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel))
+            return Forbid();
+
+        var room = await rooms.LoadAsync(Room(channelId), ct);
+        return Ok(room is null
+            ? VoiceRoomSnapshot.Empty(Room(channelId), guildId)
+            : VoiceRoomSnapshot.From(room));
     }
 
     /// <summary>
@@ -185,20 +192,19 @@ public class GuildVoiceController(
 
     private async Task<IActionResult> UpdateWatchAsync(string channelId, string shareId, bool watching, CancellationToken ct)
     {
-        var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
-        if (voiceState is null) return NotFound();
+        var room = await rooms.LoadAsync(Room(channelId), ct);
+        if (room is null) return NotFound();
 
         // Membership of the channel, not merely permission to view it: watching is a claim about
-        // media that is only pulled from inside the channel, and the roster is also the audience
-        // the resulting count is broadcast to.
-        if (voiceState.Participants.All(p => p.UserId != UserId)) return Forbid();
+        // media that is only pulled from inside the channel.
+        if (room.Find(UserId) is null) return Forbid();
 
         // A share nobody is publishing has no viewers to report, and letting one be named here
         // would let any participant mint counts for shares that do not exist.
-        var shareExists = voiceState.Participants.Any(p => p.ActiveScreenShares.Any(s => s.ShareId == shareId));
-        if (!shareExists) return NotFound();
+        if (!room.Participants.Any(p => p.ActiveScreenShares.Any(s => s.ShareId == shareId)))
+            return NotFound();
 
-        var scope = StreamViewerStore.ChannelScope(channelId);
+        var scope = Room(channelId).ViewerScope;
         var snapshot = watching
             ? await viewers.WatchAsync(scope, shareId, UserId, ct)
             : await viewers.UnwatchAsync(scope, shareId, UserId, ct);
@@ -206,90 +212,49 @@ public class GuildVoiceController(
         var viewerIds = snapshot.TryGetValue(shareId, out var ids) ? ids : [];
         var payload = new { channelId, shareId, viewerCount = viewerIds.Count, viewerIds };
 
-        await hub.Clients.Users(voiceState.Participants.Select(p => p.UserId).ToList())
+        await hub.Clients.Users(room.AllUserIds())
             .SendAsync("guild.voice.ShareViewersChanged", payload, ct);
 
         return Ok(payload);
     }
 
     /// <summary>Everyone currently watching each live share in this channel, as
-    /// <c>shareId -&gt; userIds</c>. The catch-up read for a client that joined mid-stream, since
-    /// <c>guild.voice.ShareViewersChanged</c> is only ever a delta.</summary>
+    /// <c>shareId -&gt; userIds</c>.</summary>
     [HttpGet("shares/viewers")]
     public async Task<IActionResult> GetShareViewers(string guildId, string channelId, CancellationToken ct)
     {
-        var canView = await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel);
-        if (!canView) return Forbid();
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel))
+            return Forbid();
 
-        var snapshot = await viewers.SnapshotAsync(StreamViewerStore.ChannelScope(channelId), ct);
+        var snapshot = await viewers.SnapshotAsync(Room(channelId).ViewerScope, ct);
         return Ok(snapshot.ToDictionary(s => s.Key, s => s.Value));
-    }
-
-    /// <summary>Locked load-or-create-then-add-participant -see the comment on the Join
-    /// endpoint above for why this needs the lock (not just the mutate-existing case that
-    /// <see cref="LockedJsonCacheStore.UpdateAsync{T}"/> covers, since the very first joiner
-    /// to a channel has no existing entry to lock onto via that path).</summary>
-    private async Task<ChannelVoiceState> JoinChannelVoiceStateAsync(string channelId, string guildId, string deviceId, CancellationToken ct)
-    {
-        await using var _ = await locks.AcquireAsync(ChannelVoiceState.GetCacheKey(channelId), ct: ct);
-
-        var voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct)
-            ?? new ChannelVoiceState { ChannelId = channelId, GuildId = guildId };
-
-        var existing = voiceState.Participants.FirstOrDefault(p => p.UserId == UserId);
-        if (existing is null)
-        {
-            voiceState.Participants.Add(new VoiceState
-            {
-                UserId = UserId,
-                ChannelId = channelId,
-                GuildId = guildId,
-                DeviceId = deviceId,
-                JoinedAt = DateTime.UtcNow
-            });
-        }
-        else
-        {
-            // Same device reconnecting, or the takeover above already updated this - either way,
-            // make sure the roster reflects the device that's actually joining now.
-            existing.DeviceId = deviceId;
-        }
-
-        await voiceStore.SaveAsync(ChannelVoiceState.GetCacheKey(channelId), voiceState, CacheOptions, ct);
-        return voiceState;
     }
 
     internal async Task LeaveChannelAsync(string channelId, string userId, CancellationToken ct)
     {
-        ChannelVoiceState? voiceState;
-        List<string> ownedShareIds;
-        await using (await locks.AcquireAsync(ChannelVoiceState.GetCacheKey(channelId), ct: ct))
-        {
-            voiceState = await voiceStore.LoadAsync<ChannelVoiceState>(ChannelVoiceState.GetCacheKey(channelId), ct);
-            var participant = voiceState?.Participants.FirstOrDefault(p => p.UserId == userId);
-            if (participant is null) return;
+        var before = await rooms.LoadAsync(Room(channelId), ct);
+        var ownedShareIds = before?.Find(userId)?.ActiveScreenShares.Select(s => s.ShareId).ToList() ?? [];
+        if (before?.Find(userId) is null) return;
 
-            ownedShareIds = participant.ActiveScreenShares.Select(s => s.ShareId).ToList();
-            voiceState!.Participants.Remove(participant);
-            await voiceStore.SaveAsync(ChannelVoiceState.GetCacheKey(channelId), voiceState, CacheOptions, ct);
-        }
+        var room = await voice.LeaveAsync(Room(channelId), userId, ct);
 
         await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId), ct);
-        await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId), ct);
+        await cache.RemoveAsync(VoiceReconciler.LivenessKey(userId), ct);
 
-        await activity.RemoveParticipantAsync(voiceState!.GuildId, channelId, userId, ct);
+        var guildId = room?.GuildId ?? before.GuildId ?? string.Empty;
+        await activity.RemoveParticipantAsync(guildId, channelId, userId, ct);
 
-        // Someone who is not in the channel is watching nothing in it, and a share whose owner left
-        // has no audience to report.
-        var scope = StreamViewerStore.ChannelScope(channelId);
+        // Someone who is not in the channel is watching nothing in it, and a share whose owner
+        // left has no audience to report.
+        var scope = Room(channelId).ViewerScope;
         await viewers.RemoveViewerAsync(scope, userId, ct);
         if (ownedShareIds.Count > 0) await viewers.RemoveSharesAsync(scope, ownedShareIds, ct);
 
-        var onlineUserIds = await GetOnlineGuildMemberIdsAsync(voiceState!.GuildId);
+        var onlineUserIds = await GetOnlineGuildMemberIdsAsync(guildId);
         await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
-            new { userId, channelId, guildId = voiceState.GuildId }, ct);
+            new { userId, channelId, guildId }, ct);
 
-        await bus.PublishAsync(new VoiceStateForBots { GuildId = voiceState.GuildId, UserId = userId, ChannelId = null });
+        await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = userId, ChannelId = null });
     }
 
     private async Task<List<string>> GetOnlineGuildMemberIdsAsync(string guildId)
@@ -300,11 +265,4 @@ public class GuildVoiceController(
             .Select(m => m.UserId)
             .ToListAsync();
     }
-}
-
-internal record UserVoiceLocation
-{
-    public string ChannelId { get; init; } = string.Empty;
-    public string GuildId { get; init; } = string.Empty;
-    public string? DeviceId { get; init; }
 }

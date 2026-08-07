@@ -3,6 +3,7 @@ using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
+using Echo.Voice.Rooms;
 using Messaging.Application.Dtos.Request;
 using Messaging.Application.Dtos.Response;
 
@@ -38,6 +39,7 @@ public class VoiceController(
     DirectMessagePolicyService dmPolicy,
     StreamViewerStore viewers,
     MicroserviceContext db,
+    VoiceRoomStore rooms,
     IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
     // Call.GetCacheId(callId) doubles as the lock key -LockedJsonCacheStore namespaces it
@@ -66,6 +68,24 @@ public class VoiceController(
 
     private static IActionResult UnknownDevice(DeviceIdResult device) =>
         new BadRequestObjectResult($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
+
+    /// <summary>
+    /// The authoritative media state of this call, sufficient on its own for a client to be fully
+    /// correct however much it missed.
+    /// </summary>
+    [HttpGet("call/{callId}/snapshot")]
+    public async Task<IActionResult> GetCallSnapshot(string callId, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var call = await callStore.LoadAsync<Domain.Entities.Call>(Domain.Entities.Call.GetCacheId(callId));
+        if (call is null || !call.IsParticipant(userId)) return NotFound();
+
+        var key = VoiceRoomKey.Call(callId);
+        var room = await rooms.LoadAsync(key, ct);
+        return Ok(room is null ? VoiceRoomSnapshot.Empty(key) : VoiceRoomSnapshot.From(room));
+    }
 
     [HttpGet("ice-servers")]
     public async Task<IActionResult> GetIceServers()
@@ -270,7 +290,7 @@ public class VoiceController(
         var call = await callStore.LoadAsync<Domain.Entities.Call>(Domain.Entities.Call.GetCacheId(callId));
         if (call is null || !call.IsParticipant(userId)) return NotFound();
 
-        var snapshot = await viewers.SnapshotAsync(StreamViewerStore.CallScope(callId), ct);
+        var snapshot = await viewers.SnapshotAsync(VoiceRoomKey.Call(callId).ViewerScope, ct);
         return Ok(snapshot.ToDictionary(s => s.Key, s => s.Value));
     }
 
@@ -288,7 +308,7 @@ public class VoiceController(
         var me = call.Participants.FirstOrDefault(p => p.UserId == userId);
         if (me is null || me.Status != CallStatus.Connected) return Forbid();
 
-        var scope = StreamViewerStore.CallScope(callId);
+        var scope = VoiceRoomKey.Call(callId).ViewerScope;
         var snapshot = watching
             ? await viewers.WatchAsync(scope, shareId, userId, ct)
             : await viewers.UnwatchAsync(scope, shareId, userId, ct);
@@ -317,9 +337,14 @@ public class VoiceController(
         var device = await ResolveDeviceAsync(userId);
         if (device.IsUnknown) return UnknownDevice(device);
 
+        // Media state of any device this accept supersedes lives in the voice room, so it is read
+        // here and handed to the domain for the takeover event to carry.
+        var superseded = (await rooms.LoadAsync(VoiceRoomKey.Call(callId)))?.Find(userId);
+
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Accept(userId, device.DeviceId), CacheOptions);
+            c => c.Accept(userId, device.DeviceId, superseded?.CfSessionId, superseded?.AudioTrackName),
+            CacheOptions);
         if (call is null) return NotFound();
 
         foreach (var evt in call.GetDomainEvents())

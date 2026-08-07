@@ -1,3 +1,4 @@
+using Echo.Voice.Testing;
 using System.Text;
 using System.Text.Json;
 using Echo.Realtime.Caching;
@@ -46,6 +47,7 @@ public class VoicePendingCallTests
             TestPrivacyServices.Build(bus).Policy,
             new StreamViewerStore(new FakeDistributedLockService(), _cache),
             new TestMessagingContext(Guid.NewGuid().ToString()),
+            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
             new FakeMessagingHubContext())
         {
             ControllerContext = new ControllerContext

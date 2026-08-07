@@ -1,3 +1,5 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
 using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
@@ -48,25 +50,26 @@ public class GuildVoiceDisconnectCleanupTests
 
     /// <summary>Puts <paramref name="participants"/> in the channel and points the user's
     /// voice-location key at it, which is what the disconnect handler keys off.</summary>
-    private void SeedVoice(string locationUserId, params VoiceState[] participants)
+    private void SeedVoice(string locationUserId, params VoiceParticipant[] participants)
     {
-        var state = new ChannelVoiceState
+        var room = new VoiceRoom
         {
-            ChannelId = ChannelId,
+            RoomId = ChannelId,
+            Kind = VoiceRoomKind.Channel,
             GuildId = GuildId,
             Participants = participants.ToList(),
         };
-        _cache.SetEntry(ChannelVoiceState.GetCacheKey(ChannelId), JsonSerializer.Serialize(state));
+        _cache.SetEntry(room.Key.CacheKey, JsonSerializer.Serialize(room));
         _cache.SetEntry(
             ChannelVoiceState.GetUserCacheKey(locationUserId),
             JsonSerializer.Serialize(new { ChannelId, GuildId, DeviceId = DesktopDevice }));
     }
 
-    private static VoiceState Participant(string userId, string? deviceId) => new()
+    private static VoiceParticipant Participant(string userId, string? deviceId) => new()
     {
         UserId = userId,
-        ChannelId = ChannelId,
-        GuildId = GuildId,
+
+
         DeviceId = deviceId,
         CfSessionId = "cf-session",
         AudioTrackName = "audio",
@@ -74,16 +77,15 @@ public class GuildVoiceDisconnectCleanupTests
 
     private async Task<List<string>> RosterAsync()
     {
-        var raw = await _cache.GetStringAsync(ChannelVoiceState.GetCacheKey(ChannelId));
-        var state = JsonSerializer.Deserialize<ChannelVoiceState>(raw!)!;
-        return state.Participants.Select(p => p.UserId).ToList();
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+        return room!.Participants.Select(p => p.UserId).ToList();
     }
 
     private List<(string Method, object?[] Args)> HubMessages() =>
         ((FakeHubClients)_hub.Clients).SentMessages;
 
     private Task HandleDisconnectAsync(
-        string userId, string? deviceId, IDistributedCache? cache = null, LockedJsonCacheStore? store = null)
+        string userId, string? deviceId, IDistributedCache? cache = null, IDistributedLockService? locks = null)
     {
         var effectiveCache = cache ?? _cache;
         // No blocks: this suite is about voice cleanup, and the block filter only ever removes
@@ -91,7 +93,7 @@ public class GuildVoiceDisconnectCleanupTests
         var blocks = PrivacyTestFactory.Blocks(new FakeInvokingMessageBus(), new FakeDistributedCache());
         return _handler.Handle(
             new UserDisconnected(userId, deviceId), _context, _hydrate, effectiveCache,
-            store ?? new LockedJsonCacheStore(new FakeDistributedLockService(), effectiveCache), _hub, _bus,
+            VoiceTestHarness.StoreFor(effectiveCache, locks ?? new FakeDistributedLockService()), _hub, _bus,
             blocks);
     }
 
@@ -129,13 +131,13 @@ public class GuildVoiceDisconnectCleanupTests
     public async Task Disconnect_FromADeviceThatIsNotInVoice_KeepsTheHeartbeatKeyAlive()
     {
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
-        _cache.SetEntry(ChannelVoiceState.GetHeartbeatCacheKey(UserId), "1");
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
 
         await HandleDisconnectAsync(UserId, PhoneDevice);
 
         // Dropping the heartbeat key is a second, delayed kill: even with the roster entry intact,
         // VoiceHeartbeatCleanupService evicts anyone without one on its next 60s sweep.
-        Assert.That(_cache.HasEntry(ChannelVoiceState.GetHeartbeatCacheKey(UserId)), Is.True,
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.True,
             "the heartbeat belongs to the device that is in voice, not to the one that disconnected");
     }
 
@@ -144,7 +146,7 @@ public class GuildVoiceDisconnectCleanupTests
     {
         // The genuine case, which the device guard must not break.
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
-        _cache.SetEntry(ChannelVoiceState.GetHeartbeatCacheKey(UserId), "1");
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
 
         await HandleDisconnectAsync(UserId, DesktopDevice);
 
@@ -153,7 +155,7 @@ public class GuildVoiceDisconnectCleanupTests
         {
             Assert.That(roster, Does.Not.Contain(UserId));
             Assert.That(HubMessages().Select(m => m.Method), Does.Contain("guild.voice.UserLeftVoice"));
-            Assert.That(_cache.HasEntry(ChannelVoiceState.GetHeartbeatCacheKey(UserId)), Is.False);
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.False);
         });
     }
 
@@ -177,7 +179,7 @@ public class GuildVoiceDisconnectCleanupTests
         const string joiner = "user-2";
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
 
-        var channelKey = ChannelVoiceState.GetCacheKey(ChannelId);
+        var channelKey = VoiceRoomKey.Channel(ChannelId).CacheKey;
         var locks = new TrackingDistributedLockService();
 
         // A second request commits an unrelated user's join at the worst possible moment: right
@@ -188,7 +190,7 @@ public class GuildVoiceDisconnectCleanupTests
             void CommitJoin()
             {
                 var raw = _cache.Get(channelKey);
-                var state = JsonSerializer.Deserialize<ChannelVoiceState>(
+                var state = JsonSerializer.Deserialize<VoiceRoom>(
                     System.Text.Encoding.UTF8.GetString(raw!))!;
                 state.Participants.Add(Participant(joiner, "joiner-device"));
                 _cache.SetEntry(channelKey, JsonSerializer.Serialize(state));
@@ -199,7 +201,7 @@ public class GuildVoiceDisconnectCleanupTests
         });
 
         await HandleDisconnectAsync(
-            UserId, DesktopDevice, cache, new LockedJsonCacheStore(locks, cache));
+            UserId, DesktopDevice, cache, locks);
         deferredJoin?.Invoke();
 
         // Unserialised, the handler's stale copy won: user-2 got a 200 from POST /join with
@@ -221,12 +223,12 @@ public class GuildVoiceDisconnectCleanupTests
     {
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
 
-        var channelKey = ChannelVoiceState.GetCacheKey(ChannelId);
+        var channelKey = VoiceRoomKey.Channel(ChannelId).CacheKey;
         var timeline = new List<string>();
         var locks = new TrackingDistributedLockService(timeline);
         var cache = new RecordingDistributedCache(_cache, timeline);
 
-        await HandleDisconnectAsync(UserId, DesktopDevice, cache, new LockedJsonCacheStore(locks, cache));
+        await HandleDisconnectAsync(UserId, DesktopDevice, cache, locks);
 
         var acquired = timeline.IndexOf($"acquired:{channelKey}");
         var written = timeline.IndexOf($"set:{channelKey}");

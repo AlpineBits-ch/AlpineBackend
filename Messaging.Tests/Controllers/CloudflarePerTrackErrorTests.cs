@@ -1,3 +1,5 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Sessions;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -61,9 +63,12 @@ public class CloudflarePerTrackErrorTests
         });
 
         _controller = new CloudflareController(
-            cfService, new FakeMessagingHubContext(), cache,
+            cfService, cache,
             new LockedJsonCacheStore(new FakeDistributedLockService(), cache),
             bus, new DeviceIdResolver(bus, cache, NullLogger<DeviceIdResolver>.Instance),
+            new SfuSessionOwnership(cache),
+            VoiceTestHarness.ServiceFor(cache, new FakeDistributedLockService(), new FakeMessagingHubContext()),
+            VoiceTestHarness.StoreFor(cache, new FakeDistributedLockService()),
             NullLogger<CloudflareController>.Instance)
         {
             ControllerContext = new ControllerContext

@@ -1,15 +1,15 @@
 using Echo.Realtime.Sfu;
 using System.Security.Claims;
-using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
+using Echo.Voice.Rooms;
+using Echo.Voice.Sessions;
+using Echo.Voice.Tracks;
 
-using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 using Wolverine;
@@ -20,18 +20,19 @@ public record TracksNewBody(string CfSessionId, CfSessionDescription SessionDesc
 public record RenegotiateBody(string CfSessionId, CfSessionDescription SessionDescription);
 public record CloseTracksBody(string CfSessionId, List<string> TrackNames);
 
-
+/// <summary>The SFU signalling relay for direct calls.</summary>
 [Authorize]
-
 [ApiController]
 [Route("api/v1/voice/calls/{callId}")]
 public class CloudflareController(
     CloudflareService cfService,
-    IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
     IMessageBus bus,
     DeviceIdResolver devices,
+    SfuSessionOwnership sessions,
+    VoiceRoomService voice,
+    VoiceRoomStore rooms,
     ILogger<CloudflareController> logger) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -41,21 +42,16 @@ public class CloudflareController(
 
     private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
-    /// <summary>See VoiceController.ResolveDeviceAsync - same resolver, same fallback for
-    /// pre-update clients, same rejection of an id this user has no device for.</summary>
+    private static VoiceRoomKey Room(string callId) => VoiceRoomKey.Call(callId);
+
     private Task<DeviceIdResult> ResolveDeviceAsync(CancellationToken ct = default) =>
         devices.ResolveAsync(Request, UserId, ct);
 
-    /// <summary>Binds a minted Cloudflare session to the user who minted it.</summary>
-    private static string SessionOwnerKey(string cfSessionId) => $"cf-session-owner:{cfSessionId}";
-
-    private async Task<bool> OwnsSessionAsync(string? cfSessionId, CancellationToken ct = default)
-    {
-        if (string.IsNullOrWhiteSpace(cfSessionId)) return false;
-
-        var owner = await cache.GetStringAsync(SessionOwnerKey(cfSessionId), ct);
-        return owner is not null && string.Equals(owner, UserId, StringComparison.Ordinal);
-    }
+    /// <summary>See <see cref="SfuSessionOwnership"/> - a session id is a bearer capability over
+    /// the whole Cloudflare app, and peers are handed each other's by design, so every action that
+    /// acts *as* a session verifies the caller minted it.</summary>
+    private Task<bool> OwnsSessionAsync(string? cfSessionId, CancellationToken ct = default) =>
+        sessions.OwnsAsync(cfSessionId, UserId, ct);
 
     /// <summary>The caller must be a connected participant of this call.</summary>
     private async Task<bool> IsConnectedParticipantAsync(string callId)
@@ -82,35 +78,36 @@ public class CloudflareController(
 
         // Record ownership before the session is usable, so every later action can verify the
         // caller actually minted it.
-        await cache.SetStringAsync(SessionOwnerKey(cfSessionId), UserId, CacheOptions, token: ct);
+        await sessions.BindAsync(cfSessionId, UserId, ct);
 
         if (!primary) return Ok(new { cfSessionId });
 
-        // Locked: this read-modify-write on the Call blob was racing ExchangeParticipantJoined
-        // below (fired by the OTHER participant publishing their audio track) whenever both
-        // happened close together -e.g. the callee accepting right as the caller finishes
-        // publishing.
+        // The media state of any device this connection supersedes lives in the room, not on the
+        // aggregate, so it is read here and handed to the domain for the takeover event.
+        var existingRoom = await rooms.LoadAsync(Room(callId), ct);
+        var superseded = existingRoom?.Find(UserId);
+
+        // This is also how the *caller* becomes Connected - they never Accept their own call - so
+        // it goes through Call.ConnectDevice, same as Accept, for identical takeover detection.
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            call =>
+            c =>
             {
-                var me = call.Participants.FirstOrDefault(p => p.UserId == UserId);
-                if (me is not null) call.ConnectDevice(me, device.DeviceId);
+                var me = c.Participants.FirstOrDefault(p => p.UserId == UserId);
+                if (me is not null)
+                    c.ConnectDevice(me, device.DeviceId, superseded?.CfSessionId, superseded?.AudioTrackName);
             }, CacheOptions, ct);
 
         if (call is not null)
         {
             foreach (var evt in call.GetDomainEvents())
-            {
                 await bus.PublishAsync(evt);
-            }
-
-            // The backfill that makes the announcement contract survive a slow joiner - see
-            // ReplayPublishedParticipantsAsync.
-            await ReplayPublishedParticipantsAsync(call, ct);
         }
 
-        // Store reverse mapping so OnDisconnectedAsync can find this user's call
+        // Roster first, media later - and the joiner is handed a full snapshot in the same step.
+        await voice.JoinAsync(Room(callId), UserId, device.DeviceId, guildId: null, ct);
+
+        // Reverse index so a disconnect can find this user's call.
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);
 
         return Ok(new { cfSessionId });
@@ -133,23 +130,24 @@ public class CloudflareController(
         }
         catch (CloudflareCallsException ex)
         {
-            // See the identical guard in Guild.Application's GuildCloudflareController: answering a
-            // failed subscribe with a 200 is what made this failure mode permanent and invisible.
+            // Answering a failed subscribe with a 200 is what made this failure mode permanent and
+            // invisible - the client records the participant as subscribed and never retries.
             logger.LogError(ex,
                 "tracks/new failed for user {UserId} in call {CallId} on session {CfSessionId}",
                 UserId, callId, body.CfSessionId);
             return StatusCode(502, new { operation = ex.Operation, error = ex.ResponseBody });
         }
 
-        var audioTrack = body.Tracks.FirstOrDefault(t => t is { Location: "local", TrackName: "audio" });
+        var audioTrack = body.Tracks.FirstOrDefault(t => t is { Location: "local", TrackName: TrackNaming.Audio });
         if (audioTrack is not null)
-            await ExchangeParticipantJoined(callId, body.CfSessionId, ct);
+            await voice.RecordPublishAsync(Room(callId), UserId, body.CfSessionId, ct);
 
         var nonAudioLocalTracks = body.Tracks
-            .Where(t => t.Location == "local" && t.TrackName != "audio")
+            .Where(t => t.Location == "local" && t.TrackName != TrackNaming.Audio)
             .ToList();
         if (nonAudioLocalTracks.Count > 0)
-            await EmitTrackPublished(callId, body.CfSessionId, nonAudioLocalTracks, ct);
+            await voice.RecordTracksAsync(Room(callId), UserId, body.CfSessionId,
+                nonAudioLocalTracks.Select(t => t.TrackName!).ToList(), ct);
 
         return Ok(result);
     }
@@ -170,143 +168,16 @@ public class CloudflareController(
     {
         // Ownership is the load-bearing check here: closing tracks is a hard teardown (force: true),
         // so without it a co-participant could silence any other participant on demand, and the
-        // broadcast below would name the attacker rather than the victim - leaving the victim shown
-        // as connected and simply inaudible.
+        // broadcast would name the attacker rather than the victim.
         if (!await IsConnectedParticipantAsync(callId)) return Forbid();
         if (!await OwnsSessionAsync(body.CfSessionId, ct)) return Forbid();
 
         await cfService.CloseTracksAsync(body.CfSessionId, body.TrackNames, ct);
 
-        var call = await LoadCall(callId);
-        if (call is not null)
-        {
-            var otherIds = call.Participants
-                .Where(p => p.UserId != UserId && p.Status == CallStatus.Connected)
-                .Select(p => p.UserId)
-                .ToList();
-
-            var tasks = body.TrackNames
-                .Select(tn =>
-                {
-                    var isScreenAudio = tn.StartsWith("screen-audio-");
-                    var isScreen = !isScreenAudio && tn.StartsWith("screen-");
-                    var shareId = isScreen ? tn["screen-".Length..]
-                        : isScreenAudio ? tn["screen-audio-".Length..]
-                        : (string?)null;
-                    return hub.Clients.Users(otherIds).SendAsync("call.TrackClosed",
-                        new { userId = UserId, trackName = tn, shareId }, ct);
-                });
-            await Task.WhenAll(tasks);
-        }
+        await voice.RecordTracksClosedAsync(Room(callId), UserId, body.TrackNames, ct);
 
         return NoContent();
     }
 
     private Task<Call?> LoadCall(string callId) => callStore.LoadAsync<Call>(Call.GetCacheId(callId));
-
-    private async Task ExchangeParticipantJoined(string callId, string cfSessionId, CancellationToken ct)
-    {
-        // Locked for the same reason as CreateSession above -this is the write half of the
-        // race that silently dropped the caller's CfSessionId/AudioTrackName.
-        var call = await callStore.UpdateAsync<Call>(
-            Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c =>
-            {
-                var me = c.Participants.FirstOrDefault(p => p.UserId == UserId);
-                if (me is not null)
-                {
-                    me.CfSessionId = cfSessionId;
-                    me.AudioTrackName = "audio";
-                }
-            }, CacheOptions, ct);
-        if (call is null) return;
-
-        // The mutation above no-ops for a non-participant, but LockedJsonCacheStore returns the
-        // loaded entity regardless of what the mutation did - so execution used to fall through to
-        // the disclosure loop below and hand a non-participant every connected participant's
-        // CfSessionId. That is exactly the value needed to subscribe to their audio.
-        if (call.Participants.All(p => p.UserId != UserId)) return;
-
-        var connectedOthers = call.Participants
-            .Where(p => p.UserId != UserId && p.Status == CallStatus.Connected)
-            .ToList();
-
-        logger.LogInformation(
-            "ExchangeParticipantJoined: call {CallId}, publisher {UserId}, participants: {Participants}",
-            callId, UserId,
-            string.Join(", ", call.Participants.Select(p =>
-                $"{p.UserId}({p.Status}, cfSessionId={p.CfSessionId ?? "null"}, audioTrackName={p.AudioTrackName ?? "null"})")));
-
-        var joinedPayload = new { callId, userId = UserId, cfSessionId, audioTrackName = "audio" };
-        var tasks = connectedOthers
-            .Select(p => hub.Clients.User(p.UserId).SendAsync("call.ParticipantJoined", joinedPayload, ct))
-            .ToList();
-
-        // Send existing participants back to the joiner.
-        tasks.AddRange(connectedOthers
-            .Where(p => p.CfSessionId is not null && p.AudioTrackName is not null)
-            .Select(p => hub.Clients.User(UserId).SendAsync("call.ParticipantJoined", new
-            {
-                callId,
-                userId = p.UserId,
-                cfSessionId = p.CfSessionId,
-                audioTrackName = p.AudioTrackName,
-            }, ct)));
-
-        await Task.WhenAll(tasks);
-    }
-
-    /// <summary>
-    /// Hands a participant who has just entered the media path the session and track name of
-    /// everyone in this call who is already publishing audio.
-    /// </summary>
-    private async Task ReplayPublishedParticipantsAsync(Call call, CancellationToken ct)
-    {
-        var publishing = call.Participants
-            .Where(p => p.UserId != UserId
-                        && p.Status == CallStatus.Connected
-                        && p.CfSessionId is not null
-                        && p.AudioTrackName is not null)
-            .ToList();
-        if (publishing.Count == 0) return;
-
-        logger.LogInformation(
-            "Replaying {Count} publishing participant(s) to {UserId} joining call {CallId}: {Participants}",
-            publishing.Count, UserId, call.Id, string.Join(", ", publishing.Select(p => p.UserId)));
-
-        await Task.WhenAll(publishing.Select(p => hub.Clients.User(UserId).SendAsync(
-            "call.ParticipantJoined", new
-            {
-                callId = call.Id,
-                userId = p.UserId,
-                cfSessionId = p.CfSessionId,
-                audioTrackName = p.AudioTrackName,
-            }, ct)));
-    }
-
-    private async Task EmitTrackPublished(string callId, string cfSessionId, List<CfTrackNew> tracks, CancellationToken ct)
-    {
-        var call = await LoadCall(callId);
-        if (call is null) return;
-
-        var otherIds = call.Participants
-            .Where(p => p.UserId != UserId && p.Status == CallStatus.Connected)
-            .Select(p => p.UserId)
-            .ToList();
-
-        var tasks = tracks.Select(track =>
-        {
-            var trackName = track.TrackName!;
-            var isScreenAudio = trackName.StartsWith("screen-audio-");
-            var isScreen = !isScreenAudio && trackName.StartsWith("screen-");
-            var kind = isScreen ? "screen" : isScreenAudio ? "screenAudio" : "video";
-            var shareId = isScreen ? trackName["screen-".Length..]
-                : isScreenAudio ? trackName["screen-audio-".Length..]
-                : null;
-            return hub.Clients.Users(otherIds).SendAsync("call.TrackPublished",
-                new { userId = UserId, cfSessionId, trackName, kind, shareId }, ct);
-        });
-
-        await Task.WhenAll(tasks);
-    }
 }

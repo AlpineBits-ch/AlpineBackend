@@ -1,3 +1,6 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
+using Echo.Voice.Sessions;
 using System.Text;
 using System.Text.Json;
 using Echo.Realtime.Caching;
@@ -45,8 +48,11 @@ public class CloudflareControllerTests
         _callStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
         _controller = new CloudflareController(
-            StubCloudflareHttp.CreateService(), new FakeMessagingHubContext(), _cache, _callStore,
+            StubCloudflareHttp.CreateService(), _cache, _callStore,
             _bus, new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
+            new SfuSessionOwnership(_cache),
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), new FakeMessagingHubContext()),
+            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
             NullLogger<CloudflareController>.Instance)
         {
             ControllerContext = new ControllerContext
@@ -73,13 +79,26 @@ public class CloudflareControllerTests
                     UserId = UserId,
                     Status = CallStatus.Connected,
                     ActiveDeviceId = PrimaryDevice,
-                    CfSessionId = ExistingSessionId,
-                    AudioTrackName = "audio",
                 },
             ],
         };
         await _cache.SetAsync(
             Call.GetCacheId(CallId), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
+
+        // Media state lives in the voice room now, not on the aggregate.
+        await VoiceTestHarness.SeedRoomAsync(_cache, new VoiceRoom
+        {
+            RoomId = CallId,
+            Kind = VoiceRoomKind.Call,
+            Participants =
+            [
+                new VoiceParticipant
+                {
+                    UserId = UserId, DeviceId = PrimaryDevice,
+                    CfSessionId = ExistingSessionId, AudioTrackName = "audio",
+                },
+            ],
+        });
     }
 
     private void SetDeviceHeader(string deviceId) =>
@@ -136,13 +155,14 @@ public class CloudflareControllerTests
         await _controller.CreateSession(CallId, CancellationToken.None, primary: false);
 
         var participant = await ParticipantAsync();
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Call(CallId));
         Assert.Multiple(() =>
         {
-            // ConnectDevice nulls both of these on takeover; the other side needs them to keep
-            // hearing this user.
-            Assert.That(participant.CfSessionId, Is.EqualTo(ExistingSessionId));
-            Assert.That(participant.AudioTrackName, Is.EqualTo("audio"));
+            // A secondary session must not take the call over: the other side needs this user's
+            // audio session to keep working, and the media handles now live in the voice room.
             Assert.That(participant.ActiveDeviceId, Is.EqualTo(PrimaryDevice));
+            Assert.That(room?.Find(UserId)?.CfSessionId, Is.EqualTo(ExistingSessionId));
+            Assert.That(room?.Find(UserId)?.AudioTrackName, Is.EqualTo("audio"));
         });
     }
 

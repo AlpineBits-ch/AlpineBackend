@@ -1,3 +1,6 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
+using Echo.Voice.Sessions;
 using System.Text.Json;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Sfu;
@@ -42,8 +45,10 @@ public class GuildVoiceParticipantAnnouncementTests
 
         var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _controller = new GuildCloudflareController(
-            StubCloudflareHttp.CreateService(), permissions, _hub,
-            NullLogger<GuildCloudflareController>.Instance, _cache, _voiceStore, _context)
+            StubCloudflareHttp.CreateService(), permissions,
+            NullLogger<GuildCloudflareController>.Instance, _cache,
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub),
+            new SfuSessionOwnership(_cache))
         {
             ControllerContext = new ControllerContext
             {
@@ -99,26 +104,24 @@ public class GuildVoiceParticipantAnnouncementTests
     /// </summary>
     private void SeedChannelState()
     {
-        var state = new ChannelVoiceState
+        var state = new VoiceRoom
         {
-            ChannelId = ChannelId,
+            RoomId = ChannelId, Kind = VoiceRoomKind.Channel,
             GuildId = GuildId,
             Participants =
             [
-                new VoiceState { UserId = PublisherId, ChannelId = ChannelId, GuildId = GuildId },
-                new VoiceState
+                new VoiceParticipant { UserId = PublisherId },
+                new VoiceParticipant
                 {
-                    UserId = MidJoinerId, ChannelId = ChannelId, GuildId = GuildId,
-                    CfSessionId = "cf-midjoiner", AudioTrackName = null,
+                    UserId = MidJoinerId, CfSessionId = "cf-midjoiner", AudioTrackName = null,
                 },
-                new VoiceState
+                new VoiceParticipant
                 {
-                    UserId = EstablishedId, ChannelId = ChannelId, GuildId = GuildId,
-                    CfSessionId = "cf-established", AudioTrackName = "audio",
+                    UserId = EstablishedId, CfSessionId = "cf-established", AudioTrackName = "audio",
                 },
             ],
         };
-        _cache.SetEntry(ChannelVoiceState.GetCacheKey(ChannelId), JsonSerializer.Serialize(state));
+        _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(state));
     }
 
     private Task<IActionResult> PublishAudioAsync() => _controller.TracksNew(
@@ -141,26 +144,26 @@ public class GuildVoiceParticipantAnnouncementTests
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
-    public async Task CreateSession_RecordsACfSessionIdBeforeAnyAudioTrackExists()
+    public async Task CreateSession_LeavesTheParticipantUnpublished()
     {
-        // Precondition for everything below: CfSessionId alone carries no information about whether
-        // the participant is publishing.
-        _cache.SetEntry(ChannelVoiceState.GetCacheKey(ChannelId), JsonSerializer.Serialize(
-            new ChannelVoiceState
+        // The original defect started here.
+        _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(
+            new VoiceRoom
             {
-                ChannelId = ChannelId, GuildId = GuildId,
-                Participants = [new VoiceState { UserId = PublisherId, ChannelId = ChannelId, GuildId = GuildId }],
+                RoomId = ChannelId, Kind = VoiceRoomKind.Channel, GuildId = GuildId,
+                Participants = [new VoiceParticipant { UserId = PublisherId }],
             }));
 
         await _controller.CreateSession(GuildId, ChannelId, CancellationToken.None);
 
-        var raw = await _cache.GetStringAsync(ChannelVoiceState.GetCacheKey(ChannelId));
-        var me = JsonSerializer.Deserialize<ChannelVoiceState>(raw!)!.Participants.Single();
+        var me = (await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId)))!
+            .Participants.Single();
         Assert.Multiple(() =>
         {
-            Assert.That(me.CfSessionId, Is.EqualTo(StubCloudflareHttp.SessionId));
-            Assert.That(me.AudioTrackName, Is.Null,
+            Assert.That(me.PublishState, Is.EqualTo(VoicePublishState.Joined));
+            Assert.That(me.CfSessionId, Is.Null,
                 "no audio track has been published yet - the client is still acquiring a microphone");
+            Assert.That(me.AudioTrackName, Is.Null);
         });
     }
 
@@ -192,14 +195,27 @@ public class GuildVoiceParticipantAnnouncementTests
     }
 
     [Test]
-    public async Task PublishingAudio_StillAnnouncesParticipantsWhoHaveActuallyPublished()
+    public async Task PublishingAudio_StillTellsThePublisherWhoElseIsPullable()
     {
-        // The behaviour the fix must preserve: an established participant is still replayed to the
-        // joiner, otherwise nobody would ever hear anyone.
+        // The behaviour the fix must preserve: an established participant still reaches the
+        // publisher, otherwise nobody would ever hear anyone.
         SeedChannelState();
 
         await PublishAudioAsync();
 
-        Assert.That(ParticipantJoinedPayloads().Any(p => p.Contains(EstablishedId)), Is.True);
+        var snapshot = ((FakeHubClients)_hub.Clients).SentMessages
+            .Where(m => m.Method == "guild.voice.Snapshot")
+            .Select(m => (VoiceRoomSnapshot)m.Args[0]!)
+            .Last();
+
+        var established = snapshot.Participants.Single(p => p.UserId == EstablishedId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(established.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
+            Assert.That(established.CfSessionId, Is.EqualTo("cf-established"));
+            Assert.That(snapshot.Participants.Single(p => p.UserId == MidJoinerId).PublishState,
+                Is.EqualTo(nameof(VoicePublishState.Joined)),
+                "and the mid-joiner is still reported as not yet pullable");
+        });
     }
 }

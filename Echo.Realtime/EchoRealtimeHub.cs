@@ -127,9 +127,19 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
 
     // ---- Guild voice ----
 
+    /// <summary>Liveness-only heartbeat.</summary>
     [HubMethodName("guild.voice.Heartbeat")]
     public Task GuildVoiceHeartbeat() =>
         bus.SendAsync(new GuildVoiceHeartbeatCommand(Uid())).AsTask();
+
+    // ---- Voice reconcile (both room kinds) ----
+
+    /// <summary>The state-asserting heartbeat, for guild channels and direct calls alike.</summary>
+    [HubMethodName("voice.Heartbeat")]
+    public Task VoiceHeartbeat(string roomKind, string roomId, VoiceHeartbeatState state) =>
+        string.Equals(roomKind, "call", StringComparison.OrdinalIgnoreCase)
+            ? bus.SendAsync(new CallVoiceReconcileCommand(Uid(), roomId, state)).AsTask()
+            : bus.SendAsync(new GuildVoiceReconcileCommand(Uid(), roomId, state)).AsTask();
 
     [HubMethodName("guild.voice.MuteChanged")]
     public Task GuildVoiceMuteChanged(GuildVoiceMuteCommand cmd) =>

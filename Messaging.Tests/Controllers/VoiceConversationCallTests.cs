@@ -1,3 +1,5 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
 using System.Text;
 using System.Text.Json;
 using Echo.Realtime.Caching;
@@ -78,7 +80,8 @@ public class VoiceConversationCallTests
             null!, _bus, _cache, callStore,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             TestPrivacyServices.Build(_bus).Policy,
-            _viewers, _context, _hub)
+            _viewers, _context,
+            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()), _hub)
         {
             ControllerContext = new ControllerContext
             {
@@ -99,11 +102,9 @@ public class VoiceConversationCallTests
             UpdatedAt = DateTimeOffset.UtcNow,
             Participants =
             [
-                new CallParticipant
-                {
-                    UserId = Caller, Status = CallStatus.Connected,
-                    CfSessionId = "cf-caller", AudioTrackName = "audio",
-                },
+                // Media handles deliberately absent: this fixture is about what a conversation
+                // member outside the call is told, and OngoingCallDto has never carried them.
+                new CallParticipant { UserId = Caller, Status = CallStatus.Connected },
                 new CallParticipant { UserId = Callee, Status = calleeStatus },
             ],
         };

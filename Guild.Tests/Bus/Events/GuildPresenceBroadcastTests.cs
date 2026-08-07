@@ -1,3 +1,4 @@
+using Echo.Voice.Testing;
 using System.Text.Json;
 using Echo.Realtime.Caching;
 using Guild.Application.Bus.Events.Realtime;
@@ -237,7 +238,7 @@ public class GuildPresenceBroadcastTests
     [Test]
     public async Task Disconnect_ToABlockedPeer_IsNotDelivered()
     {
-        var voiceStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
+        var voiceStore = VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService());
 
         await _handler.Handle(
             new Echo.Realtime.UserDisconnected(SubjectUserId, "device-1"),

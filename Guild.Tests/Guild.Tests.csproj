@@ -32,11 +32,12 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="NUnit.Framework"/>
+        <Using Include="NUnit.Framework" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\Guild.Application\Guild.Application.csproj" />
+      <ProjectReference Include="..\Echo.Voice.Testing\Echo.Voice.Testing.csproj" />
     </ItemGroup>
 
 </Project>

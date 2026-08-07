@@ -1,3 +1,4 @@
+using Echo.Voice.Rooms;
 using Guild.Application.Models;
 using Guild.Application.Services;
 using Guild.Tests.Helpers;
@@ -223,16 +224,14 @@ public class GuildVoiceActivityStoreTests
         Assert.That(rebuilt, Is.Empty, "there is no guild index to file it under");
     }
 
-    private static ChannelVoiceState State(string guildId, string channelId, params (string UserId, bool Streaming)[] participants) =>
+    private static VoiceRoom State(string guildId, string channelId, params (string UserId, bool Streaming)[] participants) =>
         new()
         {
-            ChannelId = channelId,
+            RoomId = channelId,
+            Kind = VoiceRoomKind.Channel,
             GuildId = guildId,
             Participants = participants
-                .Select(p => new VoiceState
-                {
-                    UserId = p.UserId, ChannelId = channelId, GuildId = guildId, IsStreaming = p.Streaming,
-                })
+                .Select(p => new VoiceParticipant { UserId = p.UserId, IsStreaming = p.Streaming })
                 .ToList(),
         };
 

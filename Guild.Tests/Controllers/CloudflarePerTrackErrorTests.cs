@@ -1,3 +1,5 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Sessions;
 using System.Net;
 using System.Text;
 using Echo.Realtime.Caching;
@@ -226,8 +228,9 @@ public class CloudflarePerTrackErrorTests
         return new GuildCloudflareController(
             cfService ?? _cfService,
             new GuildPermissionService(cache, context, NullLogger<GuildPermissionService>.Instance),
-            new FakeHubContext(), NullLogger<GuildCloudflareController>.Instance, cache,
-            new LockedJsonCacheStore(new FakeDistributedLockService(), cache), context)
+            NullLogger<GuildCloudflareController>.Instance, cache,
+            VoiceTestHarness.ServiceFor(cache, new FakeDistributedLockService(), new FakeHubContext()),
+            new SfuSessionOwnership(cache))
         {
             ControllerContext = new ControllerContext
             {

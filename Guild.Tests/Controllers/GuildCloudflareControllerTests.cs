@@ -1,3 +1,7 @@
+using Echo.Realtime.Sfu;
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
+using Echo.Voice.Sessions;
 using System.Text.Json;
 using Echo.Realtime.Caching;
 using Guild.Application.Controllers;
@@ -40,8 +44,10 @@ public class GuildCloudflareControllerTests
 
         var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _controller = new GuildCloudflareController(
-            StubCloudflareHttp.CreateService(), permissions, new FakeHubContext(),
-            NullLogger<GuildCloudflareController>.Instance, _cache, _voiceStore, _context)
+            StubCloudflareHttp.CreateService(), permissions,
+            NullLogger<GuildCloudflareController>.Instance, _cache,
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), new FakeHubContext()),
+            new SfuSessionOwnership(_cache))
         {
             ControllerContext = new ControllerContext
             {
@@ -92,38 +98,90 @@ public class GuildCloudflareControllerTests
     /// The user is already in the channel with a primary session, as they would be before sharing.
     private async Task SeedVoiceStateWithExistingSession()
     {
-        var state = new ChannelVoiceState
+        var state = new VoiceRoom
         {
-            ChannelId = ChannelId,
+            RoomId = ChannelId, Kind = VoiceRoomKind.Channel,
             GuildId = GuildId,
             Participants =
             [
-                new VoiceState
+                new VoiceParticipant
                 {
-                    UserId = UserId, ChannelId = ChannelId, GuildId = GuildId,
-                    CfSessionId = ExistingSessionId, AudioTrackName = "audio",
+                    UserId = UserId, CfSessionId = ExistingSessionId, AudioTrackName = "audio",
                 },
             ],
         };
         await _cache.SetStringAsync(
-            ChannelVoiceState.GetCacheKey(ChannelId), JsonSerializer.Serialize(state));
+            VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(state));
     }
 
-    private async Task<string?> StoredSessionIdAsync()
+    /// <summary>Adds Speak to the member's role.</summary>
+    private async Task GrantSpeakAsync()
     {
-        var raw = await _cache.GetStringAsync(ChannelVoiceState.GetCacheKey(ChannelId));
-        var state = JsonSerializer.Deserialize<ChannelVoiceState>(raw!);
-        return state!.Participants.Single(p => p.UserId == UserId).CfSessionId;
+        var role = _context.Roles.Single(r => r.Id == RoleId);
+        role.Permissions = Permissions.Connect | Permissions.Speak;
+        await _context.SaveChangesAsync();
+        _cache.Remove($"perms:{UserId}:{ChannelId}");
+    }
+
+    private async Task<string?> StoredSessionIdAsync() => (await ParticipantAsync())?.CfSessionId;
+
+    private async Task<VoiceParticipant?> ParticipantAsync()
+    {
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+        return room?.Participants.SingleOrDefault(p => p.UserId == UserId);
+    }
+
+    /// <summary>Replaces the fixture's already-publishing seed with a participant who has merely
+    /// joined - the state the two tests below are about.</summary>
+    private Task SeedJoinedButNotPublishingAsync() =>
+        _cache.SetStringAsync(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(
+            new VoiceRoom
+            {
+                RoomId = ChannelId, Kind = VoiceRoomKind.Channel, GuildId = GuildId,
+                Participants = [new VoiceParticipant { UserId = UserId }],
+            }));
+
+    [Test]
+    public async Task CreateSession_DoesNotMarkTheParticipantAsPublishing()
+    {
+        await SeedJoinedButNotPublishingAsync();
+
+        // Existing callers pass no flag at all; they still get a session back.
+        var result = await _controller.CreateSession(GuildId, ChannelId, CancellationToken.None);
+        Assert.That(result, Is.InstanceOf<OkObjectResult>());
+
+        // But opening a session is not publishing, and the roster no longer pretends otherwise.
+        var me = await ParticipantAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(me!.PublishState, Is.EqualTo(VoicePublishState.Joined));
+            Assert.That(me.CfSessionId, Is.Null);
+            Assert.That(me.AudioTrackName, Is.Null);
+        });
     }
 
     [Test]
-    public async Task CreateSession_DefaultsToPrimary_AndRecordsTheSessionOnTheParticipant()
+    public async Task PublishingAudio_IsWhatMakesTheParticipantPullable()
     {
-        // Existing callers pass no flag at all; their behaviour must be unchanged.
-        var result = await _controller.CreateSession(GuildId, ChannelId, CancellationToken.None);
+        await SeedJoinedButNotPublishingAsync();
 
-        Assert.That(result, Is.InstanceOf<OkObjectResult>());
-        Assert.That(await StoredSessionIdAsync(), Is.EqualTo(StubCloudflareHttp.SessionId));
+        // Publishing needs Speak on top of Connect, and the session acted as must be the caller's.
+        await GrantSpeakAsync();
+        _cache.SetEntry("voice:session-owner:cf-owned-session", UserId);
+
+        var published = await _controller.TracksNew(GuildId, ChannelId, new GuildTracksNewBody(
+            "cf-owned-session",
+            new CfSessionDescription("offer", "v=0"),
+            [new CfTrackNew("local", Mid: "0", TrackName: "audio")]), CancellationToken.None);
+        Assert.That(published, Is.InstanceOf<OkObjectResult>());
+
+        var me = await ParticipantAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(me!.PublishState, Is.EqualTo(VoicePublishState.Publishing));
+            Assert.That(me.CfSessionId, Is.EqualTo("cf-owned-session"));
+            Assert.That(me.AudioTrackName, Is.EqualTo("audio"));
+        });
     }
 
     [Test]

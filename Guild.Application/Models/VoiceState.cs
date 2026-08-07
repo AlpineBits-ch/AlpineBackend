@@ -1,46 +1,22 @@
+using Echo.Voice.Rooms;
+
 namespace Guild.Application.Models;
 
-public class ActiveScreenShare
+/// <summary>Cache-key helpers and the legacy response shape for guild voice.</summary>
+public static class ChannelVoiceState
 {
-    public string ShareId { get; set; } = string.Empty;
-    public List<string> TrackNames { get; set; } = [];
-}
-
-public class VoiceState
-{
-    public string UserId { get; set; } = string.Empty;
-    public string ChannelId { get; set; } = string.Empty;
-    public string GuildId { get; set; } = string.Empty;
-    public string? CfSessionId { get; set; }
-    public string? AudioTrackName { get; set; }
-
-    /// <summary>
-    /// The device currently connected to this channel's audio for this participant.
-    /// </summary>
-    public string? DeviceId { get; set; }
-    public bool IsSelfMuted { get; set; }
-    public bool IsSelfDeafened { get; set; }
-    public bool IsServerMuted { get; set; }
-    public bool IsServerDeafened { get; set; }
-    public bool IsStreaming { get; set; }
-    public List<ActiveScreenShare> ActiveScreenShares { get; set; } = [];
-    public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
-}
-
-public class ChannelVoiceState
-{
-    public string ChannelId { get; set; } = string.Empty;
-    public string GuildId { get; set; } = string.Empty;
-    public List<VoiceState> Participants { get; set; } = [];
-
-    public static string GetCacheKey(string channelId) => $"voice:channel:{channelId}";
+    /// <summary>Where a user currently is, so a join elsewhere can evict them.</summary>
     public static string GetUserCacheKey(string userId) => $"voice:user:{userId}";
-    public static string GetHeartbeatCacheKey(string userId) => $"voice:heartbeat:{userId}";
 }
 
-// HTTP response DTO - omits cfSessionId/audioTrackName so clients
-// discover them only via ParticipantJoined events (prevents pulling
-// remote tracks before pushing local, which causes Cloudflare 425).
+internal record UserVoiceLocation
+{
+    public string ChannelId { get; init; } = string.Empty;
+    public string GuildId { get; init; } = string.Empty;
+    public string? DeviceId { get; init; }
+}
+
+/// <summary>The pre-unification response shape, kept so existing clients keep working.</summary>
 public record VoiceStateResponse(
     string UserId,
     string ChannelId,
@@ -57,12 +33,15 @@ public record ChannelVoiceStateResponse(
     string GuildId,
     List<VoiceStateResponse> Participants)
 {
-    public static ChannelVoiceStateResponse From(ChannelVoiceState s) => new(
-        s.ChannelId,
-        s.GuildId,
-        s.Participants.Select(p => new VoiceStateResponse(
-            p.UserId, p.ChannelId, p.GuildId,
+    public static ChannelVoiceStateResponse From(VoiceRoom room) => new(
+        room.RoomId,
+        room.GuildId ?? string.Empty,
+        room.Participants.Select(p => new VoiceStateResponse(
+            p.UserId, room.RoomId, room.GuildId ?? string.Empty,
             p.IsSelfMuted, p.IsSelfDeafened,
             p.IsServerMuted, p.IsServerDeafened,
             p.IsStreaming, p.JoinedAt)).ToList());
+
+    public static ChannelVoiceStateResponse Empty(string channelId, string guildId) =>
+        new(channelId, guildId, []);
 }

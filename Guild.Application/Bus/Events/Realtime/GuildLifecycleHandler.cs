@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Voice.Rooms;
 using Guild.Application.Controllers;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Models;
@@ -264,7 +265,7 @@ public class GuildLifecycleHandler
     // presence hash/ZSET entry to expire (previously the only mechanism - see the ghost-presence
     // stress test), then falls through to the pre-existing voice-cleanup logic below.
     public async Task Handle(UserDisconnected message, MicroserviceContext microserviceContext,
-        GuildHydrateService service, IDistributedCache cache, LockedJsonCacheStore voiceStore,
+        GuildHydrateService service, IDistributedCache cache, VoiceRoomStore rooms,
         IHubContext<EchoRealtimeHub> hub, IMessageBus bus, BlockCache blocks)
     {
         var userId = message.UserId;
@@ -300,23 +301,21 @@ public class GuildLifecycleHandler
         var location = JsonSerializer.Deserialize<UserVoiceLocation>(locationJson);
         if (location is null) return;
 
-        var channelKey = ChannelVoiceState.GetCacheKey(location.ChannelId);
+        var roomKey = VoiceRoomKey.Channel(location.ChannelId);
 
-        // Locked: this shares the channel blob with Join, CreateSession, ExchangeParticipantJoined,
-        // CloseTracks, the mute/deafen/screenshare handlers and the heartbeat sweeper - every one
-        // of which was moved onto LockedJsonCacheStore for this reason and this one call site was
-        // missed.
+        // Locked, and versioned, by going through VoiceRoomStore: this shares the room with join,
+        // publish, the mute/deafen/screenshare handlers and the heartbeat sweeper.
         var removedFromVoice = false;
-        var voiceState = await voiceStore.UpdateAsync<ChannelVoiceState>(channelKey, channelKey,
-            vs =>
+        var voiceState = await rooms.MutateExistingAsync(roomKey,
+            r =>
             {
-                var participant = vs.Participants.FirstOrDefault(p => p.UserId == userId);
+                var participant = r.Find(userId);
                 if (participant is null) return;
                 if (!DisconnectEndsVoiceConnection(participant.DeviceId, message.DeviceId)) return;
 
-                vs.Participants.Remove(participant);
+                r.Participants.Remove(participant);
                 removedFromVoice = true;
-            }, ChannelCacheOptions);
+            });
 
         if (voiceState is null)
         {
@@ -324,7 +323,7 @@ public class GuildLifecycleHandler
             if (DisconnectEndsVoiceConnection(location.DeviceId, message.DeviceId))
             {
                 await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId));
-                await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId));
+                await cache.RemoveAsync(VoiceReconciler.LivenessKey(userId));
             }
             return;
         }
@@ -345,7 +344,7 @@ public class GuildLifecycleHandler
         await bus.PublishAsync(new VoiceStateForBots { GuildId = location.GuildId, UserId = userId, ChannelId = null });
 
         await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId));
-        await cache.RemoveAsync(ChannelVoiceState.GetHeartbeatCacheKey(userId));
+        await cache.RemoveAsync(VoiceReconciler.LivenessKey(userId));
     }
 
     /// <summary>

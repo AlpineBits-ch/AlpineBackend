@@ -1,6 +1,7 @@
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
+using Echo.Voice;
 using System.Net.Http.Headers;
 using AppEnvironment;
 using Facet.Dashboard;
@@ -48,6 +49,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 builder.Services.AddSingleton<IDistributedLockService, RedisDistributedLockService>();
 builder.Services.AddSingleton<LockedJsonCacheStore>();
 builder.Services.AddSingleton<StreamViewerStore>();
+builder.Services.AddVoiceRooms();
 builder.Services.AddSingleton<GuildVoiceActivityStore>();
 // Scoped: it takes IMessageBus, which Wolverine registers per scope.
 builder.Services.AddScoped<DeviceIdResolver>();

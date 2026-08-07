@@ -1,3 +1,5 @@
+using Echo.Voice.Testing;
+using Echo.Voice.Rooms;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Enums;
 using Messaging.Domain.Events.Call;
@@ -13,13 +15,11 @@ namespace Messaging.Tests.Domain;
 [TestFixture]
 public class CallTests
 {
-    private static CallParticipant Participant(string userId, CallStatus status = CallStatus.Pending, string? activeDeviceId = null, string? cfSessionId = null, string? audioTrackName = null) => new()
+    private static CallParticipant Participant(string userId, CallStatus status = CallStatus.Pending, string? activeDeviceId = null) => new()
     {
         UserId = userId,
         Status = status,
         ActiveDeviceId = activeDeviceId,
-        CfSessionId = cfSessionId,
-        AudioTrackName = audioTrackName,
     };
 
     private static Call MakeCall(string creatorId, params CallParticipant[] participants) => new()
@@ -106,21 +106,22 @@ public class CallTests
     public void Accept_SameUserFromSecondDevice_RaisesDeviceTakeover_AndClearsOldSession()
     {
         var call = MakeCall("user-1",
-            Participant("user-1", CallStatus.Connected, activeDeviceId: "device-1", cfSessionId: "cf-old", audioTrackName: "track-old"),
+            Participant("user-1", CallStatus.Connected, activeDeviceId: "device-1"),
             Participant("user-2"));
 
-        call.Accept("user-1", "device-2");
+        // The superseded device's media handles are read from the voice room by the caller and
+        // handed in.
+        call.Accept("user-1", "device-2", oldCfSessionId: "cf-old", oldAudioTrackName: "track-old");
 
         var participant = call.Participants.Single(p => p.UserId == "user-1");
         var takeover = call.GetDomainEvents().OfType<CallDeviceTakeover>().Single();
         Assert.Multiple(() =>
         {
             Assert.That(participant.ActiveDeviceId, Is.EqualTo("device-2"));
-            Assert.That(participant.CfSessionId, Is.Null, "Stale CF session must be cleared on takeover");
-            Assert.That(participant.AudioTrackName, Is.Null);
             Assert.That(takeover.OldDeviceId, Is.EqualTo("device-1"));
             Assert.That(takeover.NewDeviceId, Is.EqualTo("device-2"));
-            Assert.That(takeover.OldCfSessionId, Is.EqualTo("cf-old"));
+            Assert.That(takeover.OldCfSessionId, Is.EqualTo("cf-old"),
+                "the handler needs this to close the superseded session");
             Assert.That(takeover.OldAudioTrackName, Is.EqualTo("track-old"));
         });
     }

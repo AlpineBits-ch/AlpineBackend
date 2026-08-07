@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="WolverineFx" Version="6.24.6" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- The hub, the cache stores, the device resolver and CloudflareService itself. Echo.Voice
+             sits directly on top of Echo.Realtime and is referenced only by the services that
+             actually run rooms (Guild, Messaging) - deliberately NOT by the gateway or Bots, which
+             reference Echo.Realtime for the hub alone. -->
+        <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
+    </ItemGroup>
+
+</Project>

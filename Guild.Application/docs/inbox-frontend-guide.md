@@ -189,7 +189,8 @@ rather than two.
 ## `GET /api/v1/guild/inbox/tasks`
 
 Household items waiting on the caller, across every guild they are in: a chore due, a decision
-unvoted, a list item assigned to them.
+unvoted, a list item assigned to them, a bill about to fall due, a meal they are down to cook, an
+appliance that is broken or overdue a service.
 
 Separate from Unread because it answers a different question. A list channel holds no messages, so
 it can never be unread - which left the modules people most want reminding about with no inbox
@@ -199,11 +200,12 @@ presence at all.
 {
   "tasks": [
     {
-      "kind": "ChoreDue",           // ChoreDue | DecisionVote | ListAssignment
-      "targetId": "choc_...",       // occurrence / decision / list item
+      // ChoreDue | DecisionVote | ListAssignment | BillDue | CookingToday | MaintenanceDue
+      "kind": "ChoreDue",
+      "targetId": "choc_...",       // occurrence / decision / list item / bill / plan entry / asset
       "breadcrumb": { /* same shape as Unread */ },
       "title": "Bins",
-      "subtitle": "Your turn",
+      "subtitle": "Your turn",      // empty string, never null, when there is nothing to add
       "dueAt": "2026-08-06T18:00:00Z",
       "isOverdue": false
     }
@@ -217,12 +219,26 @@ presence at all.
 - **Ordering:** deadlines first, soonest at the top; undated items after, oldest first.
 - **`isOverdue` respects a chore's grace period.** Two hours late inside a 24-hour grace is not
   overdue. A decision is overdue the moment it closes.
+- **`dueAt` is null** for a list assignment, for a decision left open indefinitely, and for something
+  simply marked broken - a broken washing machine has no deadline, it is already late in a way a date
+  cannot express.
 - **No cursor.** It is a to-do list; `truncated` says more were waiting.
 - Feature-gated and `ViewChannel`-filtered per row, the same as Unread.
 - **Render an unrecognised `kind` from `title` / `subtitle` and deep-link on `targetId`.** More
-  kinds will be added.
+  kinds will be added, and three were added with the household modules' second wave.
 
-Full detail in [household-frontend-guide.md](./household-frontend-guide.md) §12.
+The three newest kinds, and the one thing worth knowing about each:
+
+- **`BillDue`** - a bill you have a share in, due or about to be. The bill, never the balance: "you
+  owe Anna 40 francs" is not a task, because nothing about it changes when you look at it, so it
+  would sit here until somebody settled up and train people to ignore the tab.
+- **`CookingToday`** - a meal plan entry today *or tomorrow* with you down as the cook. Tomorrow is
+  included because a cook wants the evening they are cooking to appear before the morning of it.
+- **`MaintenanceDue`** - something broken or overdue a service. Broken carries no `dueAt`.
+
+`taskCount` on the summary above counts the same rows, so these three move the header badge.
+
+Full detail in [household-frontend-guide.md](./household-frontend-guide.md) §21.
 
 ---
 

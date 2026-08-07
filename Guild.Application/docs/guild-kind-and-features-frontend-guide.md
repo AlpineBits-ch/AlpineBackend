@@ -11,10 +11,10 @@ microservice directly. Guild endpoints are reached under the `/api/v1/guild/` pr
 strips the `guild` segment before forwarding, which is why the paths read
 `/api/v1/guild/guilds/{guildId}`. That doubled-looking segment is correct.
 
-**Status:** the `kind` + `features` layer described here is live. The household modules
-(`Lists`, `Chores`, `Ledger`, `Pantry`, `Decisions`, `Presence`, `QuietHours`, `GuestAccess`) are
-**flag values only** - no endpoints exist behind them yet. See §8. Nothing you already shipped
-breaks; see §9.
+**Status:** the `kind` + `features` layer described here is live, and so are the household modules
+(`Lists`, `Chores`, `Ledger`, `Pantry`, `Decisions`, `Presence`, `QuietHours`, `GuestAccess`,
+`Meals`, `Maintenance`) - they have endpoints, channel types and permissions behind them now. See
+§8. Nothing you already shipped breaks; see §9.
 
 ---
 
@@ -57,9 +57,10 @@ Community-scale modules:
 | `Wiki` | Every `*Wiki*` permission |
 | `Events` | `ManageEvents` |
 
-Household modules - **flags only today, nothing implemented behind them** (§8):
+Household modules (§8):
 
-`Lists` · `Chores` · `Ledger` · `Pantry` · `Decisions` · `Presence` · `QuietHours` · `GuestAccess`
+`Lists` · `Chores` · `Ledger` · `Pantry` · `Decisions` · `Presence` · `QuietHours` · `GuestAccess` ·
+`Meals` · `Maintenance`
 
 Text channels, invites, and the core message/attachment/reaction permissions have no flag. They're
 the platform, not a module - a guild without them would be an empty room.
@@ -75,7 +76,7 @@ the platform, not a module - a guild without them would be an empty room.
   "id": "gild_...",
   "name": "The Flat",
   "kind": "Household",
-  "features": "VoiceChannels, Threads, Wiki, Events, Lists, Chores, Ledger, Pantry, Decisions, Presence, QuietHours, GuestAccess"
+  "features": "VoiceChannels, Threads, Wiki, Events, Lists, Chores, Ledger, Pantry, Decisions, Presence, QuietHours, GuestAccess, Meals, Maintenance"
 }
 ```
 
@@ -88,7 +89,7 @@ type GuildFeature =
   | 'VoiceChannels' | 'Threads' | 'Forums' | 'Announcements' | 'Tickets'
   | 'Moderation' | 'AutoMod' | 'Onboarding' | 'Emojis' | 'Bots' | 'Wiki' | 'Events'
   | 'Lists' | 'Chores' | 'Ledger' | 'Pantry' | 'Decisions'
-  | 'Presence' | 'QuietHours' | 'GuestAccess';
+  | 'Presence' | 'QuietHours' | 'GuestAccess' | 'Meals' | 'Maintenance';
 
 const parseFeatures = (s: string): Set<GuildFeature> =>
   s === 'None' ? new Set() : new Set(s.split(',').map(f => f.trim() as GuildFeature));
@@ -203,16 +204,29 @@ your sidebar hides them or shows them as inert, and be consistent.
 
 ---
 
-## 8. Household modules: flags without endpoints
+## 8. Household modules
 
-`Lists`, `Chores`, `Ledger`, `Pantry`, `Decisions`, `Presence`, `QuietHours` and `GuestAccess`
-exist as flag values and are set by the `Household` preset, but **no endpoints, channel types or
-permissions are behind them yet**. A guild created with `kind: "Household"` today gets text and
-voice channels, threads, a wiki, and scheduled events - plus a set of flags nothing reads.
+`Lists`, `Chores`, `Ledger`, `Pantry`, `Decisions`, `Presence`, `QuietHours`, `GuestAccess`,
+`Meals` and `Maintenance` are set by the `Household` preset, and each now has endpoints, channel
+types and permissions behind it. **They have their own guide:**
+[household-frontend-guide.md](./household-frontend-guide.md).
 
-Don't build UI against them yet. They're in the enum now so the preset is stable and so that
-enabling a module later is a data change rather than a migration. When the first one ships it'll
-get its own guide.
+Seven of them are channel types - `List`, `Chores`, `Ledger`, `Pantry`, `Decisions`, `Meals`,
+`Maintenance` - whose contents are structured rows rather than messages. A guild created with
+`kind: "Household"` is seeded with one channel of each, plus a starter house manual in the wiki.
+
+Two things from that guide belong here, because they are about the gate rather than about the
+modules:
+
+- **The feature gate outranks roles, and the owner is not exempt.** Every household permission is
+  clamped out of the resolved mask in a guild whose module is off, so a Community guild returns
+  `403` for all of them regardless of who is asking. That is what makes it safe to grant the
+  participation bits to `@everyone` unconditionally.
+- **`403` therefore often means "this guild does not have that module"**, not "you lack
+  permission". Read `features` and don't render the UI at all.
+
+`Meals` and `Maintenance` were appended to the enum after the other eight, so their bit positions
+sit above them; a client reading names rather than a bitmask is unaffected.
 
 ---
 

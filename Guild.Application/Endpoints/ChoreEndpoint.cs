@@ -48,6 +48,7 @@ public class ChoreEndpoint
         IsOverdue = occurrence.CompletedAt is null
                     && occurrence.SkippedAt is null
                     && occurrence.DueAt.AddHours(graceHours) < DateTimeOffset.UtcNow,
+        NudgedAt = occurrence.NudgedAt,
     };
 
     [WolverineGet("/api/v1/channels/{channelId}/chores")]

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Guild.Application.Dtos.Response;
 using Guild.Application.Endpoints;
 using Guild.Application.Services;
 using Guild.Contracts;
@@ -185,6 +186,32 @@ public class ChoreNudgeTests
             Assert.That(Alerted(), Is.EquivalentTo(new[] { "anna" }),
                 "cara does not need to know that anna is being chased");
         });
+    }
+
+    /// <summary>
+    /// The occurrence board has to carry the nudge stamp, because greying the button is the only
+    /// way a client can avoid offering an action that will 409 - the cooldown is per occurrence, so
+    /// every member looking at it gets the same answer.
+    /// </summary>
+    [Test]
+    public async Task Nudge_IsVisibleOnTheOccurrenceBoard()
+    {
+        await SeedGuildAsync();
+        await AddMemberAsync("anna");
+        await AddMemberAsync("ben");
+        var occurrence = await AddOccurrenceAsync("anna");
+
+        await NudgeAsync("ben", occurrence.Id);
+
+        var listed = await _endpoint.ListOccurrencesAsync(
+            ChoresChannelId, null, null, BuildHousehold(), _context, TestPrincipal.Create("ben"));
+
+        var dto = (listed as Ok<IEnumerable<ChoreOccurrenceDto>>)?.Value?
+            .SingleOrDefault(o => o.Id == occurrence.Id);
+
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.NudgedAt, Is.Not.Null,
+            "a client that cannot see the stamp cannot grey the button");
     }
 
     [Test]

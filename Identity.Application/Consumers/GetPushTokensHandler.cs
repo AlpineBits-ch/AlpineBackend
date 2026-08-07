@@ -34,6 +34,8 @@ public class GetPushTokensHandler
                 // Devices are addressed by the client-supplied id everywhere off this service, so
                 // the row id never leaves.
                 ClientDeviceId = t.Device != null ? t.Device.ClientDeviceId : null,
+                // What the build behind this token can be sent.
+                Capabilities = t.Device != null ? t.Device.Capabilities : null,
             })
             .ToListAsync();
 
@@ -49,6 +51,7 @@ public class GetPushTokensHandler
                     Token = r.Token,
                     Kind = ToContract(r.Kind),
                     ClientDeviceId = r.ClientDeviceId,
+                    Capabilities = r.Capabilities ?? [],
                 })
                 .ToList(),
         };

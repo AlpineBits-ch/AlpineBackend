@@ -63,8 +63,8 @@ public class ListEndpoint
 
     [WolverinePost("/api/v1/channels/{channelId}/list-items")]
     public async Task<IResult> CreateItemAsync(string channelId, CreateListItemDto dto,
-        [NotBody] HouseholdChannelService household, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] HouseholdChannelService household, [NotBody] HouseholdAlertService alerts,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -102,6 +102,8 @@ public class ListEndpoint
 
         await household.BroadcastAsync(access.Channel.GuildId, channelId, "guild.ListItemCreated",
             new { GuildId = access.Channel.GuildId, ChannelId = channelId, Item = ToDto(item) });
+
+        await alerts.ListItemAddedAsync(item, access.Channel.Name, userId);
 
         return Results.Ok(ToDto(item));
     }
@@ -147,16 +149,19 @@ public class ListEndpoint
 
     [WolverinePost("/api/v1/list-items/{itemId}/check")]
     public Task<IResult> CheckItemAsync(string itemId, [NotBody] HouseholdChannelService household,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user) =>
-        SetCheckedAsync(itemId, true, household, ctx, user);
+        [NotBody] HouseholdAlertService alerts, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user) =>
+        SetCheckedAsync(itemId, true, household, alerts, ctx, user);
 
     [WolverineDelete("/api/v1/list-items/{itemId}/check")]
     public Task<IResult> UncheckItemAsync(string itemId, [NotBody] HouseholdChannelService household,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user) =>
-        SetCheckedAsync(itemId, false, household, ctx, user);
+        [NotBody] HouseholdAlertService alerts, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user) =>
+        SetCheckedAsync(itemId, false, household, alerts, ctx, user);
 
     private static async Task<IResult> SetCheckedAsync(string itemId, bool isChecked,
-        HouseholdChannelService household, MicroserviceContext ctx, ClaimsPrincipal user)
+        HouseholdChannelService household, HouseholdAlertService alerts, MicroserviceContext ctx,
+        ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -178,6 +183,11 @@ public class ListEndpoint
 
         await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.ListItemChecked",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
+
+        // The tick that empties the list is the only one worth a phone buzzing - see
+        // HouseholdAlertService.ListCompletedAsync.
+        if (isChecked && !await ctx.ListItems.AnyAsync(i => i.ChannelId == item.ChannelId && !i.IsChecked))
+            await alerts.ListCompletedAsync(item.GuildId, item.ChannelId, access.Channel!.Name, userId);
 
         return Results.Ok(ToDto(item));
     }

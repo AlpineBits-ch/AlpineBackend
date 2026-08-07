@@ -1,3 +1,4 @@
+using Guild.Contracts;
 using Guild.Domain.Entity;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -75,8 +76,8 @@ public class ChoreReminderService(
                 occurrence.ChannelId,
                 [occurrence.AssignedUserId],
                 HouseholdAlertService.KindChoreDue,
-                title,
-                "Your turn, and it's due now.",
+                AlertText.Raw(title),
+                AlertText.Loc(HouseholdLocKeys.ChoreDueBody, "Your turn, and it's due now."),
                 occurrence.Id,
                 new { occurrence.ChoreId, occurrence.DueAt });
 

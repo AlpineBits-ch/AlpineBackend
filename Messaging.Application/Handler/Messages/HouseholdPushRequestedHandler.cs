@@ -1,4 +1,5 @@
 using Guild.Contracts.Bus.Events;
+using Identity.Contracts;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Identity.Contracts.Enums;
@@ -24,9 +25,13 @@ public class HouseholdPushRequestedHandler
         var tokenResponse = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
             new GetPushTokensForUsersRequest { UserIds = request.UserIds, Kinds = [PushTokenKind.Fcm] });
 
+        // Localization is decided per token, not per user: two handsets on one account can be on
+        // different releases, and a key the older build's bundle does not carry renders as the key
+        // itself rather than falling back to English.
         var recipients = tokenResponse.Tokens
             .Where(t => t.Kind == PushTokenKind.Fcm)
-            .Select(t => (t.Token, t.UserId))
+            .Select(t => new HouseholdPushRecipient(
+                t.Token, t.UserId, t.Supports(PushCapabilities.LocalizedV1)))
             .ToList();
 
         if (recipients.Count == 0) return;
@@ -47,6 +52,10 @@ public class HouseholdPushRequestedHandler
             TargetId = request.TargetId,
             Title = request.Title,
             Body = request.Body,
+            TitleLocKey = request.TitleLocKey,
+            TitleLocArgs = request.TitleLocArgs,
+            BodyLocKey = request.BodyLocKey,
+            BodyLocArgs = request.BodyLocArgs,
             HideContentForUserIds = hideContentFor,
         }, logger);
 

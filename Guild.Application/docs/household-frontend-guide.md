@@ -628,13 +628,14 @@ body and target.
 
 ```
 guild.HouseholdAlert  →  {
-  guildId, channelId, kind, targetId, title, body, data
+  guildId, channelId, kind, targetId, title, body, data,
+  titleLocKey, titleLocArgs, bodyLocKey, bodyLocArgs
 }
 ```
 
-Push data payload: `type: "household"`, plus the same `kind` and `targetId`. Route on `kind`,
-deep-link with `targetId`, and render `title` / `body` as given - they are written server-side so a
-client needs no per-kind copy.
+Push data payload: `type: "household"`, plus the same `kind`, `targetId` and localization keys.
+Route on `kind`, deep-link with `targetId`, and render `title` / `body` as given - they are written
+server-side so a client needs no per-kind copy.
 
 **One event for every kind, deliberately.** Alert kinds keep being added, and a client that forgot
 to subscribe to `guild.SomethingNewAlert` would silently stop being told about it.
@@ -646,6 +647,9 @@ to subscribe to `guild.SomethingNewAlert` would silently stop being told about i
 | `ledger.settlement` | The counterparty; both parties when a third person recorded it | Settlement id |
 | `decision.opened` | Everyone who can see the channel, except the author | Decision id |
 | `decision.blocked` | The author and anyone who already voted, except the blocker | Decision id |
+| `list.item_added` | Members whose home status is `Out` or `OnMyWay`, plus the assignee if the line names one. Not the person who added it | List item id |
+| `list.completed` | Everyone who put a line on that list, except whoever ticked the last box | **Channel** id |
+| `pantry.low` | Everyone who can see that pantry, except the actor and anyone already sent `pantry.restock` for the same event | Pantry item id |
 | `pantry.restock` | Only members whose home status is `Out` or `OnMyWay` | List item id |
 | `pantry.expiring` | Everyone who can see that pantry, batched per pantry | **Channel** id |
 
@@ -655,11 +659,49 @@ Things worth knowing before you build against these:
   while you work out who was actually there would otherwise send one push per attempt.
 - **`decision.blocked` fires on the transition into a block.** Rewording the reason does not
   re-alert, so one person cannot buzz the house at will.
+- **`list.item_added` is deliberately quiet.** No home-status board and no assignee means nobody is
+  told: "someone added milk" buzzing a house that is all sitting in it is how the module gets muted.
+  The assignee half needs no Presence module - they were named.
+- **`list.completed` fires on the tick that empties the list**, and only for people who contributed
+  a line. Every other tick is collaborative state and arrives on `guild.ListItemChecked`.
+- **`pantry.low` and `pantry.restock` are one event with two audiences.** Somebody who is out gets
+  the request (`pantry.restock`, only when there is a list line to buy against); everybody else gets
+  the statement of fact (`pantry.low`). Nobody gets both. At most once per low episode: the stamp
+  clears when the quantity climbs back above the threshold.
+- **`pantry.low` fires with no restock list configured**, which `pantry.restock` cannot - those
+  houses previously heard nothing at all when something ran out.
 - **`pantry.restock` needs the Presence module.** Without a home-status board there is no way to
-  know who is out, and the alert simply does not fire rather than buzzing everyone.
+  know who is out, and that half simply does not fire rather than buzzing everyone.
 - **Every recipient set is `ViewChannel`-filtered.** A title carrying an expense description is
   subject to exactly the permission the `GET` is.
 - **Muting the guild suppresses the push, not the realtime event.**
+
+### Localized notifications
+
+`title` and `body` are English. Alongside them, server copy carries a localization key and the
+ordered values its placeholders take:
+
+```
+bodyLocKey  = "household_pantry_low_listed_body"
+bodyLocArgs = ["Shopping"]
+body        = "Running low, so it's gone on Shopping."
+```
+
+A key is **absent** when the text is something a user typed - a shopping-list line, an expense
+description, a pantry item's name, a channel name - because that reads the same in every language.
+So `titleLocKey` is null far more often than `bodyLocKey`. Arguments are always pre-formatted:
+money arrives as `"CHF 12.50"`, counts as `"2"`. No client needs a currency table.
+
+Render `locKey` if you recognise it, and fall back to `title`/`body` if you do not - a key added
+server-side before your release ships is the normal state of things, not an error.
+
+On mobile the keys are resolved by the **OS**, not by the app: Android reads
+`res/values*/strings.xml`, iOS reads `*.lproj/Localizable.strings`. That is what makes a household
+notification work while the app is dead, which a data-only push does not. The catch is that a key
+missing from the bundle does not fall back to the literal text - Android drops the notification's
+text and iOS displays the key - so the server only sends keys to a device that declared the
+`push.loc.v1` capability at registration. Ship the resources and the capability in the same build,
+and never remove one without the other.
 
 ---
 
@@ -769,8 +811,13 @@ before on a restricted channel, that is the fix, not a regression. Design for co
 people in the same shop is the normal case.
 
 **8. Realtime is not a notification.** Module mutations are state replication and never buzz a
-phone. The only household push is the chore reminder (§4). If you need "Anna added a 340 CHF
-expense" on a lock screen, say so - it does not exist yet.
+phone - `guild.ListItemChecked` firing for every tick is exactly why. Anything that should reach a
+closed phone arrives on `guild.HouseholdAlert` instead, with a push behind it (§10). The two travel
+on different events on purpose, and building notifications off the broadcasts would buzz the house
+once per keystroke.
+
+**9. A notification key you don't recognise is not an error.** `bodyLocKey` names copy the server
+shipped, and it can ship copy before your release does. Fall back to `body` and carry on. See §10.
 
 ---
 
@@ -803,6 +850,10 @@ expense" on a lock screen, say so - it does not exist yet.
 | `PATCH /expenses` payer reassignment needs `ManageLedger` | `403` on a path that used to succeed. |
 | `guild.ChoreReminder` replaced by `guild.HouseholdAlert` | **Breaking, if you built against it.** Same content, unified envelope; `occurrenceId` moved to `targetId`, `choreId` / `dueAt` into `data`. See §10. |
 | Six more alert kinds + push | New. Route on `kind`; ignore unknown kinds. |
+| `list.item_added`, `list.completed`, `pantry.low` | New kinds. Additive - see the table in §10 for who gets each. |
+| `guild.HouseholdAlert` gained `titleLocKey` / `bodyLocKey` + args | Additive. Ignore them and you get the English you always got. See §10. |
+| Household push carries `title_loc_key` / `loc-key` | **Mobile only, and gated.** Sent only to a device declaring the `push.loc.v1` capability, because a key absent from the app bundle costs the notification its text. Ship the string resources first. |
+| Android household push now names the `household` notification channel | Previously landed on the app's fallback channel, so silencing "Home" did not silence chores. |
 | `GET /guilds/{id}/home` | New. One call instead of six; `ETag` / `If-None-Match` supported. See §11. |
 | `GET /inbox/tasks` | New. Household items waiting on the caller. See §12. |
 | `GET /inbox/summary` gained `taskCount` | Additive. Fold into the header badge. |

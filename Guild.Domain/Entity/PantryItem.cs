@@ -46,6 +46,11 @@ public class PantryItem : BaseEntity<PantryItem>, IPrefixedEntity
     /// </summary>
     public DateTimeOffset? ExpiryNotifiedAt { get; set; }
 
+    /// <summary>
+    /// When the house was told this item is running low, or null if it has not been.
+    /// </summary>
+    public DateTimeOffset? LowNotifiedAt { get; set; }
+
     public string AddedByUserId { get; set; } = null!;
 
     public static PantryItem Create(CreatePantryItemParams @params)
@@ -71,6 +76,13 @@ public class PantryItem : BaseEntity<PantryItem>, IPrefixedEntity
     /// hasn't already been put on the list.</summary>
     public bool NeedsRestock() =>
         LowThreshold is not null && Quantity <= LowThreshold && RestockedAt is null;
+
+    /// <summary>True while the item is at or below its threshold, whatever has been done about it.
+    /// <see cref="NeedsRestock"/> is this plus "and no list line exists yet".</summary>
+    public bool IsLow() => LowThreshold is not null && Quantity <= LowThreshold;
+
+    /// <summary>True when the house has not yet been told about this low episode.</summary>
+    public bool NeedsLowAlert() => IsLow() && LowNotifiedAt is null;
 }
 
 /// <summary>Per-pantry-channel settings, upserted like ForumConfig - "the config" always exists

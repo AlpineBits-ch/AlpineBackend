@@ -1,4 +1,5 @@
 using Guild.Application.Services;
+using Guild.Contracts;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
@@ -274,14 +275,46 @@ public class PantryExpiryServiceTests
             ChannelId = FridgeId, GuildId = GuildId, Name = name, Quantity = 1, AddedByUserId = "anna",
         });
 
+        var one = HouseholdAlertService.DescribeExpiring([Named("Milk")]);
+        var two = HouseholdAlertService.DescribeExpiring([Named("Milk"), Named("Ham")]);
+        var many = HouseholdAlertService.DescribeExpiring(
+            [Named("Milk"), Named("Ham"), Named("Peas"), Named("Dill")]);
+
         Assert.Multiple(() =>
         {
-            Assert.That(HouseholdAlertService.DescribeExpiring([Named("Milk")]),
-                Is.EqualTo("Milk is about to go off."));
-            Assert.That(HouseholdAlertService.DescribeExpiring([Named("Milk"), Named("Ham")]),
-                Is.EqualTo("Milk and Ham are about to go off."));
-            Assert.That(HouseholdAlertService.DescribeExpiring([Named("Milk"), Named("Ham"), Named("Peas"), Named("Dill")]),
-                Is.EqualTo("Milk, Ham and 2 more are about to go off."));
+            Assert.That(one.Text, Is.EqualTo("Milk is about to go off."));
+            Assert.That(two.Text, Is.EqualTo("Milk and Ham are about to go off."));
+            Assert.That(many.Text, Is.EqualTo("Milk, Ham and 2 more are about to go off."));
+        });
+    }
+
+    /// <summary>Three keys rather than one with a count: the languages this is translated into do
+    /// not agree on how a list of two joins, and a client cannot fix that from a count. The
+    /// arguments are what each key's placeholders take, in order.</summary>
+    [Test]
+    public void DescribeExpiring_CarriesTheKeyAndArgumentsAClientNeeds()
+    {
+        PantryItem Named(string name) => PantryItem.Create(new CreatePantryItemParams
+        {
+            ChannelId = FridgeId, GuildId = GuildId, Name = name, Quantity = 1, AddedByUserId = "anna",
+        });
+
+        var one = HouseholdAlertService.DescribeExpiring([Named("Milk")]);
+        var two = HouseholdAlertService.DescribeExpiring([Named("Milk"), Named("Ham")]);
+        var many = HouseholdAlertService.DescribeExpiring(
+            [Named("Milk"), Named("Ham"), Named("Peas"), Named("Dill")]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(one.LocKey, Is.EqualTo(HouseholdLocKeys.PantryExpiringOneBody));
+            Assert.That(one.LocArgs, Is.EqualTo(new[] { "Milk" }));
+
+            Assert.That(two.LocKey, Is.EqualTo(HouseholdLocKeys.PantryExpiringTwoBody));
+            Assert.That(two.LocArgs, Is.EqualTo(new[] { "Milk", "Ham" }));
+
+            Assert.That(many.LocKey, Is.EqualTo(HouseholdLocKeys.PantryExpiringManyBody));
+            Assert.That(many.LocArgs, Is.EqualTo(new[] { "Milk", "Ham", "2" }),
+                "the count is formatted here, so no client has to know it is a number");
         });
     }
 }

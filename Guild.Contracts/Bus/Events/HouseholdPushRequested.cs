@@ -20,8 +20,23 @@ public class HouseholdPushRequested
     /// <summary>The row the notification is about - an occurrence id, an expense id.</summary>
     public string? TargetId { get; set; }
 
-    /// <summary>Notification title.</summary>
+    /// <summary>Notification title in English.</summary>
     public string Title { get; set; } = null!;
 
     public string Body { get; set; } = "";
+
+    /// <summary>
+    /// The localization key <see cref="Title"/> is the English rendering of, or null when the title
+    /// is user content - a shopping-list line, an expense description, a pantry item's name - which
+    /// reads the same in every language.
+    /// </summary>
+    public string? TitleLocKey { get; set; }
+
+    /// <summary>Values for the key's placeholders, in order, already formatted for display. Empty
+    /// for a key that takes none.</summary>
+    public List<string> TitleLocArgs { get; set; } = [];
+
+    public string? BodyLocKey { get; set; }
+
+    public List<string> BodyLocArgs { get; set; } = [];
 }

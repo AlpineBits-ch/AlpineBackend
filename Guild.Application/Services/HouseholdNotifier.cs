@@ -20,37 +20,34 @@ public class HouseholdNotifier(
     /// <summary>The single realtime event every household alert arrives on.</summary>
     public const string AlertEventName = "guild.HouseholdAlert";
 
-    /// <summary>Sends one household alert.</summary>
-    public Task<List<string>> AlertAsync(
-        string guildId, string? channelId, IReadOnlyCollection<string> userIds,
-        string kind, string title, string body, string? targetId = null, object? data = null) =>
-        NotifyAsync(
-            guildId, channelId, userIds, AlertEventName,
-            new
-            {
-                GuildId = guildId,
-                ChannelId = channelId,
-                Kind = kind,
-                TargetId = targetId,
-                Title = title,
-                Body = body,
-                Data = data,
-            },
-            kind, title, body, targetId);
-
     /// <summary>
-    /// Sends to <paramref name="userIds"/>: a realtime event immediately, and a push for those
-    /// entitled to one.
+    /// Sends one household alert: a realtime event immediately, and a push for those entitled to
+    /// one.
     /// </summary>
-    public async Task<List<string>> NotifyAsync(
+    public async Task<List<string>> AlertAsync(
         string guildId, string? channelId, IReadOnlyCollection<string> userIds,
-        string eventName, object payload,
-        string kind, string title, string body, string? targetId = null)
+        string kind, AlertText title, AlertText body, string? targetId = null, object? data = null)
     {
         var recipients = userIds.Distinct(StringComparer.Ordinal).ToList();
         if (recipients.Count == 0) return [];
 
-        await hub.Clients.Users(recipients).SendAsync(eventName, payload);
+        await hub.Clients.Users(recipients).SendAsync(AlertEventName, new
+        {
+            GuildId = guildId,
+            ChannelId = channelId,
+            Kind = kind,
+            TargetId = targetId,
+            Title = title.Text,
+            Body = body.Text,
+            // Flat rather than nested under a "loc" object: a web client that localizes reads two
+            // keys it recognises, and one that does not carries on reading Title and Body without
+            // having to know the envelope changed shape.
+            TitleLocKey = title.LocKey,
+            TitleLocArgs = title.LocArgs,
+            BodyLocKey = body.LocKey,
+            BodyLocArgs = body.LocArgs,
+            Data = data,
+        });
 
         var eligible = await FilterToPushableAsync(guildId, channelId, recipients);
         if (eligible.Count == 0) return [];
@@ -62,8 +59,12 @@ public class HouseholdNotifier(
             UserIds = eligible,
             Kind = kind,
             TargetId = targetId,
-            Title = title,
-            Body = body,
+            Title = title.Text,
+            Body = body.Text,
+            TitleLocKey = title.LocKey,
+            TitleLocArgs = [.. title.LocArgs],
+            BodyLocKey = body.LocKey,
+            BodyLocArgs = [.. body.LocArgs],
         });
 
         return eligible;

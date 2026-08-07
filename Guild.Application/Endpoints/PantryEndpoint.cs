@@ -138,17 +138,21 @@ public class PantryEndpoint
         });
 
         ctx.PantryItems.Add(item);
+
+        // Stamped before the commit rather than after the alert, matching RestockedAt: alert
+        // dispatch is best-effort by design, and a stamp that waits for it would need a second
+        // write on a path that has already succeeded.
+        var wasLow = item.NeedsLowAlert();
         var restocked = await restock.StageRestockAsync(item);
+        if (wasLow) item.LowNotifiedAt = DateTimeOffset.UtcNow;
+
         await ctx.SaveChangesAsync();
 
         await household.BroadcastAsync(item.GuildId, channelId, "guild.PantryItemCreated",
             new { GuildId = item.GuildId, ChannelId = channelId, Item = ToDto(item) });
 
-        if (restocked is not null)
-        {
-            await restock.BroadcastRestockAsync(restocked);
-            await alerts.RestockAddedAsync(restocked, userId);
-        }
+        if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
+        if (wasLow) await alerts.PantryLowAsync(item, restocked, userId);
 
         return Results.Ok(ToDto(item));
     }
@@ -203,20 +207,25 @@ public class PantryEndpoint
             item.ExpiryNotifiedAt = null;
         }
 
-        // Restocked back above the threshold: release the stamp so the next dip re-adds it.
-        if (item.LowThreshold is null || item.Quantity > item.LowThreshold) item.RestockedAt = null;
+        // Restocked back above the threshold: release both stamps so the next dip re-adds it to the
+        // list and announces itself again.
+        if (item.LowThreshold is null || item.Quantity > item.LowThreshold)
+        {
+            item.RestockedAt = null;
+            item.LowNotifiedAt = null;
+        }
 
+        var wasLow = item.NeedsLowAlert();
         var restocked = await restock.StageRestockAsync(item);
+        if (wasLow) item.LowNotifiedAt = DateTimeOffset.UtcNow;
+
         await ctx.SaveChangesAsync();
 
         await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.PantryItemUpdated",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
 
-        if (restocked is not null)
-        {
-            await restock.BroadcastRestockAsync(restocked);
-            await alerts.RestockAddedAsync(restocked, userId);
-        }
+        if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
+        if (wasLow) await alerts.PantryLowAsync(item, restocked, userId);
 
         return Results.Ok(ToDto(item));
     }

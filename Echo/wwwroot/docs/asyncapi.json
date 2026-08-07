@@ -6679,10 +6679,22 @@
         "summary": "Pushed by the server. Payload is an anonymous object - shape derived from the call site.",
         "payload": {
           "type": "object",
-          "x-clr-type": "\u003Canonymous type: string GuildId, string ChannelId, string Kind, string TargetId, string Title, string Body, object Data\u003E",
+          "x-clr-type": "\u003Canonymous type: string GuildId, string ChannelId, string Kind, string TargetId, string Title, string Body, string TitleLocKey, System.Collections.Generic.IReadOnlyList\u003Cstring\u003E TitleLocArgs, string BodyLocKey, System.Collections.Generic.IReadOnlyList\u003Cstring\u003E BodyLocArgs, object Data\u003E",
           "properties": {
             "body": {
               "type": "string"
+            },
+            "bodyLocArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "bodyLocKey": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "channelId": {
               "type": [
@@ -6711,14 +6723,26 @@
             },
             "title": {
               "type": "string"
+            },
+            "titleLocArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "titleLocKey": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           }
         },
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Services\\HouseholdNotifier.cs",
-            "line": 42,
-            "clrType": "\u003Canonymous type: string GuildId, string? ChannelId, string Kind, string? TargetId, string Title, string Body, object? Data\u003E",
+            "line": 53,
+            "clrType": "\u003Canonymous type: string GuildId, string? ChannelId, string Kind, string? TargetId, string Title, string Body, string? TitleLocKey, System.Collections.Generic.IReadOnlyList\u003Cstring\u003E TitleLocArgs, string? BodyLocKey, System.Collections.Generic.IReadOnlyList\u003Cstring\u003E BodyLocArgs, object? Data\u003E",
             "anonymous": true
           }
         ]
@@ -6745,7 +6769,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ListEndpoint.cs",
-            "line": 256,
+            "line": 267,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, int RemovedCount\u003E",
             "anonymous": true
           }
@@ -6841,7 +6865,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ListEndpoint.cs",
-            "line": 185,
+            "line": 190,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ListItemDto Item\u003E",
             "anonymous": true
           }
@@ -7027,7 +7051,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ListEndpoint.cs",
-            "line": 217,
+            "line": 228,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string ItemId\u003E",
             "anonymous": true
           }
@@ -7123,7 +7147,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ListEndpoint.cs",
-            "line": 148,
+            "line": 150,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.ListItemDto Item\u003E",
             "anonymous": true
           }
@@ -7154,7 +7178,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\ListEndpoint.cs",
-            "line": 289,
+            "line": 300,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, System.Collections.Generic.List\u003Cstring\u003E ItemIds\u003E",
             "anonymous": true
           }
@@ -7809,7 +7833,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-            "line": 157,
+            "line": 164,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.PantryItemDto Item\u003E",
             "anonymous": true
           }
@@ -7837,7 +7861,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-            "line": 255,
+            "line": 265,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, string ItemId\u003E",
             "anonymous": true
           }
@@ -7912,7 +7936,7 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Endpoints\\PantryEndpoint.cs",
-            "line": 227,
+            "line": 240,
             "clrType": "\u003Canonymous type: string GuildId, string ChannelId, Guild.Application.Dtos.Response.PantryItemDto Item\u003E",
             "anonymous": true
           }
@@ -8068,19 +8092,19 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 131,
+            "line": 129,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 144,
+            "line": 142,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 352,
+            "line": 350,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
             "anonymous": true
           }

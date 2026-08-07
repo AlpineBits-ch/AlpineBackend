@@ -1,3 +1,4 @@
+using Guild.Contracts;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Domain.Services;
@@ -28,6 +29,15 @@ public class HouseholdAlertService(
     public const string KindRestock = "pantry.restock";
     public const string KindPantryExpiring = "pantry.expiring";
 
+    /// <summary>Something went on a shopping list.</summary>
+    public const string KindListItemAdded = "list.item_added";
+
+    /// <summary>The last unchecked line on a list was ticked off.</summary>
+    public const string KindListCompleted = "list.completed";
+
+    /// <summary>A pantry item crossed its low-stock threshold.</summary>
+    public const string KindPantryLow = "pantry.low";
+
     // ── Ledger ───────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -48,11 +58,13 @@ public class HouseholdAlertService(
 
                 if (recipients.Count == 0) continue;
 
+                var share = MoneyFormat.Format(group.Key, currency);
+
                 await notifier.AlertAsync(
                     expense.GuildId, expense.ChannelId, recipients,
                     KindExpense,
-                    expense.Description,
-                    $"Your share is {MoneyFormat.Format(group.Key, currency)}.",
+                    AlertText.Raw(expense.Description),
+                    AlertText.Loc(HouseholdLocKeys.ExpenseShareBody, $"Your share is {share}.", share),
                     expense.Id,
                     new { expense.AmountMinor, Currency = currency, ShareMinor = group.Key, expense.PayerUserId });
             }
@@ -62,11 +74,13 @@ public class HouseholdAlertService(
             var payer = await ViewersOfAsync(expense.ChannelId, [expense.PayerUserId]);
             if (payer.Count == 0) return;
 
+            var total = MoneyFormat.Format(expense.AmountMinor, currency);
+
             await notifier.AlertAsync(
                 expense.GuildId, expense.ChannelId, payer,
                 KindExpense,
-                expense.Description,
-                $"Recorded as paid by you: {MoneyFormat.Format(expense.AmountMinor, currency)}.",
+                AlertText.Raw(expense.Description),
+                AlertText.Loc(HouseholdLocKeys.ExpensePaidBody, $"Recorded as paid by you: {total}.", total),
                 expense.Id,
                 new { expense.AmountMinor, Currency = currency, RecordedBy = actorUserId });
         });
@@ -82,19 +96,25 @@ public class HouseholdAlertService(
             if (settlement.ToUserId != actorUserId)
             {
                 await SendSettlementAsync(settlement, settlement.ToUserId,
-                    "Payment received", $"{money} was recorded as paid to you.", currency);
+                    AlertText.Loc(HouseholdLocKeys.SettlementReceivedTitle, "Payment received"),
+                    AlertText.Loc(HouseholdLocKeys.SettlementReceivedBody,
+                        $"{money} was recorded as paid to you.", money),
+                    currency);
             }
 
             if (settlement.FromUserId != actorUserId)
             {
                 await SendSettlementAsync(settlement, settlement.FromUserId,
-                    "Payment recorded", $"{money} was recorded as paid by you.", currency);
+                    AlertText.Loc(HouseholdLocKeys.SettlementRecordedTitle, "Payment recorded"),
+                    AlertText.Loc(HouseholdLocKeys.SettlementRecordedBody,
+                        $"{money} was recorded as paid by you.", money),
+                    currency);
             }
         });
     }
 
     private async Task SendSettlementAsync(
-        Settlement settlement, string userId, string title, string body, string currency)
+        Settlement settlement, string userId, AlertText title, AlertText body, string currency)
     {
         var recipients = await ViewersOfAsync(settlement.ChannelId, [userId]);
         if (recipients.Count == 0) return;
@@ -125,10 +145,12 @@ public class HouseholdAlertService(
             await notifier.AlertAsync(
                 decision.GuildId, decision.ChannelId, recipients,
                 KindDecisionOpened,
-                decision.Title,
+                AlertText.Raw(decision.Title),
                 decision.ClosesAt is null
-                    ? "A house decision needs your vote."
-                    : "A house decision needs your vote before it closes.",
+                    ? AlertText.Loc(HouseholdLocKeys.DecisionOpenedBody,
+                        "A house decision needs your vote.")
+                    : AlertText.Loc(HouseholdLocKeys.DecisionOpenedClosingBody,
+                        "A house decision needs your vote before it closes."),
                 decision.Id,
                 new { decision.ClosesAt, decision.Quorum });
         });
@@ -156,44 +178,144 @@ public class HouseholdAlertService(
             await notifier.AlertAsync(
                 decision.GuildId, decision.ChannelId, recipients,
                 KindDecisionBlocked,
-                decision.Title,
-                $"Blocked: {trimmed}",
+                AlertText.Raw(decision.Title),
+                AlertText.Loc(HouseholdLocKeys.DecisionBlockedBody, $"Blocked: {trimmed}", trimmed),
                 decision.Id,
                 new { BlockedBy = blockerUserId });
+        });
+    }
+
+    // ── Shopping lists ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tells the people who can still act on it that something went on a shopping list.
+    /// </summary>
+    public async Task ListItemAddedAsync(ListItem item, string listName, string actorUserId)
+    {
+        await SafelyAsync(nameof(ListItemAddedAsync), async () =>
+        {
+            // The assignee first, so that somebody who is both assigned and out gets the sentence
+            // that names them rather than the generic one.
+            List<string> assignee = item.AssigneeUserId is null || item.AssigneeUserId == actorUserId
+                ? []
+                : await ViewersOfAsync(item.ChannelId, [item.AssigneeUserId]);
+
+            if (assignee.Count > 0)
+            {
+                await notifier.AlertAsync(
+                    item.GuildId, item.ChannelId, assignee,
+                    KindListItemAdded,
+                    AlertText.Raw(item.Text),
+                    AlertText.Loc(HouseholdLocKeys.ListItemAssignedBody,
+                        $"You've been asked to pick this up from {listName}.", listName),
+                    item.Id,
+                    new { item.Quantity, item.Section, item.AssigneeUserId, AddedBy = actorUserId });
+            }
+
+            var away = await AwayFromHomeAsync(item.GuildId, except: actorUserId);
+            away.RemoveAll(assignee.Contains);
+            if (away.Count == 0) return;
+
+            var recipients = await ViewersOfAsync(item.ChannelId, away);
+            if (recipients.Count == 0) return;
+
+            await notifier.AlertAsync(
+                item.GuildId, item.ChannelId, recipients,
+                KindListItemAdded,
+                AlertText.Raw(item.Text),
+                AlertText.Loc(HouseholdLocKeys.ListItemAddedBody,
+                    $"Just went on {listName} - could you grab it while you're out?", listName),
+                item.Id,
+                new { item.Quantity, item.Section, AddedBy = actorUserId });
+        });
+    }
+
+    /// <summary>
+    /// Tells the people who put something on a list that all of it has now been bought.
+    /// </summary>
+    public async Task ListCompletedAsync(
+        string guildId, string channelId, string listName, string actorUserId)
+    {
+        await SafelyAsync(nameof(ListCompletedAsync), async () =>
+        {
+            var contributors = await ctx.ListItems.AsNoTracking()
+                .Where(i => i.ChannelId == channelId && i.AddedByUserId != actorUserId)
+                .Select(i => i.AddedByUserId)
+                .Distinct()
+                .Take(MaxRecipients)
+                .ToListAsync();
+
+            var recipients = await ViewersOfAsync(channelId, contributors);
+            if (recipients.Count == 0) return;
+
+            await notifier.AlertAsync(
+                guildId, channelId, recipients,
+                KindListCompleted,
+                AlertText.Raw(listName),
+                AlertText.Loc(HouseholdLocKeys.ListCompletedBody, "Everything on it is ticked off."),
+                channelId,
+                new { CompletedBy = actorUserId });
         });
     }
 
     // ── Pantry ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Tells whoever is out of the house that something just went on the shopping list.
+    /// Tells the house that a pantry item has run low, and tells whoever is out about it
+    /// differently.
     /// </summary>
-    public async Task RestockAddedAsync(ListItem listItem, string actorUserId)
+    public async Task PantryLowAsync(PantryItem item, ListItem? restocked, string actorUserId)
     {
-        await SafelyAsync(nameof(RestockAddedAsync), async () =>
+        await SafelyAsync(nameof(PantryLowAsync), async () =>
         {
-            if (!await permissions.IsFeatureEnabledAsync(listItem.GuildId, GuildFeatures.Presence)) return;
+            List<string> away = restocked is null
+                ? []
+                : await AwayFromHomeAsync(item.GuildId, except: actorUserId);
 
-            var statuses = await homeStatus.GetAsync(listItem.GuildId);
+            List<string> restockRecipients = away.Count == 0
+                ? []
+                : await ViewersOfAsync(restocked!.ChannelId, away);
 
-            var away = statuses
-                .Where(s => s.Kind is HomeStatusKind.Out or HomeStatusKind.OnMyWay)
-                .Select(s => s.UserId)
-                .Where(id => id != actorUserId)
-                .ToList();
+            var listName = restocked is null ? null : await ChannelNameAsync(restocked.ChannelId);
 
-            if (away.Count == 0) return;
+            if (restockRecipients.Count > 0)
+            {
+                await notifier.AlertAsync(
+                    restocked!.GuildId, restocked.ChannelId, restockRecipients,
+                    KindRestock,
+                    AlertText.Raw(restocked.Text),
+                    AlertText.Loc(HouseholdLocKeys.PantryRestockBody,
+                        "Ran low at home and went on the list - could you grab it while you're out?"),
+                    restocked.Id,
+                    new { restocked.Quantity, restocked.SourcePantryItemId });
+            }
 
-            var recipients = await ViewersOfAsync(listItem.ChannelId, away);
+            // Everyone else, on the pantry channel rather than the list - that is where the item
+            // they are being told about lives, and it is the board that answers "what else is
+            // nearly out".
+            var members = await MemberUserIdsAsync(item.GuildId, except: actorUserId);
+            members.RemoveAll(restockRecipients.Contains);
+
+            var recipients = await ViewersOfAsync(item.ChannelId, members);
             if (recipients.Count == 0) return;
 
             await notifier.AlertAsync(
-                listItem.GuildId, listItem.ChannelId, recipients,
-                KindRestock,
-                listItem.Text,
-                "Ran low at home and went on the list - could you grab it while you're out?",
-                listItem.Id,
-                new { listItem.Quantity, listItem.SourcePantryItemId });
+                item.GuildId, item.ChannelId, recipients,
+                KindPantryLow,
+                AlertText.Raw(item.Name),
+                listName is null
+                    ? AlertText.Loc(HouseholdLocKeys.PantryLowBody, "Running low at home.")
+                    : AlertText.Loc(HouseholdLocKeys.PantryLowListedBody,
+                        $"Running low, so it's gone on {listName}.", listName),
+                item.Id,
+                new
+                {
+                    item.Quantity,
+                    item.Unit,
+                    item.LowThreshold,
+                    ListedOnChannelId = restocked?.ChannelId,
+                    ListItemId = restocked?.Id,
+                });
         });
     }
 
@@ -211,7 +333,7 @@ public class HouseholdAlertService(
         await notifier.AlertAsync(
             guildId, channelId, recipients,
             KindPantryExpiring,
-            "Use it or lose it",
+            AlertText.Loc(HouseholdLocKeys.PantryExpiringTitle, "Use it or lose it"),
             DescribeExpiring(items),
             channelId,
             new
@@ -222,16 +344,52 @@ public class HouseholdAlertService(
         return recipients.Count;
     }
 
-    /// <summary>"Milk expires tomorrow." / "Milk, yoghurt and 2 more are about to go off."</summary>
-    internal static string DescribeExpiring(IReadOnlyList<PantryItem> items)
+    /// <summary>
+    /// "Milk is about to go off." / "Milk, yoghurt and 2 more are about to go off."
+    /// </summary>
+    internal static AlertText DescribeExpiring(IReadOnlyList<PantryItem> items)
     {
-        if (items.Count == 1) return $"{items[0].Name} is about to go off.";
-        if (items.Count == 2) return $"{items[0].Name} and {items[1].Name} are about to go off.";
+        if (items.Count == 1)
+        {
+            return AlertText.Loc(HouseholdLocKeys.PantryExpiringOneBody,
+                $"{items[0].Name} is about to go off.", items[0].Name);
+        }
 
-        return $"{items[0].Name}, {items[1].Name} and {items.Count - 2} more are about to go off.";
+        if (items.Count == 2)
+        {
+            return AlertText.Loc(HouseholdLocKeys.PantryExpiringTwoBody,
+                $"{items[0].Name} and {items[1].Name} are about to go off.",
+                items[0].Name, items[1].Name);
+        }
+
+        var rest = (items.Count - 2).ToString();
+
+        return AlertText.Loc(HouseholdLocKeys.PantryExpiringManyBody,
+            $"{items[0].Name}, {items[1].Name} and {rest} more are about to go off.",
+            items[0].Name, items[1].Name, rest);
     }
 
     // ── Shared ───────────────────────────────────────────────────────────────
+
+    /// <summary>Who is out of the house right now, as the home-status board sees it.</summary>
+    private async Task<List<string>> AwayFromHomeAsync(string guildId, string except)
+    {
+        if (!await permissions.IsFeatureEnabledAsync(guildId, GuildFeatures.Presence)) return [];
+
+        var statuses = await homeStatus.GetAsync(guildId);
+
+        return statuses
+            .Where(s => s.Kind is HomeStatusKind.Out or HomeStatusKind.OnMyWay)
+            .Select(s => s.UserId)
+            .Where(id => id != except)
+            .ToList();
+    }
+
+    private async Task<string?> ChannelNameAsync(string channelId) =>
+        await ctx.Channels.AsNoTracking()
+            .Where(c => c.Id == channelId)
+            .Select(c => c.Name)
+            .FirstOrDefaultAsync();
 
     private async Task<List<string>> ViewersOfAsync(string channelId, IReadOnlyCollection<string> userIds)
     {

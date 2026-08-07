@@ -33,4 +33,15 @@
         <ProjectReference Include="..\Echo.Voice.Testing\Echo.Voice.Testing.csproj" />
     </ItemGroup>
 
+    <!--
+      Shared architecture test: fails the build if anything in this assembly compiles to an
+      async void method, whose assertions would pass regardless of what they assert. Linked
+      into each test project rather than shared through a library, because the only thing worth
+      sharing is the failure message and no existing project is referenced by all of them.
+    -->
+    <ItemGroup>
+        <Compile Include="..\TestConventions\AsyncVoidTestConventionTests.cs"
+                 Link="TestConventions\AsyncVoidTestConventionTests.cs" />
+    </ItemGroup>
+
 </Project>

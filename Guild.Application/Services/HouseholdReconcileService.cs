@@ -1,3 +1,4 @@
+using AppEnvironment;
 using Guild.Application.Endpoints;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
@@ -30,7 +31,10 @@ public class HouseholdReconcileService(
     IServiceProvider services,
     ILogger<HouseholdReconcileService> logger) : BackgroundService
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
+    /// <summary>
+    /// Five minutes in production, overridable via HOUSEHOLD_SWEEP_INTERVAL_SECONDS.
+    /// </summary>
+    private static readonly TimeSpan Interval = Env.Household.SweepInterval;
 
     /// <summary>How long a lapsed guest membership is kept before deletion.</summary>
     private static readonly TimeSpan GuestRetention = TimeSpan.FromDays(7);

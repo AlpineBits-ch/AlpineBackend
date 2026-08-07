@@ -50,6 +50,8 @@ public static class Env
 
     public static readonly AccountDeletionConfiguration AccountDeletion = new();
 
+    public static readonly HouseholdConfiguration Household = new();
+
     public static readonly RetentionConfiguration Retention = new();
 
     public static readonly PrivacyConfiguration Privacy = new();
@@ -388,6 +390,17 @@ public class AccountDeletionConfiguration
 
     public TimeSpan SweepInterval { get; set; } =
         TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS") ?? (5 * 60).ToString()));
+}
+
+/// <summary>
+/// Sweep tuning for Guild's <c>HouseholdReconcileService</c>, which generates chore occurrences and
+/// bill occurrences, sends chore reminders, pantry expiry and low-stock warnings, cooking reminders
+/// and maintenance service warnings, expires decisions, and tidies lapsed guest roles.
+/// </summary>
+public class HouseholdConfiguration
+{
+    public TimeSpan SweepInterval { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("HOUSEHOLD_SWEEP_INTERVAL_SECONDS") ?? (5 * 60).ToString()));
 }
 
 /// <summary>

@@ -52,17 +52,17 @@ public class Call : Aggregate<Call>, IPrefixedEntity
         });
     }
 
-    /// <param name="oldCfSessionId">The superseded device's session, read from the voice room by the
+    /// <param name="oldMediaSessionId">The superseded device's session, read from the voice room by the
     /// caller - see <see cref="ConnectDevice"/>. Without it a callee answering on a second device
     /// would leave their first device's Cloudflare session publishing.</param>
     /// <param name="oldAudioTrackName">As above.</param>
     public void Accept(string userId, string deviceId,
-        string? oldCfSessionId = null, string? oldAudioTrackName = null)
+        string? oldMediaSessionId = null, string? oldAudioTrackName = null)
     {
         var participant = Participants.FirstOrDefault(p => p.UserId == userId);
         if(participant is null) return;
 
-        ConnectDevice(participant, deviceId, oldCfSessionId, oldAudioTrackName);
+        ConnectDevice(participant, deviceId, oldMediaSessionId, oldAudioTrackName);
         this.Status = CallStatus.Connected;
 
         this.AddDomainEvent(new CallAccepted()
@@ -74,12 +74,12 @@ public class Call : Aggregate<Call>, IPrefixedEntity
     }
 
     /// <summary>Marks a participant's media session as connected from a specific device.</summary>
-    /// <param name="oldCfSessionId">
+    /// <param name="oldMediaSessionId">
     /// The superseded device's session, read from the voice room by the caller.
     /// </param>
     /// <param name="oldAudioTrackName">As above.</param>
     public void ConnectDevice(CallParticipant participant, string deviceId,
-        string? oldCfSessionId = null, string? oldAudioTrackName = null)
+        string? oldMediaSessionId = null, string? oldAudioTrackName = null)
     {
         var wasConnected = participant.Status == CallStatus.Connected;
         var previousDevice = participant.ActiveDeviceId;
@@ -97,7 +97,7 @@ public class Call : Aggregate<Call>, IPrefixedEntity
                 UserId = participant.UserId,
                 OldDeviceId = previousDevice,
                 NewDeviceId = deviceId,
-                OldCfSessionId = oldCfSessionId,
+                OldMediaSessionId = oldMediaSessionId,
                 OldAudioTrackName = oldAudioTrackName,
             });
         }

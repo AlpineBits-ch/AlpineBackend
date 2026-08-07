@@ -56,13 +56,13 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
     /// Records that a participant published their microphone, and announces them as publishable.
     /// </summary>
     public async Task<VoiceRoom?> RecordPublishAsync(
-        VoiceRoomKey key, string userId, string cfSessionId, CancellationToken ct = default)
+        VoiceRoomKey key, string userId, string mediaSessionId, CancellationToken ct = default)
     {
         var room = await rooms.MutateExistingAsync(key, r =>
         {
             var me = r.Find(userId);
             if (me is null) return;
-            me.CfSessionId = cfSessionId;
+            me.MediaSessionId = mediaSessionId;
             me.AudioTrackName = TrackNaming.Audio;
         }, ct);
         if (room?.Find(userId) is not { } me) return room;
@@ -70,7 +70,7 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         await announcer.ToOthersAsync(room, userId, VoiceEvents.ParticipantJoined, new
         {
             userId,
-            cfSessionId = me.CfSessionId,
+            mediaSessionId = me.MediaSessionId,
             audioTrackName = me.AudioTrackName,
         }, ct);
 
@@ -82,7 +82,7 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
 
     /// <summary>Records non-microphone tracks (camera, screen share) and announces each.</summary>
     public async Task<VoiceRoom?> RecordTracksAsync(
-        VoiceRoomKey key, string userId, string cfSessionId, IReadOnlyList<string> trackNames,
+        VoiceRoomKey key, string userId, string mediaSessionId, IReadOnlyList<string> trackNames,
         CancellationToken ct = default)
     {
         var described = trackNames.Select(TrackNaming.Describe).ToList();
@@ -113,7 +113,7 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             await announcer.ToOthersAsync(room, userId, VoiceEvents.TrackPublished, new
             {
                 userId,
-                cfSessionId,
+                mediaSessionId,
                 trackName = track.TrackName,
                 kind = track.Kind,
                 shareId = track.ShareId,
@@ -142,7 +142,7 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
                 {
                     // The publisher stopped their microphone: they are no longer pullable, and
                     // saying so is what stops peers holding a dead handle.
-                    me.CfSessionId = null;
+                    me.MediaSessionId = null;
                     me.AudioTrackName = null;
                     continue;
                 }

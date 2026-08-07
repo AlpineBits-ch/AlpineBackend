@@ -3,7 +3,7 @@ namespace Echo.Voice.Rooms;
 /// <summary>One participant as a client sees them, including what to pull to hear them.</summary>
 public sealed record VoiceParticipantSnapshot(
     string UserId,
-    string? CfSessionId,
+    string? MediaSessionId,
     string? AudioTrackName,
     string PublishState,
     bool IsSelfMuted,
@@ -47,7 +47,7 @@ public sealed record VoiceRoomSnapshot(
     private static VoiceParticipantSnapshot Project(VoiceParticipant p) => new(
         p.UserId,
         // Withheld unless actually publishing.
-        p.PublishState == VoicePublishState.Publishing ? p.CfSessionId : null,
+        p.PublishState == VoicePublishState.Publishing ? p.MediaSessionId : null,
         p.PublishState == VoicePublishState.Publishing ? p.AudioTrackName : null,
         p.PublishState.ToString(),
         p.IsSelfMuted,

@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
 using Echo.Voice.Sessions;
@@ -20,7 +21,7 @@ namespace Messaging.Tests.Controllers;
 
 /// <summary>
 /// Pins the signalling contract of a 1:1 call: a participant must always end up holding the
-/// (cfSessionId, audioTrackName) pair of everyone else who is publishing audio.
+/// (mediaSessionId, audioTrackName) pair of everyone else who is publishing audio.
 /// </summary>
 [TestFixture]
 public class CallParticipantAnnouncementTests
@@ -66,17 +67,17 @@ public class CallParticipantAnnouncementTests
         }));
     }
 
-    private CloudflareController ControllerFor(string userId, string deviceId)
+    private CallVoiceMediaController ControllerFor(string userId, string deviceId)
     {
         var http = new DefaultHttpContext { User = TestPrincipal.ForUser(userId) };
         http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
-        return new CloudflareController(
-            StubCloudflareHttp.CreateService(), _cache, _callStore, _bus,
+        return new CallVoiceMediaController(
+            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _cache, _callStore, _bus,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             new SfuSessionOwnership(_cache),
             VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub),
             VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
-            NullLogger<CloudflareController>.Instance)
+            NullLogger<CallVoiceMediaController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = http },
         };
@@ -97,10 +98,10 @@ public class CallParticipantAnnouncementTests
 
     private async Task PublishAudioAsync(string userId, string deviceId, string rustSessionId)
     {
-        var result = await ControllerFor(userId, deviceId).TracksNew(CallId, new TracksNewBody(
+        var result = await ControllerFor(userId, deviceId).Negotiate(CallId, new NegotiateBody(
             rustSessionId,
-            new CfSessionDescription("offer", "v=0"),
-            [new CfTrackNew("local", Mid: "0", TrackName: "audio")]), CancellationToken.None);
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")]), CancellationToken.None);
         Assert.That(result, Is.InstanceOf<OkObjectResult>(), $"{userId} could not publish audio");
     }
 
@@ -161,7 +162,7 @@ public class CallParticipantAnnouncementTests
         var callee = SnapshotTo(CallerId)!.Participants.Single(p => p.UserId == CalleeId);
         Assert.Multiple(() =>
         {
-            Assert.That(callee.CfSessionId, Is.EqualTo(CalleeRustSession));
+            Assert.That(callee.MediaSessionId, Is.EqualTo(CalleeRustSession));
             Assert.That(callee.AudioTrackName, Is.EqualTo("audio"));
             Assert.That(callee.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
         });
@@ -233,7 +234,7 @@ public class CallParticipantAnnouncementTests
             // The callee joined after the caller had already published, so there was no live event
             // left to receive - they learn it from the snapshot their join hands back.
             var caller = SnapshotTo(CalleeId)!.Participants.Single(p => p.UserId == CallerId);
-            Assert.That(caller.CfSessionId, Is.EqualTo(CallerRustSession),
+            Assert.That(caller.MediaSessionId, Is.EqualTo(CallerRustSession),
                 "the callee was never told about the caller's audio");
             Assert.That(caller.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
         });

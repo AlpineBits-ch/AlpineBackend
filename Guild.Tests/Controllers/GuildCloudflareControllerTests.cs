@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Realtime.Sfu;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
@@ -18,7 +19,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Guild.Tests.Controllers;
 
-/// <summary>Covers GuildCloudflareController.CreateSession's <c>primary</c> flag.</summary>
+/// <summary>Covers GuildVoiceMediaController.CreateSession's <c>primary</c> flag.</summary>
 [TestFixture]
 public class GuildCloudflareControllerTests
 {
@@ -33,7 +34,7 @@ public class GuildCloudflareControllerTests
     private TestGuildContext _context = null!;
     private FakeDistributedCache _cache = null!;
     private LockedJsonCacheStore _voiceStore = null!;
-    private GuildCloudflareController _controller = null!;
+    private GuildVoiceMediaController _controller = null!;
 
     [SetUp]
     public async Task SetUp()
@@ -43,9 +44,9 @@ public class GuildCloudflareControllerTests
         _voiceStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
         var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
-        _controller = new GuildCloudflareController(
-            StubCloudflareHttp.CreateService(), permissions,
-            NullLogger<GuildCloudflareController>.Instance, _cache,
+        _controller = new GuildVoiceMediaController(
+            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), permissions,
+            NullLogger<GuildVoiceMediaController>.Instance, _cache,
             VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), new FakeHubContext()),
             new SfuSessionOwnership(_cache))
         {
@@ -106,7 +107,7 @@ public class GuildCloudflareControllerTests
             [
                 new VoiceParticipant
                 {
-                    UserId = UserId, CfSessionId = ExistingSessionId, AudioTrackName = "audio",
+                    UserId = UserId, MediaSessionId = ExistingSessionId, AudioTrackName = "audio",
                 },
             ],
         };
@@ -123,7 +124,7 @@ public class GuildCloudflareControllerTests
         _cache.Remove($"perms:{UserId}:{ChannelId}");
     }
 
-    private async Task<string?> StoredSessionIdAsync() => (await ParticipantAsync())?.CfSessionId;
+    private async Task<string?> StoredSessionIdAsync() => (await ParticipantAsync())?.MediaSessionId;
 
     private async Task<VoiceParticipant?> ParticipantAsync()
     {
@@ -155,7 +156,7 @@ public class GuildCloudflareControllerTests
         Assert.Multiple(() =>
         {
             Assert.That(me!.PublishState, Is.EqualTo(VoicePublishState.Joined));
-            Assert.That(me.CfSessionId, Is.Null);
+            Assert.That(me.MediaSessionId, Is.Null);
             Assert.That(me.AudioTrackName, Is.Null);
         });
     }
@@ -169,17 +170,17 @@ public class GuildCloudflareControllerTests
         await GrantSpeakAsync();
         _cache.SetEntry("voice:session-owner:cf-owned-session", UserId);
 
-        var published = await _controller.TracksNew(GuildId, ChannelId, new GuildTracksNewBody(
+        var published = await _controller.Negotiate(GuildId, ChannelId, new GuildNegotiateBody(
             "cf-owned-session",
-            new CfSessionDescription("offer", "v=0"),
-            [new CfTrackNew("local", Mid: "0", TrackName: "audio")]), CancellationToken.None);
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")]), CancellationToken.None);
         Assert.That(published, Is.InstanceOf<OkObjectResult>());
 
         var me = await ParticipantAsync();
         Assert.Multiple(() =>
         {
             Assert.That(me!.PublishState, Is.EqualTo(VoicePublishState.Publishing));
-            Assert.That(me.CfSessionId, Is.EqualTo("cf-owned-session"));
+            Assert.That(me.MediaSessionId, Is.EqualTo("cf-owned-session"));
             Assert.That(me.AudioTrackName, Is.EqualTo("audio"));
         });
     }

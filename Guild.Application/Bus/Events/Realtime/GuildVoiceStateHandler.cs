@@ -43,7 +43,7 @@ public class GuildVoiceStateHandler
         reconciler.HeartbeatAsync(
             message.UserId, Room(message.ChannelId),
             message.State.KnownInstanceId, message.State.KnownVersion,
-            message.State.CfSessionId, message.State.AudioTrackName);
+            message.State.MediaSessionId, message.State.AudioTrackName);
 
     public async Task Handle(GuildVoiceMuteCommand message, VoiceRoomService voice, IMessageBus bus)
     {

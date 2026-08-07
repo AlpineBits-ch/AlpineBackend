@@ -43,7 +43,7 @@ public record UpdateGuildReadCommand(string UserId, string ChannelId, string Id)
 public record VoiceHeartbeatState(
     string? KnownInstanceId,
     long KnownVersion,
-    string? CfSessionId,
+    string? MediaSessionId,
     string? AudioTrackName);
 
 // Two records rather than one carrying a room kind, purely because Wolverine routes on the concrete

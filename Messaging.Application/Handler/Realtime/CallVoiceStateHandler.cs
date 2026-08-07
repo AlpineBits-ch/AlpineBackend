@@ -40,5 +40,5 @@ public class CallVoiceStateHandler
         reconciler.HeartbeatAsync(
             message.UserId, Room(message.CallId),
             message.State.KnownInstanceId, message.State.KnownVersion,
-            message.State.CfSessionId, message.State.AudioTrackName);
+            message.State.MediaSessionId, message.State.AudioTrackName);
 }

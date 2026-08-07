@@ -87,7 +87,7 @@ public class VoiceMultiInstanceTests(string kind)
         var announced = SendsTo(Bob).Single(s => s.Method == Event(VoiceEvents.ParticipantJoined));
         Assert.Multiple(() =>
         {
-            Assert.That(announced.Envelope!["cfSessionId"], Is.EqualTo("cf-alice"));
+            Assert.That(announced.Envelope!["mediaSessionId"], Is.EqualTo("cf-alice"));
             Assert.That(announced.Envelope!["audioTrackName"], Is.EqualTo("audio"));
         });
     }
@@ -102,7 +102,7 @@ public class VoiceMultiInstanceTests(string kind)
         await _pod2.Service.JoinAsync(_key, Bob, "device-2");
 
         var alice = LastSnapshotTo(Bob)!.Participants.Single(p => p.UserId == Alice);
-        Assert.That(alice.CfSessionId, Is.EqualTo("cf-alice"));
+        Assert.That(alice.MediaSessionId, Is.EqualTo("cf-alice"));
     }
 
     // ── Concurrent writes from different instances ────────────────────────────
@@ -138,8 +138,8 @@ public class VoiceMultiInstanceTests(string kind)
         var room = (await _pod1.Rooms.LoadAsync(_key))!;
         Assert.Multiple(() =>
         {
-            Assert.That(room.Find(Alice)!.CfSessionId, Is.EqualTo("cf-alice"));
-            Assert.That(room.Find(Bob)!.CfSessionId, Is.EqualTo("cf-bob"));
+            Assert.That(room.Find(Alice)!.MediaSessionId, Is.EqualTo("cf-alice"));
+            Assert.That(room.Find(Bob)!.MediaSessionId, Is.EqualTo("cf-bob"));
             Assert.That(room.Find(Alice)!.IsSelfMuted, Is.True);
             Assert.That(room.Find(Bob)!.IsSelfDeafened, Is.True);
             Assert.That(room.Version, Is.EqualTo(6));
@@ -183,7 +183,7 @@ public class VoiceMultiInstanceTests(string kind)
         Assert.Multiple(() =>
         {
             Assert.That(outcome, Is.EqualTo(VoiceReconcileOutcome.SnapshotSent));
-            Assert.That(LastSnapshotTo(Alice)!.Participants.Single(p => p.UserId == Bob).CfSessionId,
+            Assert.That(LastSnapshotTo(Alice)!.Participants.Single(p => p.UserId == Bob).MediaSessionId,
                 Is.EqualTo("cf-bob"));
         });
     }

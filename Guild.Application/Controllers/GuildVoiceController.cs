@@ -3,7 +3,7 @@ using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
-using Echo.Realtime.Sfu;
+using Echo.Voice.Transport;
 using Echo.Voice.Rooms;
 
 using Guild.Application.Models;
@@ -27,7 +27,7 @@ public class GuildVoiceController(
     GuildPermissionService permissions,
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
-    CloudflareService cfService,
+    IVoiceMediaTransport media,
     MicroserviceContext db,
     DeviceIdResolver devices,
     GuildVoiceActivityStore activity,
@@ -114,29 +114,29 @@ public class GuildVoiceController(
     /// its stale Cloudflare session server-side too.</summary>
     private async Task TakeoverDeviceAsync(string guildId, string channelId, string userId, string oldDeviceId, string newDeviceId, CancellationToken ct)
     {
-        string? oldCfSessionId = null;
+        string? oldMediaSessionId = null;
         string? oldAudioTrackName = null;
 
         await rooms.MutateExistingAsync(Room(channelId), r =>
         {
             var participant = r.Find(userId);
             if (participant is null) return;
-            oldCfSessionId = participant.CfSessionId;
+            oldMediaSessionId = participant.MediaSessionId;
             oldAudioTrackName = participant.AudioTrackName;
             participant.DeviceId = newDeviceId;
-            participant.CfSessionId = null;
+            participant.MediaSessionId = null;
             participant.AudioTrackName = null;
         }, ct);
 
         await hub.Clients.Group(EchoRealtimeHub.DeviceGroup(userId, oldDeviceId))
             .SendAsync("guild.voice.KickedByOtherDevice", new { channelId, guildId }, ct);
 
-        if (oldCfSessionId is null || oldAudioTrackName is null) return;
+        if (oldMediaSessionId is null || oldAudioTrackName is null) return;
         try
         {
-            await cfService.CloseTracksAsync(oldCfSessionId, [oldAudioTrackName], ct);
+            await media.CloseTracksAsync(oldMediaSessionId, [oldAudioTrackName], ct);
         }
-        catch (CloudflareCallsException)
+        catch (VoiceMediaException)
         {
             // Best-effort - the old device still tears itself down client-side from the kick above.
         }

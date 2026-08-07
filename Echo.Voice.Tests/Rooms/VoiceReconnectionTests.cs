@@ -57,7 +57,7 @@ public class VoiceReconnectionTests(string kind)
                 Is.EquivalentTo(new[] { Alice, Bob, Carol }));
 
             var bob = snapshot.Participants.Single(p => p.UserId == Bob);
-            Assert.That(bob.CfSessionId, Is.EqualTo("cf-bob"), "Alice must be able to hear Bob again");
+            Assert.That(bob.MediaSessionId, Is.EqualTo("cf-bob"), "Alice must be able to hear Bob again");
             Assert.That(bob.AudioTrackName, Is.EqualTo("audio"));
             Assert.That(bob.Shares.Single().ShareId, Is.EqualTo("s1"), "including a share she never saw start");
 
@@ -76,7 +76,7 @@ public class VoiceReconnectionTests(string kind)
         await _h.Service.JoinAsync(_key, Alice, "device-1");
 
         var snapshot = LastSnapshotTo(Alice)!;
-        Assert.That(snapshot.Participants.Single(p => p.UserId == Bob).CfSessionId, Is.EqualTo("cf-bob"));
+        Assert.That(snapshot.Participants.Single(p => p.UserId == Bob).MediaSessionId, Is.EqualTo("cf-bob"));
     }
 
     /// <summary>Reconnecting on a second device transfers the roster entry rather than creating a
@@ -194,7 +194,7 @@ public class VoiceReconnectionTests(string kind)
         await _h.Rooms.MutateExistingAsync(_key, r =>
         {
             var a = r.Find(Alice)!;
-            a.CfSessionId = null;
+            a.MediaSessionId = null;
             a.AudioTrackName = null;
         });
         var damaged = await RoomAsync();

@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Sessions;
 using System.Net;
@@ -55,6 +56,8 @@ public class CloudflarePerTrackErrorTests
     [TearDown]
     public void TearDown() => _handler.Dispose();
 
+    // Cloudflare's own vocabulary on purpose: the half of this fixture below exercises
+    // CloudflareService directly, under the neutral transport port.
     private static CfTracksNewRequest SubscribeRequest() => new(
         new CfSessionDescription("offer", "v=0"),
         [new CfTrackNew("remote", SessionId: "cf-remote-session", TrackName: "audio")]);
@@ -134,7 +137,7 @@ public class CloudflarePerTrackErrorTests
     {
         var controller = BuildController();
 
-        await controller.TracksNew(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
+        await controller.Negotiate(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
 
         // TracksNewWithRetryAsync's own comment: "Subscribing to a track another participant only
         // just published can race Cloudflare's own SFU eventual consistency...
@@ -148,7 +151,7 @@ public class CloudflarePerTrackErrorTests
     {
         var controller = BuildController();
 
-        var result = await controller.TracksNew(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
+        var result = await controller.Negotiate(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
 
         // A 200 with an empty-but-well-formed body is indistinguishable from a working subscribe.
         Assert.That(result, Is.Not.InstanceOf<OkObjectResult>(),
@@ -169,7 +172,7 @@ public class CloudflarePerTrackErrorTests
         var controller = BuildController(new CloudflareService(
             new SingleHandlerFactory(handler), NullLogger<CloudflareService>.Instance));
 
-        var result = await controller.TracksNew(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
+        var result = await controller.Negotiate(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
 
         Assert.Multiple(() =>
         {
@@ -181,16 +184,16 @@ public class CloudflarePerTrackErrorTests
     // ── Fixture plumbing ──────────────────────────────────────────────────────
 
     /// <summary>Subscribe-only body: all tracks remote, so it takes the retry path.</summary>
-    private static GuildTracksNewBody SubscribeBody() => new(
+    private static GuildNegotiateBody SubscribeBody() => new(
         "cf-local-session",
-        new CfSessionDescription("offer", "v=0"),
-        [new CfTrackNew("remote", SessionId: "cf-remote-session", TrackName: "audio")]);
+        new VoiceSessionDescription("offer", "v=0"),
+        [new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-remote-session", TrackName: "audio")]);
 
     /// <summary>
     /// A subscribe is media access, so TracksNew now requires Connect on the channel and requires
     /// the acting session to be one the caller minted.
     /// </summary>
-    private GuildCloudflareController BuildController(CloudflareService? cfService = null)
+    private GuildVoiceMediaController BuildController(CloudflareService? cfService = null)
     {
         var context = new TestGuildContext(Guid.NewGuid().ToString());
         var cache = new FakeDistributedCache();
@@ -225,10 +228,10 @@ public class CloudflarePerTrackErrorTests
         // The session the body acts as has to belong to this caller.
         cache.SetEntry("voice:session-owner:cf-local-session", UserId);
 
-        return new GuildCloudflareController(
-            cfService ?? _cfService,
+        return new GuildVoiceMediaController(
+            new CloudflareMediaTransport(cfService ?? _cfService),
             new GuildPermissionService(cache, context, NullLogger<GuildPermissionService>.Instance),
-            NullLogger<GuildCloudflareController>.Instance, cache,
+            NullLogger<GuildVoiceMediaController>.Instance, cache,
             VoiceTestHarness.ServiceFor(cache, new FakeDistributedLockService(), new FakeHubContext()),
             new SfuSessionOwnership(cache))
         {

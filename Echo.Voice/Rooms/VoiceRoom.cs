@@ -48,7 +48,7 @@ public sealed class VoiceParticipant
     /// <summary>The device currently connected to this room's audio.</summary>
     public string? DeviceId { get; set; }
 
-    public string? CfSessionId { get; set; }
+    public string? MediaSessionId { get; set; }
     public string? AudioTrackName { get; set; }
 
     public bool IsSelfMuted { get; set; }
@@ -62,7 +62,7 @@ public sealed class VoiceParticipant
     /// <summary>Derived, never stored, and therefore impossible to set wrong.</summary>
     [JsonIgnore]
     public VoicePublishState PublishState =>
-        CfSessionId is not null && AudioTrackName is not null
+        MediaSessionId is not null && AudioTrackName is not null
             ? VoicePublishState.Publishing
             : VoicePublishState.Joined;
 }

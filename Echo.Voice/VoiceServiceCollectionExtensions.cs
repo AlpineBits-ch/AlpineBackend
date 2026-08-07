@@ -1,5 +1,6 @@
 using Echo.Voice.Rooms;
 using Echo.Voice.Sessions;
+using Echo.Voice.Transport;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Echo.Voice;
@@ -13,6 +14,7 @@ public static class VoiceServiceCollectionExtensions
     public static IServiceCollection AddVoiceRooms(this IServiceCollection services)
     {
         services.AddSingleton<SfuSessionOwnership>();
+        services.AddScoped<IVoiceMediaTransport, CloudflareMediaTransport>();
         services.AddSingleton<VoiceRoomStore>();
         services.AddSingleton<VoiceAnnouncer>();
         services.AddSingleton<VoiceRoomService>();

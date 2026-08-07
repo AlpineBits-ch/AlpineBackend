@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using System.Net;
 using System.Text;
 using Echo.Realtime.Sfu;
@@ -38,6 +39,8 @@ public class SubscribeRetryTests
         }
         """;
 
+    // Cloudflare's own vocabulary on purpose: this fixture exercises CloudflareService directly,
+    // below the neutral transport port, so it is the one place that should still speak CF types.
     private static CfTracksNewRequest SubscribeRequest() => new(
         new CfSessionDescription("offer", "v=0"),
         [new CfTrackNew("remote", SessionId: "cf-remote-session", TrackName: "audio")]);

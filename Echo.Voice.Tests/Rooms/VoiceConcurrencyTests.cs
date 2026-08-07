@@ -103,7 +103,7 @@ public class VoiceConcurrencyTests(string kind)
             Assert.That(room.Participants, Has.Count.EqualTo(4));
             Assert.That(room.Find("b")!.IsSelfMuted, Is.True);
             Assert.That(room.Find("c")!.IsSelfDeafened, Is.True);
-            Assert.That(room.Find("a")!.CfSessionId, Is.EqualTo("cf-a"));
+            Assert.That(room.Find("a")!.MediaSessionId, Is.EqualTo("cf-a"));
             Assert.That(room.Find("a")!.ActiveScreenShares.Single().ShareId, Is.EqualTo("s1"));
         });
     }

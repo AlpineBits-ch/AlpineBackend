@@ -89,7 +89,7 @@ public class VoiceBackfillTests(string kind)
 
         Assert.Multiple(() =>
         {
-            Assert.That(alice.CfSessionId, Is.EqualTo("cf-alice"));
+            Assert.That(alice.MediaSessionId, Is.EqualTo("cf-alice"));
             Assert.That(alice.AudioTrackName, Is.EqualTo("audio"),
                 "withholding the media handles is what made HTTP catch-up incapable of restoring a "
                 + "subscription, and is the reason the call flow needed a bespoke replay");
@@ -110,7 +110,7 @@ public class VoiceBackfillTests(string kind)
         Assert.Multiple(() =>
         {
             Assert.That(alice.PublishState, Is.EqualTo(nameof(VoicePublishState.Joined)));
-            Assert.That(alice.CfSessionId, Is.Null,
+            Assert.That(alice.MediaSessionId, Is.Null,
                 "announcing a session with no track hands the joiner a pair Cloudflare has nothing "
                 + "behind, and the client's per-user dedupe guard then burns on the failure");
             Assert.That(alice.AudioTrackName, Is.Null);
@@ -121,13 +121,13 @@ public class VoiceBackfillTests(string kind)
     public async Task Publish_state_cannot_be_set_independently_of_the_handles()
     {
         // Derived, not stored - so there is no way to represent "publishing with no track".
-        var participant = new VoiceParticipant { UserId = Alice, CfSessionId = "cf-1" };
+        var participant = new VoiceParticipant { UserId = Alice, MediaSessionId = "cf-1" };
         Assert.That(participant.PublishState, Is.EqualTo(VoicePublishState.Joined));
 
         participant.AudioTrackName = "audio";
         Assert.That(participant.PublishState, Is.EqualTo(VoicePublishState.Publishing));
 
-        participant.CfSessionId = null;
+        participant.MediaSessionId = null;
         Assert.That(participant.PublishState, Is.EqualTo(VoicePublishState.Joined));
         await Task.CompletedTask;
     }
@@ -183,7 +183,7 @@ public class VoiceBackfillTests(string kind)
         {
             Assert.That(outcome, Is.EqualTo(VoiceReconcileOutcome.Repaired));
             Assert.That(after.Find(Alice)!.PublishState, Is.EqualTo(VoicePublishState.Publishing));
-            Assert.That(after.Find(Alice)!.CfSessionId, Is.EqualTo("cf-alice"));
+            Assert.That(after.Find(Alice)!.MediaSessionId, Is.EqualTo("cf-alice"));
             Assert.That(after.Version, Is.GreaterThan(room.Version),
                 "a repair is a state change, so peers must be able to detect it like any other");
         });

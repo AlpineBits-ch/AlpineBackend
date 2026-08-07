@@ -15,26 +15,26 @@ public sealed class SfuSessionOwnership(IDistributedCache cache)
         SlidingExpiration = Ttl
     };
 
-    private static string Key(string cfSessionId) => $"voice:session-owner:{cfSessionId}";
+    private static string Key(string mediaSessionId) => $"voice:session-owner:{mediaSessionId}";
 
-    /// <summary>Records that <paramref name="userId"/> minted <paramref name="cfSessionId"/>.
+    /// <summary>Records that <paramref name="userId"/> minted <paramref name="mediaSessionId"/>.
     /// Call this before handing the id back, so no window exists in which a session is usable but
     /// unowned.</summary>
-    public Task BindAsync(string cfSessionId, string userId, CancellationToken ct = default) =>
-        cache.SetStringAsync(Key(cfSessionId), userId, CacheOptions, ct);
+    public Task BindAsync(string mediaSessionId, string userId, CancellationToken ct = default) =>
+        cache.SetStringAsync(Key(mediaSessionId), userId, CacheOptions, ct);
 
     /// <summary>Whether <paramref name="userId"/> is the user who minted
-    /// <paramref name="cfSessionId"/>. A blank or unknown session id is not owned by anybody,
+    /// <paramref name="mediaSessionId"/>. A blank or unknown session id is not owned by anybody,
     /// including the caller.</summary>
-    public async Task<bool> OwnsAsync(string? cfSessionId, string userId, CancellationToken ct = default)
+    public async Task<bool> OwnsAsync(string? mediaSessionId, string userId, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(cfSessionId)) return false;
+        if (string.IsNullOrWhiteSpace(mediaSessionId)) return false;
 
-        var owner = await cache.GetStringAsync(Key(cfSessionId), ct);
+        var owner = await cache.GetStringAsync(Key(mediaSessionId), ct);
         return owner is not null && string.Equals(owner, userId, StringComparison.Ordinal);
     }
 
     /// <summary>Forgets an ownership record.</summary>
-    public Task ReleaseAsync(string cfSessionId, CancellationToken ct = default) =>
-        cache.RemoveAsync(Key(cfSessionId), ct);
+    public Task ReleaseAsync(string mediaSessionId, CancellationToken ct = default) =>
+        cache.RemoveAsync(Key(mediaSessionId), ct);
 }

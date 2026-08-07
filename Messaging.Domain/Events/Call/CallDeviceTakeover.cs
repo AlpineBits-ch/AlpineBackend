@@ -13,6 +13,6 @@ public class CallDeviceTakeover : DomainEvent
 
     /// <summary>The old device's Cloudflare Calls session/track, if it had one - best-effort
     /// server-side cleanup in addition to the old device tearing itself down client-side.</summary>
-    public string? OldCfSessionId { get; set; }
+    public string? OldMediaSessionId { get; set; }
     public string? OldAudioTrackName { get; set; }
 }

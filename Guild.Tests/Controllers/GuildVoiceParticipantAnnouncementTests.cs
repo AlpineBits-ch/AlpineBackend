@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
 using Echo.Voice.Sessions;
@@ -33,7 +34,7 @@ public class GuildVoiceParticipantAnnouncementTests
     private FakeDistributedCache _cache = null!;
     private FakeHubContext _hub = null!;
     private LockedJsonCacheStore _voiceStore = null!;
-    private GuildCloudflareController _controller = null!;
+    private GuildVoiceMediaController _controller = null!;
 
     [SetUp]
     public async Task SetUp()
@@ -44,9 +45,9 @@ public class GuildVoiceParticipantAnnouncementTests
         _voiceStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
         var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
-        _controller = new GuildCloudflareController(
-            StubCloudflareHttp.CreateService(), permissions,
-            NullLogger<GuildCloudflareController>.Instance, _cache,
+        _controller = new GuildVoiceMediaController(
+            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), permissions,
+            NullLogger<GuildVoiceMediaController>.Instance, _cache,
             VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub),
             new SfuSessionOwnership(_cache))
         {
@@ -113,23 +114,23 @@ public class GuildVoiceParticipantAnnouncementTests
                 new VoiceParticipant { UserId = PublisherId },
                 new VoiceParticipant
                 {
-                    UserId = MidJoinerId, CfSessionId = "cf-midjoiner", AudioTrackName = null,
+                    UserId = MidJoinerId, MediaSessionId = "cf-midjoiner", AudioTrackName = null,
                 },
                 new VoiceParticipant
                 {
-                    UserId = EstablishedId, CfSessionId = "cf-established", AudioTrackName = "audio",
+                    UserId = EstablishedId, MediaSessionId = "cf-established", AudioTrackName = "audio",
                 },
             ],
         };
         _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(state));
     }
 
-    private Task<IActionResult> PublishAudioAsync() => _controller.TracksNew(
+    private Task<IActionResult> PublishAudioAsync() => _controller.Negotiate(
         GuildId, ChannelId,
-        new GuildTracksNewBody(
+        new GuildNegotiateBody(
             "cf-publisher",
-            new CfSessionDescription("offer", "v=0"),
-            [new CfTrackNew("local", Mid: "0", TrackName: "audio")]),
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")]),
         CancellationToken.None);
 
     /// <summary>Every ParticipantJoined payload emitted, as JSON (the payloads are anonymous types
@@ -161,7 +162,7 @@ public class GuildVoiceParticipantAnnouncementTests
         Assert.Multiple(() =>
         {
             Assert.That(me.PublishState, Is.EqualTo(VoicePublishState.Joined));
-            Assert.That(me.CfSessionId, Is.Null,
+            Assert.That(me.MediaSessionId, Is.Null,
                 "no audio track has been published yet - the client is still acquiring a microphone");
             Assert.That(me.AudioTrackName, Is.Null);
         });
@@ -212,7 +213,7 @@ public class GuildVoiceParticipantAnnouncementTests
         Assert.Multiple(() =>
         {
             Assert.That(established.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
-            Assert.That(established.CfSessionId, Is.EqualTo("cf-established"));
+            Assert.That(established.MediaSessionId, Is.EqualTo("cf-established"));
             Assert.That(snapshot.Participants.Single(p => p.UserId == MidJoinerId).PublishState,
                 Is.EqualTo(nameof(VoicePublishState.Joined)),
                 "and the mid-joiner is still reported as not yet pullable");

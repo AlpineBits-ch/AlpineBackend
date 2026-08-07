@@ -71,7 +71,7 @@ public class GuildVoiceDisconnectCleanupTests
 
 
         DeviceId = deviceId,
-        CfSessionId = "cf-session",
+        MediaSessionId = "cf-session",
         AudioTrackName = "audio",
     };
 

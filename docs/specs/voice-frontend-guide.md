@@ -67,7 +67,7 @@ screen-{shareId}         <- video track
 screen-audio-{shareId}   <- audio track, same shareId
 ```
 
-Publish both in the **same** `tracks/new` call when you have both. You will get one
+Publish both in the **same** `POST .../tracks` call when you have both. You will get one
 `TrackPublished` event per track, each with its own `kind`, and both carrying the same `shareId` so
 the receiving client can group them into one tile.
 
@@ -80,14 +80,14 @@ they cannot hear me".
 
 ```
 1. Join the room                -> you get a Snapshot immediately
-2. Open a Cloudflare session    -> you get a cfSessionId
-3. Publish your local tracks    -> tracks/new with location: "local"
-4. Subscribe to everyone else   -> tracks/new with location: "remote"
+2. Open a media session         -> you get a mediaSessionId + backend
+3. Publish your local tracks    -> POST .../tracks, direction "publish"
+4. Subscribe to everyone else   -> POST .../tracks, direction "subscribe"
 5. Heartbeat every ~30s         -> keeps you alive AND repairs drift
 ```
 
-**Always publish before you subscribe.** Cloudflare rejects a pull on a session that has not
-completed its own negotiation. The snapshot tells you who is pullable so you can sequence this
+**Always publish before you subscribe.** The SFU rejects a pull on a session that has not completed
+its own negotiation. The snapshot tells you who is pullable so you can sequence this
 correctly with full information.
 
 ### 3.1 Join
@@ -109,19 +109,24 @@ Joining puts you in the roster **before** any media work. It returns the snapsho
 pushes the same `Snapshot` over SignalR, so you can render the room from the HTTP response without
 waiting for any event.
 
-### 3.2 Open a Cloudflare session
+### 3.2 Open a media session
 
 ```http
 POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/session?primary=true
 POST /api/v1/voice/calls/{callId}/session?primary=true
 ```
 ```json
-{ "cfSessionId": "..." }
+{ "mediaSessionId": "...", "backend": "cloudflare" }
 ```
 
 `primary=true` is the session carrying your microphone. Use `primary=false` for a **second session
 opened only for a screen share** (a desktop client publishing screen from a separate process). A
 secondary session must not take over the call.
+
+`backend` names the SFU behind the session. Nothing else in this document is backend-specific: the
+routes, request bodies and responses are all neutral, so the server can change SFU without changing
+any of it. Branch on `backend` only where your media layer genuinely differs, and treat an
+unrecognised value as "I cannot handle this room" rather than guessing.
 
 > Opening a session does **not** make you audible. You are `Joined`, not `Publishing`, until a track
 > exists. Nobody will be told to subscribe to you yet, by design.
@@ -129,37 +134,37 @@ secondary session must not take over the call.
 ### 3.3 Publish
 
 ```http
-POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/cf/tracks/new
-POST /api/v1/voice/calls/{callId}/cf/tracks/new
+POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
+POST /api/v1/voice/calls/{callId}/tracks
 ```
 ```json
 {
-  "cfSessionId": "...",
+  "mediaSessionId": "...",
   "sessionDescription": { "type": "offer", "sdp": "..." },
   "tracks": [
-    { "location": "local", "mid": "0", "trackName": "audio" },
-    { "location": "local", "mid": "1", "trackName": "camera" },
-    { "location": "local", "mid": "2", "trackName": "screen-abc123" },
-    { "location": "local", "mid": "3", "trackName": "screen-audio-abc123" }
+    { "direction": "publish", "mid": "0", "trackName": "audio" },
+    { "direction": "publish", "mid": "1", "trackName": "camera" },
+    { "direction": "publish", "mid": "2", "trackName": "screen-abc123" },
+    { "direction": "publish", "mid": "3", "trackName": "screen-audio-abc123" }
   ]
 }
 ```
 
-Set your local description first, then send the MIDs. The response is Cloudflare's answer SDP plus
-per-track results.
+Set your local description first, then send the MIDs. The response is the answer SDP plus per-track
+results.
 
 Publishing `audio` is what flips you to `Publishing` and announces you to the room.
 
 ### 3.4 Subscribe
 
-Same endpoint, all tracks `remote`:
+Same endpoint, every track `direction: "subscribe"`:
 
 ```json
 {
-  "cfSessionId": "<your own session>",
+  "mediaSessionId": "<your own session>",
   "sessionDescription": { "type": "offer", "sdp": "..." },
   "tracks": [
-    { "location": "remote", "sessionId": "<their cfSessionId>", "trackName": "audio" }
+    { "direction": "subscribe", "mediaSessionId": "<theirs>", "trackName": "audio" }
   ]
 }
 ```
@@ -170,8 +175,8 @@ The server retries the publisher-not-ready race for you (up to ~6s). If it still
 ### 3.5 Renegotiate / close
 
 ```http
-PUT .../cf/renegotiate      { "cfSessionId", "sessionDescription" }
-PUT .../cf/tracks/close     { "cfSessionId", "trackNames": ["screen-abc123"] }
+PUT  .../voice/negotiate     { "mediaSessionId", "sessionDescription" }
+POST .../voice/tracks/close { "mediaSessionId", "trackNames": ["screen-abc123"] }
 ```
 
 Closing `audio` marks you no longer publishing and tells peers to drop you.
@@ -207,7 +212,7 @@ GET /api/v1/voice/call/{callId}/snapshot
   "participants": [
     {
       "userId": "user-1",
-      "cfSessionId": "cf-abc",
+      "mediaSessionId": "cf-abc",
       "audioTrackName": "audio",
       "publishState": "Publishing",
       "isSelfMuted": false,
@@ -226,7 +231,7 @@ GET /api/v1/voice/call/{callId}/snapshot
 
 - `publishState` is `"Joined"` or `"Publishing"`. **Only subscribe to participants who are
   `Publishing`.**
-- `cfSessionId` and `audioTrackName` are `null` unless `publishState` is `Publishing`. A session id
+- `mediaSessionId` and `audioTrackName` are `null` unless `publishState` is `Publishing`. A session id
   alone is not an invitation to subscribe.
 - `shares[].trackNames` tells you exactly which halves of a share exist - video only, or video and
   audio.
@@ -270,7 +275,7 @@ Every ~30 seconds, over SignalR:
 connection.invoke("voice.Heartbeat", roomKind, roomId, {
   knownInstanceId: held.instanceId,
   knownVersion:    held.version,
-  cfSessionId:     myPublishingSessionId ?? null,   // null if not publishing
+  mediaSessionId:     myPublishingSessionId ?? null,   // null if not publishing
   audioTrackName:  myPublishingSessionId ? "audio" : null
 });
 ```
@@ -301,8 +306,8 @@ Prefix with `guild.voice.` or `call.`. Every payload also carries the room id fi
 |---|---|---|
 | `Snapshot` | *the full snapshot object* | Authoritative state. Replace everything. |
 | `Resync` | `reason`, sometimes `userId` | Refetch the snapshot. `reason` is `roomGone`, `participantLeft` or `peerPublishChanged`. |
-| `ParticipantJoined` | `userId`, `cfSessionId`, `audioTrackName` | This user is now **pullable**. Subscribe to them. |
-| `TrackPublished` | `userId`, `cfSessionId`, `trackName`, `kind`, `shareId` | A camera or screen track appeared. |
+| `ParticipantJoined` | `userId`, `mediaSessionId`, `audioTrackName` | This user is now **pullable**. Subscribe to them. |
+| `TrackPublished` | `userId`, `mediaSessionId`, `trackName`, `kind`, `shareId` | A camera or screen track appeared. |
 | `TrackClosed` | `userId`, `trackName`, `shareId` | Drop that track. |
 | `MuteChanged` | `userId`, `isMuted`, `serverForced` | `serverForced: true` means a moderator did it. |
 | `DeafenChanged` | `userId`, `isDeafened`, `serverForced` | |
@@ -374,7 +379,7 @@ GET    .../voice/shares/viewers                  # { shareId: [userId, ...] }
 
 | Status | Meaning | What to do |
 |---|---|---|
-| **502** | Cloudflare rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and retry later. **Do not** treat as success. |
+| **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and retry later. **Do not** treat as success. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
 | **403** | Not permitted (missing `Connect`/`Speak`/`Stream`, not a participant, or acting as a session you do not own). | Do not retry blindly. |
 | **404** | Room or call does not exist. | Stop, rejoin from scratch. |
@@ -387,7 +392,7 @@ becomes permanent silence for that participant.
 
 ## 8. Rules that will bite you if you skip them
 
-1. **Publish local before pulling remote.** Otherwise Cloudflare rejects the pull.
+1. **Publish before you subscribe.** Otherwise the SFU rejects the pull.
 2. **Only subscribe to `publishState: "Publishing"`.** A session id alone is not enough.
 3. **Roll back the dedupe guard on failure.** See §7.
 4. **Handle version gaps.** Without this, one dropped event is permanent.
@@ -410,9 +415,9 @@ POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/leave
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice            (same as /voice/snapshot)
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice/snapshot
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/session?primary=
-POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/cf/tracks/new
-PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/cf/renegotiate
-PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/cf/tracks/close
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
+PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/negotiate
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks/close
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/{shareId}/watch
 DELETE /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/{shareId}/watch
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/viewers
@@ -427,9 +432,9 @@ GET    /api/v1/voice/call/pending                           am I being rung? (20
 GET    /api/v1/voice/conversations/{conversationId}/call     is a call happening here?
 GET    /api/v1/voice/call/{callId}/snapshot                 media state
 POST   /api/v1/voice/calls/{callId}/session?primary=
-POST   /api/v1/voice/calls/{callId}/cf/tracks/new
-PUT    /api/v1/voice/calls/{callId}/cf/renegotiate
-PUT    /api/v1/voice/calls/{callId}/cf/tracks/close
+POST   /api/v1/voice/calls/{callId}/tracks
+PUT    /api/v1/voice/calls/{callId}/negotiate
+POST   /api/v1/voice/calls/{callId}/tracks/close
 POST   /api/v1/voice/call/{callId}/shares/{shareId}/watch
 DELETE /api/v1/voice/call/{callId}/shares/{shareId}/watch
 GET    /api/v1/voice/call/{callId}/shares/viewers
@@ -449,7 +454,7 @@ await api.post(`/api/v1/guilds/${guildId}/channels/${channelId}/voice/join`, nul
                { headers: { "X-Device-Id": deviceId } });
 
 // 2. Session.
-const { cfSessionId } = await api.post(
+const { mediaSessionId, backend } = await api.post(
   `/api/v1/guilds/${guildId}/channels/${channelId}/voice/session?primary=true`);
 
 // 3. Publish mic (+ camera, + screen with audio if you have them).
@@ -457,24 +462,24 @@ const pc = new RTCPeerConnection({ iceServers });
 const micTx = pc.addTransceiver(micTrack, { direction: "sendonly" });
 await pc.setLocalDescription(await pc.createOffer());
 
-const publish = await api.post(`.../voice/cf/tracks/new`, {
-  cfSessionId,
+const publish = await api.post(`.../voice/tracks`, {
+  mediaSessionId,
   sessionDescription: { type: "offer", sdp: pc.localDescription.sdp },
-  tracks: [{ location: "local", mid: micTx.mid, trackName: "audio" }],
+  tracks: [{ direction: "publish", mid: micTx.mid, trackName: "audio" }],
 });
 await pc.setRemoteDescription(publish.sessionDescription);
 
 // 4. Subscribe to everyone already publishing, from the snapshot.
 for (const p of snapshot.participants) {
   if (p.userId === me || p.publishState !== "Publishing") continue;
-  await subscribeTo(p.cfSessionId, p.audioTrackName);
+  await subscribeTo(p.mediaSessionId, p.audioTrackName);
 }
 
 // 5. Heartbeat.
 setInterval(() => connection.invoke("voice.Heartbeat", "channel", channelId, {
   knownInstanceId: held.instanceId,
   knownVersion: held.version,
-  cfSessionId,
+  mediaSessionId,
   audioTrackName: "audio",
 }), 30_000);
 ```

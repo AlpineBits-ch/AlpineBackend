@@ -111,7 +111,7 @@ public class CallTests
 
         // The superseded device's media handles are read from the voice room by the caller and
         // handed in.
-        call.Accept("user-1", "device-2", oldCfSessionId: "cf-old", oldAudioTrackName: "track-old");
+        call.Accept("user-1", "device-2", oldMediaSessionId: "cf-old", oldAudioTrackName: "track-old");
 
         var participant = call.Participants.Single(p => p.UserId == "user-1");
         var takeover = call.GetDomainEvents().OfType<CallDeviceTakeover>().Single();
@@ -120,7 +120,7 @@ public class CallTests
             Assert.That(participant.ActiveDeviceId, Is.EqualTo("device-2"));
             Assert.That(takeover.OldDeviceId, Is.EqualTo("device-1"));
             Assert.That(takeover.NewDeviceId, Is.EqualTo("device-2"));
-            Assert.That(takeover.OldCfSessionId, Is.EqualTo("cf-old"),
+            Assert.That(takeover.OldMediaSessionId, Is.EqualTo("cf-old"),
                 "the handler needs this to close the superseded session");
             Assert.That(takeover.OldAudioTrackName, Is.EqualTo("track-old"));
         });

@@ -41,7 +41,7 @@ public sealed class VoiceReconciler(
     /// <param name="knownInstanceId">
     /// The room incarnation the client believes it is tracking.
     /// </param>
-    /// <param name="claimedCfSessionId">
+    /// <param name="claimedMediaSessionId">
     /// The session the client believes it is publishing on, or null if it is not publishing.
     /// </param>
     /// <param name="claimedAudioTrack">
@@ -52,7 +52,7 @@ public sealed class VoiceReconciler(
         VoiceRoomKey key,
         string? knownInstanceId,
         long knownVersion,
-        string? claimedCfSessionId,
+        string? claimedMediaSessionId,
         string? claimedAudioTrack,
         CancellationToken ct = default)
     {
@@ -83,7 +83,7 @@ public sealed class VoiceReconciler(
             return VoiceReconcileOutcome.RoomGone;
         }
 
-        var drifted = me.CfSessionId != claimedCfSessionId || me.AudioTrackName != claimedAudioTrack;
+        var drifted = me.MediaSessionId != claimedMediaSessionId || me.AudioTrackName != claimedAudioTrack;
         if (drifted)
         {
             // Captured inside the mutation, not from the read above.
@@ -94,7 +94,7 @@ public sealed class VoiceReconciler(
                 var p = r.Find(userId);
                 if (p is null) return;
                 wasPublishing = p.PublishState;
-                p.CfSessionId = claimedCfSessionId;
+                p.MediaSessionId = claimedMediaSessionId;
                 p.AudioTrackName = claimedAudioTrack;
             }, ct);
 
@@ -103,7 +103,7 @@ public sealed class VoiceReconciler(
                 logger.LogInformation(
                     "Repaired {UserId} in room {Room}: session {OldSession}->{NewSession}, "
                     + "track {OldTrack}->{NewTrack}, now v{Version}",
-                    userId, key, me.CfSessionId ?? "null", claimedCfSessionId ?? "null",
+                    userId, key, me.MediaSessionId ?? "null", claimedMediaSessionId ?? "null",
                     me.AudioTrackName ?? "null", claimedAudioTrack ?? "null", repaired.Version);
 
                 var now = repaired.Find(userId)!;

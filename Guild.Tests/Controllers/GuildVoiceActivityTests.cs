@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
 using System.Text.Json;
@@ -56,7 +57,7 @@ public class GuildVoiceActivityTests
 
         _voice = new GuildVoiceController(
             permissions, _hub, _cache,
-            StubCloudflareHttp.CreateService(), _context,
+            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             _activity, _viewers,
             VoiceTestHarness.ServiceFor(_cache, locks, _hub), VoiceTestHarness.StoreFor(_cache, locks), _bus)
@@ -332,7 +333,7 @@ public class GuildVoiceActivityTests
     // ── Seeding helpers ───────────────────────────────────────────────────────
 
     /// <summary>Records an active share against an existing roster entry, the way
-    /// GuildCloudflareController does once the screen tracks are published.</summary>
+    /// GuildVoiceMediaController does once the screen tracks are published.</summary>
     private async Task SetActiveShareAsync(string userId, string shareId)
     {
         var raw = await _cache.GetStringAsync(VoiceRoomKey.Channel(ChannelId).CacheKey);

@@ -22,16 +22,16 @@ public class CallDeviceTakeoverHandler
                 newDeviceId = @event.NewDeviceId,
             });
 
-        if (@event.OldCfSessionId is null || @event.OldAudioTrackName is null) return;
+        if (@event.OldMediaSessionId is null || @event.OldAudioTrackName is null) return;
         try
         {
-            await cfService.CloseTracksAsync(@event.OldCfSessionId, [@event.OldAudioTrackName]);
+            await cfService.CloseTracksAsync(@event.OldMediaSessionId, [@event.OldAudioTrackName]);
         }
         catch (CloudflareCallsException ex)
         {
             logger.LogWarning(ex,
-                "Best-effort close of superseded call session {CfSessionId} for user {UserId} failed - the old device should still tear down client-side from call.CallDeviceTakeover",
-                @event.OldCfSessionId, @event.UserId);
+                "Best-effort close of superseded call session {MediaSessionId} for user {UserId} failed - the old device should still tear down client-side from call.CallDeviceTakeover",
+                @event.OldMediaSessionId, @event.UserId);
         }
     }
 }

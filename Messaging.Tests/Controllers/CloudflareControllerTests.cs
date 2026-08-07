@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
 using Echo.Voice.Sessions;
@@ -19,7 +20,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Messaging.Tests.Controllers;
 
-/// <summary>Covers CloudflareController.CreateSession's <c>primary</c> flag.</summary>
+/// <summary>Covers CallVoiceMediaController.CreateSession's <c>primary</c> flag.</summary>
 [TestFixture]
 public class CloudflareControllerTests
 {
@@ -32,7 +33,7 @@ public class CloudflareControllerTests
     private FakeDistributedCache _cache = null!;
     private FakeMessageBus _bus = null!;
     private LockedJsonCacheStore _callStore = null!;
-    private CloudflareController _controller = null!;
+    private CallVoiceMediaController _controller = null!;
 
     [SetUp]
     public async Task SetUp()
@@ -47,13 +48,13 @@ public class CloudflareControllerTests
         });
         _callStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
-        _controller = new CloudflareController(
-            StubCloudflareHttp.CreateService(), _cache, _callStore,
+        _controller = new CallVoiceMediaController(
+            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _cache, _callStore,
             _bus, new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             new SfuSessionOwnership(_cache),
             VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), new FakeMessagingHubContext()),
             VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
-            NullLogger<CloudflareController>.Instance)
+            NullLogger<CallVoiceMediaController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -95,7 +96,7 @@ public class CloudflareControllerTests
                 new VoiceParticipant
                 {
                     UserId = UserId, DeviceId = PrimaryDevice,
-                    CfSessionId = ExistingSessionId, AudioTrackName = "audio",
+                    MediaSessionId = ExistingSessionId, AudioTrackName = "audio",
                 },
             ],
         });
@@ -161,7 +162,7 @@ public class CloudflareControllerTests
             // A secondary session must not take the call over: the other side needs this user's
             // audio session to keep working, and the media handles now live in the voice room.
             Assert.That(participant.ActiveDeviceId, Is.EqualTo(PrimaryDevice));
-            Assert.That(room?.Find(UserId)?.CfSessionId, Is.EqualTo(ExistingSessionId));
+            Assert.That(room?.Find(UserId)?.MediaSessionId, Is.EqualTo(ExistingSessionId));
             Assert.That(room?.Find(UserId)?.AudioTrackName, Is.EqualTo("audio"));
         });
     }

@@ -1,3 +1,4 @@
+using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Sessions;
 using System.Net;
@@ -45,7 +46,7 @@ public class CloudflarePerTrackErrorTests
         """;
 
     private CountingCloudflareHandler _handler = null!;
-    private CloudflareController _controller = null!;
+    private CallVoiceMediaController _controller = null!;
     private FakeDistributedCache _cache = null!;
 
     [SetUp]
@@ -62,14 +63,14 @@ public class CloudflarePerTrackErrorTests
             _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
         });
 
-        _controller = new CloudflareController(
-            cfService, cache,
+        _controller = new CallVoiceMediaController(
+            new CloudflareMediaTransport(cfService), cache,
             new LockedJsonCacheStore(new FakeDistributedLockService(), cache),
             bus, new DeviceIdResolver(bus, cache, NullLogger<DeviceIdResolver>.Instance),
             new SfuSessionOwnership(cache),
             VoiceTestHarness.ServiceFor(cache, new FakeDistributedLockService(), new FakeMessagingHubContext()),
             VoiceTestHarness.StoreFor(cache, new FakeDistributedLockService()),
-            NullLogger<CloudflareController>.Instance)
+            NullLogger<CallVoiceMediaController>.Instance)
         {
             ControllerContext = new ControllerContext
             {
@@ -82,10 +83,10 @@ public class CloudflarePerTrackErrorTests
     public void TearDown() => _handler.Dispose();
 
     /// <summary>Subscribe-only body: all tracks remote, so it takes the retry path.</summary>
-    private static TracksNewBody SubscribeBody() => new(
+    private static NegotiateBody SubscribeBody() => new(
         "cf-local-session",
-        new CfSessionDescription("offer", "v=0"),
-        [new CfTrackNew("remote", SessionId: "cf-remote-session", TrackName: "audio")]);
+        new VoiceSessionDescription("offer", "v=0"),
+        [new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-remote-session", TrackName: "audio")]);
 
     /// <summary>
     /// TracksNew requires the caller to be a connected participant of the call and to own the
@@ -110,7 +111,7 @@ public class CloudflarePerTrackErrorTests
     {
         await SeedAuthorizedCallerAsync();
 
-        await _controller.TracksNew(CallId, SubscribeBody(), CancellationToken.None);
+        await _controller.Negotiate(CallId, SubscribeBody(), CancellationToken.None);
 
         Assert.That(_handler.TracksNewCount, Is.GreaterThan(1),
             "a per-track 'Track not found' is the propagation race the retry loop was added for, "
@@ -122,7 +123,7 @@ public class CloudflarePerTrackErrorTests
     {
         await SeedAuthorizedCallerAsync();
 
-        var result = await _controller.TracksNew(CallId, SubscribeBody(), CancellationToken.None);
+        var result = await _controller.Negotiate(CallId, SubscribeBody(), CancellationToken.None);
 
         Assert.That(result, Is.Not.InstanceOf<OkObjectResult>(),
             "the client has no way to tell this apart from a successful subscribe");

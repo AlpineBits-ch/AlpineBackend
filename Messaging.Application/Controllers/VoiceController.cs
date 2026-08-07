@@ -329,7 +329,7 @@ public class VoiceController(
         // Locked: races against CloudflareController.CreateSession/ExchangeParticipantJoined
         // for the same callId when the caller publishes its audio track around the same time
         // the callee accepts -without the lock, whichever save lands last silently wins and
-        // can wipe out the other side's CfSessionId/AudioTrackName (the original bug: the
+        // can wipe out the other side's MediaSessionId/AudioTrackName (the original bug: the
         // Tauri client's syncParticipants() backfill then finds those fields null and never
         // subscribes to the caller's audio).
         var device = await ResolveDeviceAsync(userId);
@@ -341,7 +341,7 @@ public class VoiceController(
 
         var call = await callStore.UpdateAsync<Call>(
             Call.GetCacheId(callId), Call.GetCacheId(callId),
-            c => c.Accept(userId, device.DeviceId, superseded?.CfSessionId, superseded?.AudioTrackName),
+            c => c.Accept(userId, device.DeviceId, superseded?.MediaSessionId, superseded?.AudioTrackName),
             CacheOptions);
         if (call is null) return NotFound();
 

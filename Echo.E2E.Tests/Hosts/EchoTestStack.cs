@@ -34,6 +34,9 @@ public sealed class EchoTestStack : IAsyncDisposable
     /// <summary>This stack's Messaging database.</summary>
     public string MessagingDatabaseName { get; private set; } = null!;
 
+    /// <summary>This stack's Guild database.</summary>
+    public string GuildDatabaseName { get; private set; } = null!;
+
     private EchoTestStack(string instanceName) => InstanceName = instanceName;
 
     /// <param name="infra">The infra set to run against.</param>
@@ -98,7 +101,8 @@ public sealed class EchoTestStack : IAsyncDisposable
         stack.Identity = await SpawnedServiceProcess.StartAsync(
             "Identity.Application", "/identity/health", identityEnv, identityPort);
 
-        var guildEnv = Common($"guild_{databaseSuffix}");
+        stack.GuildDatabaseName = $"guild_{databaseSuffix}";
+        var guildEnv = Common(stack.GuildDatabaseName);
         guildEnv["INSTANCE_URL"] = identityUrl;
         stack.MessagingDatabaseName = $"messaging_{databaseSuffix}";
         var messagingEnv = Common(stack.MessagingDatabaseName);

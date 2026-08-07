@@ -28,7 +28,7 @@ public class ChannelEndpoint
         ChannelType.Text, ChannelType.Voice, ChannelType.Forum, ChannelType.Media,
         ChannelType.Announcement,
         ChannelType.List, ChannelType.Chores, ChannelType.Ledger, ChannelType.Pantry,
-        ChannelType.Decisions,
+        ChannelType.Decisions, ChannelType.Meals, ChannelType.Maintenance,
     ];
 
     [WolverinePost("/api/v1/guilds/{guildId}/channels")]

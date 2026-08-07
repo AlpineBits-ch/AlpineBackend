@@ -247,9 +247,38 @@ public class HouseholdPushServiceTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(message.Android.Notification.Tag, Is.EqualTo("pitm-1"));
-            Assert.That(message.Apns.Headers["apns-collapse-id"], Is.EqualTo("pitm-1"));
+            Assert.That(message.Android.Notification.Tag, Is.EqualTo("pantry.low:pitm-1"));
+            Assert.That(message.Apns.Headers["apns-collapse-id"], Is.EqualTo("pantry.low:pitm-1"));
         });
+    }
+
+    /// <summary>
+    /// Two different facts about one row must not replace each other in the tray.
+    /// </summary>
+    [Test]
+    public void TwoKindsAboutTheSameRow_DoNotReplaceEachOther()
+    {
+        static HouseholdPushPayload For(string kind) => new()
+        {
+            GuildId = "guild-1", Kind = kind, TargetId = "asst-1", Title = "Boiler",
+        };
+
+        var due = HouseholdPushService.Build(For("maintenance.due"), Localized);
+        var warranty = HouseholdPushService.Build(For("maintenance.warranty"), Localized);
+
+        Assert.That(due.Apns.Headers["apns-collapse-id"],
+            Is.Not.EqualTo(warranty.Apns.Headers["apns-collapse-id"]));
+    }
+
+    /// <summary>The behaviour the collapse key exists for, which the kind scoping must not break:
+    /// a second reminder about the same occurrence still replaces the first.</summary>
+    [Test]
+    public void TheSameKindAboutTheSameRow_StillCollapses()
+    {
+        var first = HouseholdPushService.Build(Payload(), Localized);
+        var second = HouseholdPushService.Build(Payload(), Localized);
+
+        Assert.That(first.Android.Notification.Tag, Is.EqualTo(second.Android.Notification.Tag));
     }
 
     [Test]

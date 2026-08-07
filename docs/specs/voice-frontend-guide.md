@@ -28,10 +28,11 @@ The only differences are:
 Everything else - joining, publishing, subscribing, snapshots, versions, heartbeats, screen
 sharing, viewer counts - is identical.
 
-**The second idea:** every event carries a `version`. If you receive a version that is not exactly
-one more than the one you hold, you missed something. Refetch the snapshot. This is the mechanism
-that makes voice recoverable, and a client that ignores it will eventually show a stale roster
-forever.
+**The second idea:** every event carries a `version`. If you receive one *ahead* of the version you
+hold, you missed something - refetch the snapshot. This is the mechanism that makes voice
+recoverable, and a client that ignores it will eventually show a stale roster forever. The exact
+rule has three subtleties and is written out in full in §4.2; implement it from there, not from this
+paragraph.
 
 ---
 
@@ -82,9 +83,17 @@ they cannot hear me".
 1. Join the room                -> you get a Snapshot immediately
 2. Open a media session         -> you get a mediaSessionId + backend
 3. Publish your local tracks    -> POST .../tracks, direction "publish"
-4. Subscribe to everyone else   -> POST .../tracks, direction "subscribe"
-5. Heartbeat every ~30s         -> keeps you alive AND repairs drift
+4. Refetch the snapshot         -> GET .../snapshot, now that transport exists
+5. Subscribe from that snapshot -> POST .../tracks, direction "subscribe"
+6. Heartbeat every ~30s         -> keeps you alive AND repairs drift
 ```
+
+**Step 4 is not redundant, and skipping it breaks screen shares.** The snapshot from step 1 arrives
+before you have a peer connection or a media session, because those are created in steps 2 and 3.
+Audio usually survives that - a subscribe path that waits for the session will catch up - but there
+is nothing to attach a receiving transceiver to yet, so any `shares[]` in that first snapshot are
+dropped on the floor and the feature fails silently. Read it again once the transport is up and
+subscribe from *that* copy.
 
 **Always publish before you subscribe.** The SFU rejects a pull on a session that has not completed
 its own negotiation. The snapshot tells you who is pullable so you can sequence this
@@ -246,24 +255,52 @@ Every voice event carries `version` and `instanceId`. Track both per room.
 
 ```
 onEvent(e):
-  if (e.instanceId !== held.instanceId):    # room was rebuilt
+  # Instructions and full state are never version-gated.
+  if (e.type == "Resync"):    refetchSnapshot(); return
+  if (e.type == "Snapshot"):  applySnapshot(e)
+                              held = { instanceId: e.instanceId, version: e.version }
+                              return
+
+  if (e.instanceId !== held.instanceId):     # room was rebuilt
       refetchSnapshot(); return
-  if (e.version <= held.version):           # duplicate or out of order
+
+  # Relay events are not versioned state. They carry the current version but do not
+  # represent a change to it, so they are applied without advancing anything.
+  if (e.type in ["SpeakingChanged", "CameraChanged"]):
+      apply(e); return
+
+  if (e.version < held.version):             # strictly older, so genuinely stale
       ignore; return
-  if (e.version > held.version + 1):        # gap - you missed something
+  if (e.version > held.version + 1):         # gap - you missed something
       refetchSnapshot(); return
-  apply(e); held.version = e.version
+
+  apply(e); held.version = e.version         # equality applies: see batching, below
 ```
 
 Why each branch exists:
 
+- **`Resync` is never gated.** It is an instruction, not state, and the `roomGone` variant carries
+  `instanceId: ""` and `version: 0` precisely because there is no room left to describe. Gating it
+  would drop the single most important message in the protocol.
 - **`instanceId` mismatch** - the room was destroyed and rebuilt (a Redis loss). Version numbers
   restart from zero, so they can collide with numbers you have already seen behind a completely
   different roster. The instance id is the only reliable signal.
-- **`version <= held`** - events from two server instances can interleave; an older one arriving
-  late must not overwrite newer state.
+- **Relay events do not advance `held`.** `SpeakingChanged` and `CameraChanged` are pure relays: the
+  server does not store them and does not bump the version for them, so they arrive carrying the
+  version you already hold. Advancing on them would let a relay stand in for a state change you
+  actually missed, and the next real event would then look contiguous when it is not.
+- **`version < held`** - strictly older only. Events from two server instances can interleave, and
+  one arriving late must not overwrite newer state.
+- **equality applies** - **one mutation can produce several events.** Publishing a screen share with
+  audio is a single request that bumps the version once and then emits one `TrackPublished` per
+  track, all at that same version. Treating equal versions as duplicates would drop every track
+  after the first, so a share with audio would arrive silent, and a share published alongside a
+  camera would lose one of them.
 - **gap** - you dropped an event. One refetch and you are correct again. Without this branch, a
   single dropped event leaves you wrong until the session ends.
+
+Because equal versions apply, **event handlers must be idempotent**. They already are in practice:
+every one of them sets a value or adds a track by name rather than incrementing anything.
 
 Applying a snapshot: take it wholesale, set `held = {instanceId, version}` from it. Do not merge.
 
@@ -290,7 +327,8 @@ both directions:
 - the room is gone, or you are not in it → you get `Resync` with `reason: "roomGone"` and must
   rejoin through the normal authorised path
 
-Stop heartbeating and you are swept from the roster after 90 seconds.
+Stop heartbeating and you are swept from the roster after 90 seconds. This applies to calls and
+guild channels alike.
 
 Report your real state honestly. If you stopped publishing, send `null`s. The server will correct
 its record and tell peers to drop you.
@@ -304,7 +342,7 @@ Prefix with `guild.voice.` or `call.`. Every payload also carries the room id fi
 
 | Event | Payload (beyond the envelope) | Meaning |
 |---|---|---|
-| `Snapshot` | *the full snapshot object* | Authoritative state. Replace everything. |
+| `Snapshot` | *the full snapshot object* | Authoritative state. Replace everything. **Shape exception:** this is the bare snapshot, so it has `roomId` and no `channelId`/`callId`. A client that routes events by room-id field will drop it. |
 | `Resync` | `reason`, sometimes `userId` | Refetch the snapshot. `reason` is `roomGone`, `participantLeft` or `peerPublishChanged`. |
 | `ParticipantJoined` | `userId`, `mediaSessionId`, `audioTrackName` | This user is now **pullable**. Subscribe to them. |
 | `TrackPublished` | `userId`, `mediaSessionId`, `trackName`, `kind`, `shareId` | A camera or screen track appeared. |
@@ -339,7 +377,7 @@ voice.Heartbeat(roomKind, roomId, state)
 guild.voice.MuteChanged({ channelId, isMuted })
 guild.voice.DeafenChanged({ channelId, isDeafened })
 guild.voice.CameraChanged({ channelId, isCameraOn })
-guild.voice.ScreenShareStarted({ channelId, shareId, trackName })
+guild.voice.ScreenShareStarted({ channelId, shareId })
 guild.voice.ScreenShareStopped({ channelId, shareId })
 guild.voice.ServerMute({ channelId, targetUserId, isMuted })      // needs MuteMembers
 guild.voice.ServerDeafen({ channelId, targetUserId, isDeafened })  // needs DeafenMembers
@@ -348,7 +386,7 @@ guild.voice.MoveUser({ channelId, targetUserId, targetChannelId }) // needs Move
 call.MuteChanged({ callId, isMuted })
 call.CameraChanged({ callId, isCameraOn })
 call.SpeakingChanged({ callId, isSpeaking })
-call.ScreenShareStarted({ callId, shareId, trackName })
+call.ScreenShareStarted({ callId, shareId })
 call.ScreenShareStopped({ callId, shareId })
 ```
 
@@ -373,6 +411,8 @@ GET    .../voice/shares/viewers                  # { shareId: [userId, ...] }
 - `DELETE` when the user closes, minimises or navigates away from the stream.
 - **Also close your subscription** when you unwatch. Viewer counts are cheap; egress is not.
 
+Stop heartbeating and you are evicted from the room after 90 seconds, in both room kinds.
+
 ---
 
 ## 7. Errors
@@ -382,7 +422,7 @@ GET    .../voice/shares/viewers                  # { shareId: [userId, ...] }
 | **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and retry later. **Do not** treat as success. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
 | **403** | Not permitted (missing `Connect`/`Speak`/`Stream`, not a participant, or acting as a session you do not own). | Do not retry blindly. |
-| **404** | Room or call does not exist. | Stop, rejoin from scratch. |
+| **404** | Room or call does not exist - **or you forgot the gateway prefix**, see §9. | Stop, rejoin from scratch. |
 
 **Critical:** if a subscribe fails, roll back whatever guard you use to dedupe subscriptions per
 user. A guard that is consumed by a failed attempt and never released is how one transient error
@@ -407,6 +447,13 @@ becomes permanent silence for that participant.
 ---
 
 ## 9. Reference: endpoints
+
+> **All paths below are service-internal.** The public surface is behind the gateway, which strips
+> a service prefix: prepend `/api/v1/guild` for guild routes and `/api/v1/messaging` for call
+> routes, replacing their own `/api/v1`. So `/api/v1/guilds/{g}/channels/{c}/voice` is called as
+> `/api/v1/guild/guilds/{g}/channels/{c}/voice`, and `/api/v1/voice/calls/{id}/tracks` as
+> `/api/v1/messaging/voice/calls/{id}/tracks`. Every example in this document omits the prefix for
+> readability; a client that copies them literally gets a 404.
 
 ### Guild voice
 ```
@@ -469,13 +516,16 @@ const publish = await api.post(`.../voice/tracks`, {
 });
 await pc.setRemoteDescription(publish.sessionDescription);
 
-// 4. Subscribe to everyone already publishing, from the snapshot.
-for (const p of snapshot.participants) {
+// 4. Refetch: the join snapshot predates the transport, so its shares are unusable.
+const current = await api.get(`.../voice/snapshot`);
+
+// 5. Subscribe to everyone already publishing, from the *refetched* snapshot.
+for (const p of current.participants) {
   if (p.userId === me || p.publishState !== "Publishing") continue;
   await subscribeTo(p.mediaSessionId, p.audioTrackName);
 }
 
-// 5. Heartbeat.
+// 6. Heartbeat.
 setInterval(() => connection.invoke("voice.Heartbeat", "channel", channelId, {
   knownInstanceId: held.instanceId,
   knownVersion: held.version,

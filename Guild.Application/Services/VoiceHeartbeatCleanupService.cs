@@ -18,6 +18,7 @@ public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
     VoiceRoomStore rooms,
+    VoiceAnnouncer announcer,
     GuildVoiceActivityStore activityStore,
     StreamViewerStore viewers,
     IHubContext<EchoRealtimeHub> hub,
@@ -52,14 +53,12 @@ public class VoiceHeartbeatCleanupService(
     {
         var server = redis.GetServer(redis.GetEndPoints().First());
 
-        // One pattern: the unified room key.
-        // touched since the deploy has not been adopted yet, and without sweeping it a room whose
-        // participants all went stale during the rollout would never be cleaned up.
-        var keys = server.Keys(pattern: "voice:room:channel:*")
-            .Select(k => k.ToString()["voice:room:channel:".Length..])
-            .Concat(server.Keys(pattern: "voice:channel:*")
-                .Select(k => k.ToString()["voice:channel:".Length..]))
-            .Distinct()
+        // Both room kinds, not just channels.
+        var keys = server.Keys(pattern: "voice:room:*")
+            .Select(k => k.ToString()["voice:room:".Length..])
+            .Select(k => k.Split(':', 2))
+            .Where(parts => parts.Length == 2)
+            .Select(parts => new VoiceRoomKey(parts[0], parts[1]))
             .ToList();
 
         // Accumulated as the sweep goes, then written back per guild.
@@ -69,8 +68,9 @@ public class VoiceHeartbeatCleanupService(
         {
             if (ct.IsCancellationRequested) break;
 
-            var channelId = key;
-            var loaded = await rooms.LoadAsync(VoiceRoomKey.Channel(channelId), ct);
+            var roomKey = key;
+            var isChannel = roomKey.Kind == VoiceRoomKind.Channel;
+            var loaded = await rooms.LoadAsync(roomKey, ct);
             if (loaded is null) continue;
 
             var stale = new List<VoiceParticipant>();
@@ -84,7 +84,7 @@ public class VoiceHeartbeatCleanupService(
 
             if (stale.Count == 0)
             {
-                Record(rebuilt, loaded);
+                if (isChannel) Record(rebuilt, loaded);
                 continue;
             }
 
@@ -93,20 +93,35 @@ public class VoiceHeartbeatCleanupService(
             // was another instance of the same read-modify-write class of bug -see
             // GuildVoiceController.Join.
             var voiceState = await rooms.MutateExistingAsync(
-                VoiceRoomKey.Channel(channelId),
+                roomKey,
                 r => r.Participants.RemoveAll(p => staleIds.Contains(p.UserId)), ct);
             if (voiceState is null) continue;
 
-            Record(rebuilt, voiceState);
+            if (isChannel) Record(rebuilt, voiceState);
 
             // An evicted participant's watch claims and their own shares both die with them.
-            var viewerScope = VoiceRoomKey.Channel(channelId).ViewerScope;
+            var viewerScope = roomKey.ViewerScope;
             foreach (var participant in stale)
             {
                 await viewers.RemoveViewerAsync(viewerScope, participant.UserId, ct);
                 var owned = participant.ActiveScreenShares.Select(s => s.ShareId).ToList();
                 if (owned.Count > 0) await viewers.RemoveSharesAsync(viewerScope, owned, ct);
             }
+
+            // Tell the room itself, for both kinds: an evicted participant is a roster change, so
+            // peers have to be able to detect it like any other.
+            foreach (var participant in stale)
+            {
+                logger.LogInformation(
+                    "Evicted stale voice participant {UserId} from room {Room}",
+                    participant.UserId, roomKey);
+            }
+            await announcer.ToAllAsync(voiceState, VoiceEvents.Resync,
+                new { reason = "participantsEvicted" }, ct);
+
+            // Everything below is the guild-only fan-out: a channel is visible to members who are
+            // not in it, which a call has no equivalent of.
+            if (!isChannel) continue;
 
             using var scope = scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
@@ -119,12 +134,8 @@ public class VoiceHeartbeatCleanupService(
 
             foreach (var participant in stale)
             {
-                logger.LogInformation(
-                    "Evicted stale voice participant {UserId} from channel {ChannelId}",
-                    participant.UserId, channelId);
-
                 await hub.Clients.Users(memberIds).SendAsync("guild.voice.UserLeftVoice",
-                    new { userId = participant.UserId, channelId, guildId = voiceState.GuildId },
+                    new { userId = participant.UserId, channelId = roomKey.Id, guildId = voiceState.GuildId },
                     ct);
 
                 await bus.PublishAsync(new VoiceStateForBots { GuildId = voiceState.GuildId, UserId = participant.UserId, ChannelId = null });

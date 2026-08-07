@@ -96,7 +96,7 @@ public class CallRealtimeCommandHandlersTests
     {
         await SeedRoomAsync(Alice, Bob);
 
-        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1", "screen-share-1"), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1"), _voice);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, Room);
         Assert.Multiple(() =>
@@ -110,7 +110,7 @@ public class CallRealtimeCommandHandlersTests
     public async Task ScreenShareStop_BroadcastsAndDropsTheShareAudience()
     {
         await SeedRoomAsync(Alice, Bob);
-        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1", "screen-share-1"), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1"), _voice);
         await _viewers.WatchAsync(Room.ViewerScope, "share-1", Bob);
 
         await _handler.Handle(new CallScreenShareStopCommand(Alice, CallId, "share-1"), _voice, _viewers);
@@ -134,7 +134,7 @@ public class CallRealtimeCommandHandlersTests
         await _handler.Handle(new CallCameraCommand(Alice, CallId, true), _voice);
         await _handler.Handle(new CallMuteCommand(Alice, CallId, true), _voice);
         await _handler.Handle(new CallSpeakingCommand(Alice, CallId, true), _voice);
-        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "s", "screen-s"), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "s"), _voice);
         await _handler.Handle(new CallScreenShareStopCommand(Alice, CallId, "s"), _voice, _viewers);
 
         Assert.That(HubClients.Sends, Is.Empty,
@@ -157,7 +157,7 @@ public class CallRealtimeCommandHandlersTests
         await _handler.Handle(new CallCameraCommand(Stranger, CallId, true), _voice);
         await _handler.Handle(new CallMuteCommand(Stranger, CallId, true), _voice);
         await _handler.Handle(new CallSpeakingCommand(Stranger, CallId, true), _voice);
-        await _handler.Handle(new CallScreenShareStartCommand(Stranger, CallId, "s", "screen-s"), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Stranger, CallId, "s"), _voice);
 
         Assert.That(HubClients.Sends, Is.Empty);
     }
@@ -170,7 +170,7 @@ public class CallRealtimeCommandHandlersTests
     public async Task AStranger_CannotClearTheViewerTableOfALiveShare()
     {
         await SeedRoomAsync(Alice, Bob);
-        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1", "screen-share-1"), _voice);
+        await _handler.Handle(new CallScreenShareStartCommand(Alice, CallId, "share-1"), _voice);
         await _viewers.WatchAsync(Room.ViewerScope, "share-1", Bob);
         HubClients.Sends.Clear();
 

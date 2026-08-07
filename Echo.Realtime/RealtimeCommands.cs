@@ -26,7 +26,7 @@ public record CallCameraCommand(string UserId, string CallId, bool IsCameraOn);
 
 public record CallSpeakingCommand(string UserId, string CallId, bool IsSpeaking);
 
-public record CallScreenShareStartCommand(string UserId, string CallId, string ShareId, string TrackName);
+public record CallScreenShareStartCommand(string UserId, string CallId, string ShareId);
 
 public record CallScreenShareStopCommand(string UserId, string CallId, string ShareId);
 
@@ -59,7 +59,7 @@ public record GuildVoiceDeafenCommand(string UserId, string ChannelId, bool IsDe
 
 public record GuildVoiceCameraCommand(string UserId, string ChannelId, bool IsCameraOn);
 
-public record GuildVoiceScreenShareStartCommand(string UserId, string ChannelId, string ShareId, string TrackName);
+public record GuildVoiceScreenShareStartCommand(string UserId, string ChannelId, string ShareId);
 
 public record GuildVoiceScreenShareStopCommand(string UserId, string ChannelId, string ShareId);
 

@@ -40,6 +40,7 @@ public class PantryCaptureTests
     private GuildPermissionService _permissions = null!;
     private HouseholdChannelService _household = null!;
     private PantryRestockService _restock = null!;
+    private ProductCatalogService _catalog = null!;
     private PantryCaptureService _capture = null!;
     private PantryCaptureEndpoint _endpoint = null!;
     private PantryEndpoint _pantry = null!;
@@ -68,7 +69,8 @@ public class PantryCaptureTests
             NullLogger<HouseholdAlertService>.Instance);
 
         _restock = new PantryRestockService(_context, _household, alerts);
-        _capture = new PantryCaptureService(_context, _restock, _household);
+        _catalog = new ProductCatalogService(_context);
+        _capture = new PantryCaptureService(_context, _restock, _household, _catalog);
         _endpoint = new PantryCaptureEndpoint();
         _pantry = new PantryEndpoint();
     }
@@ -190,8 +192,18 @@ public class PantryCaptureTests
         return item;
     }
 
-    private Task<IResult> ScanAsync(ScanPantryItemDto dto, string channelId = FridgeId) =>
-        _endpoint.ScanAsync(channelId, dto, _household, _capture, _context, TestPrincipal.Create(Anna));
+    /// <summary><paramref name="acceptLanguage"/> is the only language signal a scan has - there is
+    /// no locale stored on an account or a guild anywhere in this product - so it is what the
+    /// catalog's language selection is driven by, and null exercises the fallback order.</summary>
+    private Task<IResult> ScanAsync(
+        ScanPantryItemDto dto, string channelId = FridgeId, string? acceptLanguage = null)
+    {
+        var http = new DefaultHttpContext();
+        if (acceptLanguage is not null) http.Request.Headers.AcceptLanguage = acceptLanguage;
+
+        return _endpoint.ScanAsync(
+            channelId, dto, _household, _capture, _context, http, TestPrincipal.Create(Anna));
+    }
 
     private Task<IResult> ConsumeAsync(string itemId, decimal? amount = null, bool? all = null) =>
         _endpoint.ConsumeAsync(itemId, new ConsumePantryItemDto { Amount = amount, All = all },

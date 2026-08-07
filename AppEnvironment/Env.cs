@@ -66,6 +66,43 @@ public static class Env
 
     public static readonly UnfurlConfiguration Unfurl = new();
 
+    public static readonly ProductCatalogConfiguration ProductCatalog = new();
+
+}
+
+/// <summary>The shared barcode-to-product catalog behind the pantry scanner.</summary>
+public class ProductCatalogConfiguration
+{
+    /// <summary>
+    /// Whether the background sweep may ask the live source about barcodes the local catalog could
+    /// not answer.
+    /// </summary>
+    public bool LiveFillEnabled { get; set; } =
+        GetEnvironmentVariable("PRODUCT_CATALOG_LIVE_FILL_ENABLED")
+            ?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+
+    /// <summary>Contact address put in the outbound User-Agent.</summary>
+    public string ContactEmail { get; set; } =
+        GetEnvironmentVariable("PRODUCT_CATALOG_CONTACT_EMAIL") ?? string.Empty;
+
+    public string ApiBaseUrl { get; set; } =
+        GetEnvironmentVariable("PRODUCT_CATALOG_API_BASE_URL") ?? "https://world.openfoodfacts.org/";
+
+    /// <summary>
+    /// Sent on every outbound lookup, in the shape the source's documentation asks for.
+    /// </summary>
+    public string UserAgent =>
+        GetEnvironmentVariable("PRODUCT_CATALOG_USER_AGENT")
+        ?? $"EchoPantry/1.0 ({(string.IsNullOrWhiteSpace(ContactEmail) ? "unconfigured" : ContactEmail)})";
+
+    /// <summary>Barcodes asked about per sweep.</summary>
+    public int FillBatchSize { get; set; } =
+        int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_FILL_BATCH_SIZE"), out var b) ? b : 5;
+
+    /// <summary>Budget for one lookup.</summary>
+    public TimeSpan RequestTimeout { get; set; } =
+        TimeSpan.FromSeconds(
+            int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_REQUEST_TIMEOUT_SECONDS"), out var t) ? t : 5);
 }
 
 /// <summary>Link-preview generation (docs/specs/message-previews.md).</summary>

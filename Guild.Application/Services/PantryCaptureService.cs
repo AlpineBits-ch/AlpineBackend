@@ -8,7 +8,8 @@ namespace Guild.Application.Services;
 
 /// <summary>The three low-friction ways to change stock: scan, consume, restock.</summary>
 public class PantryCaptureService(
-    MicroserviceContext ctx, PantryRestockService restock, HouseholdChannelService household)
+    MicroserviceContext ctx, PantryRestockService restock, HouseholdChannelService household,
+    ProductCatalogService catalog)
 {
     /// <summary>Long enough for every retail symbology plus the QR codes people scan by mistake,
     /// short enough that the column is not a free-text field.</summary>
@@ -32,6 +33,11 @@ public class PantryCaptureService(
         /// <see cref="ScanPantryItemResultDto.Learned"/>.</summary>
         public bool Learned { get; init; }
 
+        /// <summary>
+        /// Set when the shared product catalog answered the code, null otherwise.
+        /// </summary>
+        public ProductCatalogService.Match? Catalog { get; init; }
+
         public PantryRestockService.StockChange Change { get; init; }
 
         public IReadOnlyList<ListItem> CheckedLines { get; init; } = [];
@@ -53,11 +59,12 @@ public class PantryCaptureService(
     };
 
     /// <summary>
-    /// Stocks whatever was scanned, in three steps that get progressively less certain about what
-    /// the code means.
+    /// Stocks whatever was scanned, in steps that get progressively less certain about what the
+    /// code means.
     /// </summary>
     public async Task<(CaptureResult? Result, string? Error)> ScanAsync(
-        string channelId, string guildId, ScanPantryItemDto dto, string userId)
+        string channelId, string guildId, ScanPantryItemDto dto, string userId,
+        IReadOnlyList<string>? languages = null)
     {
         if (string.IsNullOrWhiteSpace(dto.Barcode)) return (null, "Barcode is required");
 
@@ -81,6 +88,11 @@ public class PantryCaptureService(
             .OrderBy(i => i.CreatedAt)
             .FirstOrDefaultAsync();
 
+        // Only when nothing nearer already has a name.
+        var match = name is null && known is null
+            ? await catalog.ResolveForScanAsync(code, languages)
+            : null;
+
         var amount = dto.Quantity ?? known?.DefaultQuantity ?? DefaultScanQuantity;
         var now = DateTimeOffset.UtcNow;
 
@@ -101,7 +113,9 @@ public class PantryCaptureService(
         }
         else
         {
-            var itemName = name ?? known?.Name;
+            // The catalog sits last, after both of the house's own answers, and it fills only the
+            // name.
+            var itemName = name ?? known?.Name ?? match?.Name;
             if (string.IsNullOrWhiteSpace(itemName))
                 return (null, "Name is required the first time a barcode is scanned here");
 
@@ -139,13 +153,16 @@ public class PantryCaptureService(
             ? []
             : await restock.StageSourceLineCheckAsync(item, userId);
 
-        var learned = Learn(known, guildId, code, item, dto.Quantity);
+        // Not learned when the catalog is what supplied the name, and this is a licence boundary
+        // rather than a nicety.
+        var learned = match is null && Learn(known, guildId, code, item, dto.Quantity);
 
         return (new CaptureResult
         {
             Item = item,
             Created = created,
             Learned = learned,
+            Catalog = match,
             Change = change,
             CheckedLines = checkedLines,
         }, null);

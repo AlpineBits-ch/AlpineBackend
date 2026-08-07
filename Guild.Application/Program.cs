@@ -151,6 +151,9 @@ builder.Services.AddScoped<ChoreReminderService>();
 builder.Services.AddScoped<PantryRestockService>();
 builder.Services.AddScoped<PantryExpiryService>();
 builder.Services.AddScoped<PantryCaptureService>();
+builder.Services.AddScoped<ProductCatalogService>();
+builder.Services.AddScoped<ProductCatalogImportService>();
+builder.Services.AddScoped<ProductCatalogFillService>();
 builder.Services.AddScoped<AbsenceService>();
 builder.Services.AddScoped<LedgerSummaryService>();
 builder.Services.AddScoped<PaymentHandleService>();
@@ -187,6 +190,19 @@ builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
+
+// The one outbound client the pantry has, and it is dormant unless
+// PRODUCT_CATALOG_LIVE_FILL_ENABLED is set with a contact address.
+builder.Services.AddHttpClient(ProductCatalogFillService.HttpClientName, client =>
+{
+    client.BaseAddress = new Uri(Env.ProductCatalog.ApiBaseUrl);
+    client.Timeout = Env.ProductCatalog.RequestTimeout;
+
+    // TryAddWithoutValidation rather than ParseAdd: the source asks for a specific User-Agent shape
+    // and an operator who mistypes it should get a request the source may throttle, not a service
+    // that fails to start.
+    client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Env.ProductCatalog.UserAgent);
+});
 if (args.Contains("codegen") || args.Contains("describe"))
 {
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 

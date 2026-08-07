@@ -24,7 +24,8 @@ public class PantryCaptureEndpoint
     [WolverinePost("/api/v1/channels/{channelId}/pantry-items/scan")]
     public async Task<IResult> ScanAsync(string channelId, ScanPantryItemDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] PantryCaptureService capture,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] HttpContext http,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -32,8 +33,18 @@ public class PantryCaptureEndpoint
         var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
-        var (result, error) = await capture.ScanAsync(channelId, access.Channel!.GuildId, dto, userId);
-        if (error is not null) return Results.BadRequest(error);
+        var languages = ProductCatalogService.ParseLanguages(http.Request.Headers.AcceptLanguage);
+
+        var (result, error) = await capture.ScanAsync(
+            channelId, access.Channel!.GuildId, dto, userId, languages);
+
+        if (error is not null)
+        {
+            // Committed even though the scan failed, and only because of what is staged: a rejected
+            // scan stages nothing but the record that the catalog could not answer this code.
+            await ctx.SaveChangesAsync();
+            return Results.BadRequest(error);
+        }
 
         await ctx.SaveChangesAsync();
         await capture.PublishAsync(result!, userId);
@@ -43,6 +54,7 @@ public class PantryCaptureEndpoint
             Item = PantryCaptureService.ToDto(result!.Item),
             Created = result.Created,
             Learned = result.Learned,
+            Catalog = result.Catalog is { } match ? ProductCatalogService.ToDto(match) : null,
         });
     }
 

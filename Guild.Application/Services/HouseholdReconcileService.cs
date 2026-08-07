@@ -25,6 +25,9 @@ namespace Guild.Application.Services;
 ///  7. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
 ///  8. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
 ///     GuildPermissionService, so this is only tidying, never the thing access depends on.
+///  9. Ask a public product database about barcodes the local catalog could not resolve. A no-op
+///     unless an operator switched it on, and the only job here that talks to anything outside this
+///     instance. See ProductCatalogFillService.
 ///
 /// Modelled on VoiceHeartbeatCleanupService.</summary>
 public class HouseholdReconcileService(
@@ -74,6 +77,12 @@ public class HouseholdReconcileService(
 
                 await ExpireDecisionsAsync(ctx, stoppingToken);
                 await PurgeLapsedGuestRolesAsync(ctx, stoppingToken);
+
+                // Last, and deliberately so: it is the only job here that makes an outbound
+                // request, and putting it after the local work means an unresponsive third party
+                // delays nothing anybody is waiting for.
+                await scope.ServiceProvider.GetRequiredService<ProductCatalogFillService>()
+                    .FillAsync(stoppingToken);
             }
             catch (Exception e)
             {

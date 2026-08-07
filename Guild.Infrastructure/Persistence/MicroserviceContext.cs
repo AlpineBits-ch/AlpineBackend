@@ -83,6 +83,10 @@ public class MicroserviceContext : DbContext
     public DbSet<MealPlanEntry> MealPlanEntries { get; set; }
     public DbSet<MealPlanConfig> MealPlanConfigs { get; set; }
 
+    // ── Shared product catalog ───────────────────────────────────────────────
+    public DbSet<ProductCatalogEntry> ProductCatalogEntries { get; set; }
+    public DbSet<ProductCatalogMiss> ProductCatalogMisses { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -919,6 +923,43 @@ public class MicroserviceContext : DbContext
 
             // The completion list: this guild's products, most-used first.
             barcodeBuilder.HasIndex(x => new { x.GuildId, x.TimesSeen });
+        });
+
+        // The shared product catalog, and the two things that make it different from every other
+        // table here: it belongs to no guild, and it is a Derivative Database under ODbL 1.0 that
+        // we are obliged to publish.
+        modelBuilder.Entity<ProductCatalogEntry>(catalogBuilder =>
+        {
+            // The barcode is the key.
+            catalogBuilder.HasKey(x => x.Barcode);
+
+            catalogBuilder.Property(x => x.Barcode).HasMaxLength(ProductCatalogEntry.MaxBarcodeLength);
+            catalogBuilder.Property(x => x.NameDe).HasMaxLength(ProductCatalogEntry.MaxNameLength);
+            catalogBuilder.Property(x => x.NameFr).HasMaxLength(ProductCatalogEntry.MaxNameLength);
+            catalogBuilder.Property(x => x.NameIt).HasMaxLength(ProductCatalogEntry.MaxNameLength);
+            catalogBuilder.Property(x => x.NameEn).HasMaxLength(ProductCatalogEntry.MaxNameLength);
+            catalogBuilder.Property(x => x.Brand).HasMaxLength(ProductCatalogEntry.MaxBrandLength);
+            catalogBuilder.Property(x => x.QuantityUnit).HasMaxLength(ProductCatalogEntry.MaxUnitLength);
+            catalogBuilder.Property(x => x.Source).HasMaxLength(ProductCatalogEntry.MaxSourceLength);
+            catalogBuilder.Property(x => x.SourceVersion)
+                .HasMaxLength(ProductCatalogEntry.MaxSourceVersionLength);
+
+            // Pack size, so grams and millilitres to three places is more than any packaging needs.
+            catalogBuilder.Property(x => x.Quantity).HasPrecision(12, 3);
+
+            // What a stale-row sweep and the /pantry/catalog summary both order by.
+            catalogBuilder.HasIndex(x => x.ImportedAt);
+        });
+
+        modelBuilder.Entity<ProductCatalogMiss>(missBuilder =>
+        {
+            missBuilder.HasKey(x => x.Barcode);
+
+            missBuilder.Property(x => x.Barcode).HasMaxLength(ProductCatalogEntry.MaxBarcodeLength);
+            missBuilder.Property(x => x.Source).HasMaxLength(ProductCatalogEntry.MaxSourceLength);
+
+            // The live filler's work queue: misses that are due, oldest due first.
+            missBuilder.HasIndex(x => x.RetryAfter).HasFilter("retry_after IS NOT NULL");
         });
 
         // Opaque by construction: the server stores these bytes and holds no key that opens them.

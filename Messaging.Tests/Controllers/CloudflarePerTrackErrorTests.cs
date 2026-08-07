@@ -49,6 +49,7 @@ public class CloudflarePerTrackErrorTests
     private CountingCloudflareHandler _handler = null!;
     private CallVoiceMediaController _controller = null!;
     private FakeDistributedCache _cache = null!;
+    private FakeMessageBus _bus = null!;
 
     [SetUp]
     public void SetUp()
@@ -56,15 +57,20 @@ public class CloudflarePerTrackErrorTests
         _handler = new CountingCloudflareHandler(TrackNotFoundBody);
         var cfService = new CloudflareService(
             new SingleHandlerFactory(_handler), NullLogger<CloudflareService>.Instance);
-        var cache = _cache = new FakeDistributedCache();
+        _cache = new FakeDistributedCache();
 
-        var bus = new FakeMessageBus(msg => msg switch
+        _bus = new FakeMessageBus(msg => msg switch
         {
             ValidateUserDeviceRequest => new ValidateUserDeviceResponse { IsRegistered = true },
             _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
         });
 
-        _controller = new CallVoiceMediaController(
+        _controller = BuildController(cfService, _cache, _bus);
+    }
+
+    private static CallVoiceMediaController BuildController(
+        CloudflareService cfService, FakeDistributedCache cache, FakeMessageBus bus) =>
+        new CallVoiceMediaController(
             new CloudflareMediaTransport(cfService), cache,
             new LockedJsonCacheStore(new FakeDistributedLockService(), cache),
             bus, new DeviceIdResolver(bus, cache, NullLogger<DeviceIdResolver>.Instance),
@@ -78,7 +84,6 @@ public class CloudflarePerTrackErrorTests
                 HttpContext = new DefaultHttpContext { User = TestPrincipal.ForUser(UserId) },
             },
         };
-    }
 
     [TearDown]
     public void TearDown() => _handler.Dispose();
@@ -144,13 +149,47 @@ public class CloudflarePerTrackErrorTests
             "the client has no way to tell this apart from a successful subscribe");
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // A dead session is the caller's, not the server's
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Verbatim from a production 502: the caller's own media session has no live
+    /// PeerConnection, so Cloudflare refuses to negotiate on it at all.</summary>
+    private const string SessionErrorBody = """
+        {"errorCode":"session_error","errorDescription":"Session appears to be disconnected. Please check if the PeerConnection is connected."}
+        """;
+
+    [Test]
+    public async Task SubscribeOnASessionWithNoLiveTransport_Answers409TellingTheClientToRecreateIt()
+    {
+        await SeedAuthorizedCallerAsync();
+
+        using var handler = new CountingCloudflareHandler(SessionErrorBody, HttpStatusCode.BadRequest);
+        var controller = BuildController(
+            new CloudflareService(new SingleHandlerFactory(handler), NullLogger<CloudflareService>.Instance),
+            _cache, _bus);
+
+        var result = await controller.Negotiate(CallId, SubscribeBody(), CancellationToken.None);
+
+        // Same answer as the guild side, deliberately: a client implements this once for both room
+        // kinds. A 502 here called a client-side reconnect a server fault and offered no recovery.
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+            Assert.That(JsonSerializer.Serialize(((ConflictObjectResult)result).Value),
+                Does.Contain("sessionGone").And.Contain("recreateSession"));
+            Assert.That(handler.TracksNewCount, Is.EqualTo(1), "a spent session never un-spends itself");
+        });
+    }
+
     private sealed class SingleHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) =>
             new(handler, disposeHandler: false) { BaseAddress = new Uri("https://cloudflare.test/") };
     }
 
-    private sealed class CountingCloudflareHandler(string tracksNewBody) : HttpMessageHandler
+    private sealed class CountingCloudflareHandler(
+        string tracksNewBody, HttpStatusCode tracksNewStatus = HttpStatusCode.OK) : HttpMessageHandler
     {
         public int TracksNewCount { get; private set; }
 
@@ -159,6 +198,7 @@ public class CloudflarePerTrackErrorTests
         {
             var path = request.RequestUri!.AbsolutePath;
             string body;
+            var status = HttpStatusCode.OK;
             if (path.EndsWith("sessions/new"))
             {
                 body = """{"sessionId":"cf-local-session"}""";
@@ -167,13 +207,14 @@ public class CloudflarePerTrackErrorTests
             {
                 TracksNewCount++;
                 body = tracksNewBody;
+                status = tracksNewStatus;
             }
             else
             {
                 body = """{"sessionDescription":{"type":"answer","sdp":"v=0"},"tracks":[]}""";
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(status)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
             });

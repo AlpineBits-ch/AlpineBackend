@@ -179,7 +179,7 @@ Same endpoint, every track `direction: "subscribe"`:
 ```
 
 The server retries the publisher-not-ready race for you (up to ~6s). If it still fails you get a
-**502**, not a 200 - see §7.
+**409** or a **502**, never a 200 - see §7 for which means what.
 
 ### 3.5 Renegotiate / close
 
@@ -333,6 +333,20 @@ guild channels alike.
 Report your real state honestly. If you stopped publishing, send `null`s. The server will correct
 its record and tell peers to drop you.
 
+**A dropped SignalR connection does not remove you from the room.** SignalR reconnects by itself,
+and losing the socket for a few seconds is not a departure - a disconnect only shortens your
+liveness to 45 seconds, and reconnecting restores it before your next heartbeat is even due. Two
+things follow for the client:
+
+- Do **not** tear down your PeerConnection or your media session because the hub connection
+  dropped. They are independent: media rides its own transport, and rebuilding it on every blip is
+  how a healthy session ends up spending its session id (see §7, `sessionGone`).
+- **Do** send a heartbeat as soon as you reconnect, rather than waiting for the next tick of your
+  30-second timer. That is also when you find out whether anything changed while you were away.
+
+If you stay gone past the grace window you are evicted by the sweep like any other silent client,
+and everyone is told.
+
 ---
 
 ## 5. Events
@@ -420,6 +434,7 @@ Stop heartbeating and you are evicted from the room after 90 seconds, in both ro
 | Status | Meaning | What to do |
 |---|---|---|
 | **409** | `{ error: "staleSubscription", tracks?, action: "refetchSnapshot" }`. You subscribed to media nobody is publishing - the share stopped, or the publisher never started. | Refetch the snapshot and reconcile. **Do not retry the same body** - the track is gone, not late. Roll back your subscribe guard. |
+| **409** | `{ error: "sessionGone", action: "recreateSession" }`. Your *own* media session has no live PeerConnection - it was closed, or never reached `connected`. | `POST .../voice/session` for a fresh `mediaSessionId`, then republish and re-subscribe. **Do not retry the same body**: that session is spent and every call on it fails identically. |
 | **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and back off before retrying. **Do not** treat as success. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
 | **403** | Not permitted (missing `Connect`/`Speak`/`Stream`, not a participant, or acting as a session you do not own). | Do not retry blindly. |
@@ -428,6 +443,13 @@ Stop heartbeating and you are evicted from the room after 90 seconds, in both ro
 **Critical:** if a subscribe fails - 409 or 502 - roll back whatever guard you use to dedupe
 subscriptions per user. A guard that is consumed by a failed attempt and never released is how one transient error
 becomes permanent silence for that participant.
+
+**On `sessionGone` specifically:** the two ways to earn it are worth knowing, because both are
+avoidable. You get it if you keep a `mediaSessionId` across a PeerConnection teardown - a session id
+outlives the connection that gave it meaning, so a rebuilt `RTCPeerConnection` needs a new one - and
+you get it if you pull a remote track before your own publish handshake has reached `connected`. The
+SFU will not set up a receiver on a session that is not connected yet. Wait for
+`pc.connectionState === "connected"` before your first subscribe.
 
 ---
 
@@ -444,6 +466,10 @@ becomes permanent silence for that participant.
 7. **Heartbeat with your real state.** It is the repair channel, not just a keepalive.
 8. **Unwatch and unsubscribe** when a stream is not visible.
 9. **Screen audio is a separate track.** Group by `shareId`, do not assume it exists.
+10. **A hub reconnect is not a rejoin.** Do not tear down media because the SignalR connection
+    blipped; heartbeat as soon as it is back. See §4.3.
+11. **A new PeerConnection needs a new media session.** Reusing the old `mediaSessionId` earns
+    `sessionGone` on every call from then on. See §7.
 
 ---
 

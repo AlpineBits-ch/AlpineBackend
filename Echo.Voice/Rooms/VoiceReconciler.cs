@@ -34,6 +34,12 @@ public sealed class VoiceReconciler(
     /// drives both.</summary>
     public static readonly TimeSpan LivenessTtl = TimeSpan.FromSeconds(90);
 
+    /// <summary>
+    /// How long a participant keeps their place after the socket carrying their voice connection
+    /// closes, before the sweep is allowed to take them.
+    /// </summary>
+    public static readonly TimeSpan DisconnectGraceTtl = TimeSpan.FromSeconds(45);
+
     public static string LivenessKey(string userId) => $"voice:heartbeat:{userId}";
 
     /// <summary>Processes one heartbeat.</summary>

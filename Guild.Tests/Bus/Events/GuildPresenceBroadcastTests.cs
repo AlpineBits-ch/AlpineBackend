@@ -138,7 +138,9 @@ public class GuildPresenceBroadcastTests
             HydrateWith(Present(PeerMemberId, PeerUserId, OnlineStatus.Online)),
             _hub,
             PrivacyTestFactory.Blocks(_bus, _cache),
-            PrivacyTestFactory.Privacy(_bus, _cache, PrivacyTestFactory.Permissive(SubjectUserId)));
+            PrivacyTestFactory.Privacy(_bus, _cache, PrivacyTestFactory.Permissive(SubjectUserId)),
+            _cache,
+            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()));
 
         Assert.That(StatusSentTo(PeerUserId), Is.EqualTo(nameof(OnlineStatus.Online)));
     }
@@ -244,7 +246,7 @@ public class GuildPresenceBroadcastTests
             new Echo.Realtime.UserDisconnected(SubjectUserId, "device-1"),
             _context,
             HydrateWith(Present(PeerMemberId, PeerUserId, OnlineStatus.Online)),
-            _cache, voiceStore, _hub, new FakeMessageBus(),
+            _cache, voiceStore, _hub,
             PrivacyTestFactory.Blocks(_bus, _cache, (PeerUserId, SubjectUserId)));
 
         Assert.That(StatusSentTo(PeerUserId), Is.Null);

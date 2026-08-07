@@ -8068,19 +8068,19 @@
         "x-sites": [
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 128,
+            "line": 131,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 141,
+            "line": 144,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
             "anonymous": true
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 349,
+            "line": 352,
             "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
             "anonymous": true
           }
@@ -8855,12 +8855,6 @@
         },
         "x-sites": [
           {
-            "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildLifecycleHandler.cs",
-            "line": 403,
-            "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
-            "anonymous": true
-          },
-          {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Bus\\Events\\Realtime\\GuildVoiceStateHandler.cs",
             "line": 185,
             "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
@@ -8874,7 +8868,7 @@
           },
           {
             "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Guild.Application\\Services\\VoiceHeartbeatCleanupService.cs",
-            "line": 149,
+            "line": 163,
             "clrType": "\u003Canonymous type: string userId, string channelId, string? guildId\u003E",
             "anonymous": true
           }

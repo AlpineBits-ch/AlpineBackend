@@ -154,6 +154,38 @@ public class CloudflareMediaTransportTests
         Assert.That(ex!.Failure, Is.EqualTo(VoiceMediaFailure.Rejected));
     }
 
+    /// <summary>The body behind a production 502 on <c>tracks/new</c>.</summary>
+    [Test]
+    public void Session_error_classifies_as_SessionGone()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"errorCode":"session_error","errorDescription":"Session appears to be disconnected. Please check if the PeerConnection is connected."}""",
+            HttpStatusCode.BadRequest);
+
+        var ex = Assert.ThrowsAsync<VoiceMediaException>(() =>
+            TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
+                new VoiceSessionDescription("offer", "v=0"),
+                [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")])));
+
+        Assert.That(ex!.Failure, Is.EqualTo(VoiceMediaFailure.SessionGone));
+    }
+
+    /// <summary>Cloudflare does not report a session error with a consistent status.</summary>
+    [Test]
+    public void Session_error_classifies_as_SessionGone_whatever_the_status()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"errorCode":"session_error","errorDescription":"Session appears to be disconnected."}""",
+            HttpStatusCode.InternalServerError);
+
+        var ex = Assert.ThrowsAsync<VoiceMediaException>(() =>
+            TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
+                new VoiceSessionDescription("offer", "v=0"),
+                [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")])));
+
+        Assert.That(ex!.Failure, Is.EqualTo(VoiceMediaFailure.SessionGone));
+    }
+
     [Test]
     public void A_transport_side_fault_classifies_as_Unavailable()
     {

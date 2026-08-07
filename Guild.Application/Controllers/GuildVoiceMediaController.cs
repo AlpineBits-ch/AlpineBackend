@@ -45,6 +45,12 @@ public class GuildVoiceMediaController(
     private Task<bool> OwnsSessionAsync(string? mediaSessionId, CancellationToken ct = default) =>
         sessions.OwnsAsync(mediaSessionId, UserId, ct);
 
+    /// <summary>
+    /// The answer to a session whose transport is gone: 409, and the one recovery that works.
+    /// </summary>
+    private ConflictObjectResult SessionGone() =>
+        Conflict(new { error = "sessionGone", action = "recreateSession" });
+
     /// <summary>Creates a media session for this participant.</summary>
     /// <param name="primary">Whether this session carries the participant's microphone.</param>
     [HttpPost("session")]
@@ -124,6 +130,16 @@ public class GuildVoiceMediaController(
                 "Subscribe raced a publisher going away for user {UserId}: {Detail}", UserId, ex.Detail);
             return Conflict(new { error = "staleSubscription", action = "refetchSnapshot" });
         }
+        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)
+        {
+            // The caller's PeerConnection is closed or never connected, so this session id is
+            // spent.
+            logger.LogInformation(
+                "Session {MediaSessionId} has no live transport for user {UserId} in channel "
+                + "{ChannelId} - asking them to recreate it: {Detail}",
+                body.MediaSessionId, UserId, channelId, ex.Detail);
+            return SessionGone();
+        }
         catch (VoiceMediaException ex)
         {
             // Must not be answered with a 200. A well-formed response the client cannot distinguish
@@ -159,6 +175,15 @@ public class GuildVoiceMediaController(
         {
             var sdp = await media.RenegotiateAsync(body.MediaSessionId, body.SessionDescription, ct);
             return Ok(new { sessionDescription = sdp });
+        }
+        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)
+        {
+            // A renegotiation is the likeliest place to meet a dead session: it is what a client
+            // sends after its connection state changed.
+            logger.LogInformation(
+                "Renegotiate on spent session {MediaSessionId} for user {UserId} in channel {ChannelId}: {Detail}",
+                body.MediaSessionId, UserId, channelId, ex.Detail);
+            return SessionGone();
         }
         catch (VoiceMediaException ex)
         {

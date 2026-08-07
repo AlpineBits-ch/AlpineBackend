@@ -102,9 +102,12 @@ public sealed class CloudflareMediaTransport(CloudflareService cloudflare) : IVo
     {
         var failure = ex.TrackErrorCodes.Any(c => c.Contains("not_found_track", StringComparison.OrdinalIgnoreCase))
             ? VoiceMediaFailure.TrackNotFound
-            : (int)ex.StatusCode >= 500
-                ? VoiceMediaFailure.Unavailable
-                : VoiceMediaFailure.Rejected;
+            : ex.ErrorCode is { } code
+              && code.Contains(CloudflareService.SessionErrorCode, StringComparison.OrdinalIgnoreCase)
+                ? VoiceMediaFailure.SessionGone
+                : (int)ex.StatusCode >= 500
+                    ? VoiceMediaFailure.Unavailable
+                    : VoiceMediaFailure.Rejected;
 
         return new VoiceMediaException(ex.Operation, failure, ex.ResponseBody, ex);
     }

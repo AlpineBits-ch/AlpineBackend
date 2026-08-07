@@ -50,6 +50,12 @@ public class CallVoiceMediaController(
     private Task<bool> OwnsSessionAsync(string? mediaSessionId, CancellationToken ct = default) =>
         sessions.OwnsAsync(mediaSessionId, UserId, ct);
 
+    /// <summary>
+    /// The answer to a session whose transport is gone: 409, and the one recovery that works.
+    /// </summary>
+    private ConflictObjectResult SessionGone() =>
+        Conflict(new { error = "sessionGone", action = "recreateSession" });
+
     /// <summary>The caller must be a connected participant.</summary>
     private async Task<bool> IsConnectedParticipantAsync(string callId)
     {
@@ -99,6 +105,12 @@ public class CallVoiceMediaController(
         // Roster first, media later - and the joiner is handed a full snapshot in the same step.
         await voice.JoinAsync(Room(callId), UserId, device.DeviceId, guildId: null, ct);
 
+        // Liveness is claimed here, not left to the first heartbeat.
+        await cache.SetStringAsync(
+            VoiceReconciler.LivenessKey(UserId), Room(callId).ToString(),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = VoiceReconciler.LivenessTtl },
+            ct);
+
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);
 
         return Ok(new { mediaSessionId, backend = media.Backend });
@@ -137,6 +149,15 @@ public class CallVoiceMediaController(
                 "Subscribe raced a publisher going away for user {UserId}: {Detail}", UserId, ex.Detail);
             return Conflict(new { error = "staleSubscription", action = "refetchSnapshot" });
         }
+        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)
+        {
+            // The caller's PeerConnection is closed or never connected, so this session id is spent.
+            logger.LogInformation(
+                "Session {MediaSessionId} has no live transport for user {UserId} in call {CallId} "
+                + "- asking them to recreate it: {Detail}",
+                body.MediaSessionId, UserId, callId, ex.Detail);
+            return SessionGone();
+        }
         catch (VoiceMediaException ex)
         {
             logger.LogError(ex,
@@ -170,6 +191,13 @@ public class CallVoiceMediaController(
         {
             var sdp = await media.RenegotiateAsync(body.MediaSessionId, body.SessionDescription, ct);
             return Ok(new { sessionDescription = sdp });
+        }
+        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)
+        {
+            logger.LogInformation(
+                "Renegotiate on spent session {MediaSessionId} for user {UserId} in call {CallId}: {Detail}",
+                body.MediaSessionId, UserId, callId, ex.Detail);
+            return SessionGone();
         }
         catch (VoiceMediaException ex)
         {

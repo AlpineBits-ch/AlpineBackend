@@ -183,6 +183,64 @@ public class CloudflarePerTrackErrorTests
         });
     }
 
+    // ══════════════════════════════════════════════════════════════════════════
+    // A dead session is the caller's, not the server's
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The other failure that was being reported as a server fault: the caller's own media session
+    /// has no live PeerConnection, so Cloudflare refuses to negotiate on it at all.
+    /// </summary>
+    private const string SessionErrorBody = """
+        {"errorCode":"session_error","errorDescription":"Session appears to be disconnected. Please check if the PeerConnection is connected."}
+        """;
+
+    private (GuildVoiceMediaController Controller, CountingCloudflareHandler Handler) SessionErrorFixture()
+    {
+        var handler = new CountingCloudflareHandler(SessionErrorBody, HttpStatusCode.BadRequest);
+        var controller = BuildController(new CloudflareService(
+            new SingleHandlerFactory(handler), NullLogger<CloudflareService>.Instance));
+        return (controller, handler);
+    }
+
+    [Test]
+    public async Task SubscribeOnASessionWithNoLiveTransport_Answers409NotA502()
+    {
+        var (controller, handler) = SessionErrorFixture();
+        using var _ = handler;
+
+        var result = await controller.Negotiate(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
+
+        // Nothing on this side failed: the client is negotiating on a session whose PeerConnection
+        // it already tore down or never connected.
+        Assert.That(result, Is.InstanceOf<ConflictObjectResult>());
+    }
+
+    [Test]
+    public async Task SubscribeOnASessionWithNoLiveTransport_TellsTheClientToRecreateIt()
+    {
+        var (controller, handler) = SessionErrorFixture();
+        using var _ = handler;
+
+        var result = await controller.Negotiate(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
+
+        // The recovery has to be in the payload.
+        Assert.That(JsonSerializer.Serialize(((ConflictObjectResult)result).Value),
+            Does.Contain("sessionGone").And.Contain("recreateSession"));
+    }
+
+    [Test]
+    public async Task SubscribeOnASessionWithNoLiveTransport_IsNotRetried()
+    {
+        var (controller, handler) = SessionErrorFixture();
+        using var _ = handler;
+
+        await controller.Negotiate(GuildId, ChannelId, SubscribeBody(), CancellationToken.None);
+
+        // Retrying a subscribe absorbs the publisher-not-ready race.
+        Assert.That(handler.TracksNewCount, Is.EqualTo(1));
+    }
+
     // ── Fixture plumbing ──────────────────────────────────────────────────────
 
     /// <summary>Subscribe-only body: all tracks remote, so it takes the retry path.</summary>
@@ -265,8 +323,10 @@ public class CloudflarePerTrackErrorTests
     }
 
     /// <summary>Answers every tracks/new with <paramref name="tracksNewBody"/> and counts the
-    /// attempts, so a missing retry is observable.</summary>
-    private sealed class CountingCloudflareHandler(string tracksNewBody) : HttpMessageHandler
+    /// attempts, so a missing retry is observable. <paramref name="tracksNewStatus"/> covers the
+    /// failures Cloudflare reports as a rejected request rather than inside a 200.</summary>
+    private sealed class CountingCloudflareHandler(
+        string tracksNewBody, HttpStatusCode tracksNewStatus = HttpStatusCode.OK) : HttpMessageHandler
     {
         public int TracksNewCount { get; private set; }
 
@@ -275,6 +335,7 @@ public class CloudflarePerTrackErrorTests
         {
             var path = request.RequestUri!.AbsolutePath;
             string body;
+            var status = HttpStatusCode.OK;
             if (path.EndsWith("sessions/new"))
             {
                 body = """{"sessionId":"cf-local-session"}""";
@@ -283,13 +344,14 @@ public class CloudflarePerTrackErrorTests
             {
                 TracksNewCount++;
                 body = tracksNewBody;
+                status = tracksNewStatus;
             }
             else
             {
                 body = """{"sessionDescription":{"type":"answer","sdp":"v=0"},"tracks":[]}""";
             }
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(status)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
             });

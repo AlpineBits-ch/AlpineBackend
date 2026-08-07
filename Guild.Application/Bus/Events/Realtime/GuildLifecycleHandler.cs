@@ -6,7 +6,6 @@ using Guild.Application.Controllers;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Models;
 using Guild.Application.Services;
-using Guild.Contracts.Bus.Events;
 using Guild.Domain.Enums;
 using Identity.Contracts.Bus.Response;
 using Guild.Persistence.Persistence;
@@ -15,7 +14,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Social.Contracts.Bus.Integration.Events;
 using Social.Contracts.Dtos;
-using Wolverine;
 
 namespace Guild.Application.Bus.Events.Realtime;
 
@@ -34,7 +32,7 @@ public class GuildLifecycleHandler
     // presence entry to preserve a status from.
     public async Task Handle(UserConnected message, MicroserviceContext microserviceContext,
         GuildHydrateService service, IHubContext<EchoRealtimeHub> hub, BlockCache blocks,
-        PrivacySettingsCache privacy)
+        PrivacySettingsCache privacy, IDistributedCache cache, VoiceRoomStore rooms)
     {
         var updates = await RefreshPresenceAsync(message.UserId, microserviceContext, service,
             defaultStatus: nameof(OnlineStatus.Online));
@@ -42,6 +40,9 @@ public class GuildLifecycleHandler
         var settings = await privacy.GetAsync(message.UserId);
 
         await BroadcastPresenceChangesAsync(message.UserId, updates, service, hub, blocks, settings);
+
+        // A reconnect is the other half of the disconnect grace below.
+        await RestoreVoiceLivenessAsync(message, cache, rooms);
     }
 
     // The gateway hub republishes this while the connection is alive (throttled), replacing the old
@@ -263,10 +264,10 @@ public class GuildLifecycleHandler
 
     // Marks the member offline in Redis immediately on disconnect rather than waiting for the
     // presence hash/ZSET entry to expire (previously the only mechanism - see the ghost-presence
-    // stress test), then falls through to the pre-existing voice-cleanup logic below.
+    // stress test), then opens the voice grace window below.
     public async Task Handle(UserDisconnected message, MicroserviceContext microserviceContext,
         GuildHydrateService service, IDistributedCache cache, VoiceRoomStore rooms,
-        IHubContext<EchoRealtimeHub> hub, IMessageBus bus, BlockCache blocks)
+        IHubContext<EchoRealtimeHub> hub, BlockCache blocks)
     {
         var userId = message.UserId;
 
@@ -302,22 +303,9 @@ public class GuildLifecycleHandler
         if (location is null) return;
 
         var roomKey = VoiceRoomKey.Channel(location.ChannelId);
+        var room = await rooms.LoadAsync(roomKey);
 
-        // Locked, and versioned, by going through VoiceRoomStore: this shares the room with join,
-        // publish, the mute/deafen/screenshare handlers and the heartbeat sweeper.
-        var removedFromVoice = false;
-        var voiceState = await rooms.MutateExistingAsync(roomKey,
-            r =>
-            {
-                var participant = r.Find(userId);
-                if (participant is null) return;
-                if (!DisconnectEndsVoiceConnection(participant.DeviceId, message.DeviceId)) return;
-
-                r.Participants.Remove(participant);
-                removedFromVoice = true;
-            });
-
-        if (voiceState is null)
+        if (room is null)
         {
             // The channel blob is gone (expired, or already cleaned up).
             if (DisconnectEndsVoiceConnection(location.DeviceId, message.DeviceId))
@@ -328,28 +316,51 @@ public class GuildLifecycleHandler
             return;
         }
 
+        var participant = room.Find(userId);
+
         // Nothing of this user's voice presence belonged to the device that just dropped, so
-        // nothing about it changed.
-        if (!removedFromVoice) return;
+        // nothing about it changed - most often the other half of a takeover, where the superseded
+        // device's own disconnect arrives after the new one is already in the roster.
+        if (participant is null || !DisconnectEndsVoiceConnection(participant.DeviceId, message.DeviceId))
+            return;
 
-        var onlineUserIds = await microserviceContext.GuildMembers
-            .AsNoTracking()
-            .Where(m => m.GuildId == location.GuildId)
-            .Select(m => m.UserId)
-            .ToListAsync();
-
-        await hub.Clients.Users(onlineUserIds).SendAsync("guild.voice.UserLeftVoice",
-            new { userId, channelId = location.ChannelId, guildId = location.GuildId });
-
-        await bus.PublishAsync(new VoiceStateForBots { GuildId = location.GuildId, UserId = userId, ChannelId = null });
-
-        await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId));
-        await cache.RemoveAsync(VoiceReconciler.LivenessKey(userId));
+        // Read-only, deliberately.
+        await cache.SetStringAsync(
+            VoiceReconciler.LivenessKey(userId),
+            roomKey.ToString(),
+            new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = VoiceReconciler.DisconnectGraceTtl
+            });
     }
 
     /// <summary>
-    /// Whether a socket drop on <paramref name="disconnectingDeviceId"/> should be treated as
-    /// ending the voice connection held by <paramref name="voiceDeviceId"/>.
+    /// Cancels the grace window opened by a disconnect, as soon as the device that holds the voice
+    /// connection is back.
+    /// </summary>
+    private static async Task RestoreVoiceLivenessAsync(
+        UserConnected message, IDistributedCache cache, VoiceRoomStore rooms)
+    {
+        var locationJson = await cache.GetStringAsync(ChannelVoiceState.GetUserCacheKey(message.UserId));
+        if (locationJson is null) return;
+
+        var location = JsonSerializer.Deserialize<UserVoiceLocation>(locationJson);
+        if (location is null) return;
+
+        var roomKey = VoiceRoomKey.Channel(location.ChannelId);
+        var participant = (await rooms.LoadAsync(roomKey))?.Find(message.UserId);
+        if (participant is null) return;
+        if (!DisconnectEndsVoiceConnection(participant.DeviceId, message.DeviceId)) return;
+
+        await cache.SetStringAsync(
+            VoiceReconciler.LivenessKey(message.UserId),
+            roomKey.ToString(),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = VoiceReconciler.LivenessTtl });
+    }
+
+    /// <summary>
+    /// Whether a socket lifecycle event on <paramref name="disconnectingDeviceId"/> concerns the
+    /// voice connection held by <paramref name="voiceDeviceId"/>.
     /// </summary>
     private static bool DisconnectEndsVoiceConnection(string? voiceDeviceId, string? disconnectingDeviceId) =>
         string.IsNullOrEmpty(voiceDeviceId)

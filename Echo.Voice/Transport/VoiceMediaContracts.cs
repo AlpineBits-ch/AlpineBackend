@@ -51,6 +51,12 @@ public enum VoiceMediaFailure
     /// <summary>A track being subscribed to does not exist on the publisher's session.</summary>
     TrackNotFound,
 
+    /// <summary>
+    /// The caller's media session no longer has a live transport: its PeerConnection is closed, or
+    /// was never connected in the first place.
+    /// </summary>
+    SessionGone,
+
     /// <summary>The transport itself is having a bad moment (5xx, timeout).</summary>
     Unavailable,
 }

@@ -49,7 +49,8 @@ public class VoiceHeartbeatCleanupService(
         }
     }
 
-    private async Task EvictStaleParticipantsAsync(CancellationToken ct)
+    /// <summary>One sweep.</summary>
+    internal async Task EvictStaleParticipantsAsync(CancellationToken ct)
     {
         var server = redis.GetServer(redis.GetEndPoints().First());
 
@@ -106,6 +107,11 @@ public class VoiceHeartbeatCleanupService(
                 await viewers.RemoveViewerAsync(viewerScope, participant.UserId, ct);
                 var owned = participant.ActiveScreenShares.Select(s => s.ShareId).ToList();
                 if (owned.Count > 0) await viewers.RemoveSharesAsync(viewerScope, owned, ct);
+
+                // And their pointer at this channel, which is the thing GuildLifecycleHandler reads
+                // to find out where a disconnecting user's voice lives.
+                if (isChannel)
+                    await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(participant.UserId), ct);
             }
 
             // Tell the room itself, for both kinds: an evicted participant is a roster change, so

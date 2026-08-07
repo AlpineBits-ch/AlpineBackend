@@ -7074,7 +7074,7 @@
       "sites": [
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 128,
+          "line": 131,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
           "anonymous": true,
           "schema": {
@@ -7203,7 +7203,7 @@
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 141,
+          "line": 144,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status, System.Collections.Generic.IReadOnlyList\u003CSocial.Contracts.Dtos.ActivityDto\u003E Activities\u003E",
           "anonymous": true,
           "schema": {
@@ -7332,7 +7332,7 @@
         },
         {
           "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 349,
+          "line": 352,
           "clrType": "\u003Canonymous type: string UserId, string GuildId, string Status\u003E",
           "anonymous": true,
           "schema": {
@@ -8337,34 +8337,6 @@
       "shapeCount": 1,
       "sites": [
         {
-          "file": "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-          "line": 403,
-          "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
-          "anonymous": true,
-          "schema": {
-            "Type": "object",
-            "Nullable": false,
-            "ClrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
-            "Properties": {
-              "userId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "channelId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              },
-              "guildId": {
-                "Type": "string",
-                "Nullable": false,
-                "Properties": {}
-              }
-            }
-          }
-        },
-        {
           "file": "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
           "line": 185,
           "clrType": "\u003Canonymous type: string userId, string channelId, string guildId\u003E",
@@ -8422,7 +8394,7 @@
         },
         {
           "file": "Guild.Application/Services/VoiceHeartbeatCleanupService.cs",
-          "line": 149,
+          "line": 163,
           "clrType": "\u003Canonymous type: string userId, string channelId, string? guildId\u003E",
           "anonymous": true,
           "schema": {

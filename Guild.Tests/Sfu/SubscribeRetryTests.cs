@@ -134,6 +134,21 @@ public class SubscribeRetryTests
     }
 
     [Test]
+    public void Subscribe_OnASessionWithNoLiveTransport_DoesNotRetry_EvenDressedAsA5xx()
+    {
+        // session_error means the caller's PeerConnection is not connected.
+        using var handler = new ScriptedCloudflareHandler(
+            (HttpStatusCode.InternalServerError,
+             """{"errorCode":"session_error","errorDescription":"Session appears to be disconnected."}"""));
+
+        Assert.That(
+            async () => await ServiceFor(handler).SubscribeTracksAsync("cf-local-session", SubscribeRequest()),
+            Throws.TypeOf<CloudflareCallsException>());
+
+        Assert.That(handler.TracksNewCount, Is.EqualTo(1));
+    }
+
+    [Test]
     public async Task Subscribe_ThatWorksFirstTime_IsNotRetried()
     {
         using var handler = new ScriptedCloudflareHandler((HttpStatusCode.OK, Sending));

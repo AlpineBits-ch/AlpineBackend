@@ -193,6 +193,26 @@ public class CallParticipantAnnouncementTests
     }
 
     [Test]
+    public async Task JoiningTheMediaPath_ClaimsLivenessImmediately()
+    {
+        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
+
+        // VoiceHeartbeatCleanupService sweeps both room kinds and evicts anyone with no heartbeat
+        // key.
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId)), Is.True);
+    }
+
+    [Test]
+    public async Task JoiningTheMediaPathWithASecondarySession_ClaimsNoLiveness()
+    {
+        // A screen-share session is not a presence in the call: it connects no device, joins no
+        // roster, and must not create the appearance of a live participant.
+        await OpenSecondarySessionAsync(CallerId, CallerDevice);
+
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId)), Is.False);
+    }
+
+    [Test]
     public async Task JoiningTheMediaPath_DoesNotNameAParticipantWhoHasOnlyOpenedASession()
     {
         // The callee is Connected and holds a session, but has published no track yet.

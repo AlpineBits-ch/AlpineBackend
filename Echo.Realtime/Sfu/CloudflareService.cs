@@ -10,12 +10,19 @@ public class CloudflareCallsException(
     string operation,
     System.Net.HttpStatusCode statusCode,
     string responseBody,
-    IReadOnlyList<string>? trackErrorCodes = null)
+    IReadOnlyList<string>? trackErrorCodes = null,
+    string? errorCode = null)
     : Exception($"Cloudflare Calls '{operation}' failed with {(int)statusCode} {statusCode}: {responseBody}")
 {
     public string Operation { get; } = operation;
     public System.Net.HttpStatusCode StatusCode { get; } = statusCode;
     public string ResponseBody { get; } = responseBody;
+
+    /// <summary>
+    /// The top-level <c>errorCode</c> Cloudflare reported, when it rejected the request as a whole
+    /// rather than per track.
+    /// </summary>
+    public string? ErrorCode { get; } = errorCode;
 
     /// <summary>
     /// The per-track <c>errorCode</c>s Cloudflare reported, when the failure was a 200 carrying
@@ -73,6 +80,29 @@ public class CloudflareService
         _logger = logger;
     }
 
+    /// <summary>Cloudflare's code for "this session's PeerConnection is not connected".</summary>
+    public const string SessionErrorCode = "session_error";
+
+    /// <summary>Cloudflare's top-level <c>errorCode</c>, when the body carries one.</summary>
+    private static string? TopLevelErrorCode(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                   && doc.RootElement.TryGetProperty("errorCode", out var code)
+                   && code.ValueKind == JsonValueKind.String
+                ? code.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task EnsureSuccessAsync(HttpResponseMessage res, string operation, CancellationToken ct)
     {
         if (res.IsSuccessStatusCode) return;
@@ -80,7 +110,8 @@ public class CloudflareService
         _logger.LogError(
             "Cloudflare Calls {Operation} failed with {StatusCode}: {Body}",
             operation, (int)res.StatusCode, body);
-        throw new CloudflareCallsException(operation, res.StatusCode, body);
+        throw new CloudflareCallsException(
+            operation, res.StatusCode, body, errorCode: TopLevelErrorCode(body));
     }
 
     public async Task<string> CreateSessionAsync(CancellationToken ct = default)
@@ -149,7 +180,8 @@ public class CloudflareService
 
     /// <summary>Whether a failed pull is worth trying again.</summary>
     private static bool IsTransient(CloudflareCallsException ex) =>
-        ex.StatusCode == System.Net.HttpStatusCode.OK || (int)ex.StatusCode >= 500;
+        !string.Equals(ex.ErrorCode, SessionErrorCode, StringComparison.OrdinalIgnoreCase)
+        && (ex.StatusCode == System.Net.HttpStatusCode.OK || (int)ex.StatusCode >= 500);
 
     public async Task<CfRenegotiateResponse> RenegotiateAsync(
         string cfSessionId,

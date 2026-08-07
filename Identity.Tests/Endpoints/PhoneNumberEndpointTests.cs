@@ -1,6 +1,7 @@
 using Identity.Application.Dtos.Request;
 using Identity.Application.Endpoints;
 using Identity.Application.Services;
+using Identity.Contracts.Bus.Events;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
 using Identity.Tests.Helpers;
@@ -18,12 +19,14 @@ public class PhoneNumberEndpointTests
 
     private TestIdentityContext _context = null!;
     private SessionDeviceResolver _sessionDevices = null!;
+    private FakeIdentityMessageBus _bus = null!;
 
     [SetUp]
     public void SetUp()
     {
         _context = new TestIdentityContext(Guid.NewGuid().ToString());
         _sessionDevices = new SessionDeviceResolver(_context);
+        _bus = new FakeIdentityMessageBus();
     }
 
     [TearDown]
@@ -58,7 +61,10 @@ public class PhoneNumberEndpointTests
             TestPrincipal.ForUser(userId), _sessionDevices, _context);
 
     private Task<IResult> Delete(string userId) =>
-        PhoneNumberEndpoint.Delete(TestPrincipal.ForUser(userId), _sessionDevices, _context);
+        PhoneNumberEndpoint.Delete(TestPrincipal.ForUser(userId), _sessionDevices, _bus, _context);
+
+    private List<UserPhoneNumberRemovedEvent> RemovalEvents() =>
+        _bus.Published.OfType<UserPhoneNumberRemovedEvent>().ToList();
 
     private async Task<ApplicationUser> Reload(string userId) =>
         await _context.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
@@ -273,12 +279,14 @@ public class PhoneNumberEndpointTests
         await SeedUser(UserId, "+41791234567");
 
         var result = await PhoneNumberEndpoint.Delete(
-            TestPrincipal.Anonymous(), _sessionDevices, _context);
+            TestPrincipal.Anonymous(), _sessionDevices, _bus, _context);
 
         Assert.Multiple(async () =>
         {
             Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
             Assert.That((await Reload(UserId)).PhoneNumber, Is.EqualTo("+41791234567"));
+            Assert.That(RemovalEvents(), Is.Empty,
+                "an unauthenticated call names no account, so there is no consent it could revoke");
         });
     }
 
@@ -288,5 +296,88 @@ public class PhoneNumberEndpointTests
         var result = await Put("user-nobody", "+41791234567");
 
         Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ Revoking the guild
+    // opt-ins ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Delete_PublishesTheRemovalSoGuildDropsEveryOptIn()
+    {
+        // Identity does not reach into Guild's rows - it has no guild model and should not grow one
+        // - so the withdrawal travels as a fact about this account and Guild decides what it means
+        // for its own state.
+        await SeedUser(UserId, "+41791234567");
+
+        await Delete(UserId);
+
+        Assert.That(RemovalEvents().Single().UserId, Is.EqualTo(UserId));
+    }
+
+    [Test]
+    public async Task Delete_TheEventCarriesNoPhoneNumber()
+    {
+        // The load-bearing assertion about the contract.
+        await SeedUser(UserId, "+41791234567");
+
+        await Delete(UserId);
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(RemovalEvents().Single());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload, Does.Not.Contain("791234567"));
+            Assert.That(payload, Does.Not.Contain("+41"));
+        });
+    }
+
+    [Test]
+    public async Task Delete_WithNoNumberStillPublishes()
+    {
+        // Deliberately not short-circuited.
+        await SeedUser(UserId);
+
+        var result = await Delete(UserId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<NoContent>());
+            Assert.That(RemovalEvents().Single().UserId, Is.EqualTo(UserId));
+        });
+    }
+
+    [Test]
+    public async Task Put_ReplacingTheNumberRevokesNothing()
+    {
+        // The decision most likely to be revisited, so it is pinned.
+        await SeedUser(UserId, "+41790000000");
+
+        await Put(UserId, "+41791234567");
+
+        Assert.That(RemovalEvents(), Is.Empty);
+    }
+
+    [Test]
+    public async Task Put_RecordingAFirstNumberRevokesNothingEither()
+    {
+        await SeedUser(UserId);
+
+        await Put(UserId, "+41791234567");
+
+        Assert.That(RemovalEvents(), Is.Empty);
+    }
+
+    [Test]
+    public async Task Delete_ForAnAccountThatDoesNotExist_PublishesNothing()
+    {
+        // The 404 path.
+        var result = await PhoneNumberEndpoint.Delete(
+            TestPrincipal.ForUser("user-nobody"), _sessionDevices, _bus, _context);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<NotFound>());
+            Assert.That(RemovalEvents(), Is.Empty);
+        });
     }
 }

@@ -43,9 +43,10 @@ public class PaymentHandleDirectoryDto
     /// <summary>The phone numbers of the members who chose to show theirs to this guild.</summary>
     public List<SharedPhoneNumberDto> PhoneNumbers { get; set; } = [];
 
-    /// <summary>The caller's own opt-in, echoed so the settings toggle can render without a second
-    /// round trip. Only ever the caller's own: whether anybody else has opted in is visible from
-    /// <see cref="PhoneNumbers"/>, and not otherwise.</summary>
+    /// <summary>
+    /// The caller's own opt-in, echoed so the settings toggle can render without a second round
+    /// trip.
+    /// </summary>
     public required bool SharingPhoneNumber { get; set; }
 }
 

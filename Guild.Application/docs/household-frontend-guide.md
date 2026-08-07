@@ -1023,8 +1023,22 @@ is no single switch that does both and you should not build UI that implies ther
   number - surface the `400` and ask the user to fix it.
 - `DELETE` on the same path removes it, idempotently, `204` either way.
 - `GET /api/v1/identity/users/self` already returns `phoneNumber`, so there is no `GET` here.
-- Deleting the number does **not** clear any guild opt-in, and does not need to: a guild with an
-  opt-in and no number behind it produces exactly the same response as no opt-in.
+
+**Deleting the number clears every guild opt-in.** This changed, and it changes what you should show
+in the remove dialog. It used to leave them standing, on the argument that an opt-in with no number
+behind it reads identically to no opt-in - which held right up until a number existed again:
+recording a *different* one months later put it straight in front of every household the account had
+ever opted into, with no prompt and nothing for its owner to do. So removal now revokes, everywhere,
+and re-sharing afterwards is a deliberate act per household.
+
+- **Drop any "your households will still be able to see a new number" warning.** It is no longer
+  true, and a warning that has stopped being true is worse than none.
+- The clearing happens asynchronously over the bus, so a directory read taken in the same instant may
+  still report `sharingPhoneNumber: true`. Do not build a spinner or a poll around it - it converges
+  on its own and the flag is inert while there is no number to publish.
+- **Changing** the number does *not* clear anything. A replacement is the same person keeping the
+  same intent, and un-sharing every household because somebody fixed one mistyped digit would be a
+  silent, unexplained withdrawal. Word your edit and remove flows accordingly: only remove revokes.
 
 **Nothing verifies the number.** SMS verification was designed and dropped: with Firebase Phone Auth
 the client calls Google directly, so the SMS is sent and paid for before our backend is ever

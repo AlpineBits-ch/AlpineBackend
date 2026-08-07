@@ -1,10 +1,12 @@
 using System.Security.Claims;
 using Identity.Application.Dtos.Request;
 using Identity.Application.Services;
+using Identity.Contracts.Bus.Events;
 using Identity.Domain.Entities;
 using Identity.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Identity.Application.Endpoints;
@@ -73,6 +75,7 @@ public class PhoneNumberEndpoint
     public static async Task<IResult> Delete(
         [NotBody] ClaimsPrincipal principal,
         [NotBody] SessionDeviceResolver sessionDevices,
+        [NotBody] IMessageBus bus,
         [NotBody] MicroserviceContext ctx)
     {
         var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -81,7 +84,12 @@ public class PhoneNumberEndpoint
         var user = await ctx.Users.FirstOrDefaultAsync(u => u.Id == userId);
         if (user is null) return Results.NotFound();
 
-        if (user.PhoneNumber is null) return Results.NoContent();
+        if (user.PhoneNumber is null)
+        {
+            // Still published, even though nothing changed here.
+            await bus.PublishAsync(new UserPhoneNumberRemovedEvent { UserId = userId });
+            return Results.NoContent();
+        }
 
         var previous = user.PhoneNumber;
         user.PhoneNumber = null;
@@ -100,6 +108,8 @@ public class PhoneNumberEndpoint
         }));
 
         await ctx.SaveChangesAsync();
+
+        await bus.PublishAsync(new UserPhoneNumberRemovedEvent { UserId = userId });
 
         return Results.NoContent();
     }

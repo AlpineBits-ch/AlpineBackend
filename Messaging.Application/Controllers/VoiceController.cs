@@ -40,6 +40,7 @@ public class VoiceController(
     StreamViewerStore viewers,
     MicroserviceContext db,
     VoiceRoomStore rooms,
+    VoiceRoomService voice,
     IHubContext<EchoRealtimeHub> hubContext) : ControllerBase
 {
     // Call.GetCacheId(callId) doubles as the lock key -LockedJsonCacheStore namespaces it
@@ -314,12 +315,9 @@ public class VoiceController(
             : await viewers.UnwatchAsync(scope, shareId, userId, ct);
 
         var viewerIds = snapshot.TryGetValue(shareId, out var ids) ? ids : [];
-        var payload = new { callId, shareId, viewerCount = viewerIds.Count, viewerIds };
+        await voice.AnnounceShareViewersAsync(VoiceRoomKey.Call(callId), shareId, viewerIds, ct);
 
-        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId).ToList())
-            .SendAsync("call.ShareViewersChanged", payload, ct);
-
-        return Ok(payload);
+        return Ok(new { callId, shareId, viewerCount = viewerIds.Count, viewerIds });
     }
 
     [HttpPut("call/{callId}/accept")]

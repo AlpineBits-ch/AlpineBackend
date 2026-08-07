@@ -17,16 +17,6 @@ public sealed class SfuSessionOwnership(IDistributedCache cache)
 
     private static string Key(string cfSessionId) => $"voice:session-owner:{cfSessionId}";
 
-    /// <summary>
-    /// The per-service keys this replaces, still read (never written) so that sessions minted
-    /// before this shipped keep working.
-    /// </summary>
-    private static readonly string[] LegacyKeys =
-    [
-        "cf-session-owner:",       // Messaging.Application.Controllers.CloudflareController
-        "guild-cf-session-owner:", // Guild.Application.Controllers.GuildCloudflareController
-    ];
-
     /// <summary>Records that <paramref name="userId"/> minted <paramref name="cfSessionId"/>.
     /// Call this before handing the id back, so no window exists in which a session is usable but
     /// unowned.</summary>
@@ -41,20 +31,7 @@ public sealed class SfuSessionOwnership(IDistributedCache cache)
         if (string.IsNullOrWhiteSpace(cfSessionId)) return false;
 
         var owner = await cache.GetStringAsync(Key(cfSessionId), ct);
-        if (owner is not null)
-            return string.Equals(owner, userId, StringComparison.Ordinal);
-
-        foreach (var prefix in LegacyKeys)
-        {
-            var legacyOwner = await cache.GetStringAsync(prefix + cfSessionId, ct);
-            if (legacyOwner is null) continue;
-
-            // Found under a pre-migration key.
-            await BindAsync(cfSessionId, legacyOwner, ct);
-            return string.Equals(legacyOwner, userId, StringComparison.Ordinal);
-        }
-
-        return false;
+        return owner is not null && string.Equals(owner, userId, StringComparison.Ordinal);
     }
 
     /// <summary>Forgets an ownership record.</summary>

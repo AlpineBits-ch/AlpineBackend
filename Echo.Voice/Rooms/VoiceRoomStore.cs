@@ -46,13 +46,8 @@ public sealed class VoiceRoomStore(
     };
 
     /// <summary>Reads a room without locking.</summary>
-    public async Task<VoiceRoom?> LoadAsync(VoiceRoomKey key, CancellationToken ct = default)
-    {
-        var room = await store.LoadAsync<VoiceRoom>(key.CacheKey, ct);
-        if (room is not null) return room;
-
-        return await LoadLegacyAsync(key, ct);
-    }
+    public Task<VoiceRoom?> LoadAsync(VoiceRoomKey key, CancellationToken ct = default) =>
+        store.LoadAsync<VoiceRoom>(key.CacheKey, ct);
 
     /// <summary>
     /// Load-or-create, mutate, bump, save, under the room's lock, retrying while the room is
@@ -88,8 +83,7 @@ public sealed class VoiceRoomStore(
             {
                 await using var _ = await locks.AcquireAsync(key.CacheKey, LockWait, ct);
 
-                var room = await store.LoadAsync<VoiceRoom>(key.CacheKey, ct)
-                           ?? await LoadLegacyAsync(key, ct);
+                var room = await store.LoadAsync<VoiceRoom>(key.CacheKey, ct);
 
                 if (room is null)
                 {
@@ -131,30 +125,5 @@ public sealed class VoiceRoomStore(
     {
         await using var _ = await locks.AcquireAsync(key.CacheKey, LockWait, ct);
         await cache.RemoveAsync(key.CacheKey, ct);
-        if (key.LegacyCacheKey is { } legacy) await cache.RemoveAsync(legacy, ct);
-    }
-
-    /// <summary>Reads a pre-unification channel blob and adopts it under the current key.</summary>
-    private async Task<VoiceRoom?> LoadLegacyAsync(VoiceRoomKey key, CancellationToken ct)
-    {
-        if (key.LegacyCacheKey is not { } legacyKey) return null;
-
-        var legacy = await store.LoadAsync<VoiceRoom>(legacyKey, ct);
-        if (legacy is null) return null;
-
-        // The old blob carried ChannelId/GuildId rather than RoomId/Kind, and no instance id.
-        legacy.RoomId = key.Id;
-        legacy.Kind = key.Kind;
-        if (string.IsNullOrEmpty(legacy.InstanceId)) legacy.InstanceId = Guid.NewGuid().ToString("N");
-
-        await store.SaveAsync(key.CacheKey, legacy, CacheOptions, ct);
-
-        // Removed so the adoption cannot run twice and silently discard writes made against the
-        // new key in between.
-        await cache.RemoveAsync(legacyKey, ct);
-
-        logger.LogInformation("Adopted legacy voice state for room {Room} at version {Version}",
-            key, legacy.Version);
-        return legacy;
     }
 }

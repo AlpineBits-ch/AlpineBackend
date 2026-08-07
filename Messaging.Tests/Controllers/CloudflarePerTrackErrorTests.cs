@@ -102,7 +102,7 @@ public class CloudflarePerTrackErrorTests
         await _cache.SetAsync(
             Call.GetCacheId(CallId), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
 
-        await _cache.SetAsync("cf-session-owner:cf-local-session", Encoding.UTF8.GetBytes(UserId), new());
+        await _cache.SetAsync("voice:session-owner:cf-local-session", Encoding.UTF8.GetBytes(UserId), new());
     }
 
     [Test]

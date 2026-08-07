@@ -3,9 +3,8 @@
 Everything a client needs to implement voice, video and screen sharing, for both **guild voice
 channels** and **direct calls**.
 
-This is not a migration document. It describes the system as it is now. If you are updating an
-existing client, the old routes and payloads still work during the grace period, but everything new
-should be built against this.
+This is the whole contract. There is no legacy surface left to fall back on: the old routes,
+response shapes and heartbeat have been removed, so everything below is the only way voice works.
 
 ---
 
@@ -106,8 +105,9 @@ PUT /api/v1/voice/call/{callId}/accept
 X-Device-Id: <your device id>
 ```
 
-Joining puts you in the roster **before** any media work, and hands you a `Snapshot` over SignalR
-straight away. You do not need to wait for any other event to render the room.
+Joining puts you in the roster **before** any media work. It returns the snapshot directly *and*
+pushes the same `Snapshot` over SignalR, so you can render the room from the HTTP response without
+waiting for any event.
 
 ### 3.2 Open a Cloudflare session
 
@@ -407,8 +407,8 @@ becomes permanent silence for that participant.
 ```
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/join
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/leave
+GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice            (same as /voice/snapshot)
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice/snapshot
-GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice           (legacy shape, no media handles)
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/session?primary=
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/cf/tracks/new
 PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/cf/renegotiate
@@ -481,11 +481,12 @@ setInterval(() => connection.invoke("voice.Heartbeat", "channel", channelId, {
 
 ---
 
-## 11. Compatibility
+## 11. There is no legacy surface
 
-Old routes, the old `GET .../voice` response shape, and `guild.voice.Heartbeat()` still work, so
-existing clients keep running. They cannot recover from a missed event, which is exactly what the
-new surface fixes - build anything new against this guide.
+The previous implementation has been removed outright, not deprecated: no old routes, no old
+response shape, no liveness-only `guild.voice.Heartbeat`, and no adoption of pre-existing cache
+keys. A client written against an older description of this API will not work.
 
-Server-side, pre-existing rooms and sessions are adopted automatically on first touch, so nothing is
-dropped on deploy.
+That is deliberate. Carrying a compatibility layer for an API with no users costs more than it
+saves, and the two shims that mattered - a response that withheld the media handles, and a
+heartbeat that could not repair anything - are the exact things that made voice unrecoverable.

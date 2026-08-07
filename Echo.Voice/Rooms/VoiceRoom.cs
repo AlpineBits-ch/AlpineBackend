@@ -18,13 +18,6 @@ public readonly record struct VoiceRoomKey(string Kind, string Id)
     /// <summary>Where the room blob lives.</summary>
     public string CacheKey => $"voice:room:{Kind}:{Id}";
 
-    /// <summary>
-    /// The pre-unification key, still read once per room so a deploy does not drop everyone who is
-    /// already in a channel.
-    /// </summary>
-    public string? LegacyCacheKey =>
-        Kind == VoiceRoomKind.Channel ? $"voice:channel:{Id}" : null;
-
     /// <summary>Scope for <see cref="Echo.Realtime.Caching.StreamViewerStore"/>.</summary>
     public string ViewerScope => $"{Kind}:{Id}";
 

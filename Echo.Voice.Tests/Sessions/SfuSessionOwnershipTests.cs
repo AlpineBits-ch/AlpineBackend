@@ -91,49 +91,4 @@ public class SfuSessionOwnershipTests
         Assert.That(await _sessions.OwnsAsync("cf-1", "USER-A"), Is.False);
     }
 
-    // ── Migration grace period ────────────────────────────────────────────────
-
-    /// <summary>
-    /// Sessions minted before this shipped are bound under the old per-service keys.
-    /// </summary>
-    [TestCase("cf-session-owner:", TestName = "Legacy Messaging key is still honoured")]
-    [TestCase("guild-cf-session-owner:", TestName = "Legacy Guild key is still honoured")]
-    public async Task Sessions_bound_under_a_legacy_key_keep_working(string legacyPrefix)
-    {
-        await _cache.SetStringAsync(legacyPrefix + "cf-old", "user-a");
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await _sessions.OwnsAsync("cf-old", "user-a"), Is.True);
-            Assert.That(await _sessions.OwnsAsync("cf-old", "user-b"), Is.False,
-                "the fallback must not weaken the check it is standing in for");
-        });
-    }
-
-    /// <summary>The fallback re-binds under the current key, so a long-lived session pays the
-    /// extra lookups once rather than on every action for the rest of its life.</summary>
-    [Test]
-    public async Task A_legacy_session_is_promoted_to_the_current_key_on_first_use()
-    {
-        await _cache.SetStringAsync("cf-session-owner:cf-old", "user-a");
-        await _sessions.OwnsAsync("cf-old", "user-a");
-
-        // Remove the legacy entry: if promotion did not happen, the next check has nothing to find.
-        await _cache.RemoveAsync("cf-session-owner:cf-old");
-
-        Assert.That(await _sessions.OwnsAsync("cf-old", "user-a"), Is.True);
-    }
-
-    [Test]
-    public async Task A_current_binding_wins_over_a_stale_legacy_one()
-    {
-        await _cache.SetStringAsync("cf-session-owner:cf-1", "stale-user");
-        await _sessions.BindAsync("cf-1", "user-a");
-
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await _sessions.OwnsAsync("cf-1", "user-a"), Is.True);
-            Assert.That(await _sessions.OwnsAsync("cf-1", "stale-user"), Is.False);
-        });
-    }
 }

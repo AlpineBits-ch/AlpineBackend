@@ -46,9 +46,6 @@ public record VoiceHeartbeatState(
     string? CfSessionId,
     string? AudioTrackName);
 
-/// <summary>Liveness only.</summary>
-public record GuildVoiceHeartbeatCommand(string UserId);
-
 // Two records rather than one carrying a room kind, purely because Wolverine routes on the concrete
 // message type and these two go to different services.
 

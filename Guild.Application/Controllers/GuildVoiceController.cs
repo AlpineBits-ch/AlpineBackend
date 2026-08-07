@@ -106,7 +106,7 @@ public class GuildVoiceController(
 
         await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = UserId, ChannelId = channelId });
 
-        return Ok(ChannelVoiceStateResponse.From(room));
+        return Ok(VoiceRoomSnapshot.From(room));
     }
 
     /// <summary>Same user, same channel, a different device just joined - transfer the connection
@@ -149,23 +149,11 @@ public class GuildVoiceController(
         return NoContent();
     }
 
-    /// <summary>The pre-unification state read.</summary>
-    [HttpGet]
-    public async Task<IActionResult> GetVoiceState(string guildId, string channelId, CancellationToken ct)
-    {
-        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.ViewChannel))
-            return Forbid();
-
-        var room = await rooms.LoadAsync(Room(channelId), ct);
-        return Ok(room is null
-            ? ChannelVoiceStateResponse.Empty(channelId, guildId)
-            : ChannelVoiceStateResponse.From(room));
-    }
-
     /// <summary>
     /// The authoritative state of this channel's voice room, sufficient on its own for a client to
     /// be fully correct however much it missed.
     /// </summary>
+    [HttpGet]
     [HttpGet("snapshot")]
     public async Task<IActionResult> GetSnapshot(string guildId, string channelId, CancellationToken ct)
     {
@@ -210,12 +198,9 @@ public class GuildVoiceController(
             : await viewers.UnwatchAsync(scope, shareId, UserId, ct);
 
         var viewerIds = snapshot.TryGetValue(shareId, out var ids) ? ids : [];
-        var payload = new { channelId, shareId, viewerCount = viewerIds.Count, viewerIds };
+        await voice.AnnounceShareViewersAsync(Room(channelId), shareId, viewerIds, ct);
 
-        await hub.Clients.Users(room.AllUserIds())
-            .SendAsync("guild.voice.ShareViewersChanged", payload, ct);
-
-        return Ok(payload);
+        return Ok(new { channelId, shareId, viewerCount = viewerIds.Count, viewerIds });
     }
 
     /// <summary>Everyone currently watching each live share in this channel, as

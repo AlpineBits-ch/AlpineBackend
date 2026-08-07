@@ -81,7 +81,8 @@ public class VoiceConversationCallTests
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             TestPrivacyServices.Build(_bus).Policy,
             _viewers, _context,
-            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()), _hub)
+            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub), _hub)
         {
             ControllerContext = new ControllerContext
             {
@@ -109,6 +110,15 @@ public class VoiceConversationCallTests
             ],
         };
         await _cache.SetAsync(Call.GetCacheId(CallId), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
+
+        // The viewer broadcast is addressed to the voice room, not to the Call's invitee list -
+        // a viewer count is about media, and someone who is merely being rung is watching nothing.
+        await VoiceTestHarness.SeedRoomAsync(_cache, new VoiceRoom
+        {
+            RoomId = CallId,
+            Kind = VoiceRoomKind.Call,
+            Participants = [new VoiceParticipant { UserId = Caller }, new VoiceParticipant { UserId = Callee }],
+        });
     }
 
     private Task IndexAsync(string conversationId = ConversationId) =>

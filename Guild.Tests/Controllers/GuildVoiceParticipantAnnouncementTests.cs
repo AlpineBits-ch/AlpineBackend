@@ -96,7 +96,7 @@ public class GuildVoiceParticipantAnnouncementTests
 
         // Every CF action must act as a session the caller minted - CreateSession records this, and
         // these tests call TracksNew directly.
-        _cache.SetEntry("guild-cf-session-owner:cf-publisher", PublisherId);
+        _cache.SetEntry("voice:session-owner:cf-publisher", PublisherId);
     }
 
     /// <summary>

@@ -223,7 +223,7 @@ public class CloudflarePerTrackErrorTests
         context.SaveChanges();
 
         // The session the body acts as has to belong to this caller.
-        cache.SetEntry("guild-cf-session-owner:cf-local-session", UserId);
+        cache.SetEntry("voice:session-owner:cf-local-session", UserId);
 
         return new GuildCloudflareController(
             cfService ?? _cfService,

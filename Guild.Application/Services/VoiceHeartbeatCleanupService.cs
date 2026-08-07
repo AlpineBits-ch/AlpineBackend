@@ -52,7 +52,9 @@ public class VoiceHeartbeatCleanupService(
     {
         var server = redis.GetServer(redis.GetEndPoints().First());
 
-        // Both patterns.
+        // One pattern: the unified room key.
+        // touched since the deploy has not been adopted yet, and without sweeping it a room whose
+        // participants all went stale during the rollout would never be cleaned up.
         var keys = server.Keys(pattern: "voice:room:channel:*")
             .Select(k => k.ToString()["voice:room:channel:".Length..])
             .Concat(server.Keys(pattern: "voice:channel:*")

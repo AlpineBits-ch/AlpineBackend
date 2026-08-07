@@ -48,6 +48,7 @@ public class VoicePendingCallTests
             new StreamViewerStore(new FakeDistributedLockService(), _cache),
             new TestMessagingContext(Guid.NewGuid().ToString()),
             VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), new FakeMessagingHubContext()),
             new FakeMessagingHubContext())
         {
             ControllerContext = new ControllerContext

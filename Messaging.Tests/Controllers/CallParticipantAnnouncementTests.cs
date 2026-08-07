@@ -92,7 +92,7 @@ public class CallParticipantAnnouncementTests
         await ControllerFor(userId, deviceId).CreateSession(CallId, CancellationToken.None);
         // The stub Cloudflare always mints the same id, so record ownership of the id this
         // participant will actually publish on by hand.
-        _cache.SetEntry($"cf-session-owner:{rustSessionId}", userId);
+        _cache.SetEntry($"voice:session-owner:{rustSessionId}", userId);
     }
 
     private async Task PublishAudioAsync(string userId, string deviceId, string rustSessionId)

@@ -10,35 +10,34 @@ namespace Echo.Voice.Tests.Architecture;
 public class VoiceEventOwnershipTests
 {
     /// <summary>Anything sent under these prefixes is room state a client has to be able to
-    /// reconstruct.</summary>
+    /// reconstruct. Captures the event name so the exemptions below can be judged on meaning.</summary>
     private static readonly Regex VoiceEventSend = new(
-        """SendAsync\(\s*"(guild\.voice\.|call\.)""",
+        """SendAsync\(\s*"(?:guild\.voice\.|call\.)(?<event>\w+)""",
         RegexOptions.Compiled);
 
     /// <summary>
-    /// Pre-unification emission sites, grandfathered so the check can land before the migration
-    /// finishes.
+    /// Events whose audience is not the room, and which therefore cannot go through <see
+    /// cref="VoiceAnnouncer"/> - it addresses room participants, and these do not.
     /// </summary>
-    private static readonly HashSet<string> Grandfathered = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> NotRoomScoped = new(StringComparer.Ordinal)
     {
-        // Guild.
-        "Guild.Application/Bus/Events/Realtime/GuildVoiceStateHandler.cs",
-        "Guild.Application/Bus/Events/Realtime/GuildLifecycleHandler.cs",
-        "Guild.Application/Controllers/GuildVoiceController.cs",
-        "Guild.Application/Services/VoiceHeartbeatCleanupService.cs",
+        // Guild presence and moderation fan-out.
+        "UserJoinedVoice",
+        "UserLeftVoice",
+        "KickedByOtherDevice",
+        "MovedToChannel",
 
-        // Messaging - the share-viewer broadcast, which predates the announcer.
-        "Messaging.Application/Controllers/VoiceController.cs",
-
-        // Messaging - call ring lifecycle.
-        "Messaging.Application/Services/CallEndNotifier.cs",
-        "Messaging.Application/Handler/Call/CallAcceptedHandler.cs",
-        "Messaging.Application/Handler/Call/CallDeclinedHandler.cs",
-        "Messaging.Application/Handler/Call/CallParticipantLeftHandler.cs",
-        "Messaging.Application/Handler/Call/CallWentAloneHandler.cs",
-        "Messaging.Application/Handler/Call/CallDeviceTakeoverHandler.cs",
-        "Messaging.Application/Handler/Call/CallDeviceDismissedHandler.cs",
+        // Call ring lifecycle.
+        "IncomingCall",
+        "CallAccepted",
+        "CallDeclined",
+        "CallEnded",
+        "CallAlone",
+        "CallParticipantLeft",
+        "CallDeviceTakeover",
+        "CallDeviceDismissed",
     };
+
 
     private static readonly string[] ScannedProjects = ["Guild.Application", "Messaging.Application"];
 
@@ -52,7 +51,8 @@ public class VoiceEventOwnershipTests
         return dir!;
     }
 
-    private static List<string> OffendingFiles()
+    /// <summary>Every direct voice send outside the announcer, as "file: EventName".</summary>
+    private static List<string> DirectSends()
     {
         var root = RepoRoot();
         var offenders = new List<string>();
@@ -68,9 +68,14 @@ public class VoiceEventOwnershipTests
                     || file.FullName.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
                     continue;
 
-                if (!VoiceEventSend.IsMatch(File.ReadAllText(file.FullName))) continue;
+                var relative = Path.GetRelativePath(root.FullName, file.FullName).Replace('\\', '/');
 
-                offenders.Add(Path.GetRelativePath(root.FullName, file.FullName).Replace('\\', '/'));
+                foreach (Match match in VoiceEventSend.Matches(File.ReadAllText(file.FullName)))
+                {
+                    var name = match.Groups["event"].Value;
+                    if (NotRoomScoped.Contains(name)) continue;
+                    offenders.Add($"{relative}: {name}");
+                }
             }
         }
 
@@ -78,31 +83,17 @@ public class VoiceEventOwnershipTests
     }
 
     [Test]
-    public void No_new_voice_event_is_sent_from_outside_the_announcer()
+    public void No_room_state_event_is_sent_from_outside_the_announcer()
     {
-        var unexpected = OffendingFiles().Where(f => !Grandfathered.Contains(f)).ToList();
-
-        Assert.That(unexpected, Is.Empty,
-            "These files push a voice event directly instead of going through VoiceAnnouncer, so the "
-            + "payload carries no room version and a client that misses it can never find out. Route "
-            + "them through VoiceRoomService/VoiceAnnouncer. Do not add them to the allowlist - it "
-            + "exists only to grandfather the pre-unification code, and it must never grow.");
+        Assert.That(DirectSends(), Is.Empty,
+            "These push a voice event directly instead of going through VoiceAnnouncer, so the "
+            + "payload carries no room version or instance and a client that misses it can never "
+            + "find out. Route them through VoiceRoomService/VoiceAnnouncer. Only add to "
+            + "NotRoomScoped if the audience genuinely is not the room's participants.");
     }
 
-    /// <summary>Keeps the allowlist honest.</summary>
-    [Test]
-    public void The_allowlist_contains_no_entries_that_have_already_been_migrated()
-    {
-        var offenders = OffendingFiles().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var stale = Grandfathered.Where(f => !offenders.Contains(f)).ToList();
-
-        Assert.That(stale, Is.Empty,
-            "These files no longer send voice events directly, so their exemption is obsolete and "
-            + "should be deleted from Grandfathered.");
-    }
-
-    /// <summary>Guards the guard: a typo in the pattern would turn both tests above into
-    /// unconditional passes, which is worse than not having them.</summary>
+    /// <summary>Guards the guard: a typo in the pattern would turn the check above into an
+    /// unconditional pass, which is worse than not having it.</summary>
     [Test]
     public void The_detection_pattern_actually_matches_a_direct_send()
     {
@@ -111,6 +102,31 @@ public class VoiceEventOwnershipTests
             Assert.That(VoiceEventSend.IsMatch("""hub.Clients.User(id).SendAsync("guild.voice.MuteChanged", p)"""), Is.True);
             Assert.That(VoiceEventSend.IsMatch("""hub.Clients.Users(ids).SendAsync("call.TrackPublished", p)"""), Is.True);
             Assert.That(VoiceEventSend.IsMatch("""hub.Clients.User(id).SendAsync("presence.UserOffline", id)"""), Is.False);
+
+            Assert.That(
+                VoiceEventSend.Match("""SendAsync("guild.voice.TrackPublished", p)""").Groups["event"].Value,
+                Is.EqualTo("TrackPublished"), "the event name must be captured, or every send looks exempt");
         });
+    }
+
+    /// <summary>An exemption that no longer corresponds to a real event is one nobody will notice
+    /// has stopped being needed, and it would silently permit a room-scoped event of that name
+    /// later.</summary>
+    [Test]
+    public void Every_exemption_still_corresponds_to_an_event_that_is_actually_sent()
+    {
+        var root = RepoRoot();
+        var allSends = ScannedProjects
+            .Select(p => new DirectoryInfo(Path.Combine(root.FullName, p)))
+            .Where(d => d.Exists)
+            .SelectMany(d => d.EnumerateFiles("*.cs", SearchOption.AllDirectories))
+            .Where(f => !f.FullName.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
+                        && !f.FullName.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+            .SelectMany(f => VoiceEventSend.Matches(File.ReadAllText(f.FullName))
+                .Select(m => m.Groups["event"].Value))
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.That(NotRoomScoped.Where(e => !allSends.Contains(e)), Is.Empty,
+            "these exemptions name events nothing sends any more");
     }
 }

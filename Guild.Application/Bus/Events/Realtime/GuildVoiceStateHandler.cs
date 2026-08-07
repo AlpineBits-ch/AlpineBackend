@@ -37,14 +37,6 @@ public class GuildVoiceStateHandler
         Deaf = p.IsServerDeafened,
     };
 
-    /// <summary>Liveness only - the pre-reconcile heartbeat, kept for clients that have not
-    /// migrated. It can keep a participant from being swept, but it can never repair one.</summary>
-    public async Task Handle(GuildVoiceHeartbeatCommand message, IDistributedCache cache)
-    {
-        await cache.SetStringAsync(
-            VoiceReconciler.LivenessKey(message.UserId), "1",
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = VoiceReconciler.LivenessTtl });
-    }
 
     /// <summary>The state-asserting heartbeat.</summary>
     public Task Handle(GuildVoiceReconcileCommand message, VoiceReconciler reconciler) =>

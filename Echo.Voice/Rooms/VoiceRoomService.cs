@@ -232,6 +232,18 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         return room;
     }
 
+    /// <summary>Announces the current audience of a screen share to the room.</summary>
+    public async Task<VoiceRoom?> AnnounceShareViewersAsync(
+        VoiceRoomKey key, string shareId, IReadOnlyList<string> viewerIds, CancellationToken ct = default)
+    {
+        var room = await rooms.LoadAsync(key, ct);
+        if (room is null) return null;
+
+        await announcer.ToAllAsync(room, VoiceEvents.ShareViewersChanged,
+            new { shareId, viewerCount = viewerIds.Count, viewerIds }, ct);
+        return room;
+    }
+
     /// <summary>The shared body of the flag setters.</summary>
     private async Task<VoiceRoom?> ApplyFlagAsync(
         VoiceRoomKey key, string targetUserId, string eventName,

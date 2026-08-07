@@ -199,32 +199,4 @@ public class VoiceConcurrencyTests(string kind)
         await Task.CompletedTask;
     }
 
-    // ── Legacy adoption under concurrency ─────────────────────────────────────
-
-    /// <summary>The pre-unification blob must be adopted once and only once, even if several
-    /// instances hit the room in the same instant on deploy.</summary>
-    [Test]
-    public async Task Concurrent_first_touches_adopt_a_legacy_room_exactly_once()
-    {
-        if (_key.LegacyCacheKey is null) Assert.Ignore("calls had no pre-unification roster key");
-
-        var h = new VoiceTestHarness();
-        await h.Cache.SetStringAsync(_key.LegacyCacheKey!,
-            """{"GuildId":"g1","Participants":[{"UserId":"legacy-user","CfSessionId":"cf-old","AudioTrackName":"audio"}]}""");
-
-        await Task.WhenAll(Enumerable.Range(0, 8)
-            .Select(i => h.Service.JoinAsync(_key, $"user-{i}", $"device-{i}")));
-
-        var room = (await h.Rooms.LoadAsync(_key))!;
-        Assert.Multiple(async () =>
-        {
-            Assert.That(room.Participants.Count(p => p.UserId == "legacy-user"), Is.EqualTo(1),
-                "adopting twice would resurrect participants over later writes");
-            Assert.That(room.Find("legacy-user")!.PublishState, Is.EqualTo(VoicePublishState.Publishing),
-                "an in-flight publisher must survive the deploy");
-            Assert.That(room.Participants, Has.Count.EqualTo(9));
-            Assert.That(await h.Cache.GetStringAsync(_key.LegacyCacheKey!), Is.Null,
-                "the legacy key is removed so it cannot be adopted again");
-        });
-    }
 }

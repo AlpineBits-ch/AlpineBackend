@@ -51,6 +51,43 @@ internal static class GuildDatabase
     }
 
     /// <summary>
+    /// Whether a sweep has stamped one row's at-most-once column yet, polled until it has.
+    /// </summary>
+    public static async Task<bool> WaitForStampAsync(
+        EchoTestStack stack, string table, string column, string id, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+
+        await using var connection = await OpenAsync(stack);
+
+        while (true)
+        {
+            if (await ReadStampAsync(connection, table, column, id)) return true;
+            if (DateTime.UtcNow >= deadline) return false;
+            await Task.Delay(200);
+        }
+    }
+
+    /// <summary>One read, no waiting - for asserting a row has <em>not</em> been stamped, where
+    /// polling would only mean waiting for something that must never arrive.</summary>
+    public static async Task<bool> IsStampedAsync(
+        EchoTestStack stack, string table, string column, string id)
+    {
+        await using var connection = await OpenAsync(stack);
+        return await ReadStampAsync(connection, table, column, id);
+    }
+
+    private static async Task<bool> ReadStampAsync(
+        NpgsqlConnection connection, string table, string column, string id)
+    {
+        await using var command = new NpgsqlCommand(
+            $"SELECT {column} IS NOT NULL FROM {table} WHERE id = @id", connection);
+        command.Parameters.AddWithValue("id", id);
+
+        return await command.ExecuteScalarAsync() is true;
+    }
+
+    /// <summary>
     /// The Postgres label Npgsql will use for a CLR name, reimplementing
     /// <c>NpgsqlSnakeCaseNameTranslator</c>'s rule - which is what
     /// <c>options.MapEnum&lt;T&gt;()</c> applies when no translator is named, and what every

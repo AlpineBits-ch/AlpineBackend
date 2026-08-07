@@ -104,6 +104,11 @@ public sealed class EchoTestStack : IAsyncDisposable
         stack.GuildDatabaseName = $"guild_{databaseSuffix}";
         var guildEnv = Common(stack.GuildDatabaseName);
         guildEnv["INSTANCE_URL"] = identityUrl;
+        // The real five-minute default (AppEnvironment.HouseholdConfiguration) puts an entire half
+        // of the household modules out of this harness's reach: auto-posted bills, chore reminders,
+        // pantry expiry and low-stock warnings, cooking reminders, and maintenance service and
+        // warranty warnings are all sweep-driven, and none of them can be triggered by a request.
+        guildEnv["HOUSEHOLD_SWEEP_INTERVAL_SECONDS"] = "2";
         stack.MessagingDatabaseName = $"messaging_{databaseSuffix}";
         var messagingEnv = Common(stack.MessagingDatabaseName);
         messagingEnv["INSTANCE_URL"] = identityUrl;

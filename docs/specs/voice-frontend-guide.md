@@ -26,8 +26,8 @@ The only differences are:
 | Has moderation | yes (server mute, move) | no |
 | Guild-wide presence fan-out | yes | no |
 
-Everything else — joining, publishing, subscribing, snapshots, versions, heartbeats, screen
-sharing, viewer counts — is identical.
+Everything else - joining, publishing, subscribing, snapshots, versions, heartbeats, screen
+sharing, viewer counts - is identical.
 
 **The second idea:** every event carries a `version`. If you receive a version that is not exactly
 one more than the one you hold, you missed something. Refetch the snapshot. This is the mechanism
@@ -99,7 +99,7 @@ POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/join
 X-Device-Id: <your device id>
 ```
 
-**Direct call** — joining is implicit in opening a primary session (step 2). For an incoming call
+**Direct call** - joining is implicit in opening a primary session (step 2). For an incoming call
 you first accept:
 ```http
 PUT /api/v1/voice/call/{callId}/accept
@@ -165,7 +165,7 @@ Same endpoint, all tracks `remote`:
 ```
 
 The server retries the publisher-not-ready race for you (up to ~6s). If it still fails you get a
-**502**, not a 200 — see §7.
+**502**, not a 200 - see §7.
 
 ### 3.5 Renegotiate / close
 
@@ -189,7 +189,7 @@ PUT  /api/v1/voice/call/{callId}/leave
 
 ### 4.1 The snapshot
 
-This is the authoritative state of a room. It is **sufficient on its own** — whatever you missed,
+This is the authoritative state of a room. It is **sufficient on its own** - whatever you missed,
 whenever you ask.
 
 ```http
@@ -228,14 +228,14 @@ GET /api/v1/voice/call/{callId}/snapshot
   `Publishing`.**
 - `cfSessionId` and `audioTrackName` are `null` unless `publishState` is `Publishing`. A session id
   alone is not an invitation to subscribe.
-- `shares[].trackNames` tells you exactly which halves of a share exist — video only, or video and
+- `shares[].trackNames` tells you exactly which halves of a share exist - video only, or video and
   audio.
 - `guildId` is `null` for calls.
 
 The same object arrives over SignalR as the `Snapshot` event. It is pushed on join, on publish, and
 whenever the server decides you are out of date.
 
-### 4.2 Versions — the part you must implement
+### 4.2 Versions - the part you must implement
 
 Every voice event carries `version` and `instanceId`. Track both per room.
 
@@ -252,17 +252,17 @@ onEvent(e):
 
 Why each branch exists:
 
-- **`instanceId` mismatch** — the room was destroyed and rebuilt (a Redis loss). Version numbers
+- **`instanceId` mismatch** - the room was destroyed and rebuilt (a Redis loss). Version numbers
   restart from zero, so they can collide with numbers you have already seen behind a completely
   different roster. The instance id is the only reliable signal.
-- **`version <= held`** — events from two server instances can interleave; an older one arriving
+- **`version <= held`** - events from two server instances can interleave; an older one arriving
   late must not overwrite newer state.
-- **gap** — you dropped an event. One refetch and you are correct again. Without this branch, a
+- **gap** - you dropped an event. One refetch and you are correct again. Without this branch, a
   single dropped event leaves you wrong until the session ends.
 
 Applying a snapshot: take it wholesale, set `held = {instanceId, version}` from it. Do not merge.
 
-### 4.3 Heartbeat — liveness *and* repair
+### 4.3 Heartbeat - liveness *and* repair
 
 Every ~30 seconds, over SignalR:
 
@@ -355,7 +355,7 @@ target and check permissions).
 
 ## 6. Screen share viewers
 
-Watching is announced explicitly, because a subscribe is not a reliable signal — it has no teardown
+Watching is announced explicitly, because a subscribe is not a reliable signal - it has no teardown
 a client is obliged to send, and a hidden or paused stream stays subscribed.
 
 ```http
@@ -485,7 +485,7 @@ setInterval(() => connection.invoke("voice.Heartbeat", "channel", channelId, {
 
 Old routes, the old `GET .../voice` response shape, and `guild.voice.Heartbeat()` still work, so
 existing clients keep running. They cannot recover from a missed event, which is exactly what the
-new surface fixes — build anything new against this guide.
+new surface fixes - build anything new against this guide.
 
 Server-side, pre-existing rooms and sessions are adopted automatically on first touch, so nothing is
 dropped on deploy.

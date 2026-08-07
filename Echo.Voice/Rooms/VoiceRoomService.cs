@@ -1,4 +1,5 @@
 using Echo.Voice.Tracks;
+using Echo.Voice.Transport;
 
 namespace Echo.Voice.Rooms;
 
@@ -215,6 +216,7 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         return room;
     }
 
+    /// <summary>Starts or stops a screen share.</summary>
     public async Task<VoiceRoom?> SetStreamingAsync(
         VoiceRoomKey key, string userId, bool isStreaming, string shareId,
         CancellationToken ct = default)
@@ -222,7 +224,12 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         var room = await rooms.MutateExistingAsync(key, r =>
         {
             var me = r.Find(userId);
-            if (me is not null) me.IsStreaming = isStreaming;
+            if (me is null) return;
+
+            if (!isStreaming) me.ActiveScreenShares.RemoveAll(s => s.ShareId == shareId);
+
+            // Still streaming overall only if some other share of theirs is still live.
+            me.IsStreaming = isStreaming || me.ActiveScreenShares.Count > 0;
         }, ct);
         if (room?.Find(userId) is null) return null;
 
@@ -230,6 +237,42 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             isStreaming ? VoiceEvents.ScreenShareStarted : VoiceEvents.ScreenShareStopped,
             new { userId, shareId }, ct);
         return room;
+    }
+
+    /// <summary>The tracks in a subscribe request that nobody in the room is publishing.</summary>
+    public async Task<IReadOnlyList<string>> FindStaleSubscriptionsAsync(
+        VoiceRoomKey key, IEnumerable<VoiceTrackRef> tracks, CancellationToken ct = default)
+    {
+        var subscribes = tracks.Where(t => t.Direction == VoiceTrackDirection.Subscribe).ToList();
+        if (subscribes.Count == 0) return [];
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room is null) return subscribes.Select(t => t.TrackName ?? "?").ToList();
+
+        var liveShares = room.Participants
+            .SelectMany(p => p.ActiveScreenShares.Select(s => s.ShareId))
+            .ToHashSet(StringComparer.Ordinal);
+
+        var publishingSessions = room.Participants
+            .Where(p => p.PublishState == VoicePublishState.Publishing)
+            .Select(p => p.MediaSessionId!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var stale = new List<string>();
+        foreach (var track in subscribes)
+        {
+            if (track.TrackName is not { } name) continue;
+            var described = TrackNaming.Describe(name);
+
+            var missing = described.ShareId is { } shareId
+                ? !liveShares.Contains(shareId)
+                : TrackNaming.IsMicrophone(name)
+                  && (track.MediaSessionId is null || !publishingSessions.Contains(track.MediaSessionId));
+
+            if (missing) stale.Add(name);
+        }
+
+        return stale;
     }
 
     /// <summary>Announces the current audience of a screen share to the room.</summary>

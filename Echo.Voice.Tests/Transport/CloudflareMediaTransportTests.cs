@@ -126,6 +126,47 @@ public class CloudflareMediaTransportTests
                 [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")])));
     }
 
+    /// <summary>The exact body Cloudflare returned during the 2026-08-07 incident.</summary>
+    [Test]
+    public void Not_found_track_error_classifies_as_TrackNotFound()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"requiresImmediateRenegotiation":false,"tracks":[{"sessionId":"1aa4082e","trackName":"screen-7c41c31c","mid":"","errorCode":"not_found_track_error","errorDescription":"Track not found on remote peer. Make sure the publisher peer is connected and sending packets for this track"}]}""");
+
+        var ex = Assert.ThrowsAsync<VoiceMediaException>(() =>
+            TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
+                new VoiceSessionDescription("offer", "v=0"),
+                [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")])));
+
+        Assert.That(ex!.Failure, Is.EqualTo(VoiceMediaFailure.TrackNotFound));
+    }
+
+    [Test]
+    public void A_rejected_request_is_not_mistaken_for_a_missing_track()
+    {
+        using var handler = new RecordingHandler(SessionBody, """{"errorDescription":"bad offer"}""", HttpStatusCode.BadRequest);
+
+        var ex = Assert.ThrowsAsync<VoiceMediaException>(() =>
+            TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
+                new VoiceSessionDescription("offer", "v=0"),
+                [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")])));
+
+        Assert.That(ex!.Failure, Is.EqualTo(VoiceMediaFailure.Rejected));
+    }
+
+    [Test]
+    public void A_transport_side_fault_classifies_as_Unavailable()
+    {
+        using var handler = new RecordingHandler(SessionBody, """{"err":"boom"}""", HttpStatusCode.BadGateway);
+
+        var ex = Assert.ThrowsAsync<VoiceMediaException>(() =>
+            TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
+                new VoiceSessionDescription("offer", "v=0"),
+                [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")])));
+
+        Assert.That(ex!.Failure, Is.EqualTo(VoiceMediaFailure.Unavailable));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private sealed class SingleHandlerFactory(HttpMessageHandler handler) : IHttpClientFactory

@@ -1,3 +1,4 @@
+using Echo.Voice.Rooms;
 using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Sessions;
@@ -104,6 +105,20 @@ public class CloudflarePerTrackErrorTests
             Call.GetCacheId(CallId), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
 
         await _cache.SetAsync("voice:session-owner:cf-local-session", Encoding.UTF8.GetBytes(UserId), new());
+
+        // And the peer being pulled has to actually be publishing.
+        await VoiceTestHarness.SeedRoomAsync(_cache, new VoiceRoom
+        {
+            RoomId = CallId, Kind = VoiceRoomKind.Call,
+            Participants =
+            [
+                new VoiceParticipant { UserId = UserId },
+                new VoiceParticipant
+                {
+                    UserId = "peer-1", MediaSessionId = "cf-remote-session", AudioTrackName = "audio",
+                },
+            ],
+        });
     }
 
     [Test]

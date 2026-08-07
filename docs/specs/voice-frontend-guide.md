@@ -419,13 +419,14 @@ Stop heartbeating and you are evicted from the room after 90 seconds, in both ro
 
 | Status | Meaning | What to do |
 |---|---|---|
-| **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and retry later. **Do not** treat as success. |
+| **409** | `{ error: "staleSubscription", tracks?, action: "refetchSnapshot" }`. You subscribed to media nobody is publishing - the share stopped, or the publisher never started. | Refetch the snapshot and reconcile. **Do not retry the same body** - the track is gone, not late. Roll back your subscribe guard. |
+| **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and back off before retrying. **Do not** treat as success. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
 | **403** | Not permitted (missing `Connect`/`Speak`/`Stream`, not a participant, or acting as a session you do not own). | Do not retry blindly. |
 | **404** | Room or call does not exist - **or you forgot the gateway prefix**, see §9. | Stop, rejoin from scratch. |
 
-**Critical:** if a subscribe fails, roll back whatever guard you use to dedupe subscriptions per
-user. A guard that is consumed by a failed attempt and never released is how one transient error
+**Critical:** if a subscribe fails - 409 or 502 - roll back whatever guard you use to dedupe
+subscriptions per user. A guard that is consumed by a failed attempt and never released is how one transient error
 becomes permanent silence for that participant.
 
 ---

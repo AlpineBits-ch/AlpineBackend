@@ -6,12 +6,22 @@ using Microsoft.Extensions.Logging;
 namespace Echo.Realtime.Sfu;
 
 /// <summary>A Cloudflare Calls HTTP call returned a non-success status.</summary>
-public class CloudflareCallsException(string operation, System.Net.HttpStatusCode statusCode, string responseBody)
+public class CloudflareCallsException(
+    string operation,
+    System.Net.HttpStatusCode statusCode,
+    string responseBody,
+    IReadOnlyList<string>? trackErrorCodes = null)
     : Exception($"Cloudflare Calls '{operation}' failed with {(int)statusCode} {statusCode}: {responseBody}")
 {
     public string Operation { get; } = operation;
     public System.Net.HttpStatusCode StatusCode { get; } = statusCode;
     public string ResponseBody { get; } = responseBody;
+
+    /// <summary>
+    /// The per-track <c>errorCode</c>s Cloudflare reported, when the failure was a 200 carrying
+    /// track errors rather than a rejected request.
+    /// </summary>
+    public IReadOnlyList<string> TrackErrorCodes { get; } = trackErrorCodes ?? [];
 }
 
 public record CfSessionDescription(string Type, string Sdp);
@@ -91,8 +101,10 @@ public class CloudflareService
         await EnsureSuccessAsync(res, "tracks/new", ct);
         var body = await res.Content.ReadAsStringAsync(ct);
         var result = JsonSerializer.Deserialize<CfTracksNewResponse>(body, Json);
+
+        // Track failures are checked first, and the order is load-bearing.
+        EnsureNoTrackFailures(result, "tracks/new", body);
         EnsureValidSessionDescription(result?.SessionDescription, "tracks/new", body);
-        EnsureNoTrackFailures(result!, "tracks/new", body);
         return result!;
     }
 
@@ -167,8 +179,10 @@ public class CloudflareService
     }
 
     /// <summary>Turns a per-track failure into a real failure.</summary>
-    private void EnsureNoTrackFailures(CfTracksNewResponse result, string operation, string rawBody)
+    private void EnsureNoTrackFailures(CfTracksNewResponse? result, string operation, string rawBody)
     {
+        if (result?.Tracks is null) return;
+
         var failed = result.Tracks
             .Where(t => !string.IsNullOrEmpty(t.ErrorCode)
                         || !string.IsNullOrEmpty(t.ErrorDescription)
@@ -183,7 +197,9 @@ public class CloudflareService
                 $"{t.TrackName}({t.ErrorCode ?? "no-error-code"}: {t.ErrorDescription ?? "no mid returned"})")),
             rawBody);
 
-        throw new CloudflareCallsException(operation, System.Net.HttpStatusCode.OK, rawBody);
+        throw new CloudflareCallsException(
+            operation, System.Net.HttpStatusCode.OK, rawBody,
+            failed.Select(t => t.ErrorCode).Where(c => !string.IsNullOrEmpty(c)).ToList()!);
     }
 
     public async Task CloseTracksAsync(

@@ -112,6 +112,16 @@ public class CallVoiceMediaController(
         if (!await IsConnectedParticipantAsync(callId)) return Forbid();
         if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
 
+        // A subscribe naming media nobody is publishing is a stale client, not a server fault.
+        var stale = await voice.FindStaleSubscriptionsAsync(Room(callId), body.Tracks, ct);
+        if (stale.Count > 0)
+        {
+            logger.LogInformation(
+                "Rejecting stale subscribe for user {UserId}: {Tracks} no longer published",
+                UserId, string.Join(", ", stale));
+            return Conflict(new { error = "staleSubscription", tracks = stale, action = "refetchSnapshot" });
+        }
+
         var request = new VoiceNegotiateRequest(body.SessionDescription, body.Tracks);
         VoiceNegotiateResponse result;
         try
@@ -119,6 +129,13 @@ public class CallVoiceMediaController(
             result = body.Tracks.All(t => t.Direction == VoiceTrackDirection.Subscribe)
                 ? await media.SubscribeAsync(body.MediaSessionId, request, ct)
                 : await media.PublishAsync(body.MediaSessionId, request, ct);
+        }
+        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.TrackNotFound)
+        {
+            // The publisher stopped between the roster check and the pull.
+            logger.LogInformation(
+                "Subscribe raced a publisher going away for user {UserId}: {Detail}", UserId, ex.Detail);
+            return Conflict(new { error = "staleSubscription", action = "refetchSnapshot" });
         }
         catch (VoiceMediaException ex)
         {

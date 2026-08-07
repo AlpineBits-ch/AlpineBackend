@@ -40,13 +40,30 @@ public record VoiceNegotiateResponse(
     IReadOnlyList<VoiceTrackResult> Tracks,
     bool RequiresImmediateRenegotiation);
 
+/// <summary>Why a media operation failed, in terms a caller can map to a status code without
+/// knowing which SFU produced it.</summary>
+public enum VoiceMediaFailure
+{
+    /// <summary>The transport rejected the request: a malformed offer, an unknown session, a bad
+    /// token. Retrying the same thing will not help.</summary>
+    Rejected,
+
+    /// <summary>A track being subscribed to does not exist on the publisher's session.</summary>
+    TrackNotFound,
+
+    /// <summary>The transport itself is having a bad moment (5xx, timeout).</summary>
+    Unavailable,
+}
+
 /// <summary>
 /// The media transport rejected an operation, or accepted it in a way the caller cannot use.
 /// </summary>
-public sealed class VoiceMediaException(string operation, string detail, Exception? inner = null)
-    : Exception($"Voice media transport '{operation}' failed: {detail}", inner)
+public sealed class VoiceMediaException(
+    string operation, VoiceMediaFailure failure, string detail, Exception? inner = null)
+    : Exception($"Voice media transport '{operation}' failed ({failure}): {detail}", inner)
 {
     public string Operation { get; } = operation;
+    public VoiceMediaFailure Failure { get; } = failure;
     public string Detail { get; } = detail;
 }
 

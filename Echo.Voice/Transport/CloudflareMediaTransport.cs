@@ -97,6 +97,15 @@ public sealed class CloudflareMediaTransport(CloudflareService cloudflare) : IVo
         track.SessionId,
         track.Location == "remote" ? VoiceTrackDirection.Subscribe : VoiceTrackDirection.Publish);
 
-    private static VoiceMediaException Translate(CloudflareCallsException ex) =>
-        new(ex.Operation, ex.ResponseBody, ex);
+    /// <summary>Cloudflare's failure vocabulary, mapped onto ours.</summary>
+    private static VoiceMediaException Translate(CloudflareCallsException ex)
+    {
+        var failure = ex.TrackErrorCodes.Any(c => c.Contains("not_found_track", StringComparison.OrdinalIgnoreCase))
+            ? VoiceMediaFailure.TrackNotFound
+            : (int)ex.StatusCode >= 500
+                ? VoiceMediaFailure.Unavailable
+                : VoiceMediaFailure.Rejected;
+
+        return new VoiceMediaException(ex.Operation, failure, ex.ResponseBody, ex);
+    }
 }

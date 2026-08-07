@@ -1,3 +1,5 @@
+using Echo.Voice.Rooms;
+using System.Text.Json;
 using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Sessions;
@@ -227,6 +229,20 @@ public class CloudflarePerTrackErrorTests
 
         // The session the body acts as has to belong to this caller.
         cache.SetEntry("voice:session-owner:cf-local-session", UserId);
+
+        // And the peer being pulled has to actually be publishing.
+        cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(new VoiceRoom
+        {
+            RoomId = ChannelId, Kind = VoiceRoomKind.Channel, GuildId = GuildId,
+            Participants =
+            [
+                new VoiceParticipant { UserId = UserId },
+                new VoiceParticipant
+                {
+                    UserId = "peer-1", MediaSessionId = "cf-remote-session", AudioTrackName = "audio",
+                },
+            ],
+        }));
 
         return new GuildVoiceMediaController(
             new CloudflareMediaTransport(cfService ?? _cfService),

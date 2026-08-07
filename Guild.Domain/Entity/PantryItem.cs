@@ -11,6 +11,7 @@ public class CreatePantryItemParams
     public string? Unit { get; set; }
     public decimal? LowThreshold { get; set; }
     public DateTimeOffset? ExpiresAt { get; set; }
+    public string? Barcode { get; set; }
     public string AddedByUserId { get; set; } = null!;
 }
 
@@ -34,6 +35,9 @@ public class PantryItem : BaseEntity<PantryItem>, IPrefixedEntity
     public decimal? LowThreshold { get; set; }
 
     public DateTimeOffset? ExpiresAt { get; set; }
+
+    /// <summary>The code that was scanned to stock this, when there was one.</summary>
+    public string? Barcode { get; set; }
 
     /// <summary>Stamped when a low-stock restock was appended to the list, cleared when the
     /// quantity climbs back above the threshold. This is the idempotency guard: without it every
@@ -68,6 +72,7 @@ public class PantryItem : BaseEntity<PantryItem>, IPrefixedEntity
             Unit = @params.Unit,
             LowThreshold = @params.LowThreshold,
             ExpiresAt = @params.ExpiresAt,
+            Barcode = @params.Barcode,
             AddedByUserId = @params.AddedByUserId,
         };
     }

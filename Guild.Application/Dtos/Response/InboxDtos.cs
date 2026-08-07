@@ -122,6 +122,15 @@ public enum InboxTaskKind
 
     /// <summary>An unchecked list item assigned to you.</summary>
     ListAssignment,
+
+    /// <summary>A bill you have a share in, due or about to be.</summary>
+    BillDue,
+
+    /// <summary>A meal plan entry today or tomorrow with you down as the cook.</summary>
+    CookingToday,
+
+    /// <summary>Something in the house that is broken or overdue a service.</summary>
+    MaintenanceDue,
 }
 
 /// <summary>One thing waiting on the caller.</summary>
@@ -129,7 +138,9 @@ public class InboxTaskDto
 {
     public required InboxTaskKind Kind { get; init; }
 
-    /// <summary>The chore occurrence, decision or list item this row is about.</summary>
+    /// <summary>The row this task is about, in the module named by <see cref="Kind"/>: a chore
+    /// occurrence, a decision, a list item, a bill occurrence, a meal plan entry or a maintenance
+    /// asset. A client that does not recognise the kind still has enough to deep-link.</summary>
     public required string TargetId { get; init; }
 
     public required InboxBreadcrumbDto Breadcrumb { get; init; }

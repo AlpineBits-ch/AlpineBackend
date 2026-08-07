@@ -134,6 +134,11 @@ public class ChoreOccurrence : BaseEntity<ChoreOccurrence>, IPrefixedEntity
     /// </summary>
     public DateTimeOffset? RemindedAt { get; set; }
 
+    /// <summary>
+    /// When a flatmate last nudged the assignee about this, or null if nobody has.
+    /// </summary>
+    public DateTimeOffset? NudgedAt { get; set; }
+
     public static ChoreOccurrence Create(Chore chore, DateTimeOffset dueAt, string assignedUserId)
     {
         var date = DateTimeOffset.UtcNow;

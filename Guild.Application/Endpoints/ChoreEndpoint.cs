@@ -346,7 +346,11 @@ public class ChoreEndpoint
         var chore = await ctx.Chores.AsNoTracking().FirstOrDefaultAsync(c => c.Id == occurrence.ChoreId);
         if (chore is null) return Results.NotFound();
 
-        var replacement = await rotation.PickNextAssigneeAsync(chore, excludeUserId: occurrence.AssignedUserId);
+        // Picked for the date the work is actually due, so "I can't do the bins tonight" does not
+        // resolve itself onto somebody who is away that night.
+        var replacement = await rotation.PickNextAssigneeAsync(
+            chore, excludeUserId: occurrence.AssignedUserId, dueAt: occurrence.DueAt);
+
         if (replacement is null || replacement == occurrence.AssignedUserId)
             return Results.BadRequest("Nobody else is in the rotation for this chore");
 
@@ -361,6 +365,77 @@ public class ChoreEndpoint
         });
 
         return Results.Ok(ToDto(occurrence, chore.Title, chore.GraceHours));
+    }
+
+    /// <summary>Asks the assignee, without saying who is asking.</summary>
+    [WolverinePost("/api/v1/chore-occurrences/{occurrenceId}/nudge")]
+    public async Task<IResult> NudgeAsync(string occurrenceId, [NotBody] HouseholdChannelService household,
+        [NotBody] ChoreAlertService choreAlerts, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var occurrence = await ctx.ChoreOccurrences.FirstOrDefaultAsync(o => o.Id == occurrenceId);
+        if (occurrence is null) return Results.NotFound();
+
+        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, Permissions.CompleteChores);
+        if (access.ToFailure() is { } failure) return failure;
+
+        // Nudging yourself is not a thing.
+        if (occurrence.AssignedUserId == userId)
+            return Results.BadRequest("You can't nudge yourself about your own chore");
+
+        if (occurrence.CompletedAt is not null) return Results.BadRequest("That chore is already done");
+        if (occurrence.SkippedAt is not null) return Results.BadRequest("That chore was skipped");
+
+        var chore = await ctx.Chores.AsNoTracking().FirstOrDefaultAsync(c => c.Id == occurrence.ChoreId);
+        if (chore is null) return Results.NotFound();
+
+        var now = DateTimeOffset.UtcNow;
+
+        // Only once it is genuinely late.
+        if (occurrence.DueAt.AddHours(chore.GraceHours) >= now)
+            return Results.BadRequest("That chore isn't overdue yet");
+
+        if (occurrence.NudgedAt is { } lastNudge && now - lastNudge < ChoreAlertService.NudgeCooldown)
+        {
+            return Results.Conflict(new
+            {
+                Error = "Somebody already nudged about this recently",
+                NextNudgeAt = lastNudge + ChoreAlertService.NudgeCooldown,
+            });
+        }
+
+        // Rejected inside quiet hours rather than deferred to the end of them, which is the
+        // opposite of what chore.due does with the same config.
+        var quietHours = await ctx.GuildQuietHoursConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.GuildId == occurrence.GuildId);
+
+        if (quietHours?.DeferPast(now) is { } quietUntil && quietUntil > now)
+        {
+            return Results.Conflict(new
+            {
+                Error = "The house is in quiet hours",
+                QuietUntil = quietUntil,
+            });
+        }
+
+        occurrence.NudgedAt = now;
+        await ctx.SaveChangesAsync();
+
+        // Carries no sender.
+        await household.BroadcastAsync(occurrence.GuildId, occurrence.ChannelId, "guild.ChoreOccurrenceNudged", new
+        {
+            GuildId = occurrence.GuildId,
+            ChannelId = occurrence.ChannelId,
+            OccurrenceId = occurrence.Id,
+            occurrence.NudgedAt,
+        });
+
+        await choreAlerts.NudgeAsync(occurrence, chore.Title);
+
+        return Results.Ok(new { OccurrenceId = occurrence.Id, occurrence.NudgedAt });
     }
 
     /// <summary>Who is actually carrying the house.</summary>
@@ -387,8 +462,7 @@ public class ChoreEndpoint
 
         if (pool.Count == 0) return Results.Ok(Array.Empty<ChoreBalanceEntryDto>());
 
-        var balances = await rotation.GetBalancesAsync(access.Channel!.GuildId, pool, window);
-        var average = balances.Count == 0 ? 0 : (int)balances.Average(b => b.CompletedMinutes);
+        var balances = await rotation.GetWeightedBalancesAsync(access.Channel!.GuildId, pool, window);
 
         return Results.Ok(balances
             .OrderBy(b => b.CompletedMinutes)
@@ -397,9 +471,10 @@ public class ChoreEndpoint
                 UserId = b.UserId,
                 CompletedMinutes = b.CompletedMinutes,
                 CompletedCount = b.CompletedCount,
-                // Relative to the household average, so the number reads as "behind/ahead of your
-                // share" rather than as a raw total nobody can calibrate.
-                BalanceMinutes = b.CompletedMinutes - average,
+                // Relative to their own expected share, so the number reads as "behind/ahead of
+                // your share" rather than as a raw total nobody can calibrate.
+                BalanceMinutes = b.BalanceMinutes,
+                PresentDays = b.PresentDays,
             }));
     }
 }

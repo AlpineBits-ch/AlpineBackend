@@ -128,12 +128,43 @@ public class LedgerService(MicroserviceContext ctx)
         return distinct.All(memberSet.Contains);
     }
 
-    private async Task<HashSet<string>> GetMemberUserIdsAsync(string guildId)
+    /// <summary>A value that changes whenever this guild's membership does.</summary>
+    public static int ComputeRosterVersion(IEnumerable<string> memberUserIds)
     {
-        var ids = await ctx.GuildMembers.AsNoTracking()
+        // FNV-1a over the ordinally sorted ids: order-independent by construction rather than by
+        // luck, so the same roster read twice cannot produce two versions.
+        unchecked
+        {
+            var hash = (uint)2166136261;
+
+            foreach (var id in memberUserIds.Order(StringComparer.Ordinal))
+            {
+                foreach (var c in id)
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+
+                hash ^= (uint)'\n';
+                hash *= 16777619;
+            }
+
+            // Folded into a non-negative int: the value is an opaque token for equality only, and
+            // a negative one reads like a sentinel to anybody debugging it.
+            return (int)(hash & 0x7FFFFFFF);
+        }
+    }
+
+    /// <summary>Every current member of the guild.</summary>
+    public async Task<List<string>> GetGuildMemberIdsAsync(string guildId) =>
+        await ctx.GuildMembers.AsNoTracking()
             .Where(m => m.GuildId == guildId)
             .Select(m => m.UserId)
             .ToListAsync();
+
+    private async Task<HashSet<string>> GetMemberUserIdsAsync(string guildId)
+    {
+        var ids = await GetGuildMemberIdsAsync(guildId);
 
         return ids.ToHashSet(StringComparer.Ordinal);
     }

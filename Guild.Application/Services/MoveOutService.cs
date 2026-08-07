@@ -66,6 +66,7 @@ public class MoveOutService(MicroserviceContext ctx, ChoreRotationService rotati
         var (reassigned, dropped) = await StageChoreHandoverAsync(guildId, userId);
         var paused = await StagePauseFixedChoresAsync(guildId, userId);
         var unassigned = await StageUnassignListItemsAsync(guildId, userId);
+        await StageDropAbsencesAsync(guildId, userId);
 
         return new MoveOutSummary
         {
@@ -76,6 +77,16 @@ public class MoveOutService(MicroserviceContext ctx, ChoreRotationService rotati
             ListItemsUnassigned = unassigned,
             BalancesWrittenOff = writtenOff,
         };
+    }
+
+    /// <summary>Drops the leaver's absences.</summary>
+    private async Task StageDropAbsencesAsync(string guildId, string userId)
+    {
+        var absences = await ctx.MemberAbsences
+            .Where(a => a.GuildId == guildId && a.UserId == userId)
+            .ToListAsync();
+
+        if (absences.Count > 0) ctx.MemberAbsences.RemoveRange(absences);
     }
 
     /// <summary>Records the settlements that bring the leaver to zero.</summary>
@@ -154,7 +165,10 @@ public class MoveOutService(MicroserviceContext ctx, ChoreRotationService rotati
                 continue;
             }
 
-            var replacement = await rotation.PickNextAssigneeAsync(chore, excludeUserId: userId);
+            // Passing the occurrence's own due date, not "now": whoever picks this up must be
+            // around on the day it is due.
+            var replacement = await rotation.PickNextAssigneeAsync(
+                chore, excludeUserId: userId, dueAt: occurrence.DueAt);
 
             // PickNextAssigneeAsync returns the excluded member when they are the only one in the
             // pool, which after a move-out means the pool is empty in every sense that matters.

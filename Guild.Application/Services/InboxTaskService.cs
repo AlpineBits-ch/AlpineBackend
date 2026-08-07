@@ -1,4 +1,5 @@
 using Guild.Application.Dtos.Response;
+using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,12 @@ public class InboxTaskService(
 
     /// <summary>How far ahead a chore counts as waiting on you.</summary>
     private static readonly TimeSpan ChoreLookahead = TimeSpan.FromDays(1);
+
+    /// <summary>How far ahead a bill counts as waiting on you.</summary>
+    private static readonly TimeSpan BillLookahead = TimeSpan.FromDays(RecurringExpense.DefaultLeadDays);
+
+    /// <summary>How much of the cook's own grace a meal gets before it counts as missed.</summary>
+    private const int MealGraceHours = 24;
 
     /// <summary>Ceiling per source before filtering.</summary>
     private const int CandidatesPerSource = 100;
@@ -39,7 +46,8 @@ public class InboxTaskService(
         string Subtitle,
         DateTimeOffset? DueAt,
         int GraceHours,
-        DateTimeOffset CreatedAt);
+        DateTimeOffset CreatedAt,
+        DateOnly? PlanDate = null);
 
     public async Task<InboxTaskPageDto> GetTasksAsync(string userId, int limit)
     {
@@ -63,10 +71,15 @@ public class InboxTaskService(
         return Math.Min(rows.Count, MaxSummaryCount);
     }
 
-    /// <summary>Every candidate from all three sources, filtered and merged into display order.</summary>
+    /// <summary>Every candidate from every source, filtered and merged into display order.</summary>
     private async Task<List<TaskRow>> CollectAsync(string userId)
     {
         var now = DateTimeOffset.UtcNow;
+
+        // The plan's calendar today, and tomorrow with it: a cook wants the evening they are
+        // cooking to appear before the morning of it, and a plan has no timezone to be precise
+        // about anyway - see MealPlanEntry.Date.
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
 
         var chores = await BuildChoreQuery(ctx, userId, now + ChoreLookahead)
             .Take(CandidatesPerSource).ToListAsync();
@@ -74,11 +87,34 @@ public class InboxTaskService(
             .Take(CandidatesPerSource).ToListAsync();
         var assignments = await BuildAssignmentQuery(ctx, userId)
             .Take(CandidatesPerSource).ToListAsync();
+        var bills = await BuildBillQuery(ctx, userId, now + BillLookahead)
+            .Take(CandidatesPerSource).ToListAsync();
+        var meals = await BuildMealQuery(ctx, userId, today, today.AddDays(1))
+            .Take(CandidatesPerSource).ToListAsync();
+        var maintenance = await BuildMaintenanceQuery(ctx, userId, now)
+            .Take(CandidatesPerSource).ToListAsync();
 
-        var rows = new List<TaskRow>(chores.Count + decisions.Count + assignments.Count);
+        // The one conversion the queries cannot do. See TaskRow's PlanDate.
+        meals = meals
+            .Select(r => r with
+            {
+                DueAt = r.PlanDate?.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc),
+            })
+            .ToList();
+
+        var rows = new List<TaskRow>(
+            chores.Count + decisions.Count + assignments.Count
+            + bills.Count + meals.Count + maintenance.Count);
+
         rows.AddRange(await KeepVisibleAsync(userId, chores, GuildFeatures.Chores));
         rows.AddRange(await KeepVisibleAsync(userId, decisions, GuildFeatures.Decisions));
         rows.AddRange(await KeepVisibleAsync(userId, assignments, GuildFeatures.Lists));
+
+        // Bills are gated on the ledger rather than on a module of their own: a bill is an expense
+        // before it is one, so a house with the ledger switched off has nothing to be told about.
+        rows.AddRange(await KeepVisibleAsync(userId, bills, GuildFeatures.Ledger));
+        rows.AddRange(await KeepVisibleAsync(userId, meals, GuildFeatures.Meals));
+        rows.AddRange(await KeepVisibleAsync(userId, maintenance, GuildFeatures.Maintenance));
 
         // Anything with a deadline sorts ahead of anything without, soonest first; the undated tail
         // falls back to age.
@@ -170,6 +206,95 @@ public class InboxTaskService(
                 0,
                 item.CreatedAt);
 
+    /// <summary>Pending bills the caller has a share in, due or nearly.</summary>
+    internal static IQueryable<TaskRow> BuildBillQuery(
+        MicroserviceContext ctx, string userId, DateTimeOffset horizon) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join occurrence in ctx.Set<BillOccurrence>().AsNoTracking()
+                on member.GuildId equals occurrence.GuildId
+            where occurrence.Status == BillStatus.Pending && occurrence.DueAt <= horizon
+            join template in ctx.Set<RecurringExpense>().AsNoTracking()
+                on occurrence.RecurringExpenseId equals template.Id
+            where template.Shares.Any(s => s.UserId == userId)
+                  || (template.SplitKind == ExpenseSplitKind.Equal && !template.Shares.Any())
+            join channel in ctx.Channels.AsNoTracking() on occurrence.ChannelId equals channel.Id
+            orderby occurrence.DueAt
+            select new TaskRow(
+                InboxTaskKind.BillDue,
+                occurrence.Id,
+                channel.GuildId,
+                channel.Guild.Name,
+                channel.Id,
+                channel.Name,
+                channel.Type,
+                channel.CategoryId,
+                channel.Category != null ? channel.Category.Name : null,
+                occurrence.Description,
+                "You have a share",
+                occurrence.DueAt,
+                0,
+                occurrence.CreatedAt);
+
+    /// <summary>Meals the caller is down to cook today or tomorrow.</summary>
+    internal static IQueryable<TaskRow> BuildMealQuery(
+        MicroserviceContext ctx, string userId, DateOnly fromDate, DateOnly toDate) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join entry in ctx.Set<MealPlanEntry>().AsNoTracking()
+                on member.GuildId equals entry.GuildId
+            where entry.CookUserId == userId && entry.Date >= fromDate && entry.Date <= toDate
+            join channel in ctx.Channels.AsNoTracking() on entry.ChannelId equals channel.Id
+            join recipe in ctx.Set<Recipe>().AsNoTracking() on entry.RecipeId equals recipe.Id into recipes
+            from recipe in recipes.DefaultIfEmpty()
+            orderby entry.Date, entry.Slot, entry.Position
+            select new TaskRow(
+                InboxTaskKind.CookingToday,
+                entry.Id,
+                channel.GuildId,
+                channel.Guild.Name,
+                channel.Id,
+                channel.Name,
+                channel.Type,
+                channel.CategoryId,
+                channel.Category != null ? channel.Category.Name : null,
+                recipe != null ? recipe.Title : entry.FreeText ?? "",
+                "You're cooking",
+                // Resolved from PlanDate after materialization - see TaskRow.
+                null,
+                MealGraceHours,
+                entry.CreatedAt,
+                entry.Date);
+
+    /// <summary>Assets that are broken or overdue a service.</summary>
+    internal static IQueryable<TaskRow> BuildMaintenanceQuery(
+        MicroserviceContext ctx, string userId, DateTimeOffset now) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join asset in ctx.Set<MaintenanceAsset>().AsNoTracking()
+                on member.GuildId equals asset.GuildId
+            where asset.Status == AssetStatus.Broken
+                  || (asset.NextServiceAt != null && asset.NextServiceAt <= now)
+            join channel in ctx.Channels.AsNoTracking() on asset.ChannelId equals channel.Id
+            orderby asset.NextServiceAt
+            select new TaskRow(
+                InboxTaskKind.MaintenanceDue,
+                asset.Id,
+                channel.GuildId,
+                channel.Guild.Name,
+                channel.Id,
+                channel.Name,
+                channel.Type,
+                channel.CategoryId,
+                channel.Category != null ? channel.Category.Name : null,
+                asset.Name,
+                asset.Status == AssetStatus.Broken ? "Marked as broken" : "Due for a service",
+                // Broken carries no deadline even when a service is also overdue: the date says
+                // when somebody should have looked at it, and the thing is already unusable.
+                asset.Status == AssetStatus.Broken ? null : asset.NextServiceAt,
+                0,
+                asset.CreatedAt);
+
     /// <summary>Drops rows whose module has since been switched off, and rows in channels the
     /// caller can no longer see. Both are resolved once per guild rather than once per row.</summary>
     private async Task<List<TaskRow>> KeepVisibleAsync(
@@ -213,9 +338,9 @@ public class InboxTaskService(
         Title = row.Title,
         Subtitle = row.Subtitle,
         DueAt = row.DueAt,
-        // Grace applies to chores and is zero for everything else, so one expression covers all
-        // three kinds: a decision is overdue the moment it closes, a chore not until its grace
-        // period runs out.
+        // Grace is a per-kind allowance and zero for most of them, so one expression covers every
+        // kind: a decision or a bill is overdue the moment its date passes, a chore not until its
+        // own grace period runs out, a meal not until the day it was planned for is over.
         IsOverdue = row.DueAt is not null
                     && row.DueAt.Value.AddHours(row.GraceHours) < DateTimeOffset.UtcNow,
     };

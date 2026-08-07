@@ -110,4 +110,40 @@ public class InboxQueryTranslationTests
 
         Assert.That(sql, Does.Contain("SELECT"));
     }
+
+    /// <summary>Two correlated subqueries over the same collection - a named share, or an Equal
+    /// split that named nobody - which is the part most likely to stop translating.</summary>
+    [Test]
+    public void BuildBillQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildBillQuery(_context, "user-1", DateTimeOffset.UtcNow.AddDays(5))
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    /// <summary>The outer join onto recipes is the shape at risk here: an inner one would compile
+    /// perfectly and silently drop every free-text entry.</summary>
+    [Test]
+    public void BuildMealQuery_translates()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var sql = InboxTaskService
+            .BuildMealQuery(_context, "user-1", today, today.AddDays(1))
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("LEFT JOIN"));
+    }
+
+    [Test]
+    public void BuildMaintenanceQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildMaintenanceQuery(_context, "user-1", DateTimeOffset.UtcNow)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
 }

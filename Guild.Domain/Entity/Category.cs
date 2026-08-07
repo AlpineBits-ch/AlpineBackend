@@ -128,9 +128,12 @@ public class Category : BaseEntity<Category>, IPrefixedEntity
         Add(home, "groceries", ChannelType.List, "The shopping list", 1);
         Add(home, "chores", ChannelType.Chores, "Who does what, and when", 2);
 
+        Add(home, "meals", ChannelType.Meals, "What we're eating this week", 3);
+
         Add(house, "pantry", ChannelType.Pantry, "What's in the kitchen", 0);
         Add(house, "ledger", ChannelType.Ledger, "Shared expenses", 1);
         Add(house, "decisions", ChannelType.Decisions, "Things the house needs to agree on", 2);
+        Add(house, "upkeep", ChannelType.Maintenance, "Appliances, services and who to call", 3);
 
         Add(voice, "house", ChannelType.Voice, "Voice channel", 0);
 

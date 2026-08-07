@@ -247,7 +247,9 @@ public class GuildFeatureGateTests
             Permissions.ManageLedger | Permissions.AddExpenses |
             Permissions.ManagePantry |
             Permissions.CreateDecisions | Permissions.VoteDecisions |
-            Permissions.ManageGuests;
+            Permissions.ManageGuests |
+            Permissions.PlanMeals | Permissions.ManageMeals |
+            Permissions.LogMaintenance | Permissions.ManageMaintenance;
 
         var stripped = GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Community);
 

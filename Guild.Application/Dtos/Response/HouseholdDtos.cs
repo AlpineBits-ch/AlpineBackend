@@ -32,6 +32,9 @@ public class PantryItemDto
     public bool IsLow { get; set; }
     public DateTimeOffset? RestockedAt { get; set; }
     public string AddedByUserId { get; set; } = null!;
+
+    /// <summary>The scanned product code, when this item got here by being scanned.</summary>
+    public string? Barcode { get; set; }
 }
 
 public class PantryConfigDto
@@ -70,6 +73,9 @@ public class ChoreOccurrenceDto
     public string? CompletedByUserId { get; set; }
     public DateTimeOffset? SkippedAt { get; set; }
     public bool IsOverdue { get; set; }
+
+    /// <summary>When somebody last nudged the assignee about this, or null if nobody has.</summary>
+    public DateTimeOffset? NudgedAt { get; set; }
 }
 
 /// <summary>One member's share of the household workload over the balance window.</summary>
@@ -79,6 +85,12 @@ public class ChoreBalanceEntryDto
     public int CompletedMinutes { get; set; }
     public int CompletedCount { get; set; }
     public int BalanceMinutes { get; set; }
+
+    /// <summary>How many days of the balance window this member was actually here for, which is
+    /// what <see cref="BalanceMinutes"/> is measured against. Surfaced so a client can explain the
+    /// number instead of only showing it: "behind by 40 minutes" reads as an accusation, and
+    /// "behind by 40 minutes over the 16 days you were here" reads as arithmetic.</summary>
+    public int PresentDays { get; set; }
 }
 
 public class ExpenseDto
@@ -197,6 +209,15 @@ public class HouseholdDigestDto
     public IReadOnlyList<HouseholdDigestLedgerDto>? Ledger { get; init; }
     public HouseholdDigestDecisionsDto? Decisions { get; init; }
     public IReadOnlyList<HomeStatusDto>? HomeStatus { get; init; }
+
+    /// <summary>What the house owes and when, from the ledger channels the caller can see.</summary>
+    public HouseholdDigestBillsDto? Bills { get; init; }
+
+    public HouseholdDigestMealsDto? Meals { get; init; }
+    public HouseholdDigestMaintenanceDto? Maintenance { get; init; }
+
+    /// <summary>Who is away right now, and until when.</summary>
+    public IReadOnlyList<HouseholdDigestAbsenceDto>? Away { get; init; }
 }
 
 public class HouseholdDigestChoresDto
@@ -255,4 +276,97 @@ public class HouseholdDigestDecisionDto
     public required string ChannelId { get; init; }
     public required string Title { get; init; }
     public DateTimeOffset? ClosesAt { get; init; }
+}
+
+public class HouseholdDigestBillsDto
+{
+    /// <summary>Pending bills due inside the next fortnight, soonest first, anything already late
+    /// included at the top. The same shape <see cref="HouseholdDigestChoresDto.Mine"/> takes: an
+    /// overdue thing is still a thing that is due, and hiding it from the list to count it
+    /// separately would leave the most urgent row off the widget.</summary>
+    public required IReadOnlyList<HouseholdDigestBillDto> DueSoon { get; init; }
+
+    public required int OverdueCount { get; init; }
+
+    /// <summary>Variable bills that have come due with nobody having said what they cost.</summary>
+    public required int NeedsAmountCount { get; init; }
+}
+
+public class HouseholdDigestBillDto
+{
+    public required string Id { get; init; }
+    public required string ChannelId { get; init; }
+    public required string Description { get; init; }
+    public required DateTimeOffset DueAt { get; init; }
+
+    /// <summary>Null while the amount is still unknown - see
+    /// <see cref="HouseholdDigestBillsDto.NeedsAmountCount"/>.</summary>
+    public long? AmountMinor { get; init; }
+
+    public required string Currency { get; init; }
+
+    /// <summary>What this period will cost the caller specifically, in minor units.</summary>
+    public long? MyShareMinor { get; init; }
+
+    public required BillStatus Status { get; init; }
+}
+
+public class HouseholdDigestMealsDto
+{
+    /// <summary>What is planned for today, in board order across every meals channel the caller can
+    /// see.</summary>
+    public required IReadOnlyList<HouseholdDigestMealDto> Today { get; init; }
+
+    /// <summary>Whether the caller is down to cook any of today's entries.</summary>
+    public required bool ImCookingToday { get; init; }
+}
+
+public class HouseholdDigestMealDto
+{
+    public required string Id { get; init; }
+    public required string ChannelId { get; init; }
+    public required MealSlot Slot { get; init; }
+
+    /// <summary>The recipe's title, or the entry's free text.</summary>
+    public required string Title { get; init; }
+
+    public string? CookUserId { get; init; }
+}
+
+public class HouseholdDigestMaintenanceDto
+{
+    public required int BrokenCount { get; init; }
+    public required int ServiceOverdueCount { get; init; }
+
+    /// <summary>Warranties lapsing inside <see cref="Domain.Entity.MaintenanceAsset.WarrantyWarningDays"/>.
+    /// Already-lapsed ones are not counted: there is nothing left to do about them.</summary>
+    public required int WarrantyExpiringCount { get; init; }
+
+    /// <summary>The few assets worth showing, most urgent first.</summary>
+    public required IReadOnlyList<HouseholdDigestAssetDto> Attention { get; init; }
+}
+
+public class HouseholdDigestAssetDto
+{
+    public required string Id { get; init; }
+    public required string ChannelId { get; init; }
+    public required string Name { get; init; }
+    public required AssetStatus Status { get; init; }
+
+    /// <summary>
+    /// The single most urgent of the attention board's tokens - <c>broken</c>,
+    /// <c>service_overdue</c>, <c>needs_attention</c>, <c>warranty_expiring</c>.
+    /// </summary>
+    public required string Reason { get; init; }
+}
+
+public class HouseholdDigestAbsenceDto
+{
+    public required string UserId { get; init; }
+    public required DateTimeOffset StartAt { get; init; }
+
+    /// <summary>Exclusive, as <see cref="Domain.Entity.MemberAbsence.EndAt"/> is.</summary>
+    public required DateTimeOffset EndAt { get; init; }
+
+    public string? Note { get; init; }
 }

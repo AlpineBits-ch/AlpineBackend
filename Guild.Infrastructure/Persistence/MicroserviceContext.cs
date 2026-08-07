@@ -67,6 +67,22 @@ public class MicroserviceContext : DbContext
     public DbSet<DecisionVote> DecisionVotes { get; set; }
     public DbSet<GuildQuietHoursConfig> GuildQuietHoursConfigs { get; set; }
 
+    // ── Household modules, second wave ───────────────────────────────────────
+    public DbSet<RecurringExpense> RecurringExpenses { get; set; }
+    public DbSet<RecurringExpenseShare> RecurringExpenseShares { get; set; }
+    public DbSet<BillOccurrence> BillOccurrences { get; set; }
+    public DbSet<ExpenseReceipt> ExpenseReceipts { get; set; }
+    public DbSet<PantryBarcode> PantryBarcodes { get; set; }
+    public DbSet<MemberAbsence> MemberAbsences { get; set; }
+    public DbSet<MaintenanceAsset> MaintenanceAssets { get; set; }
+    public DbSet<MaintenanceRecord> MaintenanceRecords { get; set; }
+    public DbSet<PaymentHandleBlob> PaymentHandleBlobs { get; set; }
+    public DbSet<PaymentHandleKeyWrap> PaymentHandleKeyWraps { get; set; }
+    public DbSet<Recipe> Recipes { get; set; }
+    public DbSet<RecipeIngredient> RecipeIngredients { get; set; }
+    public DbSet<MealPlanEntry> MealPlanEntries { get; set; }
+    public DbSet<MealPlanConfig> MealPlanConfigs { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -94,6 +110,11 @@ public class MicroserviceContext : DbContext
             options.MapEnum<ExpenseSplitKind>();
             options.MapEnum<DecisionStatus>();
             options.MapEnum<DecisionVoteKind>();
+            options.MapEnum<MealSlot>();
+            options.MapEnum<RecurrenceUnit>();
+            options.MapEnum<BillStatus>();
+            options.MapEnum<ExpenseCategory>();
+            options.MapEnum<AssetStatus>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -699,6 +720,10 @@ public class MicroserviceContext : DbContext
             // The expiry sweep's query: dated and not yet warned about.
             itemBuilder.HasIndex(x => x.ExpiresAt)
                 .HasFilter("expiry_notified_at IS NULL AND expires_at IS NOT NULL");
+
+            // Scan's first question: is the thing I am holding already in this fridge.
+            itemBuilder.HasIndex(x => new { x.ChannelId, x.Barcode })
+                .HasFilter("barcode IS NOT NULL");
         });
 
         modelBuilder.Entity<PantryConfig>(configBuilder =>
@@ -825,6 +850,210 @@ public class MicroserviceContext : DbContext
             configBuilder.HasOne(x => x.Guild)
                 .WithOne()
                 .HasForeignKey<GuildQuietHoursConfig>(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── Household modules, second wave ───────────────────────────────────
+        // Same shadow-side-FK-to-Channel rule as above; see the note on the first wave.
+
+        modelBuilder.Entity<RecurringExpense>(templateBuilder =>
+        {
+            templateBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            templateBuilder.HasIndex(x => x.ChannelId);
+
+            // The generation sweep's query: unpaused templates whose next slot is inside the
+            // widest lead window. Filtered, because a paused template is not a candidate.
+            templateBuilder.HasIndex(x => x.NextDueAt).HasFilter("is_paused = false");
+        });
+
+        modelBuilder.Entity<RecurringExpenseShare>(shareBuilder =>
+        {
+            shareBuilder.HasKey(x => new { x.RecurringExpenseId, x.UserId });
+
+            shareBuilder.HasOne(x => x.RecurringExpense)
+                .WithMany(x => x.Shares)
+                .HasForeignKey(x => x.RecurringExpenseId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BillOccurrence>(occurrenceBuilder =>
+        {
+            occurrenceBuilder.HasOne<RecurringExpense>()
+                .WithMany()
+                .HasForeignKey(x => x.RecurringExpenseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            occurrenceBuilder.HasIndex(x => new { x.ChannelId, x.DueAt });
+
+            // One occurrence per template per due date - the guard that makes generation
+            // idempotent when the sweep and the create endpoint fire for the same slot.
+            occurrenceBuilder.HasIndex(x => new { x.RecurringExpenseId, x.DueAt }).IsUnique();
+
+            // The alert sweep's query.
+            occurrenceBuilder.HasIndex(x => x.DueAt).HasFilter("reminded_at IS NULL");
+        });
+
+        modelBuilder.Entity<ExpenseReceipt>(receiptBuilder =>
+        {
+            receiptBuilder.HasOne(x => x.Expense)
+                .WithMany(x => x.Receipts)
+                .HasForeignKey(x => x.ExpenseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            receiptBuilder.HasIndex(x => x.ExpenseId);
+        });
+
+        modelBuilder.Entity<PantryBarcode>(barcodeBuilder =>
+        {
+            barcodeBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The upsert every scan runs, and the constraint that makes "learned once" true.
+            barcodeBuilder.HasIndex(x => new { x.GuildId, x.Barcode }).IsUnique();
+
+            // The completion list: this guild's products, most-used first.
+            barcodeBuilder.HasIndex(x => new { x.GuildId, x.TimesSeen });
+        });
+
+        // Opaque by construction: the server stores these bytes and holds no key that opens them.
+        modelBuilder.Entity<PaymentHandleBlob>(blobBuilder =>
+        {
+            blobBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One sealed payload per person per guild; the write path upserts on this.
+            blobBuilder.HasIndex(x => new { x.GuildId, x.UserId }).IsUnique();
+        });
+
+        modelBuilder.Entity<PaymentHandleKeyWrap>(wrapBuilder =>
+        {
+            wrapBuilder.HasKey(x => new { x.PaymentHandleBlobId, x.RecipientDeviceId });
+
+            wrapBuilder.HasOne(x => x.Blob)
+                .WithMany(x => x.Wraps)
+                .HasForeignKey(x => x.PaymentHandleBlobId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The read path is "every blob in this guild, wraps for this one device".
+            wrapBuilder.HasIndex(x => x.RecipientDeviceId);
+        });
+
+        modelBuilder.Entity<MaintenanceAsset>(assetBuilder =>
+        {
+            assetBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            assetBuilder.HasIndex(x => new { x.ChannelId, x.Name });
+
+            // Drives the guild-wide attention board across every maintenance channel.
+            assetBuilder.HasIndex(x => new { x.GuildId, x.Status });
+
+            // The service sweep's query: scheduled and not yet announced.
+            assetBuilder.HasIndex(x => x.NextServiceAt)
+                .HasFilter("service_notified_at IS NULL AND next_service_at IS NOT NULL");
+
+            // The warranty sweep's query, filtered for the same reason.
+            assetBuilder.HasIndex(x => x.WarrantyUntil)
+                .HasFilter("warranty_notified_at IS NULL AND warranty_until IS NOT NULL");
+        });
+
+        modelBuilder.Entity<MaintenanceRecord>(recordBuilder =>
+        {
+            recordBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a catalogued asset must not delete the history of what was done to it - the
+            // receipt for last year's boiler service is the reason the log exists.
+            recordBuilder.HasOne<MaintenanceAsset>()
+                .WithMany()
+                .HasForeignKey(x => x.AssetId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The channel log, newest first - the keyset page order.
+            recordBuilder.HasIndex(x => new { x.ChannelId, x.PerformedAt });
+
+            // The per-asset history shown on an asset's own page.
+            recordBuilder.HasIndex(x => new { x.AssetId, x.PerformedAt });
+        });
+
+        modelBuilder.Entity<MemberAbsence>(absenceBuilder =>
+        {
+            absenceBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The rotation's question: who in this guild is away at a given instant.
+            absenceBuilder.HasIndex(x => new { x.GuildId, x.StartAt, x.EndAt });
+
+            // The board's question, and the per-member overlap and count guards on write.
+            absenceBuilder.HasIndex(x => new { x.GuildId, x.UserId, x.EndAt });
+        });
+
+        modelBuilder.Entity<Recipe>(recipeBuilder =>
+        {
+            recipeBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The cookbook board: this channel's recipes in title order, which is also the
+            // paging key.
+            recipeBuilder.HasIndex(x => new { x.ChannelId, x.Title });
+        });
+
+        modelBuilder.Entity<RecipeIngredient>(ingredientBuilder =>
+        {
+            ingredientBuilder.HasKey(x => new { x.RecipeId, x.Position });
+
+            ingredientBuilder.HasOne(x => x.Recipe)
+                .WithMany(x => x.Ingredients)
+                .HasForeignKey(x => x.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MealPlanEntry>(entryBuilder =>
+        {
+            entryBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a recipe must not delete the week's plan - the entry keeps its free text
+            // or simply loses its link, which is what a cook expects after tidying the cookbook.
+            entryBuilder.HasOne<Recipe>()
+                .WithMany()
+                .HasForeignKey(x => x.RecipeId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The board query: this channel's plan across a date window, in reading order.
+            entryBuilder.HasIndex(x => new { x.ChannelId, x.Date, x.Slot, x.Position });
+
+            // The cooking-today sweep's query: unnotified entries that have a cook and are due.
+            entryBuilder.HasIndex(x => x.Date)
+                .HasFilter("notified_at IS NULL AND cook_user_id IS NOT NULL");
+        });
+
+        modelBuilder.Entity<MealPlanConfig>(configBuilder =>
+        {
+            configBuilder.HasKey(x => x.ChannelId);
+
+            configBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithOne()
+                .HasForeignKey<MealPlanConfig>(x => x.ChannelId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

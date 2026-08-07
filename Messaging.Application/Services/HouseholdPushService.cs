@@ -82,7 +82,7 @@ public static class HouseholdPushService
                     BodyLocArgs = body.Args,
                     // Collapses an earlier notification about the same row rather than stacking two
                     // of them - the second reminder for one chore replaces the first.
-                    Tag = payload.TargetId,
+                    Tag = CollapseKey(payload),
                 },
             },
             Apns = new ApnsConfig
@@ -91,7 +91,7 @@ public static class HouseholdPushService
                 {
                     ["apns-priority"] = "10",
                     ["apns-push-type"] = "alert",
-                    ["apns-collapse-id"] = payload.TargetId ?? payload.Kind,
+                    ["apns-collapse-id"] = CollapseKey(payload),
                 },
                 Aps = new Aps
                 {
@@ -180,6 +180,13 @@ public static class HouseholdPushService
 
     private static string Encode(IReadOnlyList<string> args) =>
         System.Text.Json.JsonSerializer.Serialize(args);
+
+    /// <summary>
+    /// What makes two notifications "the same one, again" for the purposes of replacing rather than
+    /// stacking.
+    /// </summary>
+    private static string CollapseKey(HouseholdPushPayload payload) =>
+        Truncate(payload.TargetId is null ? payload.Kind : $"{payload.Kind}:{payload.TargetId}", 64);
 
     private static string Truncate(string value, int max) =>
         value.Length <= max ? value : value[..max];

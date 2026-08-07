@@ -8,6 +8,13 @@ public static class HouseholdLocKeys
     /// <summary>"Your turn, and it's due now."</summary>
     public const string ChoreDueBody = "household_chore_due_body";
 
+    /// <summary>"Still waiting on this one at home." - a nudge.</summary>
+    public const string ChoreNudgeBody = "household_chore_nudge_body";
+
+    /// <summary>"Picked up from a flatmate who's away." - sent to whoever inherited a chore when
+    /// its assignee went on holiday, so the reassignment is not a silent surprise.</summary>
+    public const string ChoreReassignedBody = "household_chore_reassigned_body";
+
     // ── Ledger ───────────────────────────────────────────────────────────────
 
     /// <summary>"Your share is {0}." - {0} is a preformatted money string.</summary>
@@ -27,6 +34,41 @@ public static class HouseholdLocKeys
 
     /// <summary>"{0} was recorded as paid by you."</summary>
     public const string SettlementRecordedBody = "household_settlement_recorded_body";
+
+    // ── Bills ────────────────────────────────────────────────────────────────
+
+    /// <summary>"Due today. Your share is {0}." - {0} is a preformatted money string.</summary>
+    public const string BillDueBody = "household_bill_due_body";
+
+    /// <summary>"Due in {0}.</summary>
+    public const string BillDueSoonBody = "household_bill_due_soon_body";
+
+    /// <summary>"Added to the ledger.</summary>
+    public const string BillPostedBody = "household_bill_posted_body";
+
+    /// <summary>"A bill needs an amount before it can be split." - a variable bill that has come
+    /// due without anybody entering what it actually was.</summary>
+    public const string BillNeedsAmountBody = "household_bill_needs_amount_body";
+
+    // ── Meals ────────────────────────────────────────────────────────────────
+
+    /// <summary>"You're down to cook" - used as the title only when the plan entry names no
+    /// recipe and carries no free text of its own.</summary>
+    public const string MealCookingTodayTitle = "household_meal_cooking_today_title";
+
+    /// <summary>"You're down to cook this today."</summary>
+    public const string MealCookingTodayBody = "household_meal_cooking_today_body";
+
+    // ── Maintenance ──────────────────────────────────────────────────────────
+
+    /// <summary>"This is due for a service."</summary>
+    public const string MaintenanceDueBody = "household_maintenance_due_body";
+
+    /// <summary>"The warranty runs out in {0}." - {0} is a preformatted duration.</summary>
+    public const string MaintenanceWarrantyBody = "household_maintenance_warranty_body";
+
+    /// <summary>"Marked as broken. Don't use it for now."</summary>
+    public const string MaintenanceBrokenBody = "household_maintenance_broken_body";
 
     // ── Decisions ────────────────────────────────────────────────────────────
 
@@ -89,6 +131,17 @@ public static class HouseholdLocKeys
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         ChoreDueBody,
+        ChoreNudgeBody,
+        ChoreReassignedBody,
+        BillDueBody,
+        BillDueSoonBody,
+        BillPostedBody,
+        BillNeedsAmountBody,
+        MealCookingTodayTitle,
+        MealCookingTodayBody,
+        MaintenanceDueBody,
+        MaintenanceWarrantyBody,
+        MaintenanceBrokenBody,
         ExpenseShareBody,
         ExpensePaidBody,
         SettlementReceivedTitle,

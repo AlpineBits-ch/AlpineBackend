@@ -31,6 +31,16 @@ public enum GuildFeatures : ulong
     Presence        = 1ul << 25,
     QuietHours      = 1ul << 26,
     GuestAccess     = 1ul << 27,
+
+    /// <summary>Recipes and a weekly meal plan, with the plan able to write its missing
+    /// ingredients onto a shopping list and to rank recipes by what is about to go off. Separate
+    /// from <see cref="Pantry"/> because a house can plan meals without tracking stock and can
+    /// track stock without planning; the two only compose when both are on.</summary>
+    Meals           = 1ul << 28,
+
+    /// <summary>The things in a house that need servicing or break: boiler, washing machine,
+    /// smoke alarms, plus who to call and what is still under warranty.</summary>
+    Maintenance     = 1ul << 29,
 }
 
 public static class GuildFeaturePresets
@@ -49,7 +59,8 @@ public static class GuildFeaturePresets
         GuildFeatures.VoiceChannels | GuildFeatures.Threads | GuildFeatures.Wiki |
         GuildFeatures.Events | GuildFeatures.Lists | GuildFeatures.Chores |
         GuildFeatures.Ledger | GuildFeatures.Pantry | GuildFeatures.Decisions |
-        GuildFeatures.Presence | GuildFeatures.QuietHours | GuildFeatures.GuestAccess;
+        GuildFeatures.Presence | GuildFeatures.QuietHours | GuildFeatures.GuestAccess |
+        GuildFeatures.Meals | GuildFeatures.Maintenance;
 
     public const GuildFeatures Team =
         GuildFeatures.VoiceChannels | GuildFeatures.Threads | GuildFeatures.Forums |

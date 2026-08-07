@@ -13,6 +13,11 @@ public class CreateExpenseParams
     public DateTimeOffset OccurredAt { get; set; }
     public ExpenseSplitKind SplitKind { get; set; } = ExpenseSplitKind.Equal;
     public string CreatedByUserId { get; set; } = null!;
+    public ExpenseCategory Category { get; set; } = ExpenseCategory.Uncategorized;
+
+    /// <summary>Set when this expense was posted from a recurring bill, so the ledger can show
+    /// "rent, March" as one of a series rather than as twelve unrelated rows.</summary>
+    public string? BillOccurrenceId { get; set; }
 }
 
 /// <summary>Something one housemate paid for that others owe a part of.</summary>
@@ -35,7 +40,17 @@ public class Expense : BaseEntity<Expense>, IPrefixedEntity
     public ExpenseSplitKind SplitKind { get; set; } = ExpenseSplitKind.Equal;
     public string CreatedByUserId { get; set; } = null!;
 
+    /// <summary>
+    /// Coarse spending bucket, for the "what does this flat cost per month" rollup.
+    /// </summary>
+    public ExpenseCategory Category { get; set; } = ExpenseCategory.Uncategorized;
+
+    /// <summary>The <c>BillOccurrence</c> this expense was posted from, if any.</summary>
+    public string? BillOccurrenceId { get; set; }
+
     public virtual ICollection<ExpenseShare> Shares { get; set; } = [];
+
+    public virtual ICollection<ExpenseReceipt> Receipts { get; set; } = [];
 
     public static Expense Create(CreateExpenseParams @params)
     {
@@ -53,6 +68,8 @@ public class Expense : BaseEntity<Expense>, IPrefixedEntity
             OccurredAt = @params.OccurredAt,
             SplitKind = @params.SplitKind,
             CreatedByUserId = @params.CreatedByUserId,
+            Category = @params.Category,
+            BillOccurrenceId = @params.BillOccurrenceId,
         };
     }
 }

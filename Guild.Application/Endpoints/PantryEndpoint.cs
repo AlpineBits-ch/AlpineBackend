@@ -17,19 +17,9 @@ public class PantryEndpoint
 {
     private const int MaxNameLength = 100;
 
-    private static PantryItemDto ToDto(PantryItem item) => new()
-    {
-        Id = item.Id,
-        ChannelId = item.ChannelId,
-        Name = item.Name,
-        Quantity = item.Quantity,
-        Unit = item.Unit,
-        LowThreshold = item.LowThreshold,
-        ExpiresAt = item.ExpiresAt,
-        IsLow = item.LowThreshold is not null && item.Quantity <= item.LowThreshold,
-        RestockedAt = item.RestockedAt,
-        AddedByUserId = item.AddedByUserId,
-    };
+    /// <summary>Shared with the capture routes so both halves of the pantry put the same shape on
+    /// the wire - a scan and a PATCH are the same fact to a client.</summary>
+    private static PantryItemDto ToDto(PantryItem item) => PantryCaptureService.ToDto(item);
 
     [WolverineGet("/api/v1/channels/{channelId}/pantry-items")]
     public async Task<IResult> ListAsync(string channelId, [NotBody] HouseholdChannelService household,
@@ -111,8 +101,7 @@ public class PantryEndpoint
     [WolverinePost("/api/v1/channels/{channelId}/pantry-items")]
     public async Task<IResult> CreateAsync(string channelId, CreatePantryItemDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] PantryRestockService restock,
-        [NotBody] HouseholdAlertService alerts, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -124,6 +113,8 @@ public class PantryEndpoint
         if (dto.Name.Length > MaxNameLength) return Results.BadRequest($"Name must be {MaxNameLength} characters or fewer");
         if (dto.Quantity < 0) return Results.BadRequest("Quantity cannot be negative");
         if (dto.LowThreshold is < 0) return Results.BadRequest("LowThreshold cannot be negative");
+        if (dto.Barcode is { Length: > PantryCaptureService.MaxBarcodeLength })
+            return Results.BadRequest($"Barcode must be {PantryCaptureService.MaxBarcodeLength} characters or fewer");
 
         var item = PantryItem.Create(new CreatePantryItemParams
         {
@@ -134,25 +125,20 @@ public class PantryEndpoint
             Unit = dto.Unit,
             LowThreshold = dto.LowThreshold,
             ExpiresAt = dto.ExpiresAt,
+            Barcode = string.IsNullOrWhiteSpace(dto.Barcode) ? null : dto.Barcode.Trim(),
             AddedByUserId = userId,
         });
 
         ctx.PantryItems.Add(item);
 
-        // Stamped before the commit rather than after the alert, matching RestockedAt: alert
-        // dispatch is best-effort by design, and a stamp that waits for it would need a second
-        // write on a path that has already succeeded.
-        var wasLow = item.NeedsLowAlert();
-        var restocked = await restock.StageRestockAsync(item);
-        if (wasLow) item.LowNotifiedAt = DateTimeOffset.UtcNow;
+        var change = await restock.ApplyStockChangeAsync(item);
 
         await ctx.SaveChangesAsync();
 
         await household.BroadcastAsync(item.GuildId, channelId, "guild.PantryItemCreated",
             new { GuildId = item.GuildId, ChannelId = channelId, Item = ToDto(item) });
 
-        if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
-        if (wasLow) await alerts.PantryLowAsync(item, restocked, userId);
+        await restock.PublishStockChangeAsync(item, change, userId);
 
         return Results.Ok(ToDto(item));
     }
@@ -160,8 +146,7 @@ public class PantryEndpoint
     [WolverinePatch("/api/v1/pantry-items/{itemId}")]
     public async Task<IResult> UpdateAsync(string itemId, UpdatePantryItemDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] PantryRestockService restock,
-        [NotBody] HouseholdAlertService alerts, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -187,6 +172,15 @@ public class PantryEndpoint
 
         if (dto.Unit is not null) item.Unit = dto.Unit;
 
+        if (dto.ClearBarcode == true) item.Barcode = null;
+        else if (dto.Barcode is not null)
+        {
+            if (dto.Barcode.Length > PantryCaptureService.MaxBarcodeLength)
+                return Results.BadRequest($"Barcode must be {PantryCaptureService.MaxBarcodeLength} characters or fewer");
+
+            item.Barcode = string.IsNullOrWhiteSpace(dto.Barcode) ? null : dto.Barcode.Trim();
+        }
+
         if (dto.ClearLowThreshold == true) item.LowThreshold = null;
         else if (dto.LowThreshold is not null)
         {
@@ -207,25 +201,16 @@ public class PantryEndpoint
             item.ExpiryNotifiedAt = null;
         }
 
-        // Restocked back above the threshold: release both stamps so the next dip re-adds it to the
-        // list and announces itself again.
-        if (item.LowThreshold is null || item.Quantity > item.LowThreshold)
-        {
-            item.RestockedAt = null;
-            item.LowNotifiedAt = null;
-        }
-
-        var wasLow = item.NeedsLowAlert();
-        var restocked = await restock.StageRestockAsync(item);
-        if (wasLow) item.LowNotifiedAt = DateTimeOffset.UtcNow;
+        // The stamp release, the list line and the low alert, in the one order that is correct -
+        // see PantryRestockService.ApplyStockChangeAsync.
+        var change = await restock.ApplyStockChangeAsync(item);
 
         await ctx.SaveChangesAsync();
 
         await household.BroadcastAsync(item.GuildId, item.ChannelId, "guild.PantryItemUpdated",
             new { GuildId = item.GuildId, ChannelId = item.ChannelId, Item = ToDto(item) });
 
-        if (restocked is not null) await restock.BroadcastRestockAsync(restocked);
-        if (wasLow) await alerts.PantryLowAsync(item, restocked, userId);
+        await restock.PublishStockChangeAsync(item, change, userId);
 
         return Results.Ok(ToDto(item));
     }

@@ -81,6 +81,11 @@ public class HasUserPermissionToGuildHandler
             ExternalPermission.ChangeNickname         => Permissions.ChangeNickname,
             ExternalPermission.ManageNicknames        => Permissions.ManageNicknames,
 
+            ExternalPermission.PlanMeals              => Permissions.PlanMeals,
+            ExternalPermission.ManageMeals            => Permissions.ManageMeals,
+            ExternalPermission.LogMaintenance         => Permissions.LogMaintenance,
+            ExternalPermission.ManageMaintenance      => Permissions.ManageMaintenance,
+
             _ => throw new ArgumentOutOfRangeException(
                 nameof(permission),
                 permission,

@@ -101,6 +101,24 @@ public enum Permissions : ulong
     /// <summary>Change other members' nicknames.</summary>
     ManageNicknames         = 1ul << 54,
 
+    // ── Household modules (second wave) ──────────────────────────────────────
+
+    /// <summary>Put something on the meal plan, and add a recipe.</summary>
+    PlanMeals               = 1ul << 55,
+
+    /// <summary>Edit or delete somebody else's recipe or planned meal, and point the plan at a
+    /// different shopping list.</summary>
+    ManageMeals             = 1ul << 56,
+
+    /// <summary>
+    /// Record that something was serviced or repaired, and flag an appliance as broken.
+    /// </summary>
+    LogMaintenance          = 1ul << 57,
+
+    /// <summary>Add, edit and delete the assets themselves - service intervals, warranty dates,
+    /// the plumber's number - and remove anyone's log entry.</summary>
+    ManageMaintenance       = 1ul << 58,
+
     // ── Catch-all ────────────────────────────────────────────────────────────
     Superadmin              = 1ul << 63,
 }

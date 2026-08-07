@@ -41,6 +41,11 @@ public static class GuildFeatureMap
         (GuildFeatures.Decisions, Permissions.CreateDecisions | Permissions.VoteDecisions),
 
         (GuildFeatures.GuestAccess, Permissions.ManageGuests),
+
+        (GuildFeatures.Meals, Permissions.PlanMeals | Permissions.ManageMeals),
+
+        (GuildFeatures.Maintenance,
+            Permissions.LogMaintenance | Permissions.ManageMaintenance),
     ];
 
     /// <summary>Every permission bit owned by a module that <paramref name="enabled"/> does not
@@ -84,6 +89,8 @@ public static class GuildFeatureMap
         ChannelType.Ledger => GuildFeatures.Ledger,
         ChannelType.Pantry => GuildFeatures.Pantry,
         ChannelType.Decisions => GuildFeatures.Decisions,
+        ChannelType.Meals => GuildFeatures.Meals,
+        ChannelType.Maintenance => GuildFeatures.Maintenance,
         _ => null,
     };
 }

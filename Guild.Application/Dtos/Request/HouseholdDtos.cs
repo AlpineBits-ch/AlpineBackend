@@ -41,6 +41,9 @@ public class CreatePantryItemDto
     public string? Unit { get; set; }
     public decimal? LowThreshold { get; set; }
     public DateTimeOffset? ExpiresAt { get; set; }
+
+    /// <summary>Optional product code.</summary>
+    public string? Barcode { get; set; }
 }
 
 public class UpdatePantryItemDto
@@ -52,6 +55,8 @@ public class UpdatePantryItemDto
     public bool? ClearLowThreshold { get; set; }
     public DateTimeOffset? ExpiresAt { get; set; }
     public bool? ClearExpiresAt { get; set; }
+    public string? Barcode { get; set; }
+    public bool? ClearBarcode { get; set; }
 }
 
 public class UpdatePantryConfigDto

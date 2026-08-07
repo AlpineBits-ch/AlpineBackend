@@ -68,4 +68,18 @@ public enum AuditActionType
     /// <summary>A household removed someone who moved out - the flow that stands in for
     /// MemberKicked in a guild with the Moderation module off.</summary>
     MemberMovedOut,
+
+    // ── Household (second wave) ────────────────────────────────────────────── Recurring expenses
+    // are audited for the same reason one-off ones are, and more so: a template quietly charges
+    // everybody every month, so who set it up and who changed the amount are the two questions a
+    // disputed ledger asks first.
+    RecurringExpenseCreated,
+    RecurringExpenseUpdated,
+    RecurringExpenseDeleted,
+    BillPosted,
+    BillSkipped,
+    MaintenanceAssetCreated,
+    MaintenanceAssetUpdated,
+    MaintenanceAssetDeleted,
+    MaintenanceRecordCreated,
 }

@@ -38,7 +38,7 @@ public class GuildEndpoint
         
         var searchValue = profileResponse.Profile.UserName! + "#" + profileResponse.Profile.Hash;
         
-        var guild = Domain.Aggregates.Guild.Create(new CreateGuildParams()
+        var parameters = new CreateGuildParams()
         {
             Name = dto.Name,
             Description = dto.Description,
@@ -46,9 +46,15 @@ public class GuildEndpoint
             OwnerSearchValue = searchValue.ToUpperInvariant(),
             OwnerNickname = profileResponse.Profile.UserName,
             Kind = dto.Kind,
-        });
-        
+        };
+
+        var guild = Domain.Aggregates.Guild.Create(parameters);
+
         ctx.Guilds.Add(guild);
+
+        // A household gets a starter house manual: wifi, bin day, the boiler, who to call.
+        if (Domain.Aggregates.Guild.HouseManualFor(guild, parameters) is { } manual)
+            ctx.AddRange(manual.Rows);
         
         
         // because of the sys channel we have to do some hacks 

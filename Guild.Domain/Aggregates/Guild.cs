@@ -120,5 +120,12 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
         return guild;
     }
 
-
+    /// <summary>
+    /// The starter house manual a new household's wiki is seeded with, or null for every other kind
+    /// of guild.
+    /// </summary>
+    public static Services.HouseManualSeed.HouseManual? HouseManualFor(Guild guild, CreateGuildParams parameters) =>
+        guild.Kind == GuildKind.Household && !parameters.SkipDefaultChannels
+            ? Services.HouseManualSeed.ForHousehold(guild.Id, guild.OwnerId)
+            : null;
 }

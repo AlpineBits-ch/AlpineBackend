@@ -228,6 +228,11 @@ public class EveryoneRoleDefaultsTests
             70368744177664,     // ManagePantry         2^46
             140737488355328,    // CreateDecisions      2^47
             281474976710656,    // VoteDecisions        2^48
+
+            // Added by 20260807164830_BackfillHouseholdWaveTwoEveryonePermissions with the Meals
+            // and Maintenance modules.
+            36028797018963968,  // PlanMeals            2^55
+            144115188075855872, // LogMaintenance       2^57
         ];
 
         var fromMigration = literals.Aggregate(0ul, (mask, bit) => mask | bit);

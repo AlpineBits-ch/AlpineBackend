@@ -67,7 +67,9 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         Permissions.AddExpenses |
         Permissions.ManagePantry |
         Permissions.CreateDecisions |
-        Permissions.VoteDecisions;
+        Permissions.VoteDecisions |
+        Permissions.PlanMeals |
+        Permissions.LogMaintenance;
 
     /// <summary>
     /// What the seeded "Flatmates" role adds on top of <see cref="HouseholdEveryonePermissions"/>:
@@ -77,7 +79,9 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         Permissions.ManageLists |
         Permissions.ManageChores |
         Permissions.ManageLedger |
-        Permissions.ManageGuests;
+        Permissions.ManageGuests |
+        Permissions.ManageMeals |
+        Permissions.ManageMaintenance;
 
     /// <summary>
     /// The part of <see cref="DefaultEveryonePermissions"/> that an @everyone mask arriving from

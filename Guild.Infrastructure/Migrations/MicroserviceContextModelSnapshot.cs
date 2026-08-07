@@ -22,11 +22,14 @@ namespace Guild.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.10")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "auto_mod_config_updated", "auto_mod_message_blocked", "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "category_updated", "channel_created", "channel_deleted", "channel_follow_created", "channel_follow_removed", "channel_permission_changed", "channel_updated", "emoji_created", "emoji_deleted", "expense_created", "expense_deleted", "expense_updated", "forum_config_updated", "forum_tag_created", "forum_tag_deleted", "forum_tag_updated", "forum_tags_reordered", "guild_created_from_template", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "ledger_config_updated", "member_banned", "member_kicked", "member_left", "member_moved_out", "member_muted", "member_nickname_changed", "member_unbanned", "member_unmuted", "message_pinned", "message_unpinned", "onboarding_config_updated", "onboarding_prompt_created", "onboarding_prompt_deleted", "onboarding_prompt_updated", "role_created", "role_deleted", "role_positions_changed", "role_updated", "scheduled_event_cancelled", "scheduled_event_created", "scheduled_event_deleted", "scheduled_event_updated", "settlement_recorded", "template_created", "thread_lock_changed", "thread_pin_changed", "thread_tags_updated", "welcome_screen_updated" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "chores", "decisions", "forum", "ledger", "list", "media", "pantry", "text", "thread", "ticket", "voice" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "asset_status", new[] { "broken", "needs_attention", "ok", "out_of_service" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "audit_action_type", new[] { "auto_mod_config_updated", "auto_mod_message_blocked", "bill_posted", "bill_skipped", "bot_installed", "bot_uninstalled", "category_created", "category_deleted", "category_updated", "channel_created", "channel_deleted", "channel_follow_created", "channel_follow_removed", "channel_permission_changed", "channel_updated", "emoji_created", "emoji_deleted", "expense_created", "expense_deleted", "expense_updated", "forum_config_updated", "forum_tag_created", "forum_tag_deleted", "forum_tag_updated", "forum_tags_reordered", "guild_created_from_template", "guild_deleted", "guild_imported_from_discord", "guild_synced_from_discord", "guild_updated", "invite_created", "invite_deleted", "ledger_config_updated", "maintenance_asset_created", "maintenance_asset_deleted", "maintenance_asset_updated", "maintenance_record_created", "member_banned", "member_kicked", "member_left", "member_moved_out", "member_muted", "member_nickname_changed", "member_unbanned", "member_unmuted", "message_pinned", "message_unpinned", "onboarding_config_updated", "onboarding_prompt_created", "onboarding_prompt_deleted", "onboarding_prompt_updated", "recurring_expense_created", "recurring_expense_deleted", "recurring_expense_updated", "role_created", "role_deleted", "role_positions_changed", "role_updated", "scheduled_event_cancelled", "scheduled_event_created", "scheduled_event_deleted", "scheduled_event_updated", "settlement_recorded", "template_created", "thread_lock_changed", "thread_pin_changed", "thread_tags_updated", "welcome_screen_updated" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "bill_status", new[] { "pending", "posted", "skipped" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_type", new[] { "announcement", "chores", "decisions", "forum", "ledger", "list", "maintenance", "meals", "media", "pantry", "text", "thread", "ticket", "voice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "decision_status", new[] { "blocked", "cancelled", "decided", "expired", "open" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "decision_vote_kind", new[] { "abstain", "block", "support" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "encryption_state", new[] { "encrypted", "encrypted_without_fallback_key", "plain" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "expense_category", new[] { "eating_out", "entertainment", "groceries", "health", "household", "internet", "other", "pets", "rent", "repairs", "transport", "uncategorized", "utilities" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "expense_split_kind", new[] { "equal", "exact", "shares" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "forum_layout", new[] { "gallery", "list" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "forum_sort_order", new[] { "creation_date", "latest_activity" });
@@ -35,10 +38,12 @@ namespace Guild.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "guild_verification_level", new[] { "high", "low", "medium", "none" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_state", new[] { "active", "expired" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_type", new[] { "one_time", "permanent" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "meal_slot", new[] { "breakfast", "dinner", "lunch", "other" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "member_type", new[] { "bot", "default", "persona" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "onboarding_mode", new[] { "advanced", "default" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "onboarding_prompt_type", new[] { "dropdown", "multiple_choice" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "permission_state", new[] { "allow", "deny", "inherit" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "recurrence_unit", new[] { "day", "month", "week", "year" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "role_type", new[] { "everyone", "none" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "wiki_visibility", new[] { "private", "public" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -275,6 +280,89 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("ix_roles_guild_id");
 
                     b.ToTable("roles", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.BillOccurrence", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<long?>("AmountMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_minor");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DateTimeOffset>("DueAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("due_at");
+
+                    b.Property<string>("ExpenseId")
+                        .HasColumnType("text")
+                        .HasColumnName("expense_id");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("PostedByUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("posted_by_user_id");
+
+                    b.Property<string>("RecurringExpenseId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("recurring_expense_id");
+
+                    b.Property<DateTimeOffset?>("RemindedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reminded_at");
+
+                    b.Property<string>("SkipReason")
+                        .HasColumnType("text")
+                        .HasColumnName("skip_reason");
+
+                    b.Property<string>("SkippedByUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("skipped_by_user_id");
+
+                    b.Property<BillStatus>("Status")
+                        .HasColumnType("bill_status")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_bill_occurrences");
+
+                    b.HasIndex("DueAt")
+                        .HasDatabaseName("ix_bill_occurrences_due_at")
+                        .HasFilter("reminded_at IS NULL");
+
+                    b.HasIndex("ChannelId", "DueAt")
+                        .HasDatabaseName("ix_bill_occurrences_channel_id_due_at");
+
+                    b.HasIndex("RecurringExpenseId", "DueAt")
+                        .IsUnique()
+                        .HasDatabaseName("ix_bill_occurrences_recurring_expense_id_due_at");
+
+                    b.ToTable("bill_occurrences", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.Category", b =>
@@ -552,6 +640,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("guild_id");
 
+                    b.Property<DateTimeOffset?>("NudgedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("nudged_at");
+
                     b.Property<DateTimeOffset?>("RemindedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("reminded_at");
@@ -729,6 +821,14 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("amount_minor");
 
+                    b.Property<string>("BillOccurrenceId")
+                        .HasColumnType("text")
+                        .HasColumnName("bill_occurrence_id");
+
+                    b.Property<ExpenseCategory>("Category")
+                        .HasColumnType("expense_category")
+                        .HasColumnName("category");
+
                     b.Property<string>("ChannelId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -777,6 +877,68 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("ix_expenses_channel_id_occurred_at");
 
                     b.ToTable("expenses", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ExpenseReceipt", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("ExpenseId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("expense_id");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("storage_key");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UploadedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("uploaded_by_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_expense_receipts");
+
+                    b.HasIndex("ExpenseId")
+                        .HasDatabaseName("ix_expense_receipts_expense_id");
+
+                    b.ToTable("expense_receipts", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.ExpenseShare", b =>
@@ -1946,6 +2108,361 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("list_items", (string)null);
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.MaintenanceAsset", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AddedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("added_by_user_id");
+
+                    b.Property<string>("Brand")
+                        .HasColumnType("text")
+                        .HasColumnName("brand");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<DateTimeOffset?>("LastServicedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_serviced_at");
+
+                    b.Property<string>("Location")
+                        .HasColumnType("text")
+                        .HasColumnName("location");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("text")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<DateTimeOffset?>("NextServiceAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_service_at");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<DateTimeOffset?>("PurchasedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("purchased_at");
+
+                    b.Property<string>("SerialNumber")
+                        .HasColumnType("text")
+                        .HasColumnName("serial_number");
+
+                    b.Property<int?>("ServiceIntervalDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("service_interval_days");
+
+                    b.Property<DateTimeOffset?>("ServiceNotifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("service_notified_at");
+
+                    b.Property<AssetStatus>("Status")
+                        .HasColumnType("asset_status")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StatusNote")
+                        .HasColumnType("text")
+                        .HasColumnName("status_note");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("VendorEmail")
+                        .HasColumnType("text")
+                        .HasColumnName("vendor_email");
+
+                    b.Property<string>("VendorName")
+                        .HasColumnType("text")
+                        .HasColumnName("vendor_name");
+
+                    b.Property<string>("VendorPhone")
+                        .HasColumnType("text")
+                        .HasColumnName("vendor_phone");
+
+                    b.Property<DateTimeOffset?>("WarrantyNotifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("warranty_notified_at");
+
+                    b.Property<DateTimeOffset?>("WarrantyUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("warranty_until");
+
+                    b.HasKey("Id")
+                        .HasName("pk_maintenance_assets");
+
+                    b.HasIndex("NextServiceAt")
+                        .HasDatabaseName("ix_maintenance_assets_next_service_at")
+                        .HasFilter("service_notified_at IS NULL AND next_service_at IS NOT NULL");
+
+                    b.HasIndex("WarrantyUntil")
+                        .HasDatabaseName("ix_maintenance_assets_warranty_until")
+                        .HasFilter("warranty_notified_at IS NULL AND warranty_until IS NOT NULL");
+
+                    b.HasIndex("ChannelId", "Name")
+                        .HasDatabaseName("ix_maintenance_assets_channel_id_name");
+
+                    b.HasIndex("GuildId", "Status")
+                        .HasDatabaseName("ix_maintenance_assets_guild_id_status");
+
+                    b.ToTable("maintenance_assets", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MaintenanceRecord", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AssetId")
+                        .HasColumnType("text")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<long?>("CostMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("cost_minor");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Currency")
+                        .HasColumnType("text")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("ExpenseId")
+                        .HasColumnType("text")
+                        .HasColumnName("expense_id");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<DateTimeOffset>("PerformedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("performed_at");
+
+                    b.Property<string>("PerformedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("performed_by_user_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("VendorName")
+                        .HasColumnType("text")
+                        .HasColumnName("vendor_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_maintenance_records");
+
+                    b.HasIndex("AssetId", "PerformedAt")
+                        .HasDatabaseName("ix_maintenance_records_asset_id_performed_at");
+
+                    b.HasIndex("ChannelId", "PerformedAt")
+                        .HasDatabaseName("ix_maintenance_records_channel_id_performed_at");
+
+                    b.ToTable("maintenance_records", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MealPlanConfig", b =>
+                {
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("PantryChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("pantry_channel_id");
+
+                    b.Property<string>("ShoppingListChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("shopping_list_channel_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ChannelId")
+                        .HasName("pk_meal_plan_configs");
+
+                    b.ToTable("meal_plan_configs", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MealPlanEntry", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("CookUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("cook_user_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date")
+                        .HasColumnName("date");
+
+                    b.Property<string>("FreeText")
+                        .HasColumnType("text")
+                        .HasColumnName("free_text");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<DateTimeOffset?>("NotifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("notified_at");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<string>("RecipeId")
+                        .HasColumnType("text")
+                        .HasColumnName("recipe_id");
+
+                    b.Property<int?>("Servings")
+                        .HasColumnType("integer")
+                        .HasColumnName("servings");
+
+                    b.Property<MealSlot>("Slot")
+                        .HasColumnType("meal_slot")
+                        .HasColumnName("slot");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_meal_plan_entries");
+
+                    b.HasIndex("Date")
+                        .HasDatabaseName("ix_meal_plan_entries_date")
+                        .HasFilter("notified_at IS NULL AND cook_user_id IS NOT NULL");
+
+                    b.HasIndex("RecipeId")
+                        .HasDatabaseName("ix_meal_plan_entries_recipe_id");
+
+                    b.HasIndex("ChannelId", "Date", "Slot", "Position")
+                        .HasDatabaseName("ix_meal_plan_entries_channel_id_date_slot_position");
+
+                    b.ToTable("meal_plan_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MemberAbsence", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTimeOffset>("EndAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("end_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text")
+                        .HasColumnName("note");
+
+                    b.Property<DateTimeOffset>("StartAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("start_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_member_absences");
+
+                    b.HasIndex("GuildId", "StartAt", "EndAt")
+                        .HasDatabaseName("ix_member_absences_guild_id_start_at_end_at");
+
+                    b.HasIndex("GuildId", "UserId", "EndAt")
+                        .HasDatabaseName("ix_member_absences_guild_id_user_id_end_at");
+
+                    b.ToTable("member_absences", (string)null);
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.NotificationOverride", b =>
                 {
                     b.Property<string>("Id")
@@ -2003,6 +2520,68 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("notification_overrides", (string)null);
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.PantryBarcode", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Barcode")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("barcode");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal>("DefaultQuantity")
+                        .HasColumnType("numeric")
+                        .HasColumnName("default_quantity");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<DateTimeOffset>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<decimal?>("LowThreshold")
+                        .HasColumnType("numeric")
+                        .HasColumnName("low_threshold");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<int>("TimesSeen")
+                        .HasColumnType("integer")
+                        .HasColumnName("times_seen");
+
+                    b.Property<string>("Unit")
+                        .HasColumnType("text")
+                        .HasColumnName("unit");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pantry_barcodes");
+
+                    b.HasIndex("GuildId", "Barcode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pantry_barcodes_guild_id_barcode");
+
+                    b.HasIndex("GuildId", "TimesSeen")
+                        .HasDatabaseName("ix_pantry_barcodes_guild_id_times_seen");
+
+                    b.ToTable("pantry_barcodes", (string)null);
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.PantryConfig", b =>
                 {
                     b.Property<string>("ChannelId")
@@ -2042,6 +2621,10 @@ namespace Guild.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("added_by_user_id");
+
+                    b.Property<string>("Barcode")
+                        .HasColumnType("text")
+                        .HasColumnName("barcode");
 
                     b.Property<string>("ChannelId")
                         .IsRequired()
@@ -2101,6 +2684,10 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("ix_pantry_items_expires_at")
                         .HasFilter("expiry_notified_at IS NULL AND expires_at IS NOT NULL");
 
+                    b.HasIndex("ChannelId", "Barcode")
+                        .HasDatabaseName("ix_pantry_items_channel_id_barcode")
+                        .HasFilter("barcode IS NOT NULL");
+
                     b.HasIndex("ChannelId", "Name")
                         .HasDatabaseName("ix_pantry_items_channel_id_name");
 
@@ -2108,6 +2695,87 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("ix_pantry_items_guild_id_expires_at");
 
                     b.ToTable("pantry_items", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.PaymentHandleBlob", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<byte[]>("Ciphertext")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("ciphertext");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<int>("MemberRosterVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("member_roster_version");
+
+                    b.Property<byte[]>("Nonce")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("nonce");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("pk_payment_handle_blobs");
+
+                    b.HasIndex("GuildId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_payment_handle_blobs_guild_id_user_id");
+
+                    b.ToTable("payment_handle_blobs", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.PaymentHandleKeyWrap", b =>
+                {
+                    b.Property<string>("PaymentHandleBlobId")
+                        .HasColumnType("text")
+                        .HasColumnName("payment_handle_blob_id");
+
+                    b.Property<string>("RecipientDeviceId")
+                        .HasColumnType("text")
+                        .HasColumnName("recipient_device_id");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("recipient_user_id");
+
+                    b.Property<byte[]>("WrappedKey")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("wrapped_key");
+
+                    b.HasKey("PaymentHandleBlobId", "RecipientDeviceId")
+                        .HasName("pk_payment_handle_key_wraps");
+
+                    b.HasIndex("RecipientDeviceId")
+                        .HasDatabaseName("ix_payment_handle_key_wraps_recipient_device_id");
+
+                    b.ToTable("payment_handle_key_wraps", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.PublicKeyStore", b =>
@@ -2197,6 +2865,206 @@ namespace Guild.Persistence.Migrations
                         .HasDatabaseName("ix_read_states_member_id");
 
                     b.ToTable("read_states", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.Recipe", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<int?>("PrepMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("prep_minutes");
+
+                    b.Property<int>("Servings")
+                        .HasColumnType("integer")
+                        .HasColumnName("servings");
+
+                    b.Property<string>("SourceUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("source_url");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("title");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_recipes");
+
+                    b.HasIndex("ChannelId", "Title")
+                        .HasDatabaseName("ix_recipes_channel_id_title");
+
+                    b.ToTable("recipes", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecipeIngredient", b =>
+                {
+                    b.Property<string>("RecipeId")
+                        .HasColumnType("text")
+                        .HasColumnName("recipe_id");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("integer")
+                        .HasColumnName("position");
+
+                    b.Property<bool>("IsOptional")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_optional");
+
+                    b.Property<string>("MatchName")
+                        .HasColumnType("text")
+                        .HasColumnName("match_name");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.HasKey("RecipeId", "Position")
+                        .HasName("pk_recipe_ingredients");
+
+                    b.ToTable("recipe_ingredients", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecurringExpense", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<long?>("AmountMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_minor");
+
+                    b.Property<DateTimeOffset>("AnchorAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("anchor_at");
+
+                    b.Property<bool>("AutoPost")
+                        .HasColumnType("boolean")
+                        .HasColumnName("auto_post");
+
+                    b.Property<ExpenseCategory>("Category")
+                        .HasColumnType("expense_category")
+                        .HasColumnName("category");
+
+                    b.Property<string>("ChannelId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedByUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("GuildId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("guild_id");
+
+                    b.Property<bool>("IsPaused")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_paused");
+
+                    b.Property<int>("LeadDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("lead_days");
+
+                    b.Property<DateTimeOffset>("NextDueAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_due_at");
+
+                    b.Property<string>("PayerUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("payer_user_id");
+
+                    b.Property<int>("RecurrenceInterval")
+                        .HasColumnType("integer")
+                        .HasColumnName("recurrence_interval");
+
+                    b.Property<RecurrenceUnit>("RecurrenceUnit")
+                        .HasColumnType("recurrence_unit")
+                        .HasColumnName("recurrence_unit");
+
+                    b.Property<ExpenseSplitKind>("SplitKind")
+                        .HasColumnType("expense_split_kind")
+                        .HasColumnName("split_kind");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_recurring_expenses");
+
+                    b.HasIndex("ChannelId")
+                        .HasDatabaseName("ix_recurring_expenses_channel_id");
+
+                    b.HasIndex("NextDueAt")
+                        .HasDatabaseName("ix_recurring_expenses_next_due_at")
+                        .HasFilter("is_paused = false");
+
+                    b.ToTable("recurring_expenses", (string)null);
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecurringExpenseShare", b =>
+                {
+                    b.Property<string>("RecurringExpenseId")
+                        .HasColumnType("text")
+                        .HasColumnName("recurring_expense_id");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.Property<decimal>("ShareValue")
+                        .HasColumnType("numeric")
+                        .HasColumnName("share_value");
+
+                    b.HasKey("RecurringExpenseId", "UserId")
+                        .HasName("pk_recurring_expense_shares");
+
+                    b.ToTable("recurring_expense_shares", (string)null);
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.RoleMember", b =>
@@ -2709,6 +3577,16 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("Guild");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.BillOccurrence", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.RecurringExpense", null)
+                        .WithMany()
+                        .HasForeignKey("RecurringExpenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_bill_occurrences_recurring_expenses_recurring_expense_id");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.Category", b =>
                 {
                     b.HasOne("Guild.Domain.Aggregates.Guild", "Guild")
@@ -2826,6 +3704,18 @@ namespace Guild.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_expenses_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.ExpenseReceipt", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.Expense", "Expense")
+                        .WithMany("Receipts")
+                        .HasForeignKey("ExpenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_expense_receipts_expenses_expense_id");
+
+                    b.Navigation("Expense");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.ExpenseShare", b =>
@@ -3379,6 +4269,68 @@ namespace Guild.Persistence.Migrations
                         .HasConstraintName("fk_list_items_channels_channel_id");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.MaintenanceAsset", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_maintenance_assets_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MaintenanceRecord", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.MaintenanceAsset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_maintenance_records_maintenance_assets_asset_id");
+
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_maintenance_records_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MealPlanConfig", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithOne()
+                        .HasForeignKey("Guild.Domain.Entity.MealPlanConfig", "ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_meal_plan_configs_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MealPlanEntry", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_meal_plan_entries_channels_channel_id");
+
+                    b.HasOne("Guild.Domain.Entity.Recipe", null)
+                        .WithMany()
+                        .HasForeignKey("RecipeId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_meal_plan_entries_recipes_recipe_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.MemberAbsence", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", null)
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_member_absences_guilds_guild_id");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.NotificationOverride", b =>
                 {
                     b.HasOne("Guild.Domain.Entity.Category", "Category")
@@ -3407,6 +4359,16 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("GuildMember");
                 });
 
+            modelBuilder.Entity("Guild.Domain.Entity.PantryBarcode", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", null)
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_pantry_barcodes_guilds_guild_id");
+                });
+
             modelBuilder.Entity("Guild.Domain.Entity.PantryConfig", b =>
                 {
                     b.HasOne("Guild.Domain.Aggregates.Channel", null)
@@ -3425,6 +4387,28 @@ namespace Guild.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_pantry_items_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.PaymentHandleBlob", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Guild", null)
+                        .WithMany()
+                        .HasForeignKey("GuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_payment_handle_blobs_guilds_guild_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.PaymentHandleKeyWrap", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.PaymentHandleBlob", "Blob")
+                        .WithMany("Wraps")
+                        .HasForeignKey("PaymentHandleBlobId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_payment_handle_key_wraps_payment_handle_blobs_payment_handl");
+
+                    b.Navigation("Blob");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.PublicKeyStore", b =>
@@ -3461,6 +4445,50 @@ namespace Guild.Persistence.Migrations
                     b.Navigation("Channel");
 
                     b.Navigation("GuildMember");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.Recipe", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_recipes_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecipeIngredient", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.Recipe", "Recipe")
+                        .WithMany("Ingredients")
+                        .HasForeignKey("RecipeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_recipe_ingredients_recipes_recipe_id");
+
+                    b.Navigation("Recipe");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecurringExpense", b =>
+                {
+                    b.HasOne("Guild.Domain.Aggregates.Channel", null)
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_recurring_expenses_channels_channel_id");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecurringExpenseShare", b =>
+                {
+                    b.HasOne("Guild.Domain.Entity.RecurringExpense", "RecurringExpense")
+                        .WithMany("Shares")
+                        .HasForeignKey("RecurringExpenseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_recurring_expense_shares_recurring_expenses_recurring_expen");
+
+                    b.Navigation("RecurringExpense");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.RoleMember", b =>
@@ -3636,6 +4664,8 @@ namespace Guild.Persistence.Migrations
 
             modelBuilder.Entity("Guild.Domain.Entity.Expense", b =>
                 {
+                    b.Navigation("Receipts");
+
                     b.Navigation("Shares");
                 });
 
@@ -3666,6 +4696,21 @@ namespace Guild.Persistence.Migrations
             modelBuilder.Entity("Guild.Domain.Entity.GuildWelcomeScreen", b =>
                 {
                     b.Navigation("Channels");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.PaymentHandleBlob", b =>
+                {
+                    b.Navigation("Wraps");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.Recipe", b =>
+                {
+                    b.Navigation("Ingredients");
+                });
+
+            modelBuilder.Entity("Guild.Domain.Entity.RecurringExpense", b =>
+                {
+                    b.Navigation("Shares");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.WikiPage", b =>

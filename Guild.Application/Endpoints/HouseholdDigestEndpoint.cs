@@ -17,7 +17,10 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class HouseholdDigestEndpoint
 {
-    /// <summary>Chores, lists, pantry, ledger, decisions and who's home, for one guild.</summary>
+    /// <summary>
+    /// Chores, lists, pantry, ledger, decisions, bills, meals, upkeep, who's home and who's away,
+    /// for one guild.
+    /// </summary>
     [WolverineGet("/api/v1/guilds/{guildId}/home")]
     public async Task<IResult> GetAsync(string guildId,
         [NotBody] HouseholdDigestService digest, [NotBody] MicroserviceContext ctx,

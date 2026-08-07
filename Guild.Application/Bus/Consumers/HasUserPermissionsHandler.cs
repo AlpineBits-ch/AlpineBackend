@@ -124,6 +124,11 @@ public  class HasUserPermissionsHandler
             ExternalPermission.ChangeNickname         => Permissions.ChangeNickname,
             ExternalPermission.ManageNicknames        => Permissions.ManageNicknames,
 
+            ExternalPermission.PlanMeals              => Permissions.PlanMeals,
+            ExternalPermission.ManageMeals            => Permissions.ManageMeals,
+            ExternalPermission.LogMaintenance         => Permissions.LogMaintenance,
+            ExternalPermission.ManageMaintenance      => Permissions.ManageMaintenance,
+
 
             // Throws on unknown values rather than silently defaulting to None,
             // which would incorrectly deny every permission check for new enum

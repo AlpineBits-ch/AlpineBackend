@@ -31,7 +31,13 @@ public enum ChannelType
     Pantry,
 
     /// <summary>Consent-based house decisions.</summary>
-    Decisions
+    Decisions,
+
+    /// <summary>Recipes and the week's meal plan.</summary>
+    Meals,
+
+    /// <summary>The house's appliances and their service history.</summary>
+    Maintenance
 }
 
 public static class ChannelTypeExtensions
@@ -46,5 +52,6 @@ public static class ChannelTypeExtensions
     /// derived from messages, the system-channel picker) must exclude them.</summary>
     public static bool IsHouseholdModule(this ChannelType type) => type is
         ChannelType.List or ChannelType.Chores or ChannelType.Ledger or
-        ChannelType.Pantry or ChannelType.Decisions;
+        ChannelType.Pantry or ChannelType.Decisions or ChannelType.Meals or
+        ChannelType.Maintenance;
 }

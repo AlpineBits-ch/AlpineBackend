@@ -8,7 +8,7 @@ namespace Guild.Application.Services;
 /// <summary>Periodic sweep that keeps the household modules honest without depending on any single
 /// scheduled message having survived.
 ///
-/// Five jobs:
+/// Eight jobs:
 ///  1. Generate chore occurrences that are due. Chores are also driven by Wolverine's durable
 ///     scheduler, but a rota that silently stops because one message was lost is worse than a rota
 ///     that's occasionally a few minutes late - so this is the backstop, and generation is
@@ -17,8 +17,12 @@ namespace Guild.Application.Services;
 ///     ChoreReminderService.
 ///  3. Warn pantries about stock that's about to go off, at each pantry's own horizon. See
 ///     PantryExpiryService.
-///  4. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
-///  5. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
+///  4. Generate, auto-post and announce recurring bills. See BillService.
+///  5. Tell today's cook they are cooking. See MealPlanService.
+///  6. Warn about appliances due a service and warranties about to run out. See
+///     MaintenanceService.
+///  7. Expire decisions whose ClosesAt has passed, resolving them from the votes already cast.
+///  8. Delete long-lapsed guest role memberships. Expiry itself is enforced on read in
 ///     GuildPermissionService, so this is only tidying, never the thing access depends on.
 ///
 /// Modelled on VoiceHeartbeatCleanupService.</summary>
@@ -52,6 +56,17 @@ public class HouseholdReconcileService(
 
                 await scope.ServiceProvider.GetRequiredService<PantryExpiryService>()
                     .SendDueWarningsAsync(stoppingToken);
+
+                // Generates bill occurrences inside their template's lead window, auto-posts the
+                // fixed-amount ones that are actually due, then announces.
+                await scope.ServiceProvider.GetRequiredService<BillService>()
+                    .SweepAsync(stoppingToken);
+
+                await scope.ServiceProvider.GetRequiredService<MealPlanService>()
+                    .SweepAsync(stoppingToken);
+
+                await scope.ServiceProvider.GetRequiredService<MaintenanceService>()
+                    .SweepAsync(stoppingToken);
 
                 await ExpireDecisionsAsync(ctx, stoppingToken);
                 await PurgeLapsedGuestRolesAsync(ctx, stoppingToken);

@@ -283,5 +283,7 @@ public class HasUserPermissionHandlersTests
             or ExternalPermission.CompleteChores or ExternalPermission.ManageLedger
             or ExternalPermission.AddExpenses or ExternalPermission.ManagePantry
             or ExternalPermission.CreateDecisions or ExternalPermission.VoteDecisions
-            or ExternalPermission.ManageGuests);
+            or ExternalPermission.ManageGuests
+            or ExternalPermission.PlanMeals or ExternalPermission.ManageMeals
+            or ExternalPermission.LogMaintenance or ExternalPermission.ManageMaintenance);
 }

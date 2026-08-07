@@ -18,9 +18,10 @@ public class LedgerEndpoint
 {
     private const int MaxDescriptionLength = 200;
 
-    private static ExpenseDto ToDto(Expense expense, string currency) => new()
+    private static CategorizedExpenseDto ToDto(Expense expense, string currency) => new()
     {
         Id = expense.Id,
+        Category = expense.Category,
         ChannelId = expense.ChannelId,
         PayerUserId = expense.PayerUserId,
         Description = expense.Description,
@@ -42,6 +43,7 @@ public class LedgerEndpoint
     /// <summary>The channel's expenses, newest first, in pages.</summary>
     [WolverineGet("/api/v1/channels/{channelId}/expenses")]
     public async Task<IResult> ListAsync(string channelId, int? limit, string? cursor,
+        ExpenseCategory? category,
         [NotBody] HouseholdChannelService household,
         [NotBody] LedgerService ledger, [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
@@ -53,9 +55,14 @@ public class LedgerEndpoint
 
         var take = Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
 
+        if (category is not null && !Enum.IsDefined(category.Value))
+            return Results.BadRequest("Unknown category");
+
         var query = ctx.Expenses.AsNoTracking()
             .Include(e => e.Shares)
             .Where(e => e.ChannelId == channelId);
+
+        if (category is not null) query = query.Where(e => e.Category == category.Value);
 
         if (!string.IsNullOrWhiteSpace(cursor))
         {
@@ -108,7 +115,7 @@ public class LedgerEndpoint
     }
 
     [WolverinePost("/api/v1/channels/{channelId}/expenses")]
-    public async Task<IResult> CreateAsync(string channelId, CreateExpenseDto dto,
+    public async Task<IResult> CreateAsync(string channelId, CreateCategorizedExpenseDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
         [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
         [NotBody] HouseholdAlertService alerts, [NotBody] ClaimsPrincipal user)
@@ -123,6 +130,12 @@ public class LedgerEndpoint
         if (dto.Description.Length > MaxDescriptionLength)
             return Results.BadRequest($"Description must be {MaxDescriptionLength} characters or fewer");
         if (dto.AmountMinor <= 0) return Results.BadRequest("AmountMinor must be greater than zero");
+
+        // Checked rather than trusted because the enum arrives as a number for any client that is
+        // not using the string names, and an out-of-range value would be stored, returned and then
+        // silently dropped by the rollup's grouping - a category nobody can see and nobody can fix.
+        if (dto.Category is not null && !Enum.IsDefined(dto.Category.Value))
+            return Results.BadRequest("Unknown category");
 
         // Recording an expense someone else paid is normal (you enter the receipt they handed
         // you), but it moves money in their favour - so it needs the moderator permission.
@@ -148,6 +161,7 @@ public class LedgerEndpoint
             OccurredAt = dto.OccurredAt ?? DateTimeOffset.UtcNow,
             SplitKind = dto.SplitKind,
             CreatedByUserId = userId,
+            Category = dto.Category ?? ExpenseCategory.Uncategorized,
         });
 
         var participants = dto.Shares
@@ -178,7 +192,7 @@ public class LedgerEndpoint
     }
 
     [WolverinePatch("/api/v1/expenses/{expenseId}")]
-    public async Task<IResult> UpdateAsync(string expenseId, UpdateExpenseDto dto,
+    public async Task<IResult> UpdateAsync(string expenseId, UpdateCategorizedExpenseDto dto,
         [NotBody] HouseholdChannelService household, [NotBody] LedgerService ledger,
         [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog,
         [NotBody] ClaimsPrincipal user)
@@ -228,6 +242,12 @@ public class LedgerEndpoint
 
         if (dto.OccurredAt is not null) expense.OccurredAt = dto.OccurredAt.Value;
         if (dto.SplitKind is not null) expense.SplitKind = dto.SplitKind.Value;
+
+        if (dto.Category is not null)
+        {
+            if (!Enum.IsDefined(dto.Category.Value)) return Results.BadRequest("Unknown category");
+            expense.Category = dto.Category.Value;
+        }
 
         // Any change to the total or the split has to re-run the split, or the shares stop summing
         // to the expense and balances silently stop reconciling.

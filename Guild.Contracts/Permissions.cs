@@ -170,6 +170,18 @@ public enum ExternalPermission
 
     /// <summary>Change other members' nicknames (also subject to the role hierarchy).</summary>
     ManageNicknames,
+
+    /// <summary>Add a recipe and put something on the meal plan.</summary>
+    PlanMeals,
+
+    /// <summary>Edit or delete anyone's recipe or planned meal.</summary>
+    ManageMeals,
+
+    /// <summary>Record that something was serviced or repaired, and flag an appliance broken.</summary>
+    LogMaintenance,
+
+    /// <summary>Add, edit and delete maintenance assets and anyone's log entry.</summary>
+    ManageMaintenance,
 }
  
 // ─────────────────────────────────────────────────────────────────────────────

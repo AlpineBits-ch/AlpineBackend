@@ -88,6 +88,11 @@
       <button data-view="federation" class="rail-item admin-only hidden">
         <i data-icon="external-link"></i> <span>Federation</span>
       </button>
+      <!-- Administrator-only for the same reason Federation is: the buttons in this view write a
+           table every household on the instance reads from. Loading an extract is not moderation. -->
+      <button data-view="catalog" class="rail-item admin-only hidden">
+        <i data-icon="search"></i> <span>Product catalog</span>
+      </button>
       <button data-view="audit" class="rail-item admin-only hidden">
         <i data-icon="history"></i> <span>Audit log</span>
       </button>

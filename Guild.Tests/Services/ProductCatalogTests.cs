@@ -10,7 +10,10 @@ using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Tests.Helpers;
+using Identity.Contracts.Bus.Request;
+using Identity.Contracts.Bus.Response;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -1615,6 +1618,135 @@ public class ProductCatalogTests
 
             Assert.That(metadata.GetProperty("sources").GetArrayLength(), Is.EqualTo(2));
         });
+    }
+
+    // ── Import endpoint: the body size cap ───────────────────────────────────
+
+    [Test]
+    public async Task Import_ForAnAdministrator_LiftsTheBodySizeCap()
+    {
+        var size = new StubBodySizeLimit();
+
+        var result = await ImportEndpointAsync(
+            """{"barcode":"7617027080224","name_de":"Cornflakes"}""", size: size);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<ProductCatalogImportResultDto>>());
+
+            // Null is "no limit", which is the only answer that works: the caller is an instance
+            // administrator posting a file whose size is a property of the source data, and any
+            // number picked here would be a number the next export outgrows.
+            Assert.That(size.MaxRequestBodySize, Is.Null);
+        });
+    }
+
+    /// <summary>The lift is a privilege, not a default.</summary>
+    [Test]
+    public async Task Import_ForANonAdministrator_LeavesTheBodySizeCapInForce()
+    {
+        var size = new StubBodySizeLimit();
+
+        var result = await ImportEndpointAsync(
+            """{"barcode":"7617027080224","name_de":"Cornflakes"}""", administrator: false, size: size);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(size.MaxRequestBodySize, Is.EqualTo(StubBodySizeLimit.Default));
+        });
+    }
+
+    /// <summary>A rejected import must not have moved anything first.</summary>
+    [Test]
+    public async Task Import_WithAnUnknownSource_LeavesTheBodySizeCapInForce()
+    {
+        var size = new StubBodySizeLimit();
+
+        var result = await ImportEndpointAsync(
+            """{"barcode":"7617027080224","name_de":"Cornflakes"}""",
+            source: "openhouseholdfacts", size: size);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(size.MaxRequestBodySize, Is.EqualTo(StubBodySizeLimit.Default));
+        });
+    }
+
+    /// <summary>Kestrel makes the cap read-only once the body has begun to be read, and throws on an
+    /// attempt to set it. An import must not die of trying to be helpful, so the endpoint asks first
+    /// and settles for the default cap when the answer is no.</summary>
+    [Test]
+    public async Task Import_WhenTheCapCannotBeChanged_StillImports()
+    {
+        var size = new StubBodySizeLimit { IsReadOnly = true };
+
+        var result = await ImportEndpointAsync(
+            """{"barcode":"7617027080224","name_de":"Cornflakes"}""", size: size);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<ProductCatalogImportResultDto>>());
+            Assert.That(_context.ProductCatalogEntries.Count(), Is.EqualTo(1));
+        });
+    }
+
+    /// <summary>A host that implements no such feature at all - which is every in-process test
+    /// server - must not be a reason the endpoint fails.</summary>
+    [Test]
+    public async Task Import_WithNoBodySizeFeatureAtAll_StillImports()
+    {
+        var result = await ImportEndpointAsync(
+            """{"barcode":"7617027080224","name_de":"Cornflakes"}""", size: null);
+
+        Assert.That(result, Is.InstanceOf<Ok<ProductCatalogImportResultDto>>());
+    }
+
+    /// <summary>Stands in for Kestrel's own <see cref="IHttpMaxRequestBodySizeFeature"/>, including
+    /// the part that matters: setting it after the body has been read is an exception, not a no-op.
+    /// A stub that silently accepted the write would pass whether or not the endpoint checked.</summary>
+    private sealed class StubBodySizeLimit : IHttpMaxRequestBodySizeFeature
+    {
+        /// <summary>Kestrel's own default, in bytes.</summary>
+        public const long Default = 30_000_000;
+
+        private long? _max = Default;
+
+        public bool IsReadOnly { get; init; }
+
+        public long? MaxRequestBodySize
+        {
+            get => _max;
+            set
+            {
+                if (IsReadOnly)
+                    throw new InvalidOperationException(
+                        "The maximum request body size cannot be modified after the read has started.");
+
+                _max = value;
+            }
+        }
+    }
+
+    /// <summary>The import endpoint over a body, with the administrator check answered by a canned
+    /// bus reply rather than by Identity.</summary>
+    private async Task<IResult> ImportEndpointAsync(
+        string ndjson, bool administrator = true, string? source = null,
+        StubBodySizeLimit? size = null)
+    {
+        var bus = new FakeInvokingMessageBus();
+
+        bus.SetResponse<IsUserAdministrativeRequest>(
+            new IsUserAdministrativeResponse { IsAdministrative = administrator });
+
+        var http = new DefaultHttpContext { Request = { Body = new MemoryStream(Encoding.UTF8.GetBytes(ndjson)) } };
+
+        if (size is not null) http.Features.Set<IHttpMaxRequestBodySizeFeature>(size);
+
+        return await _catalogEndpoint.ImportAsync(
+            "test-snapshot", source, Import(), bus, http, TestPrincipal.Create(OwnerId),
+            NullLogger<ProductCatalogEndpoint>.Instance);
     }
 
     // ── Harness ──────────────────────────────────────────────────────────────

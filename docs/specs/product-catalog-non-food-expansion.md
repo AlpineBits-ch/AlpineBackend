@@ -1,8 +1,7 @@
 # Extending the pantry product catalog beyond food
 
-Status: phases 1-3, 5 and 6 implemented 2026-08-08 (2,066 tests green). Phase 4 is a documented gap.
-The admin console button (phase 6) is the one piece not built - the API behind it is. Research
-measured 2026-08-08 against live data.
+Status: phases 1-3 and 5-7 implemented 2026-08-08 (2,071 tests green). Phase 4 is a documented gap.
+Research measured 2026-08-08 against live data.
 
 Frontend contract: `Guild.Application/docs/product-catalog-frontend-guide.md`.
 
@@ -300,10 +299,46 @@ them without anybody running a script.
   fresh pod, a restored database and a hand-run import all say the right thing.
 
 Manual trigger: `POST /api/v1/pantry/catalog/import/auto?source=` (instance admin), returning 202
-because a refresh takes minutes. **The admin console button is not wired.** The console is a
-vanilla-JS SPA with a rail nav and per-view render functions; adding a view is nav entry + section +
-render + fetch against `/api/v1/guild/pantry/catalog/import/auto`. The endpoint and its permission
-check are done and callable today with a bearer token.
+because a refresh takes minutes.
+
+### Phase 7 - the admin console view (implemented)
+
+`Echo/wwwroot/admin`, rail item **Product catalog**, administrator-only for the same reason
+Federation is: every button in it writes a table each household on the instance reads. It wires all
+five catalog endpoints - the info summary, the automatic-import trigger, the file import, the
+keyword search as a spot check, and a link to the ODbL export.
+
+Three things in it are load-bearing.
+
+**Files are posted in 4 MB pieces, not in one request.** This is what makes a several-hundred-megabyte
+grocery extract loadable from a browser at all, and it is safe only because the import is an upsert
+keyed on the barcode: each piece is independent, re-posting one changes nothing, and a run that stops
+halfway is finished by running the same file again. The alternative fails three ways - Kestrel caps a
+body at 30 MB and the gateway in front of it still does, one request held open for a full import is
+what proxy activity timeouts kill, and a connection dropped at 90% loses everything. Pieces are cut
+at the last newline *byte* in the slice, never in decoded text, so a boundary landing inside a
+multi-byte character cannot corrupt it. A piece with no newline in four megabytes is the wrong file
+(a Parquet or a CSV) and is refused with that said plainly, because the server would otherwise reject
+every line as malformed and report a successful import of nothing.
+
+**The console must not build its URLs from the info response's `exportUrl`.** That field is the
+service's own path; the gateway serves Guild at `/api/v1/guild/**` and strips the segment, so the
+service-internal path answers 404 from the console's origin.
+
+**A 30 MB body cap was silently blocking the one database big enough to need bulk loading.** Kestrel's
+default rejected any extract over 30 MB before a row was read, so the curl line
+`off-catalog-extract.sh` prints answered 413 for food and worked for everything else - which is
+exactly the shape of a bug nobody reports, because the small cases all pass. The import endpoint now
+lifts its own cap, after the administrator check and never before it: an unbounded body from an
+anonymous caller is a different proposition from one from an operator. That is the service's own
+limit only; a caller coming through the gateway meets the gateway's Kestrel first, which is why the
+console chunks and the script now prints a `split -C 4m` loop.
+
+**Not covered by a test:** the raw-body path through Wolverine's HTTP binding. The five new tests
+call the endpoint method directly, which is where the cap logic lives, but nothing exercises
+`Content-Type: application/x-ndjson` arriving through the real pipeline - this is the only endpoint
+in the codebase that reads `HttpRequest.Body` itself. If Wolverine turns out to constrain the content
+type, the first piece answers 415 and the fix is one header.
 
 ## Expected outcome
 

@@ -306,15 +306,29 @@ for flavour in "${REQUESTED[@]}"; do
 done
 
 echo "Now load them. Each flavour goes in under its own source, which is what decides the database"
-echo "a client credits and the product page it links to:"
+echo "a client credits and the product page it links to."
+echo
+echo "The easy way is the moderation console: sign in as an administrator, open Product catalog,"
+echo "and use 'Load an extract file'. Pick the file, pick the database, press Load. It posts the"
+echo "file in pieces and shows you how far along it is, which is the part curl below has to be"
+echo "talked into doing."
+echo
+echo "With curl, the file has to be split first. A request body is capped at 30 MB by default and"
+echo "the gateway in front of the service caps it too, so a food extract posted in one piece is"
+echo "rejected before a single row is read. 'split -C 4m' cuts on line boundaries, so every piece"
+echo "is valid NDJSON on its own:"
 echo
 
 for entry in "${IMPORTS[@]}"; do
   IFS='|' read -r flavour out source_id <<< "${entry}"
-  echo "  curl -X POST \"\$INSTANCE_URL/api/v1/pantry/catalog/import?source=${source_id}&sourceVersion=${flavour}-${STAMP}\" \\"
-  echo "       -H \"Authorization: Bearer \$ADMIN_TOKEN\" \\"
-  echo "       -H \"Content-Type: application/x-ndjson\" \\"
-  echo "       --data-binary @${out}"
+  echo "  split -C 4m -d \"${out}\" \"${out}.part.\""
+  echo "  for part in \"${out}\".part.*; do"
+  echo "    curl --fail-with-body -X POST \\"
+  echo "      \"\$INSTANCE_URL/api/v1/pantry/catalog/import?source=${source_id}&sourceVersion=${flavour}-${STAMP}\" \\"
+  echo "      -H \"Authorization: Bearer \$ADMIN_TOKEN\" \\"
+  echo "      -H \"Content-Type: application/x-ndjson\" \\"
+  echo "      --data-binary @\"\$part\" || break"
+  echo "  done"
   echo
 done
 

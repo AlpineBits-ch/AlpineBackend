@@ -149,8 +149,13 @@
      *
      * The retry is deliberately not a loop: if a refreshed token is also rejected, the session is
      * genuinely over and looping just delays telling the operator that.
+     *
+     * `raw` sends a body that is not JSON - today the NDJSON pieces of a catalog extract - with
+     * `contentType` naming it. It is a buffer rather than a stream on purpose: the 401 path below
+     * resends the request, and a stream cannot be replayed, so a token expiring midway through a
+     * forty-piece upload would silently drop whichever piece was in flight.
      */
-    async function call(method, path, { body, query, retried = false } = {}) {
+    async function call(method, path, { body, raw, contentType, query, signal, retried = false } = {}) {
         const url = new URL(path, location.origin);
         if (query) {
             Object.entries(query).forEach(([k, v]) => {
@@ -162,15 +167,17 @@
             method,
             headers: {
                 Authorization: `Bearer ${tokens.access}`,
-                ...(body ? { 'Content-Type': 'application/json' } : {}),
+                ...(contentType ? { 'Content-Type': contentType }
+                    : body ? { 'Content-Type': 'application/json' } : {}),
             },
-            body: body ? JSON.stringify(body) : undefined,
+            body: raw !== undefined ? raw : body ? JSON.stringify(body) : undefined,
+            signal,
         });
 
         if (response.status === 401 && !retried && tokens.refresh) {
             try {
                 await refreshOnce();
-                return call(method, path, { body, query, retried: true });
+                return call(method, path, { body, raw, contentType, query, signal, retried: true });
             } catch {
                 signOut();
                 throw fail(401, 'session_expired', 'Your session expired. Sign in again.');
@@ -1942,6 +1949,399 @@
 
             return form;
         });
+    }
+
+    // ── View: product catalog ───────────────────────────────────────────────
+    //
+    // The pantry's barcode table. Not moderation, and here anyway: it is the one operator job on
+    // this instance that needs a file off a workstation, and a console already signed in as an
+    // administrator beats handing somebody a curl line and a bearer token.
+    //
+    // These are the Guild service's own endpoints, reached through the gateway's guild-route, which
+    // strips the /guild segment - so the path here is not the one the service's own routes declare.
+    // Do not build these URLs from the info response's `exportUrl`: that field is the service's
+    // internal path and answers 404 from this origin.
+
+    const CATALOG = '/api/v1/guild/pantry/catalog';
+
+    /**
+     * The family, mirroring ProductCatalogSources. `bulk` is whether the service can fetch and load
+     * that database by itself - ProductCatalogAutoImportService.Exports - which is everything except
+     * food, whose export is 11.77 GB and is loaded from a file instead.
+     *
+     * Hardcoded for the same reason REASONS is: this console ships in the same image as the service
+     * it talks to, so the two cannot drift apart in a deployment. The server validates the source
+     * regardless and its 400 names the list it will accept.
+     */
+    const CATALOG_SOURCES = [
+        { id: 'openfoodfacts', name: 'Open Food Facts', what: 'Groceries', bulk: false },
+        { id: 'openbeautyfacts', name: 'Open Beauty Facts', what: 'Cosmetics and personal care', bulk: true },
+        { id: 'openproductsfacts', name: 'Open Products Facts', what: 'Cleaning and everything else', bulk: true },
+        { id: 'openpetfoodfacts', name: 'Open Pet Food Facts', what: 'Pet food', bulk: true },
+    ];
+
+    const CATALOG_SOURCE_NAME = Object.fromEntries(CATALOG_SOURCES.map(s => [s.id, s.name]));
+
+    /**
+     * Bytes per request when loading a file.
+     *
+     * The file is posted in pieces rather than in one request, which is the whole reason a
+     * multi-hundred-megabyte extract can be loaded from a browser at all. Three things make one big
+     * request wrong: Kestrel caps a body at 30 MB and the gateway in front of this one still does,
+     * a single request holding a connection open for the length of a full import is what proxy
+     * activity timeouts exist to kill, and a connection dropped at 90% loses the entire upload.
+     *
+     * Pieces are safe because the import is an upsert keyed on the barcode: each one is independent,
+     * re-posting one changes nothing, and a run that stops halfway is fixed by running it again.
+     *
+     * 4 MB is roughly twenty thousand rows, or forty of the importer's committed batches - a couple
+     * of seconds of server work, comfortably inside every timeout between here and the database.
+     */
+    const CHUNK_BYTES = 4 * 1024 * 1024;
+
+    views.catalog = {
+        title: 'Product catalog',
+
+        async render() {
+            const info = await call('GET', CATALOG);
+
+            const wrap = el('div', 'pane');
+
+            wrap.append(tiles([
+                ['Products', info.count],
+                ...info.sources.map(source => [
+                    CATALOG_SOURCE_NAME[source.source] || source.source, source.count,
+                ]),
+            ]));
+
+            wrap.append(block('This instance\'s copy', kv([
+                ['Rows', info.count.toLocaleString()],
+                ['Last import', stamp(info.lastImportedAt)],
+                ['Licence', info.license],
+                ['Snapshots', info.sourceVersions.length
+                    ? el('span', 'mono', info.sourceVersions.slice(0, 6).join(', '))
+                    : 'None yet'],
+                // The public copy the licence obliges us to offer. A plain link because the export
+                // is anonymous by design - it is owed to every recipient, not to every account.
+                ['Export', linkOut(`${location.origin}${CATALOG}/export`)],
+            ])));
+
+            wrap.append(catalogRefreshBlock(info));
+            wrap.append(catalogUploadBlock());
+            wrap.append(catalogSearchBlock());
+
+            wrap.append(block('Attribution', el('p', 'hint', info.attribution)));
+
+            return wrap;
+        },
+    };
+
+    /** The scheduled import, run now. Only for the databases small enough that the service fetches
+     *  them itself; food has no button here because it has no automatic import. */
+    function catalogRefreshBlock(info) {
+        const box = block('Fetch from the source');
+
+        box.append(el('p', 'hint',
+            'Downloads the published export and loads it. This normally happens by itself in the '
+            + 'small hours; the button is for an instance that wants coverage today. It answers '
+            + 'immediately and keeps working in the background - watch the counts above, refreshing '
+            + 'this page, rather than waiting on the button.'));
+
+        const buttons = el('div', 'btn-row');
+
+        CATALOG_SOURCES.filter(source => source.bulk).forEach(source => {
+            const held = info.sources.find(s => s.source === source.id);
+
+            buttons.append(button(
+                held ? `Refresh ${source.name}` : `Load ${source.name}`, 'refresh',
+                async () => {
+                    const started = await call('POST', `${CATALOG}/import/auto`, {
+                        query: { source: source.id },
+                    });
+                    toast('ok', started.message || 'Import started');
+                }));
+        });
+
+        box.append(buttons);
+
+        box.append(el('p', 'hint',
+            'Open Food Facts is not here: its export is 11.77 GB, too big to stream through a '
+            + 'service, so groceries are loaded from a file below. Until they are, food barcodes '
+            + 'still resolve one at a time as households scan them - what is missing is finding a '
+            + 'grocery by name that nobody has scanned yet.'));
+
+        return box;
+    }
+
+    /**
+     * A locally-produced extract, posted in pieces.
+     *
+     * The file is deploy/off-catalog-extract.sh's output: newline-delimited JSON, one product per
+     * line, already filtered to the markets this instance serves. It never lands in memory whole -
+     * each piece is sliced off the File as it is sent, so the size of the file is not the size of
+     * anything this tab holds.
+     */
+    function catalogUploadBlock() {
+        const box = block('Load an extract file');
+
+        box.append(el('p', 'hint',
+            'The output of deploy/off-catalog-extract.sh - newline-delimited JSON, one product per '
+            + 'line. This is how the grocery database gets loaded. Sent in 4 MB pieces, so a dropped '
+            + 'connection costs one piece rather than the upload, and re-running a file that partly '
+            + 'loaded is safe.'));
+
+        const picker = el('input');
+        picker.type = 'file';
+        picker.accept = '.jsonl,.ndjson,.json,application/x-ndjson';
+
+        const source = select(CATALOG_SOURCES.map(s => [s.id, `${s.name} - ${s.what}`]), 'openfoodfacts');
+
+        const version = el('input');
+        version.placeholder = 'openfoodfacts-2026-08-08';
+
+        // Prefilled from the file's own modification date, not from today's. The snapshot a row came
+        // from is a fact about when the extract was built; a file sitting on a workstation for a
+        // fortnight before somebody loads it is not a fortnight fresher for having been uploaded.
+        function suggest() {
+            const file = picker.files?.[0];
+            const when = file ? new Date(file.lastModified) : new Date();
+            version.value = `${source.value}-${when.toISOString().slice(0, 10)}`;
+        }
+
+        picker.addEventListener('change', suggest);
+        source.addEventListener('change', suggest);
+
+        box.append(field('File', picker));
+        box.append(field('Database', source,
+            'Decides which database each row is credited to and which product page a client links '
+            + 'to. Getting it wrong misattributes every row in the file.'));
+        box.append(field('Snapshot', version,
+            'Travels with every row and appears in the public export, so a reader can tell which '
+            + 'extract an answer came from.'));
+
+        const bar = el('div', 'progress');
+        const fill = el('span');
+        bar.append(fill);
+        bar.classList.add('hidden');
+
+        const note = el('div', 'upload-note');
+
+        const actions = el('div', 'btn-row');
+        let aborter = null;
+
+        const cancel = el('button', 'btn ghost');
+        cancel.append(icon('times'), document.createTextNode(' Stop'));
+        cancel.classList.add('hidden');
+        cancel.addEventListener('click', () => aborter?.abort());
+
+        const load = el('button', 'btn primary');
+        load.append(icon('send'), document.createTextNode(' Load'));
+
+        load.addEventListener('click', async () => {
+            const file = picker.files?.[0];
+
+            if (!file) { toast('danger', 'Pick a file first.'); return; }
+            if (!version.value.trim()) { toast('danger', 'A snapshot name is required.'); return; }
+
+            aborter = new AbortController();
+            load.disabled = picker.disabled = source.disabled = version.disabled = true;
+            cancel.classList.remove('hidden');
+            bar.classList.remove('hidden');
+            fill.style.width = '0';
+
+            // Mirrored out here so the catch below can say where a stopped upload got to. The
+            // pieces already sent are committed, so "how far" is the one thing the operator needs.
+            let sent = 0;
+
+            try {
+                const result = await postExtract({
+                    file,
+                    source: source.value,
+                    sourceVersion: version.value.trim(),
+                    signal: aborter.signal,
+                    onProgress(state) {
+                        sent = state.sent;
+                        fill.style.width = `${Math.round((state.sent / file.size) * 100)}%`;
+                        note.textContent =
+                            `${bytes(state.sent)} of ${bytes(file.size)} - `
+                            + `${state.totals.created.toLocaleString()} new, `
+                            + `${state.totals.updated.toLocaleString()} updated`;
+                    },
+                });
+
+                note.textContent =
+                    `Done. ${result.read.toLocaleString()} rows read, `
+                    + `${result.created.toLocaleString()} new, `
+                    + `${result.updated.toLocaleString()} updated, `
+                    + `${result.skipped.toLocaleString()} skipped, `
+                    + `${result.malformed.toLocaleString()} unreadable, `
+                    + `${result.missesResolved.toLocaleString()} previously-missing barcodes answered.`;
+
+                toast('ok', `Loaded ${result.created + result.updated} products`);
+            } catch (error) {
+                // An abort is the operator's own decision, not a failure. Everything already sent
+                // stayed - the pieces are committed as they land - so the honest thing to say is
+                // where it stopped, not that nothing happened.
+                if (error.name === 'AbortError') {
+                    note.textContent =
+                        `Stopped after ${bytes(sent)} of ${bytes(file.size)}. What was sent is `
+                        + 'loaded - re-run the same file to finish it; nothing is written twice.';
+                    toast('info', 'Upload stopped');
+                } else {
+                    note.textContent = error.message;
+                    toast('danger', error.message);
+                }
+            } finally {
+                aborter = null;
+                load.disabled = picker.disabled = source.disabled = version.disabled = false;
+                cancel.classList.add('hidden');
+            }
+        });
+
+        actions.append(load, cancel);
+        box.append(bar, note, actions);
+
+        return box;
+    }
+
+    /**
+     * Posts the file a piece at a time, cutting each piece at a line boundary.
+     *
+     * The cut is on the last newline *byte* in the slice rather than on a character in decoded text,
+     * so a piece boundary landing in the middle of a multi-byte character cannot corrupt it: the
+     * bytes are never decoded here at all, they are forwarded as they were read.
+     */
+    async function postExtract({ file, source, sourceVersion, onProgress, signal }) {
+        const totals = { read: 0, created: 0, updated: 0, skipped: 0, malformed: 0, missesResolved: 0 };
+        let sent = 0;
+
+        while (sent < file.size) {
+            const end = Math.min(sent + CHUNK_BYTES, file.size);
+            let piece = new Uint8Array(await file.slice(sent, end).arrayBuffer());
+
+            if (end < file.size) {
+                const newline = piece.lastIndexOf(10);
+
+                // No newline in four megabytes is not a long row, it is the wrong file - a Parquet
+                // or a CSV, most likely. Said plainly here because the server would otherwise
+                // receive it, reject every line as malformed and report a successful import of
+                // nothing.
+                if (newline < 0) {
+                    throw new Error(
+                        'This does not look like newline-delimited JSON: the first four megabytes '
+                        + 'contain no line break. The import wants the .jsonl output of '
+                        + 'off-catalog-extract.sh, not the Parquet or CSV the source publishes.');
+                }
+
+                piece = piece.subarray(0, newline + 1);
+            }
+
+            const report = await call('POST', `${CATALOG}/import`, {
+                raw: piece,
+                contentType: 'application/x-ndjson',
+                query: { source, sourceVersion },
+                signal,
+            });
+
+            Object.keys(totals).forEach(key => { totals[key] += report[key] ?? 0; });
+
+            sent += piece.length;
+            onProgress({ sent, totals });
+        }
+
+        return totals;
+    }
+
+    function bytes(count) {
+        if (count < 1024) return `${count} B`;
+        if (count < 1024 * 1024) return `${(count / 1024).toFixed(0)} KB`;
+        if (count < 1024 * 1024 * 1024) return `${(count / 1024 / 1024).toFixed(1)} MB`;
+        return `${(count / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    }
+
+    /** Does the table actually answer? The one question the numbers above cannot settle: a count of
+     *  four hundred thousand says nothing about whether a household can find shampoo by typing it. */
+    function catalogSearchBlock() {
+        const box = block('Spot check');
+
+        box.append(el('p', 'hint',
+            'The same search the app calls. Three characters minimum, matched against the German, '
+            + 'French, Italian and English names and the brand.'));
+
+        const query = el('input');
+        query.type = 'search';
+        query.placeholder = 'shampoo, spülmittel, ...';
+
+        const results = el('div');
+        let timer = null;
+
+        query.addEventListener('input', () => {
+            clearTimeout(timer);
+
+            const term = query.value.trim();
+            if (term.length < 3) { results.replaceChildren(); return; }
+
+            timer = setTimeout(async () => {
+                try {
+                    const found = await call('GET', `${CATALOG}/search`, {
+                        query: { q: term, limit: 15 },
+                    });
+
+                    results.replaceChildren(catalogResults(found));
+                } catch (error) {
+                    results.replaceChildren(banner('danger', error.message));
+                }
+            }, 250);
+        });
+
+        box.append(field('Search', query), results);
+        return box;
+    }
+
+    function catalogResults(found) {
+        if (!found.results.length) return empty(`Nothing matches "${found.query}".`, 'search');
+
+        const list = el('div', 'rows');
+
+        found.results.forEach(match => {
+            const title = [el('span', null, match.name)];
+            title.push(tag(CATALOG_SOURCE_NAME[match.source] || match.source));
+
+            list.append(row({
+                title,
+                sub: [match.brand, match.quantity ? `${match.quantity}${match.quantityUnit || ''}` : null]
+                    .filter(Boolean).join(' - ') || match.barcode,
+                side: [el('span', 'rw-time mono', match.barcode)],
+                onOpen: () => openDetail(match.name, catalogDetail(match)),
+            }));
+        });
+
+        const foot = el('div', 'list-foot',
+            found.countIsLowerBound
+                ? `Showing ${found.results.length} of more than ${found.count}`
+                : `Showing ${found.results.length} of ${found.count}`);
+
+        const wrap = el('div');
+        wrap.append(list, foot);
+        return wrap;
+    }
+
+    function catalogDetail(match) {
+        const pane = el('div', 'pane');
+
+        pane.append(block(null, kv([
+            ['Barcode', copyable(match.barcode)],
+            ['Name', match.name],
+            ['Language', match.language],
+            ['Brand', match.brand],
+            ['Pack', match.quantity ? `${match.quantity} ${match.quantityUnit || ''}`.trim() : null],
+            ['Database', match.sourceName],
+            ['Product page', linkOut(match.sourceUrl)],
+            ['Loaded', stamp(match.importedAt)],
+        ])));
+
+        pane.append(block('Attribution', el('p', 'hint', match.attribution)));
+        return pane;
     }
 
     // ── View: status page ───────────────────────────────────────────────────

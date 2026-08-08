@@ -8,6 +8,7 @@ using Guild.Persistence.Persistence;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.Http;
@@ -278,6 +279,12 @@ public class ProductCatalogEndpoint
                 + $"{string.Join(", ", ProductCatalogSources.All.Select(s => s.Id))}. The source "
                 + "decides which database a row is credited to and which product page a client "
                 + "links to, so it cannot be free text.");
+
+        // Kestrel caps a request body at 30 MB by default and a food extract is several hundred, so
+        // the curl line the extract script prints answered 413 for the one database big enough to
+        // need it.
+        var size = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (size is { IsReadOnly: false }) size.MaxRequestBodySize = null;
 
         var report = await import.ImportAsync(
             http.Request.Body, resolved, sourceVersion.Trim(), http.RequestAborted);

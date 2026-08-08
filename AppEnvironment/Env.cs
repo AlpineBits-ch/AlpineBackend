@@ -125,6 +125,55 @@ public class ProductCatalogConfiguration
     public TimeSpan RequestTimeout { get; set; } =
         TimeSpan.FromSeconds(
             int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_REQUEST_TIMEOUT_SECONDS"), out var t) ? t : 5);
+
+    // ── Automatic bulk import ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Whether this instance downloads and loads the published product exports by itself, on a
+    /// schedule, instead of an operator running <c>deploy/off-catalog-extract.sh</c> and posting
+    /// the result.
+    /// </summary>
+    public bool AutoImportEnabled { get; set; } =
+        GetEnvironmentVariable("PRODUCT_CATALOG_AUTO_IMPORT_ENABLED")
+            ?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? false;
+
+    /// <summary>Which databases the automatic import covers, comma-separated.</summary>
+    public string AutoImportSources { get; set; } =
+        GetEnvironmentVariable("PRODUCT_CATALOG_AUTO_IMPORT_SOURCES")
+        ?? "openbeautyfacts,openproductsfacts";
+
+    /// <summary>
+    /// How old the newest row from a database may get before that database is re-imported.
+    /// </summary>
+    public TimeSpan AutoImportInterval { get; set; } =
+        TimeSpan.FromDays(
+            int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_AUTO_IMPORT_INTERVAL_DAYS"), out var d)
+                ? d
+                : 30);
+
+    /// <summary>The UTC hour the import is allowed to start in.</summary>
+    public int AutoImportHourUtc { get; set; } =
+        int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_AUTO_IMPORT_HOUR_UTC"), out var h)
+            ? Math.Clamp(h, 0, 23)
+            : 3;
+
+    /// <summary>
+    /// Countries a product must be tagged with to be kept, comma-separated, matching the source's
+    /// own <c>countries_tags</c> vocabulary.
+    /// </summary>
+    public string AutoImportCountries { get; set; } =
+        GetEnvironmentVariable("PRODUCT_CATALOG_AUTO_IMPORT_COUNTRIES")
+        ?? "en:switzerland,en:germany,en:austria,en:france";
+
+    /// <summary>
+    /// How long to pause between committed batches, to keep a refresh from being the heaviest thing
+    /// the database is doing.
+    /// </summary>
+    public TimeSpan AutoImportBatchPause { get; set; } =
+        TimeSpan.FromMilliseconds(
+            int.TryParse(GetEnvironmentVariable("PRODUCT_CATALOG_AUTO_IMPORT_BATCH_PAUSE_MS"), out var p)
+                ? p
+                : 50);
 }
 
 /// <summary>Link-preview generation (docs/specs/message-previews.md).</summary>

@@ -54,7 +54,7 @@ public class ProductCatalogFillService(
             {
                 case ProductCatalogLookupService.LookupKind.Found:
                     if (ProductCatalogLookupService.BuildEntry(
-                            miss.Barcode, outcome.Product!, miss.Source, now) is { } entry)
+                            miss.Barcode, outcome.Product!, now) is { } entry)
                     {
                         ctx.ProductCatalogEntries.Add(entry);
                         ctx.ProductCatalogMisses.Remove(miss);

@@ -298,6 +298,44 @@ public class MlsHardeningTests
             Is.EquivalentTo(new[] { (MemberId, "device-member-desktop") }));
     }
 
+    [Test]
+    public async Task Enable_FromOneOfYourOwnDevices_ReportsTheOthersAndNotTheOneAsking()
+    {
+        // Re-keying from your phone leaves your laptop outside the new group exactly as it leaves a
+        // member's second handset outside it, and only the second was ever mentioned: the enabling
+        // user was skipped wholesale, because the device holding the group it just built has no
+        // Welcome addressed to it and would have been reported as unable to read the context it
+        // created. Naming that device is what lets the false alarm go without the true one.
+        await SeedConversation(AdminId, MemberId);
+        var service = ServiceKnowing(
+            (AdminId, "device-admin-phone"),
+            (AdminId, "device-admin-laptop"));
+
+        var result = await service.EnableAsync(
+            ConversationId, ConversationId, null, AdminId, EnableDto(), T0,
+            activatingDeviceId: "device-admin-phone");
+
+        var payload = (MlsToggleResultDto)result.Value!;
+        Assert.That(payload.UnreachableDevices.Select(d => (d.UserId, d.DeviceId)),
+            Is.EquivalentTo(new[] { (AdminId, "device-admin-laptop") }));
+    }
+
+    [Test]
+    public async Task Enable_WithNoDeviceHeader_StillSaysNothingAboutTheEnablersOwnDevices()
+    {
+        // With no header there is no way to tell which device is asking, so a report naming the
+        // caller's devices would name the one that built the group among them.
+        await SeedConversation(AdminId, MemberId);
+        var service = ServiceKnowing(
+            (AdminId, "device-admin-phone"),
+            (AdminId, "device-admin-laptop"));
+
+        var result = await service.EnableAsync(
+            ConversationId, ConversationId, null, AdminId, EnableDto(), T0);
+
+        Assert.That(((MlsToggleResultDto)result.Value!).UnreachableDevices, Is.Empty);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════ E2 - a proposal is
     // not a commit ══════════════════════════════════════════════════════════════════════════
 

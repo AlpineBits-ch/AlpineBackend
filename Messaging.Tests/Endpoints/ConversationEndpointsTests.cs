@@ -81,16 +81,8 @@ public class ConversationEndpointsTests
         Relationships = friendUserIds.Select(f => new RelationshipDto { Id = "rel-" + f, UserId = f, Status = RelationshipStatus.Accepted }).ToList(),
     };
 
-    /// <summary>
-    /// A request carrying the creating device's id, which is what every client in the field stamps
-    /// on every call.
-    /// </summary>
-    private static HttpContext Http(string? callingDeviceId = "device-caller")
-    {
-        var http = new DefaultHttpContext();
-        if (callingDeviceId is not null) http.Request.Headers[DeviceIdentity.HeaderName] = callingDeviceId;
-        return http;
-    }
+    private static HttpContext Http(string? callingDeviceId = "device-caller") =>
+        TestMlsServices.HttpWithDevice(callingDeviceId);
 
     private static ConversationMember MakeMember(string id, string userId, string conversationId) => new()
     {
@@ -386,6 +378,42 @@ public class ConversationEndpointsTests
             Coverage(bus), Http("device-caller"), Policy(bus));
 
         Assert.That(((Ok<ConversationDto>)result).Value!.UnreachableDevices, Is.Empty);
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_RecordsTheDeviceThatBuiltTheGroup()
+    {
+        // The report above is one moment, handed to one client.
+        var endpoint = new ConversationEndpoints();
+        var bus = EncryptedCreationBus(userOneDeviceIds: ["device-caller"], userTwoDeviceIds: ["device-2"]);
+
+        await endpoint.CreateConversation(
+            EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }),
+            allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
+            Coverage(bus), Http("device-caller"), Policy(bus));
+
+        await _context.SaveChangesAsync();
+
+        var generation = await _context.MlsGroupGenerations.SingleAsync();
+        Assert.That(generation.ActivatedByDeviceId, Is.EqualTo("device-caller"));
+    }
+
+    [Test]
+    public async Task CreateConversation_Encrypted_WithNoDeviceIdHeader_LeavesTheActivatingDeviceUnknown()
+    {
+        // Null means "we do not know which device", and every reader has to treat it that way rather
+        // than as "no device" - the same degradation an old client already gets on the report.
+        var endpoint = new ConversationEndpoints();
+        var bus = EncryptedCreationBus(userOneDeviceIds: ["device-caller"], userTwoDeviceIds: ["device-2"]);
+
+        await endpoint.CreateConversation(
+            EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }),
+            allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
+            Coverage(bus), Http(callingDeviceId: null), Policy(bus));
+
+        await _context.SaveChangesAsync();
+
+        Assert.That((await _context.MlsGroupGenerations.SingleAsync()).ActivatedByDeviceId, Is.Null);
     }
 
     [Test]

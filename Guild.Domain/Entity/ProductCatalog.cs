@@ -1,30 +1,84 @@
 namespace Guild.Domain.Entity;
 
 /// <summary>
-/// The names and licences of the third-party databases the catalog is built from, kept as constants
+/// One database in the Open Food Facts family: what to call it, where it lives, and the notice a
+/// client owes when it shows a name from it.
+/// </summary>
+public sealed record ProductCatalogSource(string Id, string Name, string Host)
+{
+    public string Url => $"https://{Host}";
+
+    /// <summary>The source's page for one barcode.</summary>
+    public string ProductUrl(string barcode) => $"https://{Host}/product/{barcode}";
+
+    /// <summary>
+    /// ODbL 4.3's model notice, which the licence itself states is sufficient for a Produced Work.
+    /// </summary>
+    public string Attribution =>
+        $"Contains information from {Name}, which is made available here under the "
+        + "Open Database License (ODbL).";
+}
+
+/// <summary>
+/// The names and licences of the third-party databases the catalog is built from, kept in one place
 /// so the attribution a client renders and the notice the export serves cannot drift apart.
 /// </summary>
 public static class ProductCatalogSources
 {
-    /// <summary>The value stored in <see cref="ProductCatalogEntry.Source"/>.</summary>
+    /// <summary>The values stored in <see cref="ProductCatalogEntry.Source"/>.</summary>
     public const string OpenFoodFacts = "openfoodfacts";
 
-    public const string OpenFoodFactsName = "Open Food Facts";
-    public const string OpenFoodFactsUrl = "https://openfoodfacts.org";
+    public const string OpenBeautyFacts = "openbeautyfacts";
+    public const string OpenProductsFacts = "openproductsfacts";
+    public const string OpenPetFoodFacts = "openpetfoodfacts";
 
     public const string LicenseName = "Open Database License (ODbL) v1.0";
     public const string LicenseUrl = "https://opendatacommons.org/licenses/odbl/1-0/";
 
-    /// <summary>ODbL 4.3's model notice, which the licence itself states is sufficient for a
-    /// Produced Work. Written out rather than assembled from the parts above so that the exact
-    /// wording the licence blesses is what ships.</summary>
-    public const string Attribution =
-        "Contains information from Open Food Facts, which is made available here under the "
-        + "Open Database License (ODbL).";
+    /// <summary>Groceries.</summary>
+    public static readonly ProductCatalogSource Food =
+        new(OpenFoodFacts, "Open Food Facts", "world.openfoodfacts.org");
 
-    /// <summary>The product page for one barcode.</summary>
-    public static string ProductUrl(string barcode) =>
-        $"https://world.openfoodfacts.org/product/{barcode}";
+    /// <summary>Cosmetics and personal care: shampoo, deodorant, toothpaste, soap.</summary>
+    public static readonly ProductCatalogSource Beauty =
+        new(OpenBeautyFacts, "Open Beauty Facts", "world.openbeautyfacts.org");
+
+    /// <summary>Everything else, cleaning products included.</summary>
+    public static readonly ProductCatalogSource Products =
+        new(OpenProductsFacts, "Open Products Facts", "world.openproductsfacts.org");
+
+    /// <summary>Pet food.</summary>
+    public static readonly ProductCatalogSource PetFood =
+        new(OpenPetFoodFacts, "Open Pet Food Facts", "world.openpetfoodfacts.org");
+
+    public static readonly IReadOnlyList<ProductCatalogSource> All = [Food, Beauty, Products, PetFood];
+
+    private static readonly Dictionary<string, ProductCatalogSource> ById =
+        All.ToDictionary(s => s.Id, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The API's own <c>product_type</c> values, which are not the same strings as our
+    /// source ids: it says "product" where we say "openproductsfacts". Mapped rather than derived
+    /// because the two vocabularies belong to different owners and only one of them is ours.</summary>
+    private static readonly Dictionary<string, ProductCatalogSource> ByProductType = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        ["food"] = Food,
+        ["beauty"] = Beauty,
+        ["product"] = Products,
+        ["petfood"] = PetFood,
+    };
+
+    /// <summary>The database a stored row came from, falling back to Open Food Facts.</summary>
+    public static ProductCatalogSource For(string? source) =>
+        source is not null && ById.TryGetValue(source, out var known) ? known : Food;
+
+    /// <summary>
+    /// The database that answered, from the <c>product_type</c> the API returned.
+    /// </summary>
+    public static ProductCatalogSource ForProductType(string? productType) =>
+        productType is not null && ByProductType.TryGetValue(productType, out var known)
+            ? known
+            : Food;
 }
 
 /// <summary>One product name in one language, and which language that turned out to be.</summary>
@@ -82,6 +136,9 @@ public class ProductCatalogEntry
     public string SourceVersion { get; set; } = null!;
 
     public DateTimeOffset ImportedAt { get; set; }
+
+    /// <summary>Every name and the brand in one string, for keyword search.</summary>
+    public string? SearchText { get; private set; }
 
     /// <summary>The order names are tried when the caller expressed no preference, and the
     /// exhaustive list of columns after that. German first because the primary market is

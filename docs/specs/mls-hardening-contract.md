@@ -1595,11 +1595,10 @@ conversation being broken.
 > called at launch. Current state per repo lives in `mls-remaining-work.md` §2c - check there rather
 > than treating this paragraph as the status.
 >
-> Server-side, a coverage *read* route was considered and deliberately not added: the server cannot
-> tell which device activated a generation (`MlsGroupGeneration` records `ActivatedByUserId`, not a
-> device), so such a route would report the creator's own creating device as outside the group it
-> built. Recording the activating and committing device per generation is the prerequisite; it is an
-> additive nullable column and has not been taken.
+> Server-side, a coverage *read* route now exists - see **§L.15**. It was blocked on the server being
+> unable to tell which device activated a generation, so any answer it gave reported the creator's own
+> creating device as outside the group it built. `MlsGroupGeneration.ActivatedByDeviceId` closes that;
+> the committing device was already on `MlsCommit.SenderDeviceId`.
 
 #### L.14.1 A device with no row cannot be reported, and there is no signal that one exists
 
@@ -1636,3 +1635,50 @@ that peer-side detection of an unregistered device is impossible here: a device 
 seen is indistinguishable from a device that does not exist. The remedy is not a better sender-side
 guess but the repair path above - once the device does register, §B lets it ask its way in, and that
 works regardless of how long it was invisible.
+
+### L.15 Coverage can be read afterwards, not only at the moment the group is formed
+
+`GET /api/v1/conversations/{conversationId}/mls/coverage` (membership) and
+`GET /api/v1/channels/{channelId}/mls/coverage` (`ViewChannel`). Client guide:
+`mls-device-coverage-frontend-guide.md`.
+
+§L.14 made three write paths report which devices they left out. All three share a limitation that
+the reports themselves cannot fix: each is one response, to one client, at one instant. The
+information exists for a few seconds and is then unrecoverable - including by the stranded device,
+which has no group state and no error and therefore cannot tell an excluded conversation from an
+empty one. Somebody has to be able to ask again, and only the server can answer, because only it
+knows every device of every participant.
+
+**The prerequisite was `MlsGroupGeneration.ActivatedByDeviceId`**, an additive nullable column set
+from `X-Device-Id` on conversation creation and on `mls/enable`. The device that builds a group has
+no Welcome addressed to it by construction, so an answer computed from Welcomes reports the one
+device that certainly works. Rather than publish that false positive, coverage was previously not
+reported for the activating user at all - which hid the true positive standing next to it: re-keying
+from your phone drops your laptop out of the group exactly as it drops a member's second handset, and
+only the second was ever mentioned. Naming the activating device lets the false alarm be dropped on
+its own. `mls/enable` now scans the enabling user's devices too; with no header it degrades to the
+old narrower report rather than to a wrong one.
+
+**A device counts as covered** on the same three artifacts §L.14's commit-path scan uses, narrowed
+from a person to a device: a Welcome addressed to it in this generation (acknowledged or not - the
+row is never deleted, and an unacknowledged Welcome means the device has been handed its way in), a
+commit published from it, or the record that it activated the generation. A device that joined by
+external commit leaves none of the three and reads as uncovered while decrypting perfectly, which is
+why the client contract is that `covered: false` offers a repair and never asserts a fault.
+
+**The two lists are asymmetric on purpose.** The caller gets every one of their own devices with a
+verdict each; everyone else appears only when a device is *outside* the group. The uncovered set is
+already reported by the write paths, so repeating it discloses nothing new - listing the covered ones
+would turn a diagnostic into a directory of the device names of everyone you share a conversation
+with. Channels answer for the caller alone: their roster lives in Guild, and enumerating a guild to
+serve a diagnostic would make the route a directory of every device in the server.
+
+**`coverageUnavailable` exists because an empty answer has two meanings.** The write paths collapse
+them - a degraded coverage report is a much better outcome than being unable to create a conversation
+because Identity is down - and that is right there and wrong here. A route whose entire question is
+"is one of my devices stranded" must not answer "no" when it means "cannot tell", so the flag is
+served and clients are contractually forbidden from rendering it as all-clear.
+
+Nothing here repairs anything. The server holds no group keys; admission is still §B's join request
+reviewed by a member. What this removes is the step before it, where nobody knows there is anything
+to ask for.

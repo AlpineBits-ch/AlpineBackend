@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using AppEnvironment;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Domain.Entity;
@@ -53,12 +54,13 @@ public class ProductCatalogEndpoint
 
         return Results.Ok(new ProductCatalogInfoDto
         {
-            Source = ProductCatalogSources.OpenFoodFacts,
-            SourceName = ProductCatalogSources.OpenFoodFactsName,
-            SourceUrl = ProductCatalogSources.OpenFoodFactsUrl,
+            Source = ProductCatalogSources.Food.Id,
+            SourceName = ProductCatalogSources.Food.Name,
+            SourceUrl = ProductCatalogSources.Food.Url,
             License = ProductCatalogSources.LicenseName,
             LicenseUrl = ProductCatalogSources.LicenseUrl,
-            Attribution = ProductCatalogSources.Attribution,
+            Attribution = ProductCatalogSources.Food.Attribution,
+            Sources = await BuildSourcesAsync(ctx),
             Count = count,
             LastImportedAt = lastImportedAt,
             SourceVersions = versions,
@@ -66,22 +68,114 @@ public class ProductCatalogEndpoint
             ExportContentType = ExportContentType,
             Notice =
                 "This is the complete Open Food Facts derived database used to resolve barcodes to "
-                + "product names, offered under ODbL 1.0 section 4.6. It contains product data only. "
-                + "It contains no product names entered by users of this instance, and no "
-                + "information about which household scanned what: those live in a separate table "
-                + "that is not part of this database and is not published.",
+                + "product names, offered under ODbL 1.0 section 4.6. It covers groceries, cosmetics "
+                + "and general household products, which are separate databases in the Open Food "
+                + "Facts family under the same licence; the per-row source field says which one each "
+                + "row came from. It contains product data only. It contains no product names "
+                + "entered by users of this instance, and no information about which household "
+                + "scanned what: those live in a separate table that is not part of this database "
+                + "and is not published.",
         });
+    }
+
+    /// <summary>Keyword search over this instance's copy of the catalog.</summary>
+    [Authorize]
+    [WolverineGet("/api/v1/pantry/catalog/search")]
+    public async Task<IResult> SearchAsync(
+        string? q, int? limit, int? offset,
+        [NotBody] ProductCatalogSearchService search, [NotBody] HttpContext http,
+        CancellationToken ct)
+    {
+        // Same header the scan path reads, and for the same reason: nothing in this product stores a
+        // locale, and the phone sends this on every request anyway.
+        var languages = ProductCatalogService.ParseLanguages(http.Request.Headers.AcceptLanguage);
+
+        var results = await search.SearchAsync(q, languages, limit, offset, ct);
+
+        var matches = results.Hits
+            .Select(hit => ProductCatalogService.ToDto(
+                new ProductCatalogService.Match(hit.Entry, hit.Name, hit.Language)))
+            .ToList();
+
+        return Results.Ok(new ProductCatalogSearchResultDto
+        {
+            Query = q?.Trim() ?? string.Empty,
+            Results = matches,
+            Count = results.Count,
+            CountIsLowerBound = results.CountIsLowerBound,
+            Limit = results.Limit,
+            Offset = results.Offset,
+
+            // Built from the sources on this page rather than from the whole table, so the notice
+            // names what the user is actually looking at.
+            Attribution = CombinedAttribution(
+                matches.Select(m => m.Source).Distinct()
+                    .Select(s => ProductCatalogSources.For(s))
+                    .Select(s => new ProductCatalogSourceDto
+                    {
+                        Source = s.Id, SourceName = s.Name, SourceUrl = s.Url,
+                        Attribution = s.Attribution, Count = 0,
+                    })
+                    .ToList()),
+            License = ProductCatalogSources.LicenseName,
+            LicenseUrl = ProductCatalogSources.LicenseUrl,
+        });
+    }
+
+    /// <summary>One ODbL 4.3 notice naming every database the export actually draws on.</summary>
+    private static string CombinedAttribution(IReadOnlyList<ProductCatalogSourceDto> sources)
+    {
+        if (sources.Count == 0) return ProductCatalogSources.Food.Attribution;
+        if (sources.Count == 1) return sources[0].Attribution;
+
+        var names = sources.Select(s => s.SourceName).ToList();
+
+        return $"Contains information from {string.Join(", ", names.Take(names.Count - 1))} and "
+               + $"{names[^1]}, which is made available here under the Open Database License (ODbL).";
+    }
+
+    /// <summary>
+    /// The databases actually represented in the table, each with the notice it is owed.
+    /// </summary>
+    private static async Task<List<ProductCatalogSourceDto>> BuildSourcesAsync(MicroserviceContext ctx)
+    {
+        var counts = await ctx.ProductCatalogEntries
+            .GroupBy(e => e.Source)
+            .Select(g => new { Source = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .ToListAsync();
+
+        return counts.Select(row =>
+        {
+            var source = ProductCatalogSources.For(row.Source);
+
+            return new ProductCatalogSourceDto
+            {
+                // The stored value, not the resolved one: an unrecognised source must report itself
+                // rather than be silently relabelled as the fallback it renders with.
+                Source = row.Source,
+                SourceName = source.Name,
+                SourceUrl = source.Url,
+                Attribution = source.Attribution,
+                Count = row.Count,
+            };
+        }).ToList();
     }
 
     /// <summary>The derived database itself, as newline-delimited JSON.</summary>
     [AllowAnonymous]
     [WolverineGet(ExportPath)]
-    public IResult ExportAsync(string? after, [NotBody] MicroserviceContext ctx, [NotBody] HttpContext http)
+    public async Task<IResult> ExportAsync(
+        string? after, [NotBody] MicroserviceContext ctx, [NotBody] HttpContext http)
     {
+        // Resolved before anything is written, because the headers below name the databases being
+        // credited and a header cannot be revised once the body has started.
+        var sources = await BuildSourcesAsync(ctx);
+
         // Set before the body is written, which is the only time they can be.
         http.Response.Headers.Append("Link", $"<{ProductCatalogSources.LicenseUrl}>; rel=\"license\"");
         http.Response.Headers.Append("X-License", ProductCatalogSources.LicenseName);
-        http.Response.Headers.Append("X-Attribution", ProductCatalogSources.Attribution);
+        http.Response.Headers.Append("X-Attribution", CombinedAttribution(sources));
 
         var cursor = after;
 
@@ -94,12 +188,23 @@ public class ProductCatalogEndpoint
             await writer.WriteLineAsync(JsonSerializer.Serialize(new
             {
                 type = "metadata",
-                source = ProductCatalogSources.OpenFoodFacts,
-                source_name = ProductCatalogSources.OpenFoodFactsName,
-                source_url = ProductCatalogSources.OpenFoodFactsUrl,
+                source = ProductCatalogSources.Food.Id,
+                source_name = ProductCatalogSources.Food.Name,
+                source_url = ProductCatalogSources.Food.Url,
                 license = ProductCatalogSources.LicenseName,
                 license_url = ProductCatalogSources.LicenseUrl,
-                attribution = ProductCatalogSources.Attribution,
+                attribution = CombinedAttribution(sources),
+
+                // Added alongside the scalars above rather than replacing them, so a reader written
+                // against the single-source export still parses this one.
+                sources = sources.Select(s => new
+                {
+                    source = s.Source,
+                    source_name = s.SourceName,
+                    source_url = s.SourceUrl,
+                    attribution = s.Attribution,
+                    count = s.Count,
+                }),
                 generated_at = DateTimeOffset.UtcNow,
             }, ExportJson));
 
@@ -161,11 +266,21 @@ public class ProductCatalogEndpoint
                 "sourceVersion is required: it is what the ODbL 4.6 export uses to say which "
                 + "snapshot a row came from.");
 
+        var resolved = string.IsNullOrWhiteSpace(source)
+            ? ProductCatalogSources.OpenFoodFacts
+            : source.Trim();
+
+        // Checked rather than accepted as free text, which it used to be.
+        if (!ProductCatalogSources.All.Any(s => string.Equals(
+                s.Id, resolved, StringComparison.OrdinalIgnoreCase)))
+            return Results.BadRequest(
+                $"Unknown source '{resolved}'. Expected one of: "
+                + $"{string.Join(", ", ProductCatalogSources.All.Select(s => s.Id))}. The source "
+                + "decides which database a row is credited to and which product page a client "
+                + "links to, so it cannot be free text.");
+
         var report = await import.ImportAsync(
-            http.Request.Body,
-            string.IsNullOrWhiteSpace(source) ? ProductCatalogSources.OpenFoodFacts : source.Trim(),
-            sourceVersion.Trim(),
-            http.RequestAborted);
+            http.Request.Body, resolved, sourceVersion.Trim(), http.RequestAborted);
 
         return Results.Ok(new ProductCatalogImportResultDto
         {
@@ -176,6 +291,63 @@ public class ProductCatalogEndpoint
             Skipped = report.Skipped,
             Malformed = report.Malformed,
             MissesResolved = report.MissesResolved,
+        });
+    }
+
+    /// <summary>Starts a refresh now, rather than waiting for the nightly window.</summary>
+    [Authorize]
+    [WolverinePost("/api/v1/pantry/catalog/import/auto")]
+    public async Task<IResult> TriggerImportAsync(string? source,
+        [NotBody] ProductCatalogAutoImportService auto, [NotBody] IMessageBus bus,
+        [NotBody] ClaimsPrincipal user, [NotBody] IHostApplicationLifetime lifetime,
+        [NotBody] ILogger<ProductCatalogEndpoint> logger)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await IsAdministratorAsync(bus, userId, logger)) return Results.Forbid();
+
+        var requested = string.IsNullOrWhiteSpace(source)
+            ? Env.ProductCatalog.AutoImportSources.Split(
+                ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : [source.Trim()];
+
+        if (requested.Length == 0)
+            return Results.BadRequest("No source to import.");
+
+        foreach (var candidate in requested)
+            if (!ProductCatalogAutoImportService.CanImport(candidate))
+                return Results.BadRequest(
+                    $"'{candidate}' has no automatic import. Available: "
+                    + $"{string.Join(", ", ProductCatalogAutoImportService.ImportableSources)}. The "
+                    + "food database is deliberately absent - its export is 11.77 GB and is loaded "
+                    + "with deploy/off-catalog-extract.sh instead.");
+
+        // Detached from the request on purpose, with the application's stopping token rather than
+        // the request's: the caller is not waiting, and cancelling on their disconnect would mean a
+        // refresh dies the moment the console tab closes.
+        _ = Task.Run(async () =>
+        {
+            foreach (var candidate in requested)
+            {
+                try
+                {
+                    await auto.ImportAsync(candidate, lifetime.ApplicationStopping);
+                }
+                catch (Exception e)
+                {
+                    logger.LogError(
+                        e, "Operator-triggered product catalog import failed for {Source}", candidate);
+                }
+            }
+        }, CancellationToken.None);
+
+        return Results.Accepted(value: new
+        {
+            started = requested,
+            message =
+                "Import started. It runs in the background and takes several minutes; watch "
+                + "GET /api/v1/pantry/catalog for the per-source counts to move.",
         });
     }
 

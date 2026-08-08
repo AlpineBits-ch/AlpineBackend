@@ -283,6 +283,10 @@ public class ConversationEndpoints
                 MlsGroupInfo = createDto.MlsGroupInfo,
                 Epoch = createDto.MlsEpoch ?? 0,
                 ActivatedByUserId = userId,
+                // The device holding the group has no Welcome addressed to it, so without this every
+                // later coverage read reports the creating device as unable to read the conversation
+                // it just created. See MlsGroupGeneration.ActivatedByDeviceId.
+                ActivatedByDeviceId = CreatingDeviceId(http),
                 ActivatedAt = DateTimeOffset.UtcNow,
             }));
         }
@@ -324,8 +328,7 @@ public class ConversationEndpoints
             .Select(w => (w.UserId, w.DeviceId))
             .ToHashSet();
 
-        var creatingDeviceId = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
-        if (!string.IsNullOrWhiteSpace(creatingDeviceId))
+        if (CreatingDeviceId(http) is { } creatingDeviceId)
         {
             participantIds.Add(callerUserId);
             covered.Add((callerUserId, creatingDeviceId));
@@ -334,6 +337,13 @@ public class ConversationEndpoints
         if (participantIds.Count == 0) return [];
 
         return await coverage.ResolveAsync("new conversation", participantIds, covered);
+    }
+
+    /// <summary>The caller's device from <c>X-Device-Id</c>, or null when the client sent none.</summary>
+    private static string? CreatingDeviceId(HttpContext http)
+    {
+        var header = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        return string.IsNullOrWhiteSpace(header) ? null : header.Trim();
     }
 
   

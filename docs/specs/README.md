@@ -21,6 +21,7 @@ What the venta clients (Alpine desktop/web, venta-mobile) have to build.
 | [multi-device-voice-and-calls.md](./multi-device-voice-and-calls.md) | Calls and voice channels across a user's devices |
 | [social-friend-realtime.md](./social-friend-realtime.md) | `social.*` websocket events for friend requests |
 | [status-frontend-guide.md](./status-frontend-guide.md) | Platform status banner, component states, `status.*` websocket events |
+| [mls-device-coverage-frontend-guide.md](./mls-device-coverage-frontend-guide.md) | Telling someone a device of theirs cannot read a conversation |
 
 ## Design and implementation
 

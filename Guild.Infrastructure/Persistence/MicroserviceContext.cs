@@ -128,6 +128,9 @@ public class MicroserviceContext : DbContext
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        // Trigram matching for the product catalog's keyword search.
+        modelBuilder.HasPostgresExtension("pg_trgm");
+
         modelBuilder.Entity<RoleMember>(memberBuilder =>
         {
             memberBuilder.HasOne(x => x.Role)
@@ -949,6 +952,21 @@ public class MicroserviceContext : DbContext
 
             // What a stale-row sweep and the /pantry/catalog summary both order by.
             catalogBuilder.HasIndex(x => x.ImportedAt);
+
+            // Keyword search.
+            catalogBuilder.Property(x => x.SearchText)
+                .HasComputedColumnSql(
+                    """
+                    coalesce(name_de, '') || ' ' || coalesce(name_fr, '') || ' ' ||
+                    coalesce(name_it, '') || ' ' || coalesce(name_en, '') || ' ' ||
+                    coalesce(brand, '')
+                    """,
+                    stored: true);
+
+            // Trigram rather than tsvector, deliberately.
+            catalogBuilder.HasIndex(x => x.SearchText)
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops");
         });
 
         modelBuilder.Entity<ProductCatalogMiss>(missBuilder =>

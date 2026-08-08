@@ -3,6 +3,7 @@ using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Request;
+using Messaging.Application.Dtos.Response;
 using Messaging.Application.Endpoints;
 using Messaging.Application.Services;
 using Messaging.Domain.Aggregates;
@@ -28,6 +29,7 @@ public class MlsEndpointsTests
     private const string ChannelId = "chan-1";
     private const string OwnerId = "user-1";
     private const string PeerId = "user-2";
+    private const string OwnerDevice = "device-owner";
 
     private TestMessagingContext _context = null!;
     private ConversationPermissionService _permissions = null!;
@@ -205,6 +207,45 @@ public class MlsEndpointsTests
         });
     }
 
+    [Test]
+    public async Task GetConversationMlsCoverage_Unauthenticated_ReturnsUnauthorized()
+    {
+        await SeedEncryptedConversation();
+
+        var result = await MlsEndpoints.GetConversationMlsCoverage(
+            ConversationId, TestPrincipal.Anonymous(), _permissions, _mls);
+
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    [Test]
+    public async Task GetConversationMlsCoverage_NonMember_ReturnsForbid()
+    {
+        // The answer names devices of everyone in the conversation.
+        await SeedEncryptedConversation();
+
+        var result = await MlsEndpoints.GetConversationMlsCoverage(
+            ConversationId, TestPrincipal.ForUser("outsider"), _permissions, _mls);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task GetConversationMlsCoverage_Member_AnswersForTheActiveGeneration()
+    {
+        await SeedEncryptedConversation();
+
+        var result = await MlsEndpoints.GetConversationMlsCoverage(
+            ConversationId, TestPrincipal.ForUser(OwnerId), _permissions, _mls);
+
+        var coverage = ((Ok<MlsCoverageDto>)result).Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(coverage.Encrypted, Is.True);
+            Assert.That(coverage.Generation, Is.EqualTo(1));
+        });
+    }
+
     // ══════════════════════════════════════════════════════════════════════════ Channel
     // authorization ══════════════════════════════════════════════════════════════════════════
 
@@ -219,7 +260,8 @@ public class MlsEndpointsTests
     public async Task EnableChannelMls_WithoutManageChannel_ReturnsForbid()
     {
         var result = await MlsEndpoints.EnableChannelMls(
-            ChannelId, EnableDto(), TestPrincipal.ForUser(OwnerId), ChannelBus(allowed: false), _mls);
+            ChannelId, EnableDto(), TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
+            ChannelBus(allowed: false), _mls);
 
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
         Assert.That(await _context.MlsGroupGenerations.AnyAsync(), Is.False);
@@ -230,7 +272,7 @@ public class MlsEndpointsTests
     {
         // Turning a room end-to-end encrypted changes what everyone in it can read.
         var result = await MlsEndpoints.EnableChannelMls(
-            ChannelId, EnableDto(), TestPrincipal.ForUser(OwnerId),
+            ChannelId, EnableDto(), TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
 
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
@@ -240,7 +282,7 @@ public class MlsEndpointsTests
     public async Task EnableChannelMls_WithManageChannel_Succeeds()
     {
         var result = await MlsEndpoints.EnableChannelMls(
-            ChannelId, EnableDto(), TestPrincipal.ForUser(OwnerId),
+            ChannelId, EnableDto(), TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         Assert.That(result, Is.InstanceOf<Ok<object>>().Or.InstanceOf<IValueHttpResult>());
@@ -278,6 +320,27 @@ public class MlsEndpointsTests
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
+    [Test]
+    public async Task GetChannelMlsCoverage_NeedsOnlyViewChannel()
+    {
+        // Same permission as the state route: it answers about the caller's own devices, and anyone
+        // who can read the channel needs to know whether one of theirs cannot.
+        var result = await MlsEndpoints.GetChannelMlsCoverage(
+            ChannelId, TestPrincipal.ForUser(OwnerId),
+            ChannelBusAllowing(ExternalPermission.ViewChannel), _mls);
+
+        Assert.That(result, Is.InstanceOf<Ok<MlsCoverageDto>>());
+    }
+
+    [Test]
+    public async Task GetChannelMlsCoverage_WithoutViewChannel_ReturnsForbid()
+    {
+        var result = await MlsEndpoints.GetChannelMlsCoverage(
+            ChannelId, TestPrincipal.ForUser(OwnerId), ChannelBus(allowed: false), _mls);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
     /// <summary>
     /// A member of the group may publish without <c>ManageChannel</c> - the group has to be able to
     /// follow the roster as people gain and lose access, and toggling encryption is the privileged
@@ -288,7 +351,7 @@ public class MlsEndpointsTests
     {
         await MlsEndpoints.EnableChannelMls(
             ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
-            TestPrincipal.ForUser(OwnerId),
+            TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         var result = await MlsEndpoints.PublishChannelCommit(
@@ -307,7 +370,7 @@ public class MlsEndpointsTests
     {
         await MlsEndpoints.EnableChannelMls(
             ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
-            TestPrincipal.ForUser(OwnerId),
+            TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         var result = await MlsEndpoints.PublishChannelCommit(
@@ -329,7 +392,7 @@ public class MlsEndpointsTests
     {
         await MlsEndpoints.EnableChannelMls(
             ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
-            TestPrincipal.ForUser(OwnerId),
+            TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         var mislabelled = CommitDto(1);
@@ -351,7 +414,7 @@ public class MlsEndpointsTests
     {
         await MlsEndpoints.EnableChannelMls(
             ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, Epoch = 0 },
-            TestPrincipal.ForUser(OwnerId),
+            TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         var noise = CommitDto(1);
@@ -371,7 +434,7 @@ public class MlsEndpointsTests
     {
         await MlsEndpoints.EnableChannelMls(
             ChannelId, new EnableMlsDto { MlsGroupId = MlsWire.DefaultGroupId, MlsGroupInfo = [9, 9, 9], Epoch = 0 },
-            TestPrincipal.ForUser(OwnerId),
+            TestPrincipal.ForUser(OwnerId), HttpWithDevice(OwnerDevice),
             ChannelBusAllowing(ExternalPermission.ManageChannel), _mls);
 
         var stranger = await MlsEndpoints.GetChannelMlsState(

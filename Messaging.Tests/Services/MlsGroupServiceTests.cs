@@ -84,6 +84,29 @@ public class MlsGroupServiceTests
     }
 
     [Test]
+    public async Task Enable_RecordsTheDeviceThatBuiltTheGroup()
+    {
+        // Without this the server knows a person enabled encryption and not which of their machines
+        // did - and that device is the one with no Welcome addressed to it, so every later coverage
+        // answer would report it as unable to read the context it created.
+        await _service.EnableAsync(
+            ChannelId, null, ChannelId, AdminId, EnableDto(), T0, activatingDeviceId: "device-admin");
+
+        var generation = await _context.MlsGroupGenerations.SingleAsync();
+        Assert.That(generation.ActivatedByDeviceId, Is.EqualTo("device-admin"));
+    }
+
+    [Test]
+    public async Task Enable_FromAClientThatSendsNoDevice_LeavesTheActivatingDeviceUnknown()
+    {
+        // Null means "we do not know which device", not "no device".
+        await _service.EnableAsync(
+            ChannelId, null, ChannelId, AdminId, EnableDto(), T0, activatingDeviceId: "   ");
+
+        Assert.That((await _context.MlsGroupGenerations.SingleAsync()).ActivatedByDeviceId, Is.Null);
+    }
+
+    [Test]
     public async Task Enable_AtEpochZero_IsAccepted()
     {
         // A group whose creator had nobody to add sits at epoch 0 until the first commit.

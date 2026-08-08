@@ -152,6 +152,7 @@ builder.Services.AddScoped<PantryRestockService>();
 builder.Services.AddScoped<PantryExpiryService>();
 builder.Services.AddScoped<PantryCaptureService>();
 builder.Services.AddScoped<ProductCatalogService>();
+builder.Services.AddScoped<ProductCatalogSearchService>();
 builder.Services.AddScoped<ProductCatalogImportService>();
 builder.Services.AddScoped<ProductCatalogFillService>();
 // Singletons, and both for the same reason: they hold the one thing that must not be per-request.
@@ -207,6 +208,19 @@ builder.Services.AddHttpClient(ProductCatalogLookupService.HttpClientName, clien
     // that fails to start.
     client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Env.ProductCatalog.UserAgent);
 });
+
+// A second client for the bulk exports, because the one above is tuned for the opposite job.
+builder.Services.AddHttpClient(ProductCatalogAutoImportService.HttpClientName, client =>
+{
+    // Generous, and it bounds the whole streamed download rather than a request.
+    client.Timeout = TimeSpan.FromHours(1);
+
+    client.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", Env.ProductCatalog.UserAgent);
+});
+
+// One instance, resolved twice.
+builder.Services.AddSingleton<ProductCatalogAutoImportService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ProductCatalogAutoImportService>());
 if (args.Contains("codegen") || args.Contains("describe"))
 {
     builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 

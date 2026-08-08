@@ -144,13 +144,14 @@ public class ProductCatalogTests
     private async Task<ProductCatalogEntry> SeedCatalogAsync(
         string barcode = Cornflakes, string? de = "Cornflakes", string? fr = "Corn Flakes",
         string? it = null, string? en = null, string? brand = "M-Budget, Migros",
-        decimal? quantity = 380m, string? unit = "g", string version = "off-2026-08-01")
+        decimal? quantity = 380m, string? unit = "g", string version = "off-2026-08-01",
+        string? source = null)
     {
         var entry = new ProductCatalogEntry
         {
             Barcode = barcode, NameDe = de, NameFr = fr, NameIt = it, NameEn = en,
             Brand = brand, Quantity = quantity, QuantityUnit = unit,
-            Source = ProductCatalogSources.OpenFoodFacts, SourceVersion = version,
+            Source = source ?? ProductCatalogSources.OpenFoodFacts, SourceVersion = version,
             ImportedAt = DateTimeOffset.UtcNow,
         };
 
@@ -1436,6 +1437,186 @@ public class ProductCatalogTests
         });
     }
 
+    // ── Four databases behind one request ────────────────────────────────────
+
+    [Test]
+    public async Task Scan_LiveLookup_AsksAboutEveryProductType()
+    {
+        await SeedAsync();
+
+        var api = StubProductApi.Finds(Cornflakes, "Cornflakes");
+        UseSource(api);
+
+        await ProductCatalogHarness.WithLiveLookupAsync(async () =>
+        {
+            await ScanAsync(new ScanPantryItemDto { Barcode = Cornflakes });
+
+            // The whole non-food feature rests on this one parameter.
+            Assert.That(api.Requested.Single(), Does.Contain("product_type=all"));
+        });
+    }
+
+    [Test]
+    public async Task Scan_LiveBeautyProduct_IsCreditedToOpenBeautyFacts()
+    {
+        await SeedAsync();
+
+        var shampoo = "3600523351893";
+        UseSource(StubProductApi.Finds(shampoo, "Shampoo Elseve", productType: "beauty"));
+
+        await ProductCatalogHarness.WithLiveLookupAsync(async () =>
+        {
+            var body = Body(await ScanAsync(new ScanPantryItemDto { Barcode = shampoo }));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(body.Catalog, Is.Not.Null);
+                Assert.That(body.Catalog!.Name, Is.EqualTo("Shampoo Elseve"));
+
+                // ODbL 4.3 asks the notice to name the database the data came from.
+                Assert.That(body.Catalog.Source, Is.EqualTo(ProductCatalogSources.OpenBeautyFacts));
+                Assert.That(body.Catalog.SourceName, Is.EqualTo("Open Beauty Facts"));
+                Assert.That(body.Catalog.SourceUrl,
+                    Is.EqualTo($"https://world.openbeautyfacts.org/product/{shampoo}"));
+                Assert.That(body.Catalog.Attribution, Does.Contain("Open Beauty Facts"));
+
+                // The licence is the one thing that does not vary: all four are ODbL 1.0, which is
+                // why they can share a table and an export at all.
+                Assert.That(body.Catalog.License, Is.EqualTo(ProductCatalogSources.LicenseName));
+
+                // And the stored row carries it, so the export and any later scan agree.
+                Assert.That(_context.ProductCatalogEntries.Single().Source,
+                    Is.EqualTo(ProductCatalogSources.OpenBeautyFacts));
+            });
+        });
+    }
+
+    [Test]
+    public async Task Scan_ProductHeldInASiblingDatabase_IsNotRecordedAsAbsent()
+    {
+        await SeedAsync();
+
+        // The reply that used to be indistinguishable from "no such barcode": a 404 whose body says
+        // the product exists, just not here.
+        UseSource(StubProductApi.FindsInAnotherFlavour());
+
+        await ProductCatalogHarness.WithLiveLookupAsync(async () =>
+        {
+            var before = DateTimeOffset.UtcNow;
+
+            await ScanAsync(new ScanPantryItemDto { Barcode = Unknown });
+
+            var miss = _context.ProductCatalogMisses.Single();
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(miss.Attempts, Is.Zero,
+                    "the source confirmed the product exists, so this is not evidence of absence");
+
+                Assert.That(miss.RetryAfter, Is.Not.Null,
+                    "and it must stay askable rather than being settled as permanently missing");
+
+                // A new miss is created already due, so "still due" is also what an untouched row
+                // looks like.
+                Assert.That(miss.RetryAfter, Is.GreaterThan(before.AddMinutes(1)),
+                    "a wrong-flavour reply must cool off like an outage, not be silently ignored");
+            });
+        });
+    }
+
+    [Test]
+    public async Task Scan_ProductWithAnUnrecognisedType_StillResolvesAndCreditsTheFoodDatabase()
+    {
+        await SeedAsync();
+
+        // A product type this build has never heard of, which is what a new flavour would look like
+        // before anyone updated the mapping.
+        UseSource(StubProductApi.Finds(Cornflakes, "Cornflakes", productType: "groceries-v2"));
+
+        await ProductCatalogHarness.WithLiveLookupAsync(async () =>
+        {
+            var body = Body(await ScanAsync(new ScanPantryItemDto { Barcode = Cornflakes }));
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(body.Catalog, Is.Not.Null);
+                Assert.That(body.Catalog!.Source, Is.EqualTo(ProductCatalogSources.OpenFoodFacts));
+                Assert.That(body.Catalog.SourceName, Is.EqualTo("Open Food Facts"));
+            });
+        });
+    }
+
+    [Test]
+    public async Task Scan_GenuineAbsence_StillTakesTheAbsenceBackoff()
+    {
+        await SeedAsync();
+
+        // The regression guard for the test above: distinguishing the wrong-flavour reply must not
+        // have made every 404 look like one.
+        UseSource(StubProductApi.FindsNothing());
+
+        await ProductCatalogHarness.WithLiveLookupAsync(async () =>
+        {
+            await ScanAsync(new ScanPantryItemDto { Barcode = Unknown });
+
+            Assert.That(_context.ProductCatalogMisses.Single().Attempts, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Info_WithRowsFromSeveralDatabases_CreditsEachOfThem()
+    {
+        await SeedAsync();
+        await SeedCatalogAsync();
+        await SeedCatalogAsync(barcode: "3600523351893", de: "Shampoo", source: ProductCatalogSources.OpenBeautyFacts);
+        await SeedCatalogAsync(barcode: "7610000000123", de: "Putzmittel", source: ProductCatalogSources.OpenProductsFacts);
+
+        var info = ((Ok<ProductCatalogInfoDto>)await _catalogEndpoint.InfoAsync(_context)).Value!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(info.Sources, Has.Count.EqualTo(3));
+
+            Assert.That(info.Sources.Select(s => s.Source), Is.EquivalentTo(new[]
+            {
+                ProductCatalogSources.OpenFoodFacts,
+                ProductCatalogSources.OpenBeautyFacts,
+                ProductCatalogSources.OpenProductsFacts,
+            }));
+
+            Assert.That(
+                info.Sources.Single(s => s.Source == ProductCatalogSources.OpenBeautyFacts).Attribution,
+                Does.Contain("Open Beauty Facts"));
+
+            // The scalar fields stay put for clients written when there was one database.
+            Assert.That(info.Source, Is.EqualTo(ProductCatalogSources.OpenFoodFacts));
+        });
+    }
+
+    [Test]
+    public async Task Export_WithRowsFromSeveralDatabases_NamesThemAllInOneNotice()
+    {
+        await SeedAsync();
+        await SeedCatalogAsync();
+        await SeedCatalogAsync(barcode: "3600523351893", de: "Shampoo", source: ProductCatalogSources.OpenBeautyFacts);
+
+        var (body, headers) = await ExportAsync();
+
+        var metadata = JsonDocument.Parse(body.Split('\n')[0]).RootElement;
+
+        Assert.Multiple(() =>
+        {
+            // ODbL 4.3 wants the notice to name the database being credited.
+            Assert.That(headers["X-Attribution"].ToString(), Does.Contain("Open Food Facts"));
+            Assert.That(headers["X-Attribution"].ToString(), Does.Contain("Open Beauty Facts"));
+
+            Assert.That(metadata.GetProperty("attribution").GetString(),
+                Does.Contain("Open Beauty Facts"));
+
+            Assert.That(metadata.GetProperty("sources").GetArrayLength(), Is.EqualTo(2));
+        });
+    }
+
     // ── Harness ──────────────────────────────────────────────────────────────
 
     /// <summary>The sweep, wired to a stand-in for the product API and a given number of tokens.</summary>
@@ -1453,7 +1634,12 @@ public class ProductCatalogTests
         var buffer = new MemoryStream();
         http.Response.Body = buffer;
 
-        await _catalogEndpoint.ExportAsync(after, _context, http).ExecuteAsync(http);
+        // Awaited twice on purpose: the endpoint became async when it started resolving the set of
+        // databases it credits before writing headers, so the call yields an IResult rather than
+        // being one.
+        var result = await _catalogEndpoint.ExportAsync(after, _context, http);
+
+        await result.ExecuteAsync(http);
 
         return (Encoding.UTF8.GetString(buffer.ToArray()), http.Response.Headers);
     }

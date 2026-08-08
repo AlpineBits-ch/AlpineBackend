@@ -110,13 +110,15 @@ public class MlsGroupService(
     }
 
     /// <summary>Turns encryption on by minting the next generation.</summary>
+    /// <param name="activatingDeviceId">The caller's device, from <c>X-Device-Id</c>.</param>
     public async Task<MlsOperationResult> EnableAsync(
         string contextId,
         string? conversationId,
         string? channelId,
         string userId,
         EnableMlsDto dto,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        string? activatingDeviceId = null)
     {
         if (dto.MlsGroupId is null || dto.MlsGroupId.Length == 0)
             return MlsOperationResult.BadRequest("MlsGroupId is required");
@@ -160,6 +162,7 @@ public class MlsGroupService(
             MlsGroupInfo = dto.MlsGroupInfo,
             Epoch = dto.Epoch,
             ActivatedByUserId = userId,
+            ActivatedByDeviceId = activatingDeviceId,
             ActivatedAt = now,
         });
         ctx.MlsGroupGenerations.Add(generation);
@@ -187,7 +190,7 @@ public class MlsGroupService(
             Encrypted = true,
             Generation = generation.Generation,
             UnreachableDevices = await ResolveEnableCoverageAsync(
-                contextId, conversationId, userId, recipients, stored),
+                contextId, conversationId, userId, activatingDeviceId, recipients, stored),
         });
     }
 
@@ -196,17 +199,24 @@ public class MlsGroupService(
         string contextId,
         string? conversationId,
         string enablingUserId,
+        string? activatingDeviceId,
         IReadOnlySet<string>? recipients,
         IReadOnlyCollection<DeviceWelcomeDto> stored)
     {
         if (conversationId is null || recipients is null) return [];
 
-        var others = recipients.Where(u => u != enablingUserId).ToList();
-        if (others.Count == 0) return [];
-
+        var scanned = recipients.Where(u => u != enablingUserId).ToList();
         var covered = stored.Select(w => (w.UserId, w.DeviceId)).ToHashSet();
 
-        return await coverage.ResolveAsync(contextId, others, covered);
+        if (!string.IsNullOrWhiteSpace(activatingDeviceId))
+        {
+            scanned.Add(enablingUserId);
+            covered.Add((enablingUserId, activatingDeviceId));
+        }
+
+        if (scanned.Count == 0) return [];
+
+        return await coverage.ResolveAsync(contextId, scanned, covered);
     }
 
     /// <summary>Turns encryption off by terminating the active generation.</summary>
@@ -474,14 +484,14 @@ public class MlsGroupService(
             Epoch = dto.Epoch,
             IsProposal = dto.IsProposal,
             UnreachableDevices = await ResolveCommitCoverageAsync(
-                contextId, active.Generation, userId, dto.SenderDeviceId, dto.Welcomes, storedWelcomes),
+                contextId, active, userId, dto.SenderDeviceId, dto.Welcomes, storedWelcomes),
         });
     }
 
     /// <summary>Which devices of the people this commit admits were left out of it.</summary>
     private async Task<List<UnreachableDeviceDto>> ResolveCommitCoverageAsync(
         string contextId,
-        int generation,
+        MlsGroupGeneration generation,
         string senderUserId,
         string senderDeviceId,
         IReadOnlyCollection<DeviceWelcomeDto> submittedWelcomes,
@@ -497,28 +507,114 @@ public class MlsGroupService(
             .Distinct()
             .ToList();
 
-        var covered = storedWelcomes.Select(w => (w.UserId, w.DeviceId)).ToHashSet();
+        var covered = await CoveredDevicesAsync(contextId, generation, welcomedUsers);
+
+        foreach (var welcome in storedWelcomes) covered.Add((welcome.UserId, welcome.DeviceId));
         covered.Add((senderUserId, senderDeviceId));
 
-        var priorWelcomes = await ctx.PendingWelcomes.AsNoTracking()
+        return await coverage.ResolveAsync(contextId, welcomedUsers, covered);
+    }
+
+    /// <summary>Which devices hold a leaf in a context's live group right now.</summary>
+    /// <param name="conversationId">
+    /// Set for a conversation, whose roster this service can read.
+    /// </param>
+    public async Task<MlsCoverageDto> GetCoverageAsync(
+        string contextId,
+        string? conversationId,
+        string callerUserId)
+    {
+        var active = await ctx.MlsGroupGenerations.AsNoTracking()
+            .FirstOrDefaultAsync(g => g.ContextId == contextId && g.State == MlsGenerationState.Active);
+
+        // Not encrypted is not the same as "everyone is outside the group", and a client that renders
+        // an empty coverage list as a warning would put a permanent one on every plaintext DM.
+        if (active is null) return new MlsCoverageDto { ContextId = contextId, Encrypted = false };
+
+        var audience = new List<string> { callerUserId };
+        if (conversationId is not null)
+        {
+            audience.AddRange(await ctx.Members.AsNoTracking()
+                .Where(m => m.ConversationId == conversationId && m.UserId != callerUserId)
+                .Select(m => m.UserId)
+                .ToListAsync());
+        }
+
+        var covered = await CoveredDevicesAsync(contextId, active, audience);
+        var roster = await coverage.LookupAsync(contextId, audience);
+
+        return new MlsCoverageDto
+        {
+            ContextId = contextId,
+            Encrypted = true,
+            Generation = active.Generation,
+            CoverageUnavailable = !roster.Resolved,
+            OwnDevices = roster.Devices
+                .Where(d => d.UserId == callerUserId)
+                .Select(d => new MlsDeviceCoverageDto
+                {
+                    DeviceId = d.ClientDeviceId,
+                    DeviceName = d.DeviceName,
+                    Covered = covered.Contains((d.UserId, d.ClientDeviceId)),
+                })
+                // Stable ordering, so refetching does not reshuffle the list under the reader
+                // between two identical answers.
+                .OrderBy(d => d.DeviceName, StringComparer.Ordinal)
+                .ThenBy(d => d.DeviceId, StringComparer.Ordinal)
+                .ToList(),
+            UnreachableDevices = roster.Devices
+                .Where(d => d.UserId != callerUserId && !covered.Contains((d.UserId, d.ClientDeviceId)))
+                .Select(d => new UnreachableDeviceDto
+                {
+                    UserId = d.UserId,
+                    DeviceId = d.ClientDeviceId,
+                    DeviceName = d.DeviceName,
+                })
+                .OrderBy(d => d.UserId, StringComparer.Ordinal)
+                .ThenBy(d => d.DeviceId, StringComparer.Ordinal)
+                .ToList(),
+        };
+    }
+
+    /// <summary>
+    /// Every <c>(userId, deviceId)</c> pair among <paramref name="users"/> that the server can see
+    /// holds a leaf in <paramref name="generation"/>.
+    /// </summary>
+    private async Task<HashSet<(string UserId, string DeviceId)>> CoveredDevicesAsync(
+        string contextId,
+        MlsGroupGeneration generation,
+        IReadOnlyCollection<string> users)
+    {
+        var scanned = users.Distinct().ToList();
+        var covered = new HashSet<(string UserId, string DeviceId)>();
+
+        if (scanned.Count == 0) return covered;
+
+        var welcomed = await ctx.PendingWelcomes.AsNoTracking()
             .Where(w => w.ContextId == contextId
-                        && w.Generation == generation
-                        && welcomedUsers.Contains(w.UserId))
+                        && w.Generation == generation.Generation
+                        && scanned.Contains(w.UserId))
             .Select(w => new { w.UserId, w.DeviceId })
             .ToListAsync();
 
-        foreach (var welcome in priorWelcomes) covered.Add((welcome.UserId, welcome.DeviceId));
+        foreach (var welcome in welcomed) covered.Add((welcome.UserId, welcome.DeviceId));
 
-        var priorCommitters = await ctx.MlsCommits.AsNoTracking()
+        var committers = await ctx.MlsCommits.AsNoTracking()
             .Where(c => c.ContextId == contextId
-                        && c.Generation == generation
-                        && welcomedUsers.Contains(c.SenderUserId))
+                        && c.Generation == generation.Generation
+                        && scanned.Contains(c.SenderUserId))
             .Select(c => new { c.SenderUserId, c.SenderDeviceId })
             .ToListAsync();
 
-        foreach (var commit in priorCommitters) covered.Add((commit.SenderUserId, commit.SenderDeviceId));
+        foreach (var commit in committers) covered.Add((commit.SenderUserId, commit.SenderDeviceId));
 
-        return await coverage.ResolveAsync(contextId, welcomedUsers, covered);
+        if (generation.ActivatedByDeviceId is { Length: > 0 } activatingDevice
+            && scanned.Contains(generation.ActivatedByUserId))
+        {
+            covered.Add((generation.ActivatedByUserId, activatingDevice));
+        }
+
+        return covered;
     }
 
     /// <summary>

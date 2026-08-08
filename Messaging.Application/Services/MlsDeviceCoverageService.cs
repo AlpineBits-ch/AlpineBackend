@@ -9,6 +9,46 @@ namespace Messaging.Application.Services;
 /// <summary>Which devices of a set of users were left outside an MLS group.</summary>
 public class MlsDeviceCoverageService(IMessageBus bus, ILogger<MlsDeviceCoverageService> logger)
 {
+    /// <summary>Every active device of the users that were asked about.</summary>
+    /// <param name="Resolved">
+    /// False when Identity did not answer, so <paramref name="Devices"/> is empty because nothing
+    /// could be read rather than because there is nothing to read.
+    /// </param>
+    public readonly record struct DeviceRoster(
+        bool Resolved,
+        IReadOnlyCollection<UserDeviceSummaryResponse> Devices);
+
+    /// <summary>
+    /// The active devices of <paramref name="userIds"/>, and whether Identity actually answered.
+    /// </summary>
+    public async Task<DeviceRoster> LookupAsync(string contextLabel, IReadOnlyCollection<string> userIds)
+    {
+        var targets = userIds
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct()
+            .ToList();
+
+        if (targets.Count == 0) return new DeviceRoster(Resolved: true, []);
+
+        try
+        {
+            var response = await bus.InvokeAsync<GetUserDevicesResponse>(
+                new GetUserDevicesRequest { UserIds = targets });
+
+            return new DeviceRoster(Resolved: true, response.Devices.ToList());
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                ex,
+                "Could not resolve device coverage for MLS context {Context}: Identity did not answer. "
+                + "Devices left out of this group will not be reported to the caller.",
+                contextLabel);
+
+            return new DeviceRoster(Resolved: false, []);
+        }
+    }
+
     /// <summary>
     /// The active devices of <paramref name="userIds"/> that are not in <paramref name="covered"/>.
     /// </summary>
@@ -24,30 +64,9 @@ public class MlsDeviceCoverageService(IMessageBus bus, ILogger<MlsDeviceCoverage
         IReadOnlyCollection<string> userIds,
         IReadOnlySet<(string UserId, string DeviceId)> covered)
     {
-        var targets = userIds
-            .Where(u => !string.IsNullOrWhiteSpace(u))
-            .Distinct()
-            .ToList();
+        var roster = await LookupAsync(contextLabel, userIds);
 
-        if (targets.Count == 0) return [];
-
-        GetUserDevicesResponse devices;
-        try
-        {
-            devices = await bus.InvokeAsync<GetUserDevicesResponse>(
-                new GetUserDevicesRequest { UserIds = targets });
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(
-                ex,
-                "Could not resolve device coverage for MLS context {Context}: Identity did not answer. "
-                + "Devices left out of this group will not be reported to the caller.",
-                contextLabel);
-            return [];
-        }
-
-        var missing = devices.Devices
+        var missing = roster.Devices
             .Where(d => !covered.Contains((d.UserId, d.ClientDeviceId)))
             .Select(d => new UnreachableDeviceDto
             {

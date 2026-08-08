@@ -23,6 +23,9 @@ public class ScanPantryItemResultDto
 /// <summary>What the shared catalog said, and who to credit for it.</summary>
 public class ProductCatalogMatchDto
 {
+    /// <summary>The EAN/GTIN this row is keyed on.</summary>
+    public required string Barcode { get; init; }
+
     public required string Name { get; init; }
 
     /// <summary>Which language column the name actually came from, which is not necessarily the one
@@ -57,12 +60,22 @@ public class ProductCatalogMatchDto
 /// <summary>What the ODbL 4.6 export is and where to get it.</summary>
 public class ProductCatalogInfoDto
 {
+    /// <summary>The primary database, kept as a scalar for clients written when there was only one.
+    /// <see cref="Sources"/> is the accurate answer once cosmetics and household products are
+    /// loaded, and a client that renders attribution should prefer it.</summary>
     public required string Source { get; init; }
+
     public required string SourceName { get; init; }
     public required string SourceUrl { get; init; }
     public required string License { get; init; }
     public required string LicenseUrl { get; init; }
     public required string Attribution { get; init; }
+
+    /// <summary>
+    /// Every database this catalog currently holds rows from, with the row count and the notice
+    /// each one is owed.
+    /// </summary>
+    public required IReadOnlyList<ProductCatalogSourceDto> Sources { get; init; }
 
     /// <summary>Rows currently in the derived table.</summary>
     public required int Count { get; init; }
@@ -79,6 +92,48 @@ public class ProductCatalogInfoDto
     /// <summary>Says in words what the export does and does not contain, so nobody has to infer the
     /// licence boundary from the field list.</summary>
     public required string Notice { get; init; }
+}
+
+/// <summary>A page of keyword search results over the shared product catalog.</summary>
+public class ProductCatalogSearchResultDto
+{
+    /// <summary>The query as it was interpreted, so a client can show "results for ..." without
+    /// guessing whether trimming changed anything.</summary>
+    public required string Query { get; init; }
+
+    public required IReadOnlyList<ProductCatalogMatchDto> Results { get; init; }
+
+    /// <summary>How many products matched, capped. See <see cref="CountIsLowerBound"/>.</summary>
+    public required int Count { get; init; }
+
+    /// <summary>
+    /// True when there were more matches than the counter bothers to count, so <see cref="Count"/>
+    /// means "at least this many".
+    /// </summary>
+    public required bool CountIsLowerBound { get; init; }
+
+    public required int Limit { get; init; }
+    public required int Offset { get; init; }
+
+    /// <summary>The notice covering this page, naming every database it drew a result from. The
+    /// per-result fields carry the same thing per row; this is the one to render under a result
+    /// list.</summary>
+    public required string Attribution { get; init; }
+
+    public required string License { get; init; }
+    public required string LicenseUrl { get; init; }
+}
+
+/// <summary>One database the catalog holds rows from, and what crediting it requires.</summary>
+public class ProductCatalogSourceDto
+{
+    public required string Source { get; init; }
+    public required string SourceName { get; init; }
+    public required string SourceUrl { get; init; }
+    public required string Attribution { get; init; }
+
+    /// <summary>Rows in the catalog from this database.</summary>
+    public required int Count { get; init; }
 }
 
 /// <summary>The outcome of one bulk import, for the operator who ran it.</summary>

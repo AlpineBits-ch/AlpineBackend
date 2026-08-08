@@ -113,19 +113,24 @@ internal sealed class StubProductApi(
             Content = new StringContent(body, Encoding.UTF8, "application/json"),
         }));
 
-    /// <summary>The v3 shape for a product that exists: a string status, and the product under its
-    /// own key with the source's own field names.</summary>
-    public static StubProductApi Finds(string barcode, string germanName, string? brand = null) =>
+    /// <summary>
+    /// The v3 shape for a product that exists: a string status, and the product under its own key
+    /// with the source's own field names.
+    /// </summary>
+    public static StubProductApi Finds(
+        string barcode, string germanName, string? brand = null, string productType = "food") =>
         Answers(HttpStatusCode.OK, JsonSerializer.Serialize(new
         {
             status = "success",
             code = barcode,
+            result = new { id = "product_found" },
             product = new
             {
                 product_name_de = germanName,
                 brands = brand,
                 product_quantity = 380,
                 product_quantity_unit = "g",
+                product_type = productType,
             },
         }));
 
@@ -133,6 +138,24 @@ internal sealed class StubProductApi(
     public static StubProductApi FindsNothing() =>
         Answers(HttpStatusCode.NotFound,
             """{"status":"failure","result":{"id":"product_not_found"}}""");
+
+    /// <summary>
+    /// The v3 shape for "that barcode is real, but it lives in another database".
+    /// </summary>
+    public static StubProductApi FindsInAnotherFlavour(string productType = "beauty") =>
+        Answers(HttpStatusCode.NotFound, JsonSerializer.Serialize(new
+        {
+            status = "failure",
+            result = new { id = "product_found_with_a_different_product_type" },
+            errors = new[]
+            {
+                new
+                {
+                    field = new { id = "product_type", value = productType },
+                    message = new { id = "product_found_with_a_different_product_type" },
+                },
+            },
+        }));
 
     /// <summary>Never answers.</summary>
     public static StubProductApi Hangs() =>

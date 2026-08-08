@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -52,28 +53,78 @@ public class ProductCatalogImportService(
     public async Task<ImportReport> ImportAsync(
         Stream ndjson, string source, string sourceVersion, CancellationToken ct = default)
     {
-        var report = new ImportReport { SourceVersion = sourceVersion };
+        // Counted alongside rather than on the report, because the report is built by the method
+        // being fed and a line that will not parse never reaches it.
+        var tally = new ParseTally();
 
+        var report = await ImportAsync(
+            ReadLinesAsync(ndjson, tally, ct), source, sourceVersion, null, ct);
+
+        report.Malformed = tally.Malformed;
+
+        // Read means "lines in the file", which includes the ones that turned out to be rubbish.
+        report.Read += tally.Malformed;
+
+        return report;
+    }
+
+    private sealed class ParseTally
+    {
+        public int Malformed;
+    }
+
+    /// <summary>Newline-delimited JSON off a stream, one <see cref="Line"/> at a time.</summary>
+    private async IAsyncEnumerable<Line> ReadLinesAsync(
+        Stream ndjson, ParseTally tally, [EnumeratorCancellation] CancellationToken ct)
+    {
         using var reader = new StreamReader(ndjson, Encoding.UTF8, leaveOpen: true);
-
-        // Keyed rather than a list so a barcode repeated inside one batch collapses to its last
-        // occurrence.
-        var batch = new Dictionary<string, Line>(BatchSize, StringComparer.Ordinal);
 
         while (await reader.ReadLineAsync(ct) is { } raw)
         {
             if (raw.Length == 0) continue;
 
-            report.Read++;
-
             if (raw.Length > MaxLineLength)
             {
-                report.Malformed++;
+                tally.Malformed++;
                 continue;
             }
 
-            var line = TryParse(raw, report);
-            if (line is null) continue;
+            Line? line;
+            try
+            {
+                line = JsonSerializer.Deserialize<Line>(raw, Json);
+            }
+            catch (JsonException)
+            {
+                // Swallowed rather than thrown: one bad line in a hundred-thousand-line extract
+                // must not abandon the other ninety-nine thousand.
+                line = null;
+            }
+
+            if (line is null)
+            {
+                tally.Malformed++;
+                continue;
+            }
+
+            yield return line;
+        }
+    }
+
+    /// <summary>The same upsert, over lines from anywhere.</summary>
+    public async Task<ImportReport> ImportAsync(
+        IAsyncEnumerable<Line> lines, string source, string sourceVersion, TimeSpan? batchPause,
+        CancellationToken ct = default)
+    {
+        var report = new ImportReport { SourceVersion = sourceVersion };
+
+        // Keyed rather than a list so a barcode repeated inside one batch collapses to its last
+        // occurrence.
+        var batch = new Dictionary<string, Line>(BatchSize, StringComparer.Ordinal);
+
+        await foreach (var line in lines.WithCancellation(ct))
+        {
+            report.Read++;
 
             var barcode = Normalise(line.Barcode, ProductCatalogEntry.MaxBarcodeLength);
 
@@ -87,7 +138,11 @@ public class ProductCatalogImportService(
 
             batch[barcode] = line;
 
-            if (batch.Count >= BatchSize) await FlushAsync(batch, source, sourceVersion, report, ct);
+            if (batch.Count < BatchSize) continue;
+
+            await FlushAsync(batch, source, sourceVersion, report, ct);
+
+            if (batchPause is { } pause && pause > TimeSpan.Zero) await Task.Delay(pause, ct);
         }
 
         await FlushAsync(batch, source, sourceVersion, report, ct);
@@ -99,23 +154,6 @@ public class ProductCatalogImportService(
             report.Malformed, report.MissesResolved);
 
         return report;
-    }
-
-    private Line? TryParse(string raw, ImportReport report)
-    {
-        try
-        {
-            var line = JsonSerializer.Deserialize<Line>(raw, Json);
-            if (line is not null) return line;
-        }
-        catch (JsonException)
-        {
-            // Swallowed rather than thrown: one bad line in a hundred-thousand-line extract must
-            // not abandon the other ninety-nine thousand.
-        }
-
-        report.Malformed++;
-        return null;
     }
 
     private async Task FlushAsync(

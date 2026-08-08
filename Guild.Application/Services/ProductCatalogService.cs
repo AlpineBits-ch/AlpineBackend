@@ -50,8 +50,7 @@ public class ProductCatalogService(MicroserviceContext ctx, ProductCatalogLookup
         switch (outcome.Kind)
         {
             case ProductCatalogLookupService.LookupKind.Found:
-                var fetched = ProductCatalogLookupService.BuildEntry(
-                    barcode, outcome.Product!, miss.Source, now);
+                var fetched = ProductCatalogLookupService.BuildEntry(barcode, outcome.Product!, now);
 
                 // The source has the product and cannot name it in any language.
                 if (fetched is null)
@@ -78,6 +77,9 @@ public class ProductCatalogService(MicroserviceContext ctx, ProductCatalogLookup
                 return null;
 
             case ProductCatalogLookupService.LookupKind.Unreachable:
+
+            // Grouped with the outage rather than left to fall through untouched.
+            case ProductCatalogLookupService.LookupKind.WrongProductType:
                 miss.RecordUnreachable(now);
                 return null;
 
@@ -155,19 +157,25 @@ public class ProductCatalogService(MicroserviceContext ctx, ProductCatalogLookup
     }
 
     /// <summary>The wire shape of a catalog hit, attribution included.</summary>
-    public static ProductCatalogMatchDto ToDto(Match match) => new()
+    public static ProductCatalogMatchDto ToDto(Match match)
     {
-        Name = match.Name,
-        Language = match.Language,
-        Brand = match.Entry.Brand,
-        Quantity = match.Entry.Quantity,
-        QuantityUnit = match.Entry.QuantityUnit,
-        Source = match.Entry.Source,
-        SourceName = ProductCatalogSources.OpenFoodFactsName,
-        SourceUrl = ProductCatalogSources.ProductUrl(match.Entry.Barcode),
-        License = ProductCatalogSources.LicenseName,
-        LicenseUrl = ProductCatalogSources.LicenseUrl,
-        Attribution = ProductCatalogSources.Attribution,
-        ImportedAt = match.Entry.ImportedAt,
-    };
+        var source = ProductCatalogSources.For(match.Entry.Source);
+
+        return new ProductCatalogMatchDto
+        {
+            Barcode = match.Entry.Barcode,
+            Name = match.Name,
+            Language = match.Language,
+            Brand = match.Entry.Brand,
+            Quantity = match.Entry.Quantity,
+            QuantityUnit = match.Entry.QuantityUnit,
+            Source = match.Entry.Source,
+            SourceName = source.Name,
+            SourceUrl = source.ProductUrl(match.Entry.Barcode),
+            License = ProductCatalogSources.LicenseName,
+            LicenseUrl = ProductCatalogSources.LicenseUrl,
+            Attribution = source.Attribution,
+            ImportedAt = match.Entry.ImportedAt,
+        };
+    }
 }

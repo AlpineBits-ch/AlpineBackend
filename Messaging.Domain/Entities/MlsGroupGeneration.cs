@@ -14,6 +14,9 @@ public class CreateMlsGroupGenerationParams
     public long Epoch { get; init; }
     public string ActivatedByUserId { get; init; } = null!;
 
+    /// <summary>Client device id of the device that built this group, when the caller sent one.</summary>
+    public string? ActivatedByDeviceId { get; init; }
+
     /// <summary>Activation time.</summary>
     public DateTimeOffset ActivatedAt { get; init; }
 }
@@ -50,6 +53,12 @@ public class MlsGroupGeneration : BaseEntity<MlsGroupGeneration>, IPrefixedEntit
     public DateTimeOffset ActivatedAt { get; set; }
     public string ActivatedByUserId { get; set; } = null!;
 
+    /// <summary>
+    /// The one device of <see cref="ActivatedByUserId"/> that actually built this group, or null
+    /// when the client sent no <c>X-Device-Id</c>.
+    /// </summary>
+    public string? ActivatedByDeviceId { get; set; }
+
     public DateTimeOffset? TerminatedAt { get; set; }
     public string? TerminatedByUserId { get; set; }
 
@@ -73,6 +82,9 @@ public class MlsGroupGeneration : BaseEntity<MlsGroupGeneration>, IPrefixedEntit
             State = MlsGenerationState.Active,
             ActivatedAt = date,
             ActivatedByUserId = parameters.ActivatedByUserId,
+            ActivatedByDeviceId = string.IsNullOrWhiteSpace(parameters.ActivatedByDeviceId)
+                ? null
+                : parameters.ActivatedByDeviceId.Trim(),
         };
     }
 

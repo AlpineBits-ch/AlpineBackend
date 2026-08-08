@@ -113,12 +113,12 @@ public class MlsEndpoints
     }
 
     /// <summary>
-    /// Turns encryption on for a conversation, or re-keys it by minting the next generation.
+    /// Which devices can read this conversation, asked after the fact rather than only in the
+    /// response to the write that formed the group.
     /// </summary>
-    [WolverinePost("/api/v1/conversations/{conversationId}/mls/enable")]
-    public static async Task<IResult> EnableConversationMls(
+    [WolverineGet("/api/v1/conversations/{conversationId}/mls/coverage")]
+    public static async Task<IResult> GetConversationMlsCoverage(
         string conversationId,
-        EnableMlsDto dto,
         [NotBody] ClaimsPrincipal user,
         [NotBody] ConversationPermissionService permissions,
         [NotBody] MlsGroupService mls)
@@ -128,8 +128,36 @@ public class MlsEndpoints
 
         if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
 
+        return Results.Ok(await mls.GetCoverageAsync(conversationId, conversationId, userId));
+    }
+
+    /// <summary>
+    /// Turns encryption on for a conversation, or re-keys it by minting the next generation.
+    /// </summary>
+    [WolverinePost("/api/v1/conversations/{conversationId}/mls/enable")]
+    public static async Task<IResult> EnableConversationMls(
+        string conversationId,
+        EnableMlsDto dto,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
+        [NotBody] ConversationPermissionService permissions,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissions.HasPermission(userId, conversationId)) return Results.Forbid();
+
         return ToHttp(await mls.EnableAsync(
-            conversationId, conversationId, null, userId, dto, DateTimeOffset.UtcNow));
+            conversationId, conversationId, null, userId, dto, DateTimeOffset.UtcNow,
+            ActivatingDevice(http)));
+    }
+
+    /// <summary>The device that built the group being published, from <c>X-Device-Id</c>.</summary>
+    private static string? ActivatingDevice(HttpContext http)
+    {
+        var header = http.Request.Headers[DeviceIdentity.HeaderName].ToString();
+        return string.IsNullOrWhiteSpace(header) ? null : header.Trim();
     }
 
     /// <summary>Turns encryption off for a conversation.</summary>
@@ -157,6 +185,7 @@ public class MlsEndpoints
         string channelId,
         EnableMlsDto dto,
         [NotBody] ClaimsPrincipal user,
+        [NotBody] HttpContext http,
         [NotBody] IMessageBus bus,
         [NotBody] MlsGroupService mls)
     {
@@ -165,7 +194,9 @@ public class MlsEndpoints
 
         if (!await CanManageChannel(bus, userId, channelId)) return Results.Forbid();
 
-        var result = await mls.EnableAsync(channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow);
+        var result = await mls.EnableAsync(
+            channelId, null, channelId, userId, dto, DateTimeOffset.UtcNow, ActivatingDevice(http));
+
         return ToHttp(result);
     }
 
@@ -201,6 +232,23 @@ public class MlsEndpoints
             return Results.Forbid();
 
         return Results.Ok(await mls.GetStateAsync(channelId, userId));
+    }
+
+    /// <summary>Which of the caller's devices can read this channel.</summary>
+    [WolverineGet("/api/v1/channels/{channelId}/mls/coverage")]
+    public static async Task<IResult> GetChannelMlsCoverage(
+        string channelId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus,
+        [NotBody] MlsGroupService mls)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await HasChannelPermission(bus, userId, channelId, ExternalPermission.ViewChannel))
+            return Results.Forbid();
+
+        return Results.Ok(await mls.GetCoverageAsync(channelId, null, userId));
     }
 
     /// <summary>Publishing a commit needs only ViewChannel: adding and removing group members tracks

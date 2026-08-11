@@ -26,6 +26,18 @@
     --pane-pad: 38px;
 }
 
+/* The `hidden` attribute is only `display: none` in the user-agent stylesheet, which means ANY
+   rule in this file that sets a display wins against it. That is not a nit: app.js hides eight
+   elements this way, and the QR spinner is one of them - `.qr-veil { display: flex }` beat
+   `veil.hidden = true`, so an 86%-opaque white overlay stayed on top of a perfectly good QR code
+   forever. It reads exactly like a code that never loaded, which is how it was reported.
+
+   Global and `!important` on purpose. Per-element `[hidden]` rules are the same bug waiting for
+   the next element somebody hides, and this file gives five more of them a display: #qr-image,
+   #login-account, #consent-logo-fallback, #steam-crest-icon and #verify-email-field were all one
+   state change away from the same failure. */
+[hidden] { display: none !important; }
+
 /* ── Stage ───────────────────────────────────────────────────────────────────
    A single wash of brand colour from above, strong enough to stop the page
    reading as a grey form on grey paper and weak enough that nothing on the card
@@ -76,7 +88,8 @@ body {
 
 .shell[data-wide] { max-width: var(--auth-wide); }
 
-.screen[hidden] { display: none; }
+/* .screen[hidden] used to be declared here. It is covered by the global [hidden] rule at the top
+   of this file, which exists because seven other elements were NOT covered. */
 
 .pane { padding: var(--pane-pad); }
 

@@ -321,38 +321,8 @@ using var scope = app.Services.CreateScope();
 
 var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
 
-var echoApplication = await manager.FindByClientIdAsync("echo");
-if (echoApplication == null)
-{
-    await manager.CreateAsync(new OpenIddictApplicationDescriptor
-    {
-        ClientId = "echo",
-        DisplayName = "Echo Application",
-        Permissions =
-        {
-            OpenIddictConstants.Permissions.Endpoints.Token,
-            OpenIddictConstants.Permissions.GrantTypes.Password,
-            OpenIddictConstants.Permissions.GrantTypes.RefreshToken,
-            OpenIddictConstants.Permissions.Prefixes.GrantType + SteamOpenIdService.SteamGrantType,
-            OpenIddictConstants.Permissions.Prefixes.GrantType + QrLoginService.QrGrantType,
-            OpenIddictConstants.Permissions.Scopes.Email,
-            OpenIddictConstants.Permissions.Scopes.Profile,
-            OpenIddictConstants.Permissions.Scopes.Roles,
-        }
-    });
-}
-else
-{
-    // The block above only runs once, on first-ever startup - on every environment that already has
-    // an "echo" client row, a newly added grant type (like the QR login one) would otherwise never
-    // reach its permission list.
-    var descriptor = new OpenIddictApplicationDescriptor();
-    await manager.PopulateAsync(descriptor, echoApplication);
-    if (descriptor.Permissions.Add(OpenIddictConstants.Permissions.Prefixes.GrantType + QrLoginService.QrGrantType))
-    {
-        await manager.UpdateAsync(echoApplication, descriptor);
-    }
-}
+// Creates the first-party `echo` client, and backfills any permission an existing row is missing.
+await Identity.Application.Services.EchoClientBootstrap.EnsureAsync(manager);
 
 // The SSO client allowlist (docs/specs/sso.md §7).
 {

@@ -110,6 +110,8 @@ public static class ProxyConfig
         {
             RouteId = "identity-connect-route",
             ClusterId = "identity-connect-cluster",
+            // Cross-origin sign-in.
+            CorsPolicy = Sites.SsoCors.PolicyName,
             Match = new RouteMatch { Path = "/connect/{**catch-all}" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
             xDefault: ForwardedTransformActions.Append,
@@ -121,6 +123,9 @@ public static class ProxyConfig
         {
             RouteId = "identity-openid-config-route",
             ClusterId = "identity-oauth-cluster",
+            // The discovery document is the first thing any OIDC library fetches, from the
+            // partner's own origin. Public by specification.
+            CorsPolicy = Sites.SsoCors.PolicyName,
             Match = new RouteMatch { Path = "/.well-known/openid-configuration" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
             xDefault: ForwardedTransformActions.Append,
@@ -132,6 +137,8 @@ public static class ProxyConfig
         {
             RouteId = "identity-jwks-route",
             ClusterId = "identity-oauth-cluster",
+            // Signing keys, fetched by the partner's library to validate the id_token. Public.
+            CorsPolicy = Sites.SsoCors.PolicyName,
             Match = new RouteMatch { Path = "/.well-known/jwks" }
         }.WithTransformXForwarded(  headerPrefix: "X-Forwarded-",
             xDefault: ForwardedTransformActions.Append,

@@ -128,6 +128,10 @@ builder.Services.AddInfrastructure();
 
 builder.Services.AddSignalR()
     .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
+// Cross-origin sign-in for partner sites, scoped to the OIDC protocol endpoints and attached to
+// individual proxy routes rather than to a path prefix.
+builder.Services.AddSsoCors();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AlpinePolicy", policy =>

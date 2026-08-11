@@ -601,7 +601,7 @@ authorize/stash/login/callback path crosses both and the interesting failures ar
 | **4** | **Done.** `AuthClientRegistry` reconciles `AUTH_CLIENTS` into the OpenIddict tables, additive-then-diff, disabling rather than deleting a withdrawn client. |
 | **5** | **Done.** `SiteHosting` wiring on `AUTH_DOMAIN`, `AuthSiteSecurity` (CSP + `no-store`), `Echo/wwwroot/auth/{index.html,auth.css,app.js}`, and the states in §9.2. QR codes are rendered server-side (`GET /qr-login/{code}/svg`) because the CSP rules out a CDN library and a hand-written encoder fails invisibly. |
 | **6** | **Done.** Steam return URL is per-flow and allowlisted (`SteamReturnTargets`), the unlinked SteamID gets the two-door screen backed by a 30-minute pending-link ticket, and the password grant accepts an email address. |
-| **7** | `/sessions` ("sites and devices you are signed in to"). **`/register`, `/verify`, `/forgot` and `/reset` were pulled forward into Phase 5** rather than shipping a sign-in screen whose own links dead-ended. |
+| **7** | **Done.** `/sessions` ("where you are signed in"), backed by cookie-authenticated `GET`/`DELETE /api/v1/sso/sessions` - not the bearer-authenticated `SessionController`, because the site trades its access token for the cookie and keeps no token. Reached from the sign-out screen, which is where somebody is already thinking about it. **`/register`, `/verify`, `/forgot` and `/reset` were pulled forward into Phase 5** rather than shipping a sign-in screen whose own links dead-ended. |
 | **8** | **Done.** `AUTH_ISSUER_URL` (shared block - every service reads it), `AUTH_DOMAIN` and `AUTH_CLIENTS` in `deploy/compose.yaml`; `--auth-domain` plus a Caddy block in both installers; the host rule and both configmap keys in `alpine-infra`; and [sso-integration.md](./sso-integration.md), the partner guide. |
 
 **Deployment note.** Everything above is config; the one thing that is not derivable is the
@@ -628,7 +628,10 @@ additive.
    Production with no `IDENTITY_SIGNING_CERT` rather than silently signing with a key that changes
    on every restart.
 3. **No back-channel logout** (§3.3). A deliberate v1 omission with a real consequence: signing out
-   at Venta does not sign you out of a partner site's own session.
+   at Venta does not sign you out of a partner site's own session. No longer hypothetical now that
+   `isle.venta.gg` exists. `/sessions` (Phase 7) is the mitigation and not a fix - it lets somebody
+   revoke that session deliberately, but nothing propagates a sign-out on its own, and the revoked
+   site keeps working until its current access token expires.
 4. **Access tokens outlive revocation** by up to their lifetime (§4.3). Pre-existing, unchanged,
    and now visible to third parties.
 5. **The `rq` parameter rides on the resumed authorization request.** `/connect/authorize/resume`

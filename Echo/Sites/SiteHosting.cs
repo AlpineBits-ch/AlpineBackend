@@ -64,7 +64,8 @@ public static class SiteHosting
 
     /// <summary>Paths on the sign-in host that are pages rather than files.</summary>
     private static readonly string[] AuthClientRoutes =
-        ["/login", "/consent", "/logout", "/steam", "/register", "/verify", "/forgot", "/reset"];
+        ["/login", "/consent", "/logout", "/steam", "/register", "/verify", "/forgot", "/reset",
+         "/sessions"];
 
     /// <summary>Paths on the status host that are pages rather than files.</summary>
     private static readonly string[] StatusClientRoutes = ["/incident", "/history", "/maintenance"];

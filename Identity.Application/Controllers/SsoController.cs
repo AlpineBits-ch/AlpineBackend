@@ -118,6 +118,78 @@ public class SsoController(
         return NoContent();
     }
 
+    // ── sites and devices ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Every unrevoked login this account has, which is the only place a person can see that a
+    /// partner site holds a session at all.
+    /// </summary>
+    [HttpGet("sessions")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetSessions(CancellationToken ct)
+    {
+        var cookie = await HttpContext.AuthenticateAsync(SsoCookie.Scheme);
+        var user = await ResolveAsync(cookie, ct);
+        if (user is null) return Unauthorized();
+
+        var current = SsoCookie.SessionId(cookie.Principal);
+
+        var sessions = await ctx.LoginSessions.AsNoTracking()
+            .Where(s => s.UserId == user.Id && s.RevokedAt == null)
+            .OrderByDescending(s => s.LastUsedAt)
+            .ToListAsync(ct);
+
+        return Ok(sessions.Select(s => new SsoSessionEntryDto
+        {
+            Id = s.Id,
+            Name = s.DeviceName,
+            DeviceType = s.DeviceType.ToString(),
+            CreatedAt = s.CreatedAt,
+            LastUsedAt = s.LastUsedAt,
+            IsCurrent = s.Id == current,
+        }));
+    }
+
+    /// <summary>Revokes one login.</summary>
+    [HttpDelete("sessions/{sessionId}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RevokeSession(string sessionId, CancellationToken ct)
+    {
+        var cookie = await HttpContext.AuthenticateAsync(SsoCookie.Scheme);
+        var user = await ResolveAsync(cookie, ct);
+        if (user is null) return Unauthorized();
+
+        var session = await ctx.LoginSessions.FirstOrDefaultAsync(s => s.Id == sessionId, ct);
+
+        // Not found and not yours are the same answer on purpose: a distinguishable 403 turns this
+        // into an oracle for whether a session id exists.
+        if (session is null || session.UserId != user.Id) return NotFound();
+
+        if (!session.IsRevoked)
+        {
+            session.Revoke();
+
+            if (session.DeviceId is not null)
+            {
+                var tokens = await ctx.UserPushTokens
+                    .Where(t => t.DeviceId == session.DeviceId)
+                    .ToListAsync(ct);
+                ctx.UserPushTokens.RemoveRange(tokens);
+            }
+
+            await ctx.SaveChangesAsync(ct);
+        }
+
+        // Revoking the browser's own session signs it out here too, or the page would keep a cookie
+        // whose session is gone and every later request would 401 with no explanation.
+        if (session.Id == SsoCookie.SessionId(cookie.Principal))
+        {
+            await HttpContext.SignOutAsync(SsoCookie.Scheme);
+        }
+
+        return NoContent();
+    }
+
     // ── the parked request ──────────────────────────────────────────────────
 
     /// <summary>

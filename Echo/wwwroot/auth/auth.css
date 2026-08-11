@@ -347,6 +347,59 @@ body {
 .scope-list strong { display: block; font-size: 14px; font-weight: 570; }
 .scope-list span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 
+/* ── Sites and devices ──────────────────────────────────────────────────────── */
+.session-list {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.session-list li {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 13px 15px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.session-list li:first-child { border-top: 0; }
+.session-list [data-icon] { color: var(--muted); font-size: 16px; flex: 0 0 auto; }
+
+.session-body { min-width: 0; flex: 1; }
+.session-body strong { display: block; font-size: 14px; font-weight: 570; }
+.session-body span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+.session-current {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--ok);
+}
+
+/* The destructive control is quiet until it is hovered: this list is read far more often than it
+   is acted on, and a row of red buttons reads as a warning about the page rather than an option. */
+.session-revoke {
+    flex: 0 0 auto;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 11px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color .15s ease, border-color .15s ease;
+}
+
+.session-revoke:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
+.session-revoke:disabled { opacity: .5; cursor: default; }
+
+.session-empty { font-size: 13.5px; color: var(--muted); margin: 16px 0 0; }
+.footnote { font-size: 12.5px; color: var(--muted); margin: 18px 0 0; }
+
 /* ── QR panel ───────────────────────────────────────────────────────────────── */
 .qr-toggle { display: none; }
 

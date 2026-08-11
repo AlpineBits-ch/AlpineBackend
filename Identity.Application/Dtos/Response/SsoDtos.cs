@@ -16,6 +16,19 @@ public class SsoSessionDto
     public DateTimeOffset? AuthenticatedAt { get; init; }
 }
 
+/// <summary>One login on the "sites and devices" screen.</summary>
+public class SsoSessionEntryDto
+{
+    public required string Id { get; init; }
+    public string? Name { get; init; }
+    public string? DeviceType { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? LastUsedAt { get; init; }
+
+    /// <summary>The browser reading this list. Revoking it signs this page out.</summary>
+    public bool IsCurrent { get; init; }
+}
+
 /// <summary>
 /// The display projection of a parked authorization or end-session request - see docs/specs/sso.md
 /// §3.1.

@@ -177,6 +177,109 @@ public class SsoAuthorizationTests
         });
     }
 
+    // ── Sites and devices ───────────────────────────────────────────────────
+
+    private static async Task<JsonElement> SessionsAsync(string cookie)
+    {
+        var result = await Host.Scenario(x =>
+        {
+            x.Get.Url("/api/v1/sso/sessions");
+            x.WithRequestHeader("Cookie", cookie);
+            x.StatusCodeShouldBeOk();
+        });
+
+        return JsonDocument.Parse(result.ReadAsText()).RootElement;
+    }
+
+    /// <summary>
+    /// Normal: after signing in to a relying party, the sessions screen shows both the browser's own
+    /// session and the one the site holds - which is the only place that second one is visible.
+    /// </summary>
+    [Test]
+    public async Task The_sessions_list_shows_the_session_a_relying_party_holds()
+    {
+        var account = await RegisterAsync();
+        var cookie = await SsoCookieAsync(account.Username);
+
+        var before = (await SessionsAsync(cookie)).GetArrayLength();
+
+        await LocationAsync(AuthorizeUrl(FirstParty, FirstPartyRedirect, NewPkce().Challenge), cookie);
+
+        var after = await SessionsAsync(cookie);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(after.GetArrayLength(), Is.EqualTo(before + 1),
+                "authorizing a client mints a session of its own");
+            Assert.That(after.EnumerateArray().Any(s => s.GetProperty("isCurrent").GetBoolean()),
+                Is.True, "the browser's own session is marked, so it can say 'this browser'");
+            Assert.That(after.EnumerateArray().Any(s =>
+                    s.GetProperty("name").GetString()?.Contains("Test Site", StringComparison.Ordinal) == true),
+                Is.True, "the client's display name is what makes this a list of sites");
+        });
+    }
+
+    /// <summary>Negative: no cookie, no list. Unlike GET session, this one is not anonymous.</summary>
+    [Test]
+    public async Task The_sessions_list_requires_a_browser_session()
+    {
+        await Host.Scenario(x =>
+        {
+            x.Get.Url("/api/v1/sso/sessions");
+            x.StatusCodeShouldBe(HttpStatusCode.Unauthorized);
+        });
+    }
+
+    /// <summary>
+    /// Negative: somebody else's session id is refused, and refused as <c>404</c> rather than
+    /// <c>403</c> so the endpoint cannot be used to test whether an id exists.
+    /// </summary>
+    [Test]
+    public async Task Another_accounts_session_cannot_be_revoked()
+    {
+        var mine = await SsoCookieAsync((await RegisterAsync()).Username);
+        var theirs = await SsoCookieAsync((await RegisterAsync()).Username);
+
+        var target = (await SessionsAsync(theirs)).EnumerateArray().First().GetProperty("id").GetString();
+
+        await Host.Scenario(x =>
+        {
+            x.Delete.Url($"/api/v1/sso/sessions/{target}");
+            x.WithRequestHeader("Cookie", mine);
+            x.StatusCodeShouldBe(HttpStatusCode.NotFound);
+        });
+
+        Assert.That((await SessionsAsync(theirs)).GetArrayLength(), Is.GreaterThan(0),
+            "the other account's session must survive");
+    }
+
+    /// <summary>
+    /// Edge: revoking a relying party's session stops it authorizing again, which is the whole point
+    /// of the screen - there is no back-channel logout, so this is the only lever.
+    /// </summary>
+    [Test]
+    public async Task A_revoked_session_no_longer_appears()
+    {
+        var account = await RegisterAsync();
+        var cookie = await SsoCookieAsync(account.Username);
+
+        await LocationAsync(AuthorizeUrl(FirstParty, FirstPartyRedirect, NewPkce().Challenge), cookie);
+
+        var client = (await SessionsAsync(cookie)).EnumerateArray()
+            .First(s => !s.GetProperty("isCurrent").GetBoolean());
+        var id = client.GetProperty("id").GetString();
+
+        await Host.Scenario(x =>
+        {
+            x.Delete.Url($"/api/v1/sso/sessions/{id}");
+            x.WithRequestHeader("Cookie", cookie);
+            x.StatusCodeShouldBe(HttpStatusCode.NoContent);
+        });
+
+        Assert.That((await SessionsAsync(cookie)).EnumerateArray().Any(s => s.GetProperty("id").GetString() == id),
+            Is.False);
+    }
+
     /// <summary>
     /// Edge: a plain-http loopback redirect URI, which is what `ng serve` on localhost:4200 uses.
     /// </summary>

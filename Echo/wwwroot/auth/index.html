@@ -180,6 +180,35 @@
           <button class="btn" type="button" id="logout-cancel">Stay signed in</button>
           <button class="btn primary" type="button" id="logout-confirm">Sign out</button>
         </div>
+
+        <p class="footnote">
+          Signing out here does not sign out sites you have connected.
+          <a href="/sessions">See where you are signed in</a>.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ Sites and devices ═══════════════════════════════════════════════
+         Every unrevoked login, including the ones partner sites hold. The only
+         place signing out of one of those is possible - there is no
+         back-channel logout (docs/specs/sso.md §3.3). -->
+    <section class="screen" data-screen="sessions" hidden>
+      <div class="pane">
+        <h1>Where you are signed in</h1>
+        <p class="sub">
+          Every site and device using your venta account. Signing one out stops it renewing.
+        </p>
+
+        <div id="sessions-alert" role="alert"></div>
+
+        <ul class="session-list" id="session-list"></ul>
+
+        <p class="session-empty" id="sessions-empty" hidden>Nothing else is signed in.</p>
+
+        <p class="footnote">
+          A site that is signed out here keeps working until the token it already holds runs out,
+          which can take up to an hour.
+        </p>
       </div>
     </section>
 

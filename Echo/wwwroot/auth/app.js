@@ -1109,6 +1109,97 @@
         location.assign(href);
     }
 
+    // ── Sites and devices ───────────────────────────────────────────────────
+
+    const DEVICE_ICONS = { Mobile: 'mobile', Web: 'external-link', Desktop: 'key' };
+
+    function relative(value) {
+        if (!value) return 'never used';
+
+        const minutes = Math.round((Date.now() - new Date(value).getTime()) / 60000);
+
+        if (minutes < 2) return 'active now';
+        if (minutes < 60) return `${minutes} minutes ago`;
+
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+
+        const days = Math.round(hours / 24);
+        return days < 30 ? `${days} ${days === 1 ? 'day' : 'days'} ago` : new Date(value).toLocaleDateString();
+    }
+
+    async function openSessions() {
+        show('sessions');
+        await loadSessions();
+    }
+
+    async function loadSessions() {
+        const list = $('#session-list');
+        const result = await call('GET', `${API}/sso/sessions`);
+
+        if (result.status === 401) {
+            list.replaceChildren();
+            $('#sessions-empty').hidden = true;
+            notify($('#sessions-alert'), 'info', 'Sign in to see where your account is being used. ',
+                link('Sign in', signInHref()));
+            return;
+        }
+
+        if (!result.ok) {
+            list.replaceChildren();
+            notify($('#sessions-alert'), 'danger', 'Could not load your sessions just now.');
+            return;
+        }
+
+        $('#sessions-alert').replaceChildren();
+
+        const sessions = result.data || [];
+        list.replaceChildren(...sessions.map(renderSession));
+        $('#sessions-empty').hidden = sessions.length > 0;
+    }
+
+    function renderSession(session) {
+        const row = el('li');
+        row.append(icon(DEVICE_ICONS[session.deviceType] || 'key'));
+
+        const body = el('div', 'session-body');
+        body.append(el('strong', null, session.name || 'Unnamed session'));
+        body.append(el('span', null, `${relative(session.lastUsedAt || session.createdAt)}`));
+        row.append(body);
+
+        if (session.isCurrent) {
+            row.append(el('span', 'session-current', 'This browser'));
+        }
+
+        const button = el('button', 'session-revoke', session.isCurrent ? 'Sign out' : 'Remove');
+        button.type = 'button';
+        button.addEventListener('click', () => revokeSession(session, button));
+        row.append(button);
+
+        return row;
+    }
+
+    async function revokeSession(session, button) {
+        button.disabled = true;
+
+        const result = await call('DELETE', `${API}/sso/sessions/${encodeURIComponent(session.id)}`);
+
+        if (!result.ok) {
+            button.disabled = false;
+            notify($('#sessions-alert'), 'danger', 'That could not be signed out. Try again.');
+            return;
+        }
+
+        // Revoking this browser's own session took the cookie with it, so there is nothing left to
+        // list - going to the sign-in page is the only honest next screen.
+        if (session.isCurrent) {
+            go(signInHref());
+            return;
+        }
+
+        await loadSessions();
+    }
+
     async function route() {
         const params = new URLSearchParams(location.search);
 
@@ -1128,6 +1219,7 @@
             case '/verify': return openVerify();
             case '/forgot': return show('forgot');
             case '/reset': return openReset();
+            case '/sessions': return openSessions();
             default: return openLogin();
         }
     }

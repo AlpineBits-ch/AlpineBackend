@@ -72,6 +72,14 @@ public static class SiteHosting
     /// <summary>Paths on the support host that are pages rather than files.</summary>
     private static readonly string[] SupportClientRoutes = ["/contact", "/appeal", "/ticket"];
 
+    /// <summary>How long a browser may reuse a site asset without asking.</summary>
+    public static string CachePolicy(string fileName) =>
+        fileName.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".css", StringComparison.OrdinalIgnoreCase)
+        || fileName.EndsWith(".js", StringComparison.OrdinalIgnoreCase)
+            ? "no-cache"
+            : "public, max-age=86400";
+
     private static void ServeSite(
         this WebApplication app, string root, string host, IFileProvider? iconProvider,
         string[]? clientRoutes = null)
@@ -113,14 +121,14 @@ public static class SiteHosting
 
                 if (iconProvider is not null)
                 {
-                    // Mounted before the site's own files so a page cannot shadow /icons with a
+                    // Mounted before the site's own files so a page cannot shadow /assets with a
                     // stale local copy.
                     branch.UseStaticFiles(new StaticFileOptions
                     {
                         FileProvider = iconProvider,
                         RequestPath = "/assets",
                         OnPrepareResponse = ctx =>
-                            ctx.Context.Response.Headers.CacheControl = "public, max-age=86400",
+                            ctx.Context.Response.Headers.CacheControl = CachePolicy(ctx.File.Name),
                     });
                 }
 
@@ -128,17 +136,7 @@ public static class SiteHosting
                 {
                     FileProvider = files,
                     OnPrepareResponse = ctx =>
-                    {
-                        var name = ctx.File.Name;
-
-                        // The pages are hand-written and shipped inside the image, so they change
-                        // only on deploy - but they have no content hash in their names either, so a
-                        // long cache would strand an operator on yesterday's console. Revalidate.
-                        ctx.Context.Response.Headers.CacheControl =
-                            name.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
-                                ? "no-cache"
-                                : "public, max-age=3600";
-                    },
+                        ctx.Context.Response.Headers.CacheControl = CachePolicy(ctx.File.Name),
                 });
             });
     }

@@ -144,4 +144,33 @@ public class SiteHostTests
         Assert.That(url, Does.StartWith("http"));
         Assert.That(url, Does.EndWith("://support.venta.gg"));
     }
+
+    // ── Cache policy ─────────────────────────────────────────────────────────
+
+    /// <summary>Anything that carries behaviour or layout must revalidate.</summary>
+    [TestCase("index.html")]
+    [TestCase("auth.css")]
+    [TestCase("venta.css")]
+    [TestCase("app.js")]
+    [TestCase("icons.js")]
+    public void Behavioural_assets_revalidate(string fileName)
+    {
+        Assert.That(SiteHosting.CachePolicy(fileName), Is.EqualTo("no-cache"));
+    }
+
+    /// <summary>Artwork keeps a long cache. A stale icon is a stale icon.</summary>
+    [TestCase("venta-mark.svg")]
+    [TestCase("inter.woff2")]
+    [TestCase("favicon.ico")]
+    public void Artwork_is_cached(string fileName)
+    {
+        Assert.That(SiteHosting.CachePolicy(fileName), Does.StartWith("public, max-age="));
+    }
+
+    /// <summary>Case is not a promise a filename makes. <c>APP.JS</c> is still a script.</summary>
+    [Test]
+    public void The_extension_match_is_case_insensitive()
+    {
+        Assert.That(SiteHosting.CachePolicy("APP.JS"), Is.EqualTo("no-cache"));
+    }
 }

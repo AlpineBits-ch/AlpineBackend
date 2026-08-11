@@ -19,6 +19,8 @@ public class SsoAuthorizationTests
     private const string FirstParty = "test-first-party";
     private const string ThirdParty = "test-third-party";
     private const string FirstPartyRedirect = "https://rp.example.com/callback";
+    private const string Loopback = "test-loopback";
+    private const string LoopbackRedirect = "http://localhost:4200/auth/callback";
 
     private static IAlbaHost Host => AppFixture.Host;
 
@@ -173,6 +175,40 @@ public class SsoAuthorizationTests
             Assert.That(tokens.TryGetProperty("id_token", out _), Is.True,
                 "the openid scope was granted, so an identity token is part of the response");
         });
+    }
+
+    /// <summary>
+    /// Edge: a plain-http loopback redirect URI, which is what `ng serve` on localhost:4200 uses.
+    /// </summary>
+    [Test]
+    public async Task A_loopback_http_redirect_uri_completes_the_flow()
+    {
+        var account = await RegisterAsync();
+        var cookie = await SsoCookieAsync(account.Username);
+        var pkce = NewPkce();
+
+        var location = await LocationAsync(AuthorizeUrl(Loopback, LoopbackRedirect, pkce.Challenge), cookie);
+
+        Assert.That(location, Does.StartWith(LoopbackRedirect),
+            "http on a loopback host must be accepted, or local development cannot sign in");
+
+        var code = System.Web.HttpUtility.ParseQueryString(new Uri(location!).Query)["code"];
+
+        var exchange = await Host.Scenario(x =>
+        {
+            x.Post.FormData(new Dictionary<string, string>
+            {
+                ["grant_type"] = "authorization_code",
+                ["client_id"] = Loopback,
+                ["redirect_uri"] = LoopbackRedirect,
+                ["code"] = code!,
+                ["code_verifier"] = pkce.Verifier,
+            }).ToUrl("/connect/token");
+            x.StatusCodeShouldBeOk();
+        });
+
+        Assert.That(JsonDocument.Parse(exchange.ReadAsText()).RootElement.TryGetProperty("access_token", out _),
+            Is.True);
     }
 
     /// <summary>Edge: no browser session.</summary>

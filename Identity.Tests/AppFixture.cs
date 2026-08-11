@@ -33,7 +33,12 @@ public class AppFixture
               { "clientId": "test-third-party", "displayName": "Third Party",
                 "redirectUris": ["https://third.example.com/callback"],
                 "scopes": ["openid", "profile"],
-                "firstParty": false, "public": true }
+                "firstParty": false, "public": true },
+              { "clientId": "test-loopback", "displayName": "Local Dev",
+                "redirectUris": ["http://localhost:4200/auth/callback"],
+                "postLogoutRedirectUris": ["http://localhost:4200/"],
+                "scopes": ["openid", "profile", "email"],
+                "firstParty": true, "public": true }
             ]
             """);
         

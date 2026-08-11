@@ -61,6 +61,13 @@ migration step - the installer never needs `dotnet ef`.
 * For a federating, publicly reachable instance: a DNS **A/AAAA record for your API
   hostname and for the storage hostname**, both pointing at the host, with inbound TCP
   80 and 443 open.
+* The gateway also serves five sites, each gated on its own hostname: `docs.`, `admin.`,
+  `support.`, `status.` and `auth.` of your API hostname by default. They all point at the
+  same host, so a wildcard record covers them, and each one you skip simply has no site.
+  **`auth.` is the exception**: it is the OIDC issuer, so a partner site's server fetches
+  `https://auth.<domain>/.well-known/openid-configuration` from the outside and sends
+  people's browsers there to sign in. Without that record SSO does not work, though the
+  chat product still does - the mobile and web clients never touch it.
 * On Windows: Docker Desktop in **Linux container** mode (its default). The installer
   refuses to continue in Windows-container mode.
 

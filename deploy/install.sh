@@ -57,6 +57,7 @@ ARG_DOCS_DOMAIN=""
 ARG_ADMIN_DOMAIN=""
 ARG_SUPPORT_DOMAIN=""
 ARG_STATUS_DOMAIN=""
+ARG_AUTH_DOMAIN=""
 ARG_INSTANCE_NAME=""
 ARG_ACME_EMAIL=""
 ARG_TLS_MODE=""              # letsencrypt | local | external-proxy
@@ -78,6 +79,8 @@ Venta self-hosted installer (Linux)
   --docs-domain <host>         public hostname for the API reference (default: docs.<domain>)
   --admin-domain <host>        public hostname for the moderation console (default: admin.<domain>)
   --support-domain <host>      public hostname for the support site (default: support.<domain>)
+  --status-domain <host>       public hostname for the status page (default: status.<domain>)
+  --auth-domain <host>         public hostname for sign-in / SSO (default: auth.<domain>)
   --instance-name <name>       federation display name for this instance
   --acme-email <email>         contact address for Let's Encrypt
   --tls <mode>                 letsencrypt (default) | local | external-proxy
@@ -107,6 +110,7 @@ while [[ $# -gt 0 ]]; do
         --admin-domain)       ARG_ADMIN_DOMAIN="$2"; shift 2 ;;
         --support-domain)     ARG_SUPPORT_DOMAIN="$2"; shift 2 ;;
         --status-domain)      ARG_STATUS_DOMAIN="$2"; shift 2 ;;
+        --auth-domain)        ARG_AUTH_DOMAIN="$2"; shift 2 ;;
         --instance-name)      ARG_INSTANCE_NAME="$2"; shift 2 ;;
         --acme-email)         ARG_ACME_EMAIL="$2"; shift 2 ;;
         --tls)                ARG_TLS_MODE="$2"; shift 2 ;;
@@ -302,6 +306,7 @@ if [[ "$REUSE_ENV" == false ]]; then
             ADMIN_DOMAIN="$(sanitize "${ARG_ADMIN_DOMAIN:-$(ask 'Public hostname for the moderation console' "admin.$INSTANCE_DOMAIN")}")"
             SUPPORT_DOMAIN="$(sanitize "${ARG_SUPPORT_DOMAIN:-$(ask 'Public hostname for the support site' "support.$INSTANCE_DOMAIN")}")"
             STATUS_DOMAIN="$(sanitize "${ARG_STATUS_DOMAIN:-$(ask 'Public hostname for the status page' "status.$INSTANCE_DOMAIN")}")"
+            AUTH_DOMAIN="$(sanitize "${ARG_AUTH_DOMAIN:-$(ask 'Public hostname for sign-in / SSO' "auth.$INSTANCE_DOMAIN")}")"
             INSTANCE_URL="https://$INSTANCE_DOMAIN"
             STORAGE_PUBLIC_URL="https://$STORAGE_DOMAIN"
             ;;
@@ -411,6 +416,14 @@ fi
 : "${ADMIN_DOMAIN:=${INSTANCE_DOMAIN:+admin.$INSTANCE_DOMAIN}}"
 : "${SUPPORT_DOMAIN:=${INSTANCE_DOMAIN:+support.$INSTANCE_DOMAIN}}"
 : "${STATUS_DOMAIN:=${INSTANCE_DOMAIN:+status.$INSTANCE_DOMAIN}}"
+: "${AUTH_DOMAIN:=${INSTANCE_DOMAIN:+auth.$INSTANCE_DOMAIN}}"
+# Left empty on purpose. The issuer defaults to auth.<instance host>, i.e. exactly AUTH_DOMAIN,
+# and every service derives the same value - so setting it here would only create a second place
+# for the two to disagree. See the AUTH_ISSUER_URL comment in compose.yaml.
+: "${AUTH_ISSUER_URL:=}"
+# The OIDC client allowlist. No prompt: it is a JSON array, nobody types one at an install
+# prompt, and an instance with no partner sites correctly has none. See docs/specs/sso-integration.md.
+: "${AUTH_CLIENTS:=}"
 : "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
 : "${USE_EXTERNAL_DB:=no}"
 : "${DATABASE_HOSTNAME:=postgres}"
@@ -557,7 +570,18 @@ DOCS_DOMAIN="${DOCS_DOMAIN:-}"
 ADMIN_DOMAIN="${ADMIN_DOMAIN:-}"
 SUPPORT_DOMAIN="${SUPPORT_DOMAIN:-}"
 STATUS_DOMAIN="${STATUS_DOMAIN:-}"
+AUTH_DOMAIN="${AUTH_DOMAIN:-}"
 ASPNETCORE_ENVIRONMENT="Production"
+
+# ── Sign-in / SSO ────────────────────────────────────────────────────────────────────
+# AUTH_ISSUER_URL empty means auth.<instance host>. Every service reads it, so if you ever
+# set it, set it once here - a service left behind rejects every token the others accept.
+AUTH_ISSUER_URL="${AUTH_ISSUER_URL:-}"
+# Sites allowed to sign people in through this instance, as a JSON array on ONE line. Empty
+# means none, which is correct until you have one. Worked example and the full field list:
+# docs/specs/sso-integration.md. Single quotes - the value is full of double quotes.
+#   AUTH_CLIENTS='[{"clientId":"wiki","displayName":"Wiki","redirectUris":["https://wiki.example.com/callback"],"scopes":["openid","profile","email"],"firstParty":true,"public":true}]'
+AUTH_CLIENTS='${AUTH_CLIENTS:-}'
 
 # ── Images ───────────────────────────────────────────────────────────────────────────
 IMAGE_SOURCE="$IMAGE_SOURCE"
@@ -805,6 +829,26 @@ $STATUS_DOMAIN {
 		header_up X-Echo-Proxy-Auth "$GATEWAY_PROXY_SECRET"
 	}
 }
+
+# Sign-in and SSO. Same container and the same Host-header gating as the sites above, but this
+# hostname is not only a page: it is the OIDC issuer. /connect/**, /.well-known/openid-configuration
+# and /.well-known/jwks all answer here, proxied through to Identity, and a partner site's server
+# will fetch the last two from the outside.
+#
+# So, unlike the others, this block failing is not "a page is missing" - it is every sign-in
+# through this instance failing. Two consequences worth stating:
+#   * it must be reachable publicly and over real TLS. An OIDC client will refuse a plain-http
+#     issuer, and this is where people type their password;
+#   * do not put a gate of any kind in front of it (IP allowlist, basic auth), for the same
+#     reason as $SUPPORT_DOMAIN: the people who need it are by definition not signed in yet.
+$AUTH_DOMAIN {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$GATEWAY_PROXY_SECRET"
+	}
+}
 CADDY
     ok "wrote $GENERATED_DIR/Caddyfile (Let's Encrypt, HTTP-01 on :80)"
 
@@ -826,6 +870,15 @@ else
 
     ${BOLD}https://$INSTANCE_DOMAIN${NC}   ->  http://127.0.0.1:8080     (must forward WebSocket upgrades)
     ${BOLD}https://${STORAGE_DOMAIN}${NC}  ->  http://127.0.0.1:9000
+
+  The gateway also serves five sites, each on its own hostname and nowhere else, all on the
+  same 127.0.0.1:8080. Send them there too, preserving the Host header:
+
+    ${BOLD}${DOCS_DOMAIN}${NC} ${BOLD}${ADMIN_DOMAIN}${NC} ${BOLD}${SUPPORT_DOMAIN}${NC} ${BOLD}${STATUS_DOMAIN}${NC} ${BOLD}${AUTH_DOMAIN}${NC}
+
+  ${AUTH_DOMAIN} is the one that is more than a page: it is this instance's OIDC issuer, so
+  /connect/** and /.well-known/openid-configuration answer there and partner sites fetch them
+  from the outside. It needs public DNS and real TLS, and no gate in front of it.
 
   Forward the usual X-Forwarded-For / -Proto / -Host headers, and allow request bodies
   of at least 100 MB (500 MB on the storage host).

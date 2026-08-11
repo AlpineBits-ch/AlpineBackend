@@ -58,6 +58,20 @@ x-app-env: &app-env
   ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
 
   # --- Auth ---------------------------------------------------------------------------
+  # The OIDC issuer: the name Identity stamps into every `iss` claim and every other service
+  # checks it against. It is IN THE SHARED BLOCK for that reason - one service left on a
+  # different value rejects every token the others accept, and the symptom is a 401 that
+  # reads exactly like a signing-key problem. If you change it, all nine change together.
+  #
+  # Nothing fetches this. Services still discover keys through INSTANCE_URL (see
+  # Echo.Auth/VentaJwtAuthentication.cs), which is the address already proven to answer from
+  # inside the container network, so auth.<host> does not have to exist in DNS for the stack
+  # to work - it only has to exist for the sign-in site to be reachable.
+  #
+  # Empty means "auth.<INSTANCE_URL host>", which is what the installers configure Caddy and
+  # AUTH_DOMAIN for. Set it only to move the issuer somewhere else entirely, and expect every
+  # existing token to stop validating at the moment you do.
+  AUTH_ISSUER_URL: "${AUTH_ISSUER_URL:-}"
   AUTH_REQUIRE_USER_EMAIL_VERIFICATION: "${AUTH_REQUIRE_USER_EMAIL_VERIFICATION:-false}"
   IDENTITY_KEY_PASSWORD: "${IDENTITY_KEY_PASSWORD}"
   IDENTITY_SIGNING_CERT: "${IDENTITY_SIGNING_CERT:-}"
@@ -291,6 +305,28 @@ services:
     environment:
       <<: *app-env
       DATABASE_NAME: identity_db
+      # The OIDC client allowlist, as a JSON array - the only way a site is allowed to start an
+      # authorization-code flow against this instance. Reconciled into OpenIddict's tables at
+      # every startup, so adding a site is an edit here plus `ventactl restart identity`, and
+      # removing one DISABLES the row rather than deleting it (existing tokens keep validating
+      # until they expire - revoke them if that matters).
+      #
+      # Empty by default and that is the right default: a fresh instance with no partner sites
+      # should have no client able to ask it for a token. The sign-in site itself does not need
+      # an entry - Identity bootstraps its own `echo` client.
+      #
+      # Shape and a worked example: docs/specs/sso-integration.md. Single line, single quotes:
+      #   AUTH_CLIENTS='[{"clientId":"wiki","displayName":"Venta Wiki",
+      #                   "redirectUris":["https://wiki.example.com/callback"],
+      #                   "scopes":["openid","profile","email"],"firstParty":true,"public":true}]'
+      #
+      # A CONFIDENTIAL client ("public": false) also needs its secret, under a name derived from
+      # the client id - uppercased, every non-alphanumeric character replaced with an underscore,
+      # prefixed AUTH_CLIENT_SECRET_ (Env.AuthConfiguration.ClientSecretVariable). Compose cannot
+      # forward a name it does not know, so add the line yourself next to this one, e.g.
+      #   AUTH_CLIENT_SECRET_WIKI: "${AUTH_CLIENT_SECRET_WIKI:-}"
+      # Browser and mobile clients should be public + PKCE instead; PKCE is required either way.
+      AUTH_CLIENTS: "${AUTH_CLIENTS:-}"
       STEAM_PUBLIC_BASE_URL: "${STEAM_PUBLIC_BASE_URL:-${INSTANCE_URL}}"
       STEAM_PUBLIC_CALLBACK_PATH: "${STEAM_PUBLIC_CALLBACK_PATH:-/api/v1/identity/authentication/steam/callback}"
       STEAM_CLIENT_RETURN_URL: "${STEAM_CLIENT_RETURN_URL:-venta://steam-auth}"
@@ -534,6 +570,15 @@ services:
       # the thresholds below are only for tuning an instance whose traffic is noisier or quieter
       # than the defaults assume. STATUS_AUTO_DETECTION=0 leaves the page and the console fully
       # working and stops anything being published without a person doing it.
+      # The sign-in site, same mechanism again - but this one is not just a page. The OIDC
+      # endpoints answer on this hostname too (/connect/**, /.well-known/openid-configuration,
+      # /.well-known/jwks are proxied through to Identity), so this name and AUTH_ISSUER_URL
+      # describe the same host and must agree. Left empty both derive auth.<instance host>,
+      # which is what the installers configure Caddy for.
+      #
+      # This is also the one site hostname that needs a DNS record before it does anything:
+      # a partner site sends a person's browser to it by name.
+      AUTH_DOMAIN: "${AUTH_DOMAIN:-}"
       STATUS_DOMAIN: "${STATUS_DOMAIN:-}"
       STATUS_AUTO_DETECTION: "${STATUS_AUTO_DETECTION:-}"
       STATUS_DEGRADED_RATE: "${STATUS_DEGRADED_RATE:-}"

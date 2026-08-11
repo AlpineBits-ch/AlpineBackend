@@ -602,9 +602,18 @@ authorize/stash/login/callback path crosses both and the interesting failures ar
 | **5** | **Done.** `SiteHosting` wiring on `AUTH_DOMAIN`, `AuthSiteSecurity` (CSP + `no-store`), `Echo/wwwroot/auth/{index.html,auth.css,app.js}`, and the states in §9.2. QR codes are rendered server-side (`GET /qr-login/{code}/svg`) because the CSP rules out a CDN library and a hand-written encoder fails invisibly. |
 | **6** | **Done.** Steam return URL is per-flow and allowlisted (`SteamReturnTargets`), the unlinked SteamID gets the two-door screen backed by a 30-minute pending-link ticket, and the password grant accepts an email address. |
 | **7** | `/sessions` ("sites and devices you are signed in to"). **`/register`, `/verify`, `/forgot` and `/reset` were pulled forward into Phase 5** rather than shipping a sign-in screen whose own links dead-ended. |
-| **8** | Deploy variables, installers, Caddy blocks, and the partner integration guide. |
+| **8** | **Done.** `AUTH_ISSUER_URL` (shared block - every service reads it), `AUTH_DOMAIN` and `AUTH_CLIENTS` in `deploy/compose.yaml`; `--auth-domain` plus a Caddy block in both installers; the host rule and both configmap keys in `alpine-infra`; and [sso-integration.md](./sso-integration.md), the partner guide. |
 
-**Not yet deployed.** `AUTH_DOMAIN` and `AUTH_CLIENTS` are not in `deploy/compose.yaml` or either installer, and no Caddy block serves the host - that is Phase 8. Until then the site answers only where the operator wires the hostname by hand, and `AUTH_CLIENTS` defaults to empty, so no client can start an authorization-code flow.
+**Deployment note.** Everything above is config; the one thing that is not derivable is the
+`auth.<domain>` **DNS record and its Ingress/Caddy host rule**. Without it the host resolves to the
+edge, the edge has no router for it, and the symptom is a plain 404 over http and a TLS handshake
+failure over https - not a gateway error, because the request never reaches the gateway. On the
+hosted instance that rule is `echo/templates/ingress.yaml`; the runbook is
+`alpine-infra/DEPLOYMENT-SSO.md`.
+
+`AUTH_CLIENTS` ships empty, on both compose and Kubernetes. That is correct rather than
+unfinished: the sign-in site, the OIDC endpoints and every first-party client work without it, and
+an instance with no partner sites should have no client able to start an authorization-code flow.
 
 Phases 1 and 2 ship together and are the only ones with a rollback cost; everything after is
 additive.

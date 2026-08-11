@@ -38,6 +38,7 @@ param(
     [string]$AdminDomain,
     [string]$SupportDomain,
     [string]$StatusDomain,
+    [string]$AuthDomain,
     [string]$InstanceName,
     [string]$AcmeEmail,
     [ValidateSet('letsencrypt', 'local', 'external-proxy')]
@@ -287,6 +288,9 @@ if (-not $ReuseEnv) {
             $Config['STATUS_DOMAIN'] = Format-EnvValue (
                 Get-Setting -Preset $StatusDomain -Prompt 'Public hostname for the status page' `
                             -Default "status.$($Config['INSTANCE_DOMAIN'])")
+            $Config['AUTH_DOMAIN'] = Format-EnvValue (
+                Get-Setting -Preset $AuthDomain -Prompt 'Public hostname for sign-in / SSO' `
+                            -Default "auth.$($Config['INSTANCE_DOMAIN'])")
             $Config['INSTANCE_URL']       = "https://$($Config['INSTANCE_DOMAIN'])"
             $Config['STORAGE_PUBLIC_URL'] = "https://$($Config['STORAGE_DOMAIN'])"
         }
@@ -305,6 +309,7 @@ if (-not $ReuseEnv) {
             $Config['ADMIN_DOMAIN']       = ''
             $Config['SUPPORT_DOMAIN']     = ''
             $Config['STATUS_DOMAIN']      = ''
+            $Config['AUTH_DOMAIN']        = ''
             $Config['INSTANCE_URL']       = "http://$($Config['INSTANCE_DOMAIN']):8080"
             $Config['STORAGE_PUBLIC_URL'] = "http://$($Config['INSTANCE_DOMAIN']):9000"
         }
@@ -386,7 +391,12 @@ if (-not $ReuseEnv) {
 $Defaults = @{
     INSTANCE_NAME = 'Venta'; INSTANCE_DOMAIN = ''; TLS_MODE = 'local'; ACME_EMAIL = ''
     INSTANCE_URL = 'http://127.0.0.1:8080'; STORAGE_DOMAIN = ''; STORAGE_PUBLIC_URL = 'http://127.0.0.1:9000'
-    DOCS_DOMAIN = ''; ADMIN_DOMAIN = ''; SUPPORT_DOMAIN = ''; STATUS_DOMAIN = ''
+    DOCS_DOMAIN = ''; ADMIN_DOMAIN = ''; SUPPORT_DOMAIN = ''; STATUS_DOMAIN = ''; AUTH_DOMAIN = ''
+    # AUTH_ISSUER_URL empty means auth.<instance host>, which is AUTH_DOMAIN - so leaving both
+    # to derive keeps them in agreement. AUTH_CLIENTS is the JSON allowlist of sites permitted
+    # to sign people in through this instance; empty until there is one. See
+    # docs/specs/sso-integration.md.
+    AUTH_ISSUER_URL = ''; AUTH_CLIENTS = ''
     USE_EXTERNAL_DB = 'no'; DATABASE_HOSTNAME = 'postgres'; DATABASE_PORT = '5432'
     DATABASE_USERNAME = 'postgres'; DATABASE_PASSWORD = (New-Secret 24)
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
@@ -556,7 +566,18 @@ DOCS_DOMAIN="$($Config['DOCS_DOMAIN'])"
 ADMIN_DOMAIN="$($Config['ADMIN_DOMAIN'])"
 SUPPORT_DOMAIN="$($Config['SUPPORT_DOMAIN'])"
 STATUS_DOMAIN="$($Config['STATUS_DOMAIN'])"
+AUTH_DOMAIN="$($Config['AUTH_DOMAIN'])"
 ASPNETCORE_ENVIRONMENT="Production"
+
+# -- Sign-in / SSO ---------------------------------------------------------------------
+# AUTH_ISSUER_URL empty means auth.<instance host>. Every service reads it, so if you ever
+# set it, set it once here - a service left behind rejects every token the others accept.
+AUTH_ISSUER_URL="$($Config['AUTH_ISSUER_URL'])"
+# Sites allowed to sign people in through this instance, as a JSON array on ONE line. Empty
+# means none, which is correct until you have one. Worked example and the full field list:
+# docs/specs/sso-integration.md. Single quotes - the value is full of double quotes.
+#   AUTH_CLIENTS='[{"clientId":"wiki","displayName":"Wiki","redirectUris":["https://wiki.example.com/callback"],"scopes":["openid","profile","email"],"firstParty":true,"public":true}]'
+AUTH_CLIENTS='$($Config['AUTH_CLIENTS'])'
 
 # -- Images ---------------------------------------------------------------------------
 IMAGE_SOURCE="$($Config['IMAGE_SOURCE'])"
@@ -809,6 +830,26 @@ $($Config['STATUS_DOMAIN']) {
 		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
 	}
 }
+
+# Sign-in and SSO. Same container and the same Host-header gating as the sites above, but this
+# hostname is not only a page: it is the OIDC issuer. /connect/**, /.well-known/openid-configuration
+# and /.well-known/jwks all answer here, proxied through to Identity, and a partner site's server
+# will fetch the last two from the outside.
+#
+# So, unlike the others, this block failing is not "a page is missing" - it is every sign-in
+# through this instance failing. Two consequences worth stating:
+#   * it must be reachable publicly and over real TLS. An OIDC client will refuse a plain-http
+#     issuer, and this is where people type their password;
+#   * do not put a gate of any kind in front of it (IP allowlist, basic auth), for the same
+#     reason as the support host: the people who need it are by definition not signed in yet.
+$($Config['AUTH_DOMAIN']) {
+	encode zstd gzip
+
+	reverse_proxy echo:8080 {
+		header_up X-Forwarded-Proto https
+		header_up X-Echo-Proxy-Auth "$($Config['GATEWAY_PROXY_SECRET'])"
+	}
+}
 "@
     # LF line endings: Caddy is fine with CRLF, but the file is read inside a Linux container.
     [IO.File]::WriteAllText($caddyfilePath, ($caddyfile -replace "`r`n", "`n"), (New-Object Text.UTF8Encoding $false))
@@ -830,6 +871,15 @@ else {
         Write-Host ''
         Write-Host "    https://$($Config['INSTANCE_DOMAIN'])   ->  http://127.0.0.1:8080     (must forward WebSocket upgrades)"
         Write-Host "    https://$($Config['STORAGE_DOMAIN'])  ->  http://127.0.0.1:9000"
+        Write-Host ''
+        Write-Host '  The gateway also serves five sites, each on its own hostname and nowhere else, all'
+        Write-Host '  on the same 127.0.0.1:8080. Send them there too, preserving the Host header:'
+        Write-Host ''
+        Write-Host "    $($Config['DOCS_DOMAIN']) $($Config['ADMIN_DOMAIN']) $($Config['SUPPORT_DOMAIN']) $($Config['STATUS_DOMAIN']) $($Config['AUTH_DOMAIN'])"
+        Write-Host ''
+        Write-Host "  $($Config['AUTH_DOMAIN']) is the one that is more than a page: it is this instance's OIDC"
+        Write-Host '  issuer, so /connect/** and /.well-known/openid-configuration answer there and partner'
+        Write-Host '  sites fetch them from the outside. It needs public DNS and real TLS, and no gate.'
         Write-Host ''
         Write-Host '  Forward the usual X-Forwarded-For / -Proto / -Host headers, and allow request'
         Write-Host '  bodies of at least 100 MB (500 MB on the storage host).'

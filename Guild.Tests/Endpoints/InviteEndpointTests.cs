@@ -410,6 +410,46 @@ public class InviteEndpointTests
         Assert.That(reloaded.State, Is.EqualTo(InviteState.Expired));
     }
 
+    /// <summary>
+    /// The join must be committed by the time the endpoint returns, not left to the transactional
+    /// middleware at the end of the handler.
+    /// </summary>
+    [Test]
+    public async Task RedeemInvite_Valid_PersistsTheJoinBeforeAnythingCanResolvePermissions()
+    {
+        await SeedRedeemableGuild();
+        var invite = await SeedInvite();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+
+        var result = await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
+
+        Assert.That(result, Is.InstanceOf<Accepted>());
+        var member = await _context.GuildMembers.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.GuildId == GuildId && m.UserId == UserId);
+        Assert.That(member, Is.Not.Null, "the membership must be readable the moment redeem returns");
+        var roleMember = await _context.RoleMembers.AsNoTracking()
+            .FirstOrDefaultAsync(rm => rm.MemberId == member!.Id && rm.RoleId == EveryoneRoleId);
+        Assert.That(roleMember, Is.Not.Null, "@everyone is where the joiner's base permissions come from");
+    }
+
+    /// <summary>A refused join must still commit nothing - the early returns above the insert are
+    /// what keep a rejected redeem from leaving a membership behind, and moving the commit into the
+    /// handler is exactly the change that could break that.</summary>
+    [Test]
+    public async Task RedeemInvite_MissingEveryoneRole_CommitsNoMembership()
+    {
+        _context.Guilds.Add(MakeGuild());
+        await _context.SaveChangesAsync();
+        var invite = await SeedInvite();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+
+        await _endpoint.RedeemInviteAsync(invite.Id, TestPrincipal.Create(UserId), _context, _cache, _bus, _hub, _hydrateService);
+
+        var members = await _context.GuildMembers.AsNoTracking()
+            .Where(m => m.GuildId == GuildId && m.UserId == UserId).ToListAsync();
+        Assert.That(members, Is.Empty);
+    }
+
     [Test]
     public async Task RedeemInvite_Valid_InvalidatesUserPermissionCache()
     {

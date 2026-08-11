@@ -229,9 +229,18 @@ public class InviteEndpoint
             RoleId = role.Id,
         });
 
+        // Committed here rather than left to the transactional middleware at the end of the
+        // handler, because everything below this line can cause this account's permissions to be
+        // resolved - and resolving them while the GuildMember row is still uncommitted takes the
+        // fail-closed non-member branch in ComputePermissionsForUserAsync, which caches "holds
+        // nothing" for 15 minutes.
+        await ctx.SaveChangesAsync();
+
         var cacheKeyOne = GuildPermissionsForUser.GetCacheKey(guild.Id, userId);
         await cache.RemoveAsync(cacheKeyOne);
 
+        // Per-channel entries are keyed but never written - ComputePermissionsForUserAsync caches
+        // the whole resolved set under the key above - so this clears nothing today.
         foreach (var channel in guild.Channels)
         {
             var cacheKey = GuildChannelPermission.GetCacheKey(guild.Id, channel.Id, userId);

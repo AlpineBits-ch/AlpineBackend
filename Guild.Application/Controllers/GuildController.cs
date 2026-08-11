@@ -31,12 +31,23 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             return Unauthorized();
         }
 
-        return Ok(ctx.Guilds
+        // Awaited here rather than handing the IQueryable to Ok() and letting serialization
+        // enumerate it after this action has already returned. The SQL is unaffected - mapping with
+        // `Select(g => g.ToFacet<...>())` is client-evaluated over the materialized entity and keeps
+        // all three Includes, verified against the Npgsql generator in
+        // GuildListQueryTranslationTests - so this is about *when* the query runs, not what it
+        // returns: inside the action, where the DbContext's lifetime and this method's error
+        // handling still apply, and consistently with every sibling endpoint here (GetInvitesAsync,
+        // GetGuildMembers, GetGuild below), which all materialize before mapping.
+        var guilds = await ctx.Guilds
             .Include(g => g.Channels.OrderBy(c => c.CreatedAt))
             .Include(g => g.Roles.OrderBy(r => r.Position))
             .Include(g => g.Categories.OrderBy(c => c.CreatedAt))
-            .Where(g => g.Members.Any(m => m.UserId == userId)).AsNoTracking()
-            .Select(g => g.ToFacet<Domain.Aggregates.Guild, GuildDto>()));
+            .Where(g => g.Members.Any(m => m.UserId == userId))
+            .AsNoTracking()
+            .ToListAsync();
+
+        return Ok(guilds.SelectFacets<Domain.Aggregates.Guild, GuildDto>());
     }
 
     [HttpGet("{id}")]

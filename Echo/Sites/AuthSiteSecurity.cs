@@ -35,6 +35,9 @@ public static class AuthSiteSecurity
                 // Keeps the parked-request id and any login_hint out of onward requests.
                 headers["Referrer-Policy"] = "no-referrer";
 
+                // Once a browser has reached this host over TLS, never let it try plain http again.
+                headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+
                 // A sign-in page cached by an intermediary is a sign-in page served to the next
                 // person on the same connection, and every response here that is not a static asset
                 // is either a document about who somebody is or a token exchange.

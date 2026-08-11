@@ -100,6 +100,19 @@ public class SiteAssetPathTests
     }
 
     /// <summary>The sign-in site carries no inline script and no inline style.</summary>
+    /// <summary>The sign-in stylesheet neutralises the <c>hidden</c> attribute globally.</summary>
+    [Test]
+    public void The_auth_stylesheet_makes_the_hidden_attribute_win()
+    {
+        var css = File.ReadAllText(Path.Combine(WebRoot, "auth", "auth.css"));
+
+        Assert.That(
+            Regex.IsMatch(css, @"(?<![\w.#\[-])\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important"),
+            Is.True,
+            "auth.css must carry a global `[hidden] { display: none !important; }`. A per-element "
+            + "rule is the same bug waiting for the next element somebody hides.");
+    }
+
     [Test]
     public void The_auth_pages_carry_no_inline_script_or_style()
     {

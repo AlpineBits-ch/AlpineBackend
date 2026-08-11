@@ -31,6 +31,7 @@
       <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.6.0" />
       <PackageReference Include="OpenIddict.Quartz" Version="7.6.0" />
       <PackageReference Include="OpenIddict.Validation.AspNetCore" Version="7.6.0" />
+      <PackageReference Include="QRCoder" Version="1.8.0" />
       <PackageReference Include="RazorLight" Version="2.3.1" />
       <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.24.6" />
       <PackageReference Include="WolverineFx.FluentValidation" Version="6.24.6" />

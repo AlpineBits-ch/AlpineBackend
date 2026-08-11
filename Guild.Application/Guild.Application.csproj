@@ -58,6 +58,7 @@
       <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
       <ProjectReference Include="..\Federation.Contracts\Federation.Contracts.csproj" />
       <ProjectReference Include="..\Echo.Voice\Echo.Voice.csproj" />
+      <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
     </ItemGroup>
 
 </Project>

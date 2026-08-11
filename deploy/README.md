@@ -318,8 +318,11 @@ minutes to open its CQL port on first boot, and `messaging` retries until it doe
 be reachable from the internet: Caddy uses the HTTP-01 challenge. `ventactl logs caddy`
 shows the ACME exchange.
 
-**Logins stop working after a restart.** `IDENTITY_SIGNING_CERT` is empty, so Identity fell
-back to a development certificate that is regenerated on every start. Re-run the installer.
+**`identity` will not start, logging that `IDENTITY_SIGNING_CERT` is not set.** It is empty,
+and Identity refuses to run in Production without a persistent signing certificate. It used
+to fall back to a development one that was regenerated on every start, which showed up as
+"everyone was logged out again" hours later instead of as a startup error. Re-run the
+installer, which generates a self-signed bundle when the variable is unset.
 
 **`401` on every request in a fresh install.** The services could not reach
 `{INSTANCE_URL}/.well-known/openid-configuration` - see the section above on why that URL

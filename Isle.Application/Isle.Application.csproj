@@ -47,6 +47,7 @@
       <ProjectReference Include="..\Isle.Infrastructure\Isle.Infrastructure.csproj" />
       <ProjectReference Include="..\IsleBridge.Sdk\IsleBridge.Sdk\IsleBridge.Sdk.csproj" />
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
+      <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
     </ItemGroup>
 
     <ItemGroup>

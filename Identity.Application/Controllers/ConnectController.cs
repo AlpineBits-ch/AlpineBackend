@@ -35,9 +35,17 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
         ApplicationUser user;
         LoginSession session;
 
+        // How the caller proved who they are, and when.
+        string[] authenticationMethods = [];
+        var authenticatedAt = DateTimeOffset.UtcNow;
+
+        // The principal an already-authenticated grant arrived with (refresh token, authorization
+        // code).
+        ClaimsPrincipal? carried = null;
+
         if (request.IsPasswordGrantType())
         {
-            var candidate = await manager.FindByNameAsync(request.Username);
+            var candidate = await FindByUsernameOrEmailAsync(request.Username);
 
             // An unknown username is refused exactly as a wrong password is - same 401, same empty
             // body - and pays the same PBKDF2 cost on the way out.
@@ -81,6 +89,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             var mfaFailure = await CheckSecondFactorAsync(user, request);
             if (mfaFailure is not null) return mfaFailure;
 
+            authenticationMethods = user.TwoFactorEnabled ? ["pwd", "mfa"] : ["pwd"];
             session = await CreateSession(user, request, passwordProven: true);
         }
         else if (request.IsRefreshTokenGrantType())
@@ -111,6 +120,38 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
 
             existingSession.Touch();
             session = existingSession;
+            carried = info.Principal;
+        }
+        else if (request.IsAuthorizationCodeGrantType())
+        {
+            // The browser half of the flow.
+            var info = await HttpContext.AuthenticateAsync(OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+            if (info.Principal is null) return Unauthorized();
+
+            user = await manager.GetUserAsync(info.Principal);
+            if (user == null) return NotFound();
+
+            if (!user.IsSigninAllowed())
+            {
+                logger.LogInformation("User {userId} is not allowed to sign in", user.Id);
+                return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to sign in");
+            }
+
+            if (user.EmailVerifiedAt == null)
+            {
+                logger.LogInformation("User {userId} is not verified", user.Id);
+                return StatusCode(StatusCodes.Status403Forbidden, "Email not verified.");
+            }
+
+            var sessionId = info.Principal.FindFirstValue(Services.Sso.VentaClaimDestinations.SessionId);
+            if (string.IsNullOrWhiteSpace(sessionId)) return Unauthorized();
+
+            var codeSession = await ctx.LoginSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
+            if (codeSession is null || codeSession.IsRevoked) return Unauthorized();
+
+            codeSession.Touch();
+            session = codeSession;
+            carried = info.Principal;
         }
         else if (request.GrantType == SteamOpenIdService.SteamGrantType)
         {
@@ -149,6 +190,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             var steamMfaFailure = await CheckSecondFactorAsync(user, request);
             if (steamMfaFailure is not null) return steamMfaFailure;
 
+            authenticationMethods = user.TwoFactorEnabled ? ["steam", "mfa"] : ["steam"];
             session = await CreateSession(user, request);
         }
         else if (request.GrantType == QrLoginService.QrGrantType)
@@ -189,6 +231,7 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             // No second-factor prompt here, unlike the password and Steam grants: reaching an
             // Approved pairing state already required an authenticated session on an existing
             // device to scan and approve it, and that session passed MFA when it was established.
+            authenticationMethods = ["qr"];
             session = await CreateSession(user, request, deviceName: state.DeviceName, deviceType: state.DeviceType,
                 clientDeviceId: state.ClientDeviceId);
         }
@@ -223,14 +266,57 @@ public class ConnectController(SignInManager<ApplicationUser> signInManager,
             // with no extra cross-service lookup (used e.g. to tag messages with AuthorIdType.Bot).
             principal.SetClaim("user_type", nameof(UserType.Bot));
         }
-        principal.SetScopes(request.GetScopes());
-        // Tell OpenIddict which claims go into the JWT
-        foreach (var claim in principal.Claims)
+
+        // A refresh or a code exchange may narrow the scopes but never widen them, and both are
+        // routinely sent with no `scope` parameter at all.
+        var requestedScopes = request.GetScopes();
+        principal.SetScopes(requestedScopes.IsDefaultOrEmpty && carried is not null
+            ? carried.GetScopes()
+            : requestedScopes);
+
+        if (carried is not null)
         {
-            claim.SetDestinations(OpenIddictConstants.Destinations.AccessToken, OpenIddictConstants.Destinations.IdentityToken);
+            // Authentication context belongs to the original sign-in.
+            authenticatedAt = ReadAuthenticationTime(carried) ?? authenticatedAt;
+            authenticationMethods = [.. carried.FindAll(OpenIddictConstants.Claims.AuthenticationMethodReference)
+                .Select(claim => claim.Value)];
+
+            var authorizationId = carried.GetAuthorizationId();
+            if (!string.IsNullOrEmpty(authorizationId)) principal.SetAuthorizationId(authorizationId);
         }
 
+        var identity = (ClaimsIdentity)principal.Identity!;
+        identity.AddClaim(new Claim(OpenIddictConstants.Claims.AuthenticationTime,
+            authenticatedAt.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ClaimValueTypes.Integer64));
+
+        foreach (var method in authenticationMethods.Distinct(StringComparer.Ordinal))
+        {
+            identity.AddClaim(new Claim(OpenIddictConstants.Claims.AuthenticationMethodReference, method));
+        }
+
+        // Which claim goes into which token.
+        Services.Sso.VentaClaimDestinations.Apply(principal);
+
         return SignIn(principal, OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+    }
+
+    private static DateTimeOffset? ReadAuthenticationTime(ClaimsPrincipal principal)
+    {
+        var raw = principal.FindFirstValue(OpenIddictConstants.Claims.AuthenticationTime);
+
+        return long.TryParse(raw, out var seconds) ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null;
+    }
+
+    /// <summary>
+    /// Resolves the <c>username</c> parameter as either a username or an email address.
+    /// </summary>
+    private async Task<ApplicationUser?> FindByUsernameOrEmailAsync(string? usernameOrEmail)
+    {
+        if (string.IsNullOrWhiteSpace(usernameOrEmail)) return null;
+
+        return await manager.FindByNameAsync(usernameOrEmail)
+               ?? (usernameOrEmail.Contains('@') ? await manager.FindByEmailAsync(usernameOrEmail) : null);
     }
 
     /// <summary>

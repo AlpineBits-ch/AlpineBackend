@@ -333,12 +333,36 @@ public class MicrosoftGraph
 
 public class AuthConfiguration
 {
-    public bool RequireUserEmailVerification { get; set; } = 
+    /// <summary>The label the SSO site and the OIDC issuer live under. See docs/specs/sso.md.</summary>
+    public const string AuthSiteLabel = "auth";
+
+    public bool RequireUserEmailVerification { get; set; } =
         (Environment.GetEnvironmentVariable("AUTH_REQUIRE_USER_EMAIL_VERIFICATION")?.Equals("true", StringComparison.OrdinalIgnoreCase) ?? true);
 
 
     public string IdentitySecretPassword { get; set; } = GetEnvironmentVariable("IDENTITY_KEY_PASSWORD") ?? "devpassword";
     public string IdentitySigningCert { get; set; } = GetEnvironmentVariable("IDENTITY_SIGNING_CERT") ?? string.Empty;
+
+    /// <summary>
+    /// The OIDC issuer: the value Identity stamps into every <c>iss</c> claim, and the identity
+    /// every partner site configures.
+    /// </summary>
+    public string IssuerUrl { get; set; } =
+        GetEnvironmentVariable("AUTH_ISSUER_URL")
+        ?? InstanceHosts.DeriveSiblingUrl(AuthSiteLabel, GetEnvironmentVariable("INSTANCE_URL") ?? "https://api.venta.gg");
+
+    /// <summary>The OIDC client allowlist, as a JSON array.</summary>
+    public string Clients { get; set; } = GetEnvironmentVariable("AUTH_CLIENTS") ?? string.Empty;
+
+    /// <summary>The environment variable a confidential client's secret is read from.</summary>
+    public static string ClientSecretVariable(string clientId)
+    {
+        var normalised = new string([.. clientId.Select(c => char.IsLetterOrDigit(c) ? char.ToUpperInvariant(c) : '_')]);
+
+        return $"AUTH_CLIENT_SECRET_{normalised}";
+    }
+
+    public string? ClientSecret(string clientId) => GetEnvironmentVariable(ClientSecretVariable(clientId));
 }
 
 public class GeneralConfiguration

@@ -142,4 +142,47 @@ public partial class SteamOpenIdService(HttpClient httpClient, ILogger<SteamOpen
 
         return match.Groups[1].Value;
     }
+
+    /// <summary>
+    /// The persona name and avatar behind a SteamID, when <c>STEAM_WEB_API_KEY</c> is configured.
+    /// </summary>
+    public async Task<SteamProfile?> GetProfileAsync(string steamId, CancellationToken ct)
+    {
+        var key = Env.Steam.WebApiKey;
+        if (string.IsNullOrWhiteSpace(key)) return null;
+
+        try
+        {
+            var url = QueryHelpers.AddQueryString(
+                "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/",
+                new Dictionary<string, string?> { ["key"] = key, ["steamids"] = steamId });
+
+            using var response = await _retryPolicy.ExecuteAsync(
+                async token => await httpClient.GetAsync(url, token), ct);
+
+            if (!response.IsSuccessStatusCode) return null;
+
+            using var document = await System.Text.Json.JsonDocument.ParseAsync(
+                await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+
+            var player = document.RootElement
+                .GetProperty("response").GetProperty("players")
+                .EnumerateArray().FirstOrDefault();
+
+            if (player.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+
+            return new SteamProfile(
+                steamId,
+                player.TryGetProperty("personaname", out var name) ? name.GetString() : null,
+                player.TryGetProperty("avatarmedium", out var avatar) ? avatar.GetString() : null);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not read the Steam profile for {SteamId}; continuing without it", steamId);
+            return null;
+        }
+    }
 }
+
+/// <summary>Public Steam profile decoration. Every field but the id may be absent.</summary>
+public sealed record SteamProfile(string SteamId, string? PersonaName, string? AvatarUrl);

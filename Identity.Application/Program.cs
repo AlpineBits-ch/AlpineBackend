@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using AppEnvironment;
 using Identity.Application.Services.Qr;
+using Identity.Application.Services.Sso;
 using Identity.Application.Services.Steam;
 using Identity.Contracts;
 using Identity.Domain.Aggregates;
@@ -63,16 +64,28 @@ builder.Services.AddOpenIddict()
     })
     .AddServer(options =>
     {        
-        options.SetIssuer(Env.GeneralConfiguration.InstanceUrl);
+        // The issuer moved off INSTANCE_URL to its own hostname when auth.venta.gg became a real
+        // identity provider - see docs/specs/sso.md §2.
+        options.SetIssuer(Env.AuthConfiguration.IssuerUrl);
         options.SetTokenEndpointUris("/connect/token");
         options.SetConfigurationEndpointUris("/.well-known/openid-configuration");
         options.SetJsonWebKeySetEndpointUris("/.well-known/jwks");
+
+        // The browser-facing half of the SSO.
+        options.SetAuthorizationEndpointUris("/connect/authorize");
+        options.SetEndSessionEndpointUris("/connect/logout");
+        options.SetUserInfoEndpointUris("/connect/userinfo");
+        options.SetRevocationEndpointUris("/connect/revoke");
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();
         options.AllowClientCredentialsFlow();
         options.AllowCustomFlow(SteamOpenIdService.SteamGrantType);
         options.AllowCustomFlow(QrLoginService.QrGrantType);
+
+        // PKCE is required of every client, confidential ones included.
+        options.AllowAuthorizationCodeFlow()
+               .RequireProofKeyForCodeExchange();
 
         // The scopes a client may ask for.
         options.RegisterScopes(
@@ -87,8 +100,14 @@ builder.Services.AddOpenIddict()
 
             if (string.IsNullOrWhiteSpace(certificateBase64))
             {
-                options.AddDevelopmentSigningCertificate();
-                options.AddDevelopmentEncryptionCertificate();
+                // Refusing to start is the point.
+                throw new InvalidOperationException(
+                    "IDENTITY_SIGNING_CERT is not set. Identity refuses to start in Production "
+                    + "without a persistent signing certificate: the development fallback is "
+                    + "regenerated on every restart, which silently invalidates every token the "
+                    + "instance has issued. Re-run the installer, or generate a PKCS#12 bundle and "
+                    + "set IDENTITY_SIGNING_CERT to its base64 encoding and IDENTITY_KEY_PASSWORD "
+                    + "to its password.");
             }
             else
             {
@@ -112,6 +131,9 @@ builder.Services.AddOpenIddict()
         
         options.UseAspNetCore()
             .EnableTokenEndpointPassthrough()
+            .EnableAuthorizationEndpointPassthrough()
+            .EnableEndSessionEndpointPassthrough()
+            .EnableUserInfoEndpointPassthrough()
             .DisableTransportSecurityRequirement();
         options.DisableAccessTokenEncryption();
     })
@@ -127,7 +149,39 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
     });
-builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+// Two schemes, and which one is the default matters.
+builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme)
+    .AddCookie(SsoCookie.Scheme, options =>
+    {
+        options.Cookie.Name = SsoCookie.CookieName;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.Path = "/";
+
+        // Required by the __Host- prefix, and never relaxed for local development: browsers already
+        // treat http://localhost as a secure context, so nothing needs the exception.
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.IsEssential = true;
+
+        options.ExpireTimeSpan = SsoCookie.SlidingLifetime;
+        options.SlidingExpiration = true;
+        options.Events.OnValidatePrincipal = SsoCookie.EnforceAbsoluteLifetimeAsync;
+
+        // This scheme never redirects.
+        options.Events.OnRedirectToLogin = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
+        };
+        options.Events.OnRedirectToAccessDenied = context =>
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Task.CompletedTask;
+        };
+    });
+
+// In-flight authorization requests, parked in Redis while somebody signs in.
+builder.Services.AddScoped<AuthorizationRequestStash>();
 builder.Services.AddWolverineHttp()
     
     .ConfigureHttpJsonOptions(options =>
@@ -298,6 +352,15 @@ else
     {
         await manager.UpdateAsync(echoApplication, descriptor);
     }
+}
+
+// The SSO client allowlist (docs/specs/sso.md §7).
+{
+    var registryLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>()
+        .CreateLogger(typeof(AuthClientRegistry));
+
+    await AuthClientRegistry.ReconcileAsync(
+        manager, AuthClientRegistry.Parse(Env.AuthConfiguration.Clients, registryLogger), registryLogger);
 }
 
 await app.RunJasperFxCommands(args);

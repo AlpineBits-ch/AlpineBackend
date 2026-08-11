@@ -1,3 +1,4 @@
+using Echo.Auth;
 using AppEnvironment;
 using Echo.Realtime.Sfu;
 using Isle.Api.Extensions;
@@ -20,35 +21,7 @@ builder.Services.AddLogging();
 builder.Services.AddOpenApi();
 builder.Services.AddWolverineHttp();
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl;
-        options.RequireHttpsMetadata = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-        };
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-
-                var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) &&
-                    path.StartsWithSegments("/api/v1/ws/hubs"))
-                {
-                    context.Token = accessToken;
-                }
-
-                return Task.CompletedTask;
-            },
-        };
-    });
+builder.Services.AddVentaJwtBearer(webSocketPath: "/api/v1/ws/hubs");
 
 builder.UseWolverine(opts =>
 {

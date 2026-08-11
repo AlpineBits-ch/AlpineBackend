@@ -1,3 +1,4 @@
+using Echo.Auth;
 
 using AppEnvironment;
 using Federation.Application;
@@ -52,19 +53,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     options.SerializerOptions.TypeInfoResolverChain.Insert(0, EventJsonContext.Default);
 });
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
-        options.RequireHttpsMetadata = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-        };
-    });
+builder.Services.AddVentaJwtBearer();
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy(FederationPolicies.InstanceAdmin, policy =>

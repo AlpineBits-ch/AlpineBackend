@@ -38,23 +38,8 @@ public static class SiteHost
     }
 
     /// <summary>Turns the instance URL into the hostname a site lives on.</summary>
-    public static string DeriveFrom(string label, string? instanceUrl)
-    {
-        // A misconfigured InstanceUrl must not take the gateway down at startup.
-        if (!Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri)) return $"{label}.localhost";
-
-        var host = uri.Host;
-        if (host.StartsWith($"{label}.", StringComparison.OrdinalIgnoreCase)) return host;
-
-        var labels = host.Split('.');
-
-        // A bare registrable domain (venta.gg) or a single label (localhost) gets a prefix; an
-        // address gets one too, because there is nothing sensible to derive from it.
-        if (labels.Length < 3 || System.Net.IPAddress.TryParse(host, out _)) return $"{label}.{host}";
-
-        // Already a subdomain: replace its first label.
-        return string.Join('.', labels.Skip(1).Prepend(label));
-    }
+    public static string DeriveFrom(string label, string? instanceUrl) =>
+        InstanceHosts.DeriveSibling(label, instanceUrl);
 
     /// <summary>
     /// The absolute base URL of a site, for links that leave the system - a ban notice pointing at

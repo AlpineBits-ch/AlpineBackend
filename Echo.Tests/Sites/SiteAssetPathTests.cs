@@ -43,6 +43,7 @@ public class SiteAssetPathTests
     [TestCase("admin")]
     [TestCase("support")]
     [TestCase("status")]
+    [TestCase("auth")]
     public void Every_referenced_asset_resolves_to_a_file_that_exists(string site)
     {
         var references = AssetReferences(Page(site)).Distinct().ToList();
@@ -68,6 +69,7 @@ public class SiteAssetPathTests
     [TestCase("admin")]
     [TestCase("support")]
     [TestCase("status")]
+    [TestCase("auth")]
     public void No_reference_repeats_the_site_folder_in_its_path(string site)
     {
         var offenders = LocalReferences(Page(site))
@@ -85,6 +87,7 @@ public class SiteAssetPathTests
     [TestCase("admin")]
     [TestCase("support")]
     [TestCase("status")]
+    [TestCase("auth")]
     public void Each_page_loads_the_shared_stylesheet_and_icon_injector(string site)
     {
         var html = Page(site);
@@ -93,6 +96,51 @@ public class SiteAssetPathTests
         {
             Assert.That(html, Does.Contain("/assets/venta.css"));
             Assert.That(html, Does.Contain("/assets/icons.js"));
+        });
+    }
+
+    /// <summary>The sign-in site carries no inline script and no inline style.</summary>
+    [Test]
+    public void The_auth_pages_carry_no_inline_script_or_style()
+    {
+        var html = Page("auth");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Regex.IsMatch(html, @"<script(?![^>]*\bsrc=)[^>]*>"), Is.False,
+                "an inline <script> is blocked by script-src 'self' and fails silently");
+
+            Assert.That(html, Does.Not.Contain("style=\""),
+                "an inline style attribute is blocked by style-src 'self' and fails silently");
+
+            Assert.That(Regex.IsMatch(html, @"\son[a-z]+\s*="), Is.False,
+                "inline event handlers are blocked by script-src 'self' and fail silently");
+        });
+    }
+
+    /// <summary>
+    /// The sign-in page may only ask for scopes the authorization server actually has - the same
+    /// rule as the console below, and for the same reason: an unregistered scope fails the whole
+    /// grant with <c>invalid_scope</c> before any client permission is consulted.
+    /// </summary>
+    [Test]
+    public void The_sign_in_page_requests_only_scopes_the_server_accepts_and_no_refresh_token()
+    {
+        var script = File.ReadAllText(Path.Combine(WebRoot, "auth", "app.js"));
+
+        var requested = Regex.Matches(script, @"SCOPE\s*=\s*'([^']*)'")
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+        Assert.That(requested, Has.Count.EqualTo(1), "the sign-in page declares exactly one scope set");
+
+        var scopes = requested[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scopes, Is.SubsetOf(AcceptedScopes));
+            Assert.That(scopes, Does.Contain("openid"));
+            Assert.That(scopes, Does.Not.Contain("offline_access"));
         });
     }
 
@@ -137,6 +185,7 @@ public class SiteAssetPathTests
     [TestCase("admin/app.js")]
     [TestCase("support/app.js")]
     [TestCase("status/app.js")]
+    [TestCase("auth/app.js")]
     [TestCase("assets/icons.js")]
     public void Every_page_script_parses(string relativePath)
     {
@@ -242,7 +291,7 @@ public class SiteAssetPathTests
             .Select(Path.GetFileNameWithoutExtension)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var sources = new[] { "admin", "support", "status" }
+        var sources = new[] { "admin", "support", "status", "auth" }
             .SelectMany(site => Directory.GetFiles(Path.Combine(WebRoot, site)))
             .Select(File.ReadAllText);
 

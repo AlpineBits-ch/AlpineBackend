@@ -48,6 +48,7 @@
       <!-- Shared Wolverine configuration (durable inbox/outbox, RabbitMQ, retry policies) -
            same convention every other service (Bots.Application included) already uses. -->
       <ProjectReference Include="..\Messaging\Messaging.csproj" />
+      <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
     </ItemGroup>
 
 </Project>

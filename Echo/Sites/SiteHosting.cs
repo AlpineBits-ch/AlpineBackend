@@ -11,14 +11,17 @@ public static class SiteHosting
     public const string AdminLabel = "admin";
     public const string SupportLabel = "support";
     public const string StatusLabel = "status";
+    public const string AuthLabel = AppEnvironment.AuthConfiguration.AuthSiteLabel;
 
     public const string AdminDomainVariable = "ADMIN_DOMAIN";
     public const string SupportDomainVariable = "SUPPORT_DOMAIN";
     public const string StatusDomainVariable = "STATUS_DOMAIN";
+    public const string AuthDomainVariable = "AUTH_DOMAIN";
 
     public static string AdminHost => SiteHost.Resolve(AdminLabel, AdminDomainVariable);
     public static string SupportHost => SiteHost.Resolve(SupportLabel, SupportDomainVariable);
     public static string StatusHost => SiteHost.Resolve(StatusLabel, StatusDomainVariable);
+    public static string AuthHost => SiteHost.Resolve(AuthLabel, AuthDomainVariable);
 
     /// <summary>Serves both sites, plus the shared icon set.</summary>
     public static WebApplication MapVentaSites(this WebApplication app)
@@ -28,14 +31,23 @@ public static class SiteHosting
         var admin = AdminHost;
         var support = SupportHost;
         var status = StatusHost;
+        var auth = AuthHost;
 
         app.Logger.LogInformation(
-            "Moderation console bound to host {AdminHost}; support site bound to {SupportHost}; status page bound to {StatusHost}",
-            admin, support, status);
+            "Moderation console bound to host {AdminHost}; support site bound to {SupportHost}; "
+            + "status page bound to {StatusHost}; sign-in site bound to {AuthHost}",
+            admin, support, status, auth);
 
         app.UseSiteHostDiagnostics(AdminLabel, admin, AdminDomainVariable, "moderation console");
         app.UseSiteHostDiagnostics(SupportLabel, support, SupportDomainVariable, "support site");
         app.UseSiteHostDiagnostics(StatusLabel, status, StatusDomainVariable, "status page");
+        app.UseSiteHostDiagnostics(AuthLabel, auth, AuthDomainVariable, "sign-in site");
+
+        // Applied to the whole auth host rather than only to its static files: /connect/* and
+        // /api/v1/identity/* answer here too, and those are the responses that must not be cached.
+        app.UseWhen(
+            context => context.Request.Host.Host.Equals(auth, StringComparison.OrdinalIgnoreCase),
+            branch => branch.UseAuthSiteSecurity());
 
         var icons = Path.Combine(webRoot, "assets");
         var iconProvider = Directory.Exists(icons) ? new PhysicalFileProvider(icons) : null;
@@ -45,9 +57,14 @@ public static class SiteHosting
         app.ServeSite(Path.Combine(webRoot, "admin"), admin, iconProvider);
         app.ServeSite(Path.Combine(webRoot, "support"), support, iconProvider, SupportClientRoutes);
         app.ServeSite(Path.Combine(webRoot, "status"), status, iconProvider, StatusClientRoutes);
+        app.ServeSite(Path.Combine(webRoot, "auth"), auth, iconProvider, AuthClientRoutes);
 
         return app;
     }
+
+    /// <summary>Paths on the sign-in host that are pages rather than files.</summary>
+    private static readonly string[] AuthClientRoutes =
+        ["/login", "/consent", "/logout", "/steam", "/register", "/verify", "/forgot", "/reset"];
 
     /// <summary>Paths on the status host that are pages rather than files.</summary>
     private static readonly string[] StatusClientRoutes = ["/incident", "/history", "/maintenance"];

@@ -6,6 +6,7 @@ using Identity.Application.Services.Qr;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Caching.Distributed;
+using QRCoder;
 
 namespace Identity.Application.Controllers;
 
@@ -84,6 +85,35 @@ public class QrLoginController(IDistributedCache cache) : ControllerBase
             new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = QrLoginService.PairingLifetime });
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// The pairing code as a scannable SVG, for the sign-in page at <c>auth.venta.gg</c>.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("{code}/svg")]
+    public async Task<IActionResult> GetSvgAsync(string code)
+    {
+        var state = await GetStateAsync(code);
+        if (state is null) return NotFound();
+
+        using var generator = new QRCodeGenerator();
+
+        // Q, not the L this payload would fit into at a smaller size: the code is read off a laptop
+        // screen by a phone camera at whatever angle the person is holding it, frequently with a
+        // reflection across part of it. The extra error correction costs a few modules.
+        using var data = generator.CreateQrCode(code, QRCodeGenerator.ECCLevel.Q);
+
+        // No <?xml?> prolog, no fixed pixel size: the page sizes it with CSS, and the modules stay
+        // crisp at any size because it is vector.
+        var svg = new SvgQRCode(data).GetGraphic(
+            new System.Drawing.Size(256, 256), darkColorHex: "#000000", lightColorHex: "#ffffff",
+            drawQuietZones: true, sizingMode: SvgQRCode.SizingMode.ViewBoxAttribute);
+
+        // A pairing code lives three minutes and authorises a sign-in. Nothing may hold it.
+        Response.Headers.CacheControl = "no-store";
+
+        return Content(svg, "image/svg+xml");
     }
 
     private async Task<QrPairingState?> GetStateAsync(string code)

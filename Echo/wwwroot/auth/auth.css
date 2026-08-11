@@ -1,0 +1,497 @@
+/*
+ * auth.venta.gg - the sign-in surface.
+ *
+ * Built on the shared tokens in /assets/venta.css (Alpine's palette), so this reads as the same
+ * product as the client, the console and the support site rather than as a generic identity
+ * provider wearing a logo. Everything below is what a credential screen needs on top of those: the
+ * centred stage, the two-pane split and its collapse, the QR panel, the code inputs and the
+ * provider button.
+ *
+ * Three rules this file holds to, because they are the ones that break silently:
+ *
+ *   1. No layout shift between states. An MFA prompt, an error and a code expiry all happen inside
+ *      the space already occupied. A card that grows a row when something goes wrong moves the
+ *      button out from under the cursor at the exact moment somebody is frustrated.
+ *   2. Dark mode is checked, not assumed. Every colour here is a token; there is no hard-coded
+ *      #fff except inside the QR frame, which has to be white for a camera to read it.
+ *   3. Nothing is inline. The content security policy on this host forbids inline style and script,
+ *      so a `style="..."` added later fails as an invisible no-op rather than as an error.
+ *
+ * No build step, same as the other three sites.
+ */
+
+:root {
+    --auth-wide: 940px;
+    --auth-narrow: 460px;
+    --pane-pad: 38px;
+}
+
+/* ── Stage ───────────────────────────────────────────────────────────────────
+   A single wash of brand colour from above, strong enough to stop the page
+   reading as a grey form on grey paper and weak enough that nothing on the card
+   has to fight it. */
+body {
+    min-height: 100dvh;
+    background:
+        radial-gradient(1100px 620px at 50% -12%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 68%),
+        var(--bg);
+    background-attachment: fixed;
+}
+
+.stage {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    padding: 32px 18px 24px;
+}
+
+.mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 17px;
+    font-weight: 640;
+    letter-spacing: -.02em;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.mark:hover { text-decoration: none; }
+.mark [data-icon] { font-size: 24px; }
+
+/* ── Shell ─────────────────────────────────────────────────────────────────── */
+.shell {
+    width: 100%;
+    max-width: var(--auth-narrow);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: max-width .18s ease;
+}
+
+.shell[data-wide] { max-width: var(--auth-wide); }
+
+.screen[hidden] { display: none; }
+
+.pane { padding: var(--pane-pad); }
+
+/* ── Two panes ──────────────────────────────────────────────────────────────
+   The QR side is a peer, not an afterthought: it sits at full size beside the
+   form, on a recessed surface so the eye can tell them apart without a heading
+   having to say so. */
+.split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+}
+
+.pane.aside {
+    background: var(--raised);
+    border-left: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Headings ───────────────────────────────────────────────────────────────── */
+.screen h1 {
+    font-size: 25px;
+    line-height: 1.2;
+    margin: 0 0 6px;
+}
+
+.screen h2 {
+    font-size: 15px;
+    margin: 0 0 16px;
+}
+
+.eyebrow {
+    margin: 0 0 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--brand);
+}
+
+.sub {
+    margin: 0 0 24px;
+    color: var(--muted);
+    font-size: 14.5px;
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────────── */
+.field input {
+    height: 44px;
+    padding: 0 13px;
+}
+
+.label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.label-row label { margin-bottom: 6px; }
+.label-row a { font-weight: 550; }
+
+/* A control inside the input rather than beside it, so revealing a password does not
+   change the width of the field it belongs to. */
+.input-affix { position: relative; }
+.input-affix input { padding-right: 44px; }
+
+.affix-btn {
+    position: absolute;
+    right: 4px;
+    top: 4px;
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--faint);
+    cursor: pointer;
+}
+
+.affix-btn:hover { color: var(--text); background: var(--raised); }
+.affix-btn [data-icon] { font-size: 16px; }
+
+/* One-time codes are read off a screen and typed back character by character. Wide
+   tracking makes a mis-typed digit visible before the button is pressed. */
+.code-input {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    letter-spacing: .34em;
+    text-transform: uppercase;
+}
+
+.code-input.big {
+    height: 54px !important;
+    font-size: 21px;
+    text-align: center;
+    letter-spacing: .5em;
+    text-indent: .5em;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
+.btn.block {
+    width: 100%;
+    justify-content: center;
+    height: 44px;
+    font-size: 15px;
+}
+
+.btn:focus-visible,
+.link-btn:focus-visible,
+.affix-btn:focus-visible,
+.qr-toggle:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--brand) 55%, transparent);
+    outline-offset: 2px;
+}
+
+.btn.primary:active:not(:disabled) { transform: translateY(1px); }
+
+/* Steam's own blue, because a provider button that does not look like the provider is a
+   button people hesitate over. It is still a peer of the form, below the divider - no
+   Steam-branded takeover. */
+.btn.provider.steam {
+    background: #1b2838;
+    border-color: #1b2838;
+    color: #e8eef5;
+}
+
+.btn.provider.steam:hover:not(:disabled) { background: #24374d; border-color: #24374d; }
+.btn.provider [data-icon] { font-size: 17px; }
+
+.link-btn {
+    font: inherit;
+    font-size: inherit;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--brand);
+    cursor: pointer;
+}
+
+.link-btn:hover { text-decoration: underline; }
+
+.actions { margin-top: 22px; display: flex; gap: 10px; }
+.actions.two > * { flex: 1; justify-content: center; height: 42px; }
+.actions.stacked { flex-direction: column; }
+.actions.stacked > * { width: 100%; justify-content: center; height: 44px; }
+
+/* ── Divider ────────────────────────────────────────────────────────────────── */
+.divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0 16px;
+    color: var(--faint);
+    font-size: 12px;
+}
+
+.divider::before,
+.divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.foot-note {
+    margin: 20px 0 0;
+    font-size: 13.5px;
+    color: var(--muted);
+    text-align: center;
+}
+
+/* ── The signed-in chip ─────────────────────────────────────────────────────── */
+.account-chip {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 10px 9px 11px;
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--raised);
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--brand);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 650;
+    text-transform: uppercase;
+}
+
+/* ── Crests ─────────────────────────────────────────────────────────────────── */
+.crest,
+.client-crest {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 18px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--raised);
+    border: 1px solid var(--border-soft);
+    color: var(--brand);
+    overflow: hidden;
+}
+
+.crest [data-icon],
+.client-crest [data-icon] { font-size: 23px; }
+
+.crest.danger { color: var(--danger); background: var(--danger-bg); border-color: transparent; }
+
+.client-crest img,
+.client-crest.steam-crest img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.steam-crest { color: var(--muted); }
+
+/* ── Scope list ─────────────────────────────────────────────────────────────
+   One row per thing being handed over, in words rather than in scope names. A
+   consent screen reading "profile, email, offline_access" asks somebody to
+   approve three tokens they cannot evaluate. */
+.scope-list {
+    list-style: none;
+    margin: 4px 0 22px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.scope-list li {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start;
+    padding: 13px 15px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.scope-list li:first-child { border-top: 0; }
+.scope-list [data-icon] { color: var(--ok); font-size: 15px; margin-top: .15em; flex: 0 0 auto; }
+.scope-list strong { display: block; font-size: 14px; font-weight: 570; }
+.scope-list span { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* ── QR panel ───────────────────────────────────────────────────────────────── */
+.qr-toggle { display: none; }
+
+.qr-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.qr-frame {
+    position: relative;
+    width: 216px;
+    height: 216px;
+    margin: 2px 0 16px;
+    padding: 8px;
+    border-radius: 14px;
+    /* Fixed white regardless of theme: a phone camera reads dark-on-light, and an
+       inverted QR code in dark mode is a code that quietly does not scan. */
+    background: #fff;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qr-frame img { width: 100%; height: 100%; display: block; }
+
+.qr-veil {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, .86);
+    color: #4B5BC4;
+    font-size: 22px;
+}
+
+.qr-status {
+    margin: 0 0 8px;
+    font-size: 13.5px;
+    color: var(--muted);
+    /* Two lines' worth of room, always. The status text changes on every step of the
+       pairing and a growing paragraph would walk the panel down the page. */
+    min-height: 42px;
+}
+
+.qr-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--faint);
+    min-height: 20px;
+}
+
+.qr-fallback { margin-top: auto; padding-top: 18px; font-size: 12.5px; }
+.qr-fallback summary { cursor: pointer; color: var(--muted); }
+.qr-fallback p { margin: 8px 0 0; }
+.qr-fallback .pairing { word-break: break-all; color: var(--text); font-size: 12px; }
+
+.qr-status[data-state="scanned"] { color: var(--info); }
+.qr-status[data-state="denied"] { color: var(--danger); }
+.qr-status[data-state="expired"] { color: var(--warn); }
+
+/* ── Progress ───────────────────────────────────────────────────────────────── */
+.progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    width: 0;
+    background: var(--brand);
+    opacity: 0;
+    transition: width .25s ease, opacity .2s ease;
+    z-index: 10;
+}
+
+.progress[data-busy] { width: 82%; opacity: 1; }
+.progress[data-done] { width: 100%; opacity: 0; transition: width .12s ease, opacity .35s ease .12s; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────────── */
+.legal {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 12.5px;
+    color: var(--faint);
+}
+
+.legal a { color: var(--muted); }
+
+/* ── Notices ────────────────────────────────────────────────────────────────
+   The shared .notice is right for this page except that a form's error should sit
+   tight above the field it concerns rather than floating with the paragraph rhythm. */
+.screen .notice { margin-bottom: 16px; font-size: 13.5px; }
+.screen .notice a { color: inherit; text-decoration: underline; }
+
+/* ── Narrow ─────────────────────────────────────────────────────────────────
+   Below 900px the QR panel is not dropped and not shrunk: it becomes a button
+   that expands the same panel in place. Someone on a phone signing in to a site
+   on that same phone has no second device to scan with, so it starts closed -
+   but somebody on a tablet beside their laptop still has the route. */
+@media (max-width: 900px) {
+    :root { --pane-pad: 28px; }
+
+    .split { grid-template-columns: 1fr; }
+
+    .pane.aside {
+        border-left: 0;
+        border-top: 1px solid var(--border-soft);
+        padding-top: 10px;
+        padding-bottom: 10px;
+    }
+
+    .qr-toggle {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: 100%;
+        padding: 14px 2px;
+        border: 0;
+        background: none;
+        color: var(--text);
+        font: inherit;
+        font-size: 14.5px;
+        font-weight: 550;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .qr-toggle [data-icon] { color: var(--muted); font-size: 16px; }
+    .qr-toggle [data-icon]:last-child { transition: transform .18s ease; }
+    .qr-toggle[aria-expanded="true"] [data-icon]:last-child { transform: rotate(180deg); }
+
+    .qr-body { display: none; padding-bottom: 20px; }
+    .qr-body[data-open] { display: flex; }
+
+    .qr-body h2 { display: none; }
+    .qr-frame { width: 100%; max-width: 240px; height: auto; aspect-ratio: 1; margin-inline: auto; }
+    .qr-status, .qr-meta { text-align: center; justify-content: center; }
+    .qr-fallback { text-align: center; }
+}
+
+@media (max-width: 460px) {
+    .stage { padding: 20px 12px; justify-content: flex-start; }
+    .shell { border-radius: 14px; }
+    .screen h1 { font-size: 22px; }
+}
+
+/* Honoured rather than assumed away: the QR panel's state changes and the progress bar
+   are motion somebody may have asked the system to stop. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+    }
+}

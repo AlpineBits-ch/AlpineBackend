@@ -21,6 +21,21 @@ public class AppFixture
     {
         Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Development");
         Environment.SetEnvironmentVariable("AUTH_REQUIRE_USER_EMAIL_VERIFICATION", "false");
+
+        // Two SSO clients, reconciled into OpenIddict's tables by AuthClientRegistry at startup.
+        Environment.SetEnvironmentVariable("AUTH_CLIENTS", """
+            [
+              { "clientId": "test-first-party", "displayName": "Test Site",
+                "redirectUris": ["https://rp.example.com/callback"],
+                "postLogoutRedirectUris": ["https://rp.example.com/"],
+                "scopes": ["openid", "profile", "email"],
+                "firstParty": true, "public": true },
+              { "clientId": "test-third-party", "displayName": "Third Party",
+                "redirectUris": ["https://third.example.com/callback"],
+                "scopes": ["openid", "profile"],
+                "firstParty": false, "public": true }
+            ]
+            """);
         
         // Point at test database - defaults match local dev, CI overrides via env vars
         Environment.SetEnvironmentVariable("DATABASE_HOSTNAME", 

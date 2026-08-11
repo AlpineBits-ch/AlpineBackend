@@ -1,3 +1,4 @@
+using Echo.Auth;
 using AppEnvironment;
 using Bots.Application.Gateway;
 using Bots.Application.Middleware;
@@ -45,19 +46,7 @@ builder.Services.AddScoped<IBotChannelVisibility, BotChannelVisibility>();
 builder.Services.AddSignalR()
     .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl;
-        options.RequireHttpsMetadata = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-        };
-    });
+builder.Services.AddVentaJwtBearer();
 
 // Other services get this transitively via AddControllers(); Bots.Application is
 // Wolverine-HTTP only (no MVC controllers), so it must be registered explicitly for

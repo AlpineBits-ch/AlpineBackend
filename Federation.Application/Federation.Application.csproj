@@ -39,6 +39,7 @@
       <ProjectReference Include="..\Federation.Contracts\Federation.Contracts.csproj" />
       <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
       <ProjectReference Include="..\Messaging.Domain\Messaging.Domain.csproj" />
+      <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
     </ItemGroup>
 
     <ItemGroup>

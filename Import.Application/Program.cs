@@ -1,3 +1,4 @@
+using Echo.Auth;
 using AppEnvironment;
 using Import.Application.Discord;
 using Import.Application.Gateway;
@@ -34,19 +35,7 @@ builder.Services.AddScoped<DiscordStructureSyncHandler>();
 builder.Services.AddHostedService<DiscordGatewayClient>();
 builder.Services.AddHostedService<DiscordStructureReconciliationService>();
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl;
-        options.RequireHttpsMetadata = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-        };
-    });
+builder.Services.AddVentaJwtBearer();
 
 // Import.Application is Wolverine-HTTP only (no MVC controllers), so authorization must be
 // registered explicitly - same reasoning as Bots.Application/Program.cs.

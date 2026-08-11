@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<meta name="referrer" content="no-referrer" />
+<meta name="description" content="Sign in to venta." />
+<title>Sign in - venta</title>
+<link rel="stylesheet" href="/assets/venta.css" />
+<link rel="stylesheet" href="/auth.css" />
+<link rel="icon" href="/assets/icons/venta-mark.svg" />
+</head>
+<body>
+
+<!-- A one-pixel line rather than a spinner over the card: every wait on this site is a network
+     round trip of a few hundred milliseconds, and a modal spinner for that reads as breakage. -->
+<div class="progress" id="progress" role="presentation"></div>
+
+<div class="stage">
+
+  <a class="mark" href="/login">
+    <i data-icon="venta-mark"></i>
+    <span>venta</span>
+  </a>
+
+  <main class="shell" id="shell">
+
+    <!-- ═══ Sign in ═════════════════════════════════════════════════════════
+         Two panes, both first-class. The QR panel is not a fallback for people
+         who cannot type: on a shared or public machine it is the better route,
+         because nothing is typed at all. -->
+    <section class="screen" data-screen="login" hidden>
+      <div class="split">
+
+        <div class="pane">
+          <p class="eyebrow" id="login-eyebrow" hidden></p>
+          <h1>Sign in</h1>
+          <p class="sub" id="login-sub">Use your venta account.</p>
+
+          <!-- Shown when the browser already has a session and the request wants a
+               fresh credential anyway (prompt=login), or after signing out. -->
+          <div class="account-chip" id="login-account" hidden>
+            <span class="avatar" id="login-account-initial" aria-hidden="true"></span>
+            <span class="stack grow">
+              <strong class="truncate" id="login-account-name"></strong>
+              <span class="tiny faint">Signed in on this browser</span>
+            </span>
+            <button class="btn sm ghost" type="button" id="login-switch">Not you?</button>
+          </div>
+
+          <div id="login-alert" role="alert" aria-live="assertive"></div>
+
+          <form id="login-form" novalidate>
+            <div class="field" id="login-identity-field">
+              <label for="login-identity">Username or email</label>
+              <input id="login-identity" name="username" autocomplete="username" autocapitalize="none"
+                     autocorrect="off" spellcheck="false" required />
+            </div>
+
+            <div class="field" id="login-password-field">
+              <div class="label-row">
+                <label for="login-password">Password</label>
+                <a class="tiny" href="/forgot" id="login-forgot">Forgot?</a>
+              </div>
+              <div class="input-affix">
+                <input id="login-password" name="password" type="password" autocomplete="current-password" required />
+                <button class="affix-btn" type="button" id="login-reveal"
+                        aria-label="Show password" aria-pressed="false">
+                  <i data-icon="eye"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Replaces the password field in place rather than appearing below it: the
+                 second factor is a continuation of the same act, not a second form. -->
+            <div class="field" id="login-mfa-field" hidden>
+              <label for="login-mfa">Authentication code</label>
+              <input id="login-mfa" type="text" inputmode="numeric" autocomplete="one-time-code"
+                     maxlength="8" class="code-input" spellcheck="false" />
+              <p class="hint">
+                From your authenticator app.
+                <button class="link-btn" type="button" id="login-recovery">Use a recovery code instead</button>
+              </p>
+            </div>
+
+            <button class="btn primary block" type="submit" id="login-submit">Sign in</button>
+          </form>
+
+          <div class="divider"><span>or</span></div>
+
+          <button class="btn block provider steam" type="button" id="login-steam">
+            <i data-icon="steam"></i> Continue with Steam
+          </button>
+
+          <p class="foot-note">
+            New to venta? <a href="/register" id="login-register">Create an account</a>
+          </p>
+        </div>
+
+        <!-- ── QR pane ──────────────────────────────────────────────────────
+             Collapsed to a single button below 900px and expanded in place, so
+             the narrow layout is its own design rather than the wide one with a
+             hole in it. -->
+        <div class="pane aside" id="qr-pane">
+          <button class="qr-toggle" type="button" id="qr-toggle" aria-expanded="false" aria-controls="qr-body">
+            <i data-icon="mobile"></i>
+            <span class="grow">Sign in with your phone</span>
+            <i data-icon="angle-down"></i>
+          </button>
+
+          <div class="qr-body" id="qr-body">
+            <h2>Or scan to sign in</h2>
+
+            <div class="qr-frame" id="qr-frame">
+              <img id="qr-image" alt="" width="200" height="200" hidden />
+              <div class="qr-veil" id="qr-veil" hidden>
+                <i data-icon="spinner" class="spin"></i>
+              </div>
+            </div>
+
+            <p class="qr-status" id="qr-status" role="status" aria-live="polite">
+              Open venta on your phone, then Settings &rsaquo; Scan QR code.
+            </p>
+
+            <p class="qr-meta">
+              <span id="qr-timer" class="mono"></span>
+              <button class="link-btn" type="button" id="qr-refresh" hidden>New code</button>
+            </p>
+
+            <details class="qr-fallback">
+              <summary>Can't scan it?</summary>
+              <p class="tiny faint">Type this pairing code into the app instead.</p>
+              <p class="mono pairing" id="qr-code"></p>
+            </details>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ═══ Consent ═════════════════════════════════════════════════════════ -->
+    <section class="screen narrow" data-screen="consent" hidden>
+      <div class="pane">
+        <div class="client-crest">
+          <img id="consent-logo" alt="" hidden />
+          <i data-icon="external-link" id="consent-logo-fallback"></i>
+        </div>
+
+        <h1 id="consent-title">Allow access</h1>
+        <p class="sub" id="consent-sub"></p>
+
+        <div id="consent-alert" role="alert"></div>
+
+        <ul class="scope-list" id="consent-scopes"></ul>
+
+        <p class="tiny faint" id="consent-account"></p>
+
+        <div class="actions two">
+          <button class="btn" type="button" id="consent-deny">Cancel</button>
+          <button class="btn primary" type="button" id="consent-allow">Allow</button>
+        </div>
+
+        <p class="foot-note tiny faint">
+          You can withdraw this at any time from your venta account settings.
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ Sign out ════════════════════════════════════════════════════════ -->
+    <section class="screen narrow" data-screen="logout" hidden>
+      <div class="pane">
+        <div class="crest"><i data-icon="sign-out"></i></div>
+        <h1>Sign out of venta?</h1>
+        <p class="sub" id="logout-sub">This signs you out on this browser.</p>
+
+        <div id="logout-alert" role="alert"></div>
+
+        <div class="actions two">
+          <button class="btn" type="button" id="logout-cancel">Stay signed in</button>
+          <button class="btn primary" type="button" id="logout-confirm">Sign out</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ Steam return ════════════════════════════════════════════════════
+         The callback lands here with ?status=. Every branch below is a real
+         answer the backend already returns. -->
+    <section class="screen narrow" data-screen="steam" hidden>
+      <div class="pane">
+        <div class="client-crest steam-crest">
+          <img id="steam-avatar" alt="" hidden />
+          <i data-icon="steam" id="steam-crest-icon"></i>
+        </div>
+
+        <h1 id="steam-title">Steam</h1>
+        <p class="sub" id="steam-sub"></p>
+
+        <div id="steam-alert" role="alert"></div>
+
+        <div class="actions stacked" id="steam-actions"></div>
+      </div>
+    </section>
+
+    <!-- ═══ Create an account ═══════════════════════════════════════════════ -->
+    <section class="screen narrow" data-screen="register" hidden>
+      <div class="pane">
+        <h1>Create your account</h1>
+        <p class="sub" id="register-sub">One account for everything venta.</p>
+
+        <div id="register-alert" role="alert"></div>
+
+        <form id="register-form" novalidate>
+          <div class="field">
+            <label for="register-username">Username</label>
+            <input id="register-username" autocomplete="username" autocapitalize="none"
+                   spellcheck="false" maxlength="32" required />
+          </div>
+
+          <div class="field">
+            <label for="register-email">Email address</label>
+            <input id="register-email" type="email" autocomplete="email" required />
+            <p class="hint">We send a code here to confirm it is yours.</p>
+          </div>
+
+          <div class="field">
+            <label for="register-password">Password</label>
+            <div class="input-affix">
+              <input id="register-password" type="password" autocomplete="new-password" required />
+              <button class="affix-btn" type="button" data-reveal="register-password"
+                      aria-label="Show password" aria-pressed="false">
+                <i data-icon="eye"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="register-birthdate">Date of birth</label>
+            <input id="register-birthdate" type="date" autocomplete="bday" required />
+            <p class="hint">Used for the age-appropriate defaults on your account. Not shown to anyone.</p>
+          </div>
+
+          <button class="btn primary block" type="submit" id="register-submit">Create account</button>
+        </form>
+
+        <p class="foot-note">Already have one? <a href="/login">Sign in</a></p>
+      </div>
+    </section>
+
+    <!-- ═══ Verify email ════════════════════════════════════════════════════ -->
+    <section class="screen narrow" data-screen="verify" hidden>
+      <div class="pane">
+        <div class="crest"><i data-icon="envelope"></i></div>
+        <h1>Check your email</h1>
+        <p class="sub" id="verify-sub">Enter the six-digit code we sent.</p>
+
+        <div id="verify-alert" role="alert"></div>
+
+        <form id="verify-form" novalidate>
+          <div class="field" id="verify-email-field">
+            <label for="verify-email">Email address</label>
+            <input id="verify-email" type="email" autocomplete="email" required />
+          </div>
+
+          <div class="field">
+            <label for="verify-code">Verification code</label>
+            <input id="verify-code" class="code-input big" inputmode="numeric" autocomplete="one-time-code"
+                   maxlength="6" spellcheck="false" required />
+            <p class="hint">Codes last five minutes, and five wrong tries destroys it.</p>
+          </div>
+
+          <button class="btn primary block" type="submit" id="verify-submit">Confirm</button>
+        </form>
+
+        <p class="foot-note">
+          <button class="link-btn" type="button" id="verify-resend">Send another code</button>
+        </p>
+      </div>
+    </section>
+
+    <!-- ═══ Forgot password ═════════════════════════════════════════════════ -->
+    <section class="screen narrow" data-screen="forgot" hidden>
+      <div class="pane">
+        <div class="crest"><i data-icon="key"></i></div>
+        <h1>Reset your password</h1>
+        <p class="sub">Tell us the address on the account and we will send a code.</p>
+
+        <div id="forgot-alert" role="alert"></div>
+
+        <form id="forgot-form" novalidate>
+          <div class="field">
+            <label for="forgot-email">Email address</label>
+            <input id="forgot-email" type="email" autocomplete="email" required />
+          </div>
+          <button class="btn primary block" type="submit" id="forgot-submit">Send reset code</button>
+        </form>
+
+        <p class="foot-note"><a href="/login">Back to sign in</a></p>
+      </div>
+    </section>
+
+    <!-- ═══ Set a new password ══════════════════════════════════════════════ -->
+    <section class="screen narrow" data-screen="reset" hidden>
+      <div class="pane">
+        <h1>Set a new password</h1>
+        <p class="sub" id="reset-sub">Use the code from the email.</p>
+
+        <div id="reset-alert" role="alert"></div>
+
+        <form id="reset-form" novalidate>
+          <div class="field">
+            <label for="reset-email">Email address</label>
+            <input id="reset-email" type="email" autocomplete="email" required />
+          </div>
+
+          <div class="field">
+            <label for="reset-code">Reset code</label>
+            <input id="reset-code" class="code-input" maxlength="12" spellcheck="false"
+                   autocapitalize="characters" required />
+          </div>
+
+          <div class="field">
+            <label for="reset-password">New password</label>
+            <div class="input-affix">
+              <input id="reset-password" type="password" autocomplete="new-password" required />
+              <button class="affix-btn" type="button" data-reveal="reset-password"
+                      aria-label="Show password" aria-pressed="false">
+                <i data-icon="eye"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- The reset can leave encrypted history unreadable. That is said before the
+               button is pressed, not on the screen afterwards. -->
+          <div class="notice warn">
+            <i data-icon="exclamation-triangle"></i>
+            <div class="grow">
+              A reset re-seals your encryption key. If you use end-to-end encrypted conversations,
+              have your recovery code to hand - it is what opens them again afterwards.
+            </div>
+          </div>
+
+          <button class="btn primary block" type="submit" id="reset-submit">Change password</button>
+        </form>
+
+        <p class="foot-note"><a href="/login">Back to sign in</a></p>
+      </div>
+    </section>
+
+    <!-- ═══ Terminal states ═════════════════════════════════════════════════
+         Anything that ends the journey here rather than by redirecting. Always
+         carries something to do next - see docs/specs/sso.md §9.2. -->
+    <section class="screen narrow" data-screen="done" hidden>
+      <div class="pane">
+        <div class="crest" id="done-crest"><i data-icon="check-circle"></i></div>
+        <h1 id="done-title"></h1>
+        <p class="sub" id="done-sub"></p>
+        <div class="actions stacked" id="done-actions"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="legal">
+    <a href="https://venta.gg/legal/terms" rel="noreferrer">Terms</a>
+    <span aria-hidden="true">&middot;</span>
+    <a href="https://venta.gg/legal/privacy" rel="noreferrer">Privacy</a>
+    <span aria-hidden="true">&middot;</span>
+    <a id="legal-support" href="#">Get help</a>
+  </footer>
+
+</div>
+
+<script src="/assets/icons.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

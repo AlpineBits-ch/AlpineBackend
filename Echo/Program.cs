@@ -1,3 +1,4 @@
+using Echo.Auth;
 using AppEnvironment;
 using Echo.Docs;
 using Echo.Moderation;
@@ -100,35 +101,9 @@ builder.Services.Configure<TransportFailureRateHealthPolicyOptions>(options =>
     options.MinimalTotalCountThreshold = 1; // fail after just 1 failure in the window
     options.DefaultFailureRateLimit = 0.3; // 30% failure rate triggers ejection
 });
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
-        options.RequireHttpsMetadata = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-        };
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                // WebSocket clients can't set the Authorization header, so the unified hub accepts
-                // the JWT via ?access_token=.
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) &&
-                    path.StartsWithSegments("/api/v1/ws/hub"))
-                {
-                    context.Token = accessToken;
-                }
-                return Task.CompletedTask;
-            }
-        };
-    });
+// WebSocket clients can't set the Authorization header, so the unified hub accepts the JWT via
+// ?access_token=. Only the gateway's own hub path - proxied hub traffic authenticates downstream.
+builder.Services.AddVentaJwtBearer(webSocketPath: "/api/v1/ws/hub");
 builder.Services.AddHttpClient();
 builder.Services.AddVentaDocs();
 

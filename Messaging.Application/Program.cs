@@ -1,3 +1,4 @@
+using Echo.Auth;
 using System.Net.Http.Headers;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
@@ -148,35 +149,7 @@ var scylla = Env.MessagingConfiguration.UseScyllaDb
     : ScyllaContext.CreateDebug();
 builder.Services.AddSingleton(scylla);
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
-        options.RequireHttpsMetadata = false; // Set to true in Prod
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-         
-        };
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-
-                var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && 
-                    path.StartsWithSegments("/api/v1/ws/hubs"))
-                {
-                    context.Token = accessToken;
-                }
-                return Task.CompletedTask;
-            }
-        };
-    });
+builder.Services.AddVentaJwtBearer(webSocketPath: "/api/v1/ws/hubs");
 
 builder.Services.AddControllers().AddJsonOptions(options =>
 {

@@ -1,3 +1,4 @@
+using Echo.Auth;
 using AppEnvironment;
 using JasperFx;
 using JasperFx.RuntimeCompiler;
@@ -88,20 +89,7 @@ builder.Services.AddSignalR(config =>
     .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
 
 builder.Services.AddWolverineHttp();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = Env.GeneralConfiguration.InstanceUrl; 
-        options.RequireHttpsMetadata = false; 
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = Env.GeneralConfiguration.InstanceUrl,
-            ValidateAudience = false,
-         
-        };
-    });
+builder.Services.AddVentaJwtBearer();
 
 builder.UseWolverine(opts =>
 {

@@ -137,7 +137,8 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AlpinePolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:1420", "https://chat.alpinebits.ch", "http://tauri.localhost", "tauri://localhost")
+        // Shared with the gateway via AppEnvironment.ClientOrigins rather than repeated.
+        policy.WithOrigins([.. ClientOrigins.Allowed])
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();

@@ -1,5 +1,6 @@
 using Echo.Auth;
 using AppEnvironment;
+using Echo.Cors;
 using Echo.Docs;
 using Echo.Moderation;
 using Echo.Persistence;
@@ -132,29 +133,21 @@ builder.Services.AddSignalR()
 // individual proxy routes rather than to a path prefix.
 builder.Services.AddSsoCors();
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AlpinePolicy", policy =>
-    {
-        // localhost:1420 is the Tauri dev shell; 4200 is a plain `ng serve`, which otherwise gets no
-        // CORS headers at all and so cannot read any cross-origin response against a deployed
-        // gateway. Same trust level as the 1420 entry that was already here.
-        policy.WithOrigins("http://localhost:1420", "http://localhost:4200", "https://chat.alpinebits.ch", "http://tauri.localhost", "tauri://localhost", "https://app.venta.gg")
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials()
-            // AllowAnyHeader covers request headers; reading a response header from JS needs it
-            // named here.
-            .WithExposedHeaders("Date", "ETag");
-    });
-});
+// The first-party client allowlist: desktop webview origins, a dev server, and the browser web
+// client.
+builder.Services.AddAlpineCors();
+
 var app = builder.Build();
+
+// Before anything can be refused: a CORS problem leaves no server-side trace, so the resolved
+// allowlist is stated in the log rather than left to be inferred from a browser console.
+app.LogAlpineCorsOrigins();
 
 // First in the pipeline so it wraps everything, including the proxy and the gateway's own
 // controllers.
 app.UseStatusMetrics();
 
-app.UseCors("AlpinePolicy");
+app.UseCors(AlpineCors.PolicyName);
 app.UseAuthentication();
 app.UseAuthorization();
 

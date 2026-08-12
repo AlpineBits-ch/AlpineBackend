@@ -13,7 +13,12 @@ public static class SteamReturnTargets
 
     public static string AuthSite => Env.AuthConfiguration.IssuerUrl.TrimEnd('/') + AuthSitePath;
 
-    public static IReadOnlyList<string> Allowed => [Default, AuthSite];
+    /// <summary>
+    /// The browser client's page, for a flow started from a tab rather than from the desktop app.
+    /// </summary>
+    public static string WebClient => WebClientHost.Link(WebClientHost.SteamAuthPath);
+
+    public static IReadOnlyList<string> Allowed => [Default, AuthSite, WebClient];
 
     /// <summary>The target to use for <paramref name="requested"/>.</summary>
     public static string Resolve(string? requested) =>

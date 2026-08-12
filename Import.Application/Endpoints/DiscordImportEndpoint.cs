@@ -48,13 +48,19 @@ public partial class DiscordImportEndpoint
     /// <summary>Kicks off the OAuth "add bot to server" flow - the browser is sent to Discord's
     /// own consent screen, requesting only View Channels (bit 0x400). No privileged intents/
     /// permissions are requested since structure import never touches members or messages.</summary>
+    /// <param name="returnUrl">Where to put the browser when the import has been kicked off. One of
+    /// <c>DiscordImportReturnTargets.Allowed</c>; anything else - including absent - falls back to the
+    /// configured deep link, so the desktop flow is unchanged. A web client passes its own
+    /// <c>/discord-import</c> page, because a browser cannot follow <c>venta://</c>.</param>
     [WolverineGet("/api/v1/discord/start")]
     public async Task<StartImportResponseDto> Start(
-        [NotBody] ClaimsPrincipal user, [NotBody] DiscordImportStateStore stateStore)
+        [NotBody] ClaimsPrincipal user, [NotBody] DiscordImportStateStore stateStore,
+        string? returnUrl = null)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier)!;
         var stateId = Guid.NewGuid().ToString("N");
-        await stateStore.SaveAsync(stateId, userId);
+        // Resolved here, on the authenticated request, and stored server-side.
+        await stateStore.SaveAsync(stateId, userId, DiscordImportReturnTargets.Resolve(returnUrl));
 
         var redirectUri = Uri.EscapeDataString(Env.DiscordImport.PublicBaseUrl + Env.DiscordImport.PublicCallbackPath);
         var authorizeUrl =
@@ -80,11 +86,13 @@ public partial class DiscordImportEndpoint
         string state, string? guild_id,
         [NotBody] DiscordImportStateStore stateStore, [NotBody] MicroserviceContext ctx, [NotBody] IMessageBus bus)
     {
-        var requestingUserId = await stateStore.ConsumeAsync(state);
-        if (requestingUserId is null || string.IsNullOrWhiteSpace(guild_id))
+        var pending = await stateStore.ConsumeAsync(state);
+        if (pending is null || string.IsNullOrWhiteSpace(guild_id))
         {
             return Results.BadRequest("Invalid or expired import request.");
         }
+
+        var requestingUserId = pending.RequestingUserId;
 
         var job = new ImportJob
         {
@@ -103,7 +111,9 @@ public partial class DiscordImportEndpoint
             RequestedByUserId = requestingUserId,
         });
 
-        return Results.Redirect($"{Env.DiscordImport.ClientReturnUrl}?jobId={job.Id}");
+        // The target resolved when the flow started, not the configured default and not anything Discord
+        // echoed back. See DiscordImportStateStore.
+        return Results.Redirect($"{pending.ReturnUrl}?jobId={job.Id}");
     }
 
     [WolverineGet("/api/v1/jobs/{jobId}")]

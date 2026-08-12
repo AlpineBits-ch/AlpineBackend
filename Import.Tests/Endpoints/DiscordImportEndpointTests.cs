@@ -57,7 +57,7 @@ public class DiscordImportEndpointTests
     [Test]
     public async Task Callback_ValidState_CreatesJobAndSendsCommand()
     {
-        await _stateStore.SaveAsync("state-1", "usr_requester");
+        await _stateStore.SaveAsync("state-1", "usr_requester", DiscordImportReturnTargets.Default);
 
         var result = await _endpoint.Callback("state-1", "discord-guild-1", _stateStore, _context, _bus);
 
@@ -83,7 +83,7 @@ public class DiscordImportEndpointTests
     [Test]
     public async Task Callback_MissingGuildId_ReturnsBadRequest()
     {
-        await _stateStore.SaveAsync("state-1", "usr_requester");
+        await _stateStore.SaveAsync("state-1", "usr_requester", DiscordImportReturnTargets.Default);
 
         var result = await _endpoint.Callback("state-1", null, _stateStore, _context, _bus);
 
@@ -93,7 +93,7 @@ public class DiscordImportEndpointTests
     [Test]
     public async Task Callback_StateIsConsumedExactlyOnce_SecondCallbackWithSameStateFails()
     {
-        await _stateStore.SaveAsync("state-1", "usr_requester");
+        await _stateStore.SaveAsync("state-1", "usr_requester", DiscordImportReturnTargets.Default);
 
         await _endpoint.Callback("state-1", "discord-guild-1", _stateStore, _context, _bus);
         var second = await _endpoint.Callback("state-1", "discord-guild-1", _stateStore, _context, _bus);

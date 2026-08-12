@@ -29,7 +29,7 @@ namespace Messaging.Application.Handler.Messages;
 public class MessageCreatedHandler
 {
     public static async Task Handle(MessageCreated messageCreated, IHubContext<EchoRealtimeHub> hubContext, MicroserviceContext ctx, IMessageBus bus,
-        BlockCache blocks, PrivacySettingsCache privacySettings, ILogger<MessageCreatedHandler> logger)
+        BlockCache blocks, PrivacySettingsCache privacySettings, WebPushSender webPush, ILogger<MessageCreatedHandler> logger)
     {
         if (!string.IsNullOrWhiteSpace(messageCreated.ConversationId))
         {
@@ -57,8 +57,13 @@ public class MessageCreatedHandler
 
             if (pushUserIds.Count > 0)
             {
+                // WebPush asked for alongside Fcm rather than in a second round trip.
                 var response = await bus.InvokeAsync<GetPushTokensForUsersResponse>(
-                    new GetPushTokensForUsersRequest { UserIds = pushUserIds, Kinds = [PushTokenKind.Fcm] });
+                    new GetPushTokensForUsersRequest
+                    {
+                        UserIds = pushUserIds,
+                        Kinds = [PushTokenKind.Fcm, PushTokenKind.WebPush],
+                    });
 
                 // Paired with the user id rather than flattened to a token list: the recipient's own
                 // id travels in the payload so the device can find that account's MLS state and
@@ -74,7 +79,7 @@ public class MessageCreatedHandler
                     .Select(s => s.UserId)
                     .ToHashSet(StringComparer.Ordinal);
 
-                await MessagePushService.SendAsync(recipients, new MessagePushPayload
+                var pushPayload = new MessagePushPayload
                 {
                     HideContentForUserIds = hideContentFor,
                     MessageId = messageCreated.MessageId,
@@ -86,7 +91,19 @@ public class MessageCreatedHandler
                     IsEncrypted = messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted,
                     Content = messageCreated.Content,
                     MlsGeneration = messageCreated.MlsGeneration,
-                }, logger);
+                };
+
+                await MessagePushService.SendAsync(recipients, pushPayload, logger);
+
+                // Browser subscriptions.
+                foreach (var subscription in response.Sendable(PushTokenKind.WebPush))
+                {
+                    await webPush.SendAsync(
+                        subscription,
+                        MessagePushService.BuildWebPushPayload(
+                            pushPayload, subscription.UserId, WebPushEncryption.MaxPayloadBytes),
+                        topic: messageCreated.ConversationId);
+                }
             }
         }
 

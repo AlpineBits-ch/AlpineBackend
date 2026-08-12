@@ -4,6 +4,7 @@ using AppEnvironment;
 using Facet.Extensions;
 using Identity.Application.Dtos.Request;
 using Identity.Application.Services;
+using Identity.Contracts.Push;
 using Identity.Domain.Aggregates;
 using Identity.Domain.Entities;
 using Identity.Domain.Enums;
@@ -260,10 +261,31 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
+
+        // A browser has no token, so the addressable value arrives as `endpoint` instead.
+        if (dto.Kind == PushTokenKind.WebPush)
+        {
+            var problem = WebPushSubscription.Validate(dto.Endpoint, dto.P256dh, dto.Auth);
+            if (problem is not null) return BadRequest(problem);
+
+            return await UpsertPushTokenAsync(userId, dto.Endpoint!, dto.Kind, dto.DeviceId,
+                dto.P256dh, dto.Auth);
+        }
+
         if (string.IsNullOrWhiteSpace(dto.Token)) return BadRequest("token is required.");
 
         return await UpsertPushTokenAsync(userId, dto.Token, dto.Kind, dto.DeviceId);
     }
+
+    /// <summary>
+    /// The VAPID public key a browser needs as <c>applicationServerKey</c> before it can subscribe.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("push/vapid-public-key")]
+    public IActionResult GetVapidPublicKey() =>
+        Env.Vapid.IsConfigured
+            ? Ok(new VapidPublicKeyDto { PublicKey = Env.Vapid.PublicKey })
+            : NotFound();
 
     /// <summary>Deprecated - POST self/push-token with <c>kind: "Fcm"</c>.</summary>
     [HttpPost("self/device-token")]
@@ -292,7 +314,13 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
     /// both push providers hand the same token to a different account after a reinstall or an
     /// account switch on the same handset.
     /// </summary>
-    private async Task<IActionResult> UpsertPushTokenAsync(string userId, string token, PushTokenKind kind, string? clientDeviceId)
+    private async Task<IActionResult> UpsertPushTokenAsync(
+        string userId,
+        string token,
+        PushTokenKind kind,
+        string? clientDeviceId,
+        string? p256dh = null,
+        string? auth = null)
     {
         string? deviceRowId = null;
         if (!string.IsNullOrWhiteSpace(clientDeviceId))
@@ -314,7 +342,10 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
         var existing = await ctx.UserPushTokens.FirstOrDefaultAsync(t => t.Kind == kind && t.Token == token);
         if (existing is not null)
         {
-            existing.ReassignTo(userId, deviceRowId);
+            // The keys go along for a Web Push re-registration: a browser re-subscribing against the
+            // same endpoint rotates p256dh and auth, and keeping the old pair leaves the endpoint
+            // reachable and every payload sent to it undecryptable.
+            existing.ReassignTo(userId, deviceRowId, p256dh, auth);
             await ctx.SaveChangesAsync();
             return Accepted();
         }
@@ -325,6 +356,8 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
             Token = token,
             Kind = kind,
             DeviceId = deviceRowId,
+            P256dh = p256dh,
+            Auth = auth,
         }));
         await ctx.SaveChangesAsync();
         return Created();
@@ -332,15 +365,27 @@ public class UserController(MicroserviceContext ctx, ILogger<UserController> log
 
     /// <summary>Lets a client drop its own endpoint on sign-out instead of leaving a token that
     /// keeps ringing a handset nobody is signed in on.</summary>
+    /// <param name="token">The FCM/APNs token to drop.</param>
+    /// <param name="kind">Narrows the delete to one transport. Absent means every transport holding
+    /// this value.</param>
+    /// <param name="endpoint">A Web Push subscription's endpoint - an alias for
+    /// <paramref name="token"/>, because that is the name a browser knows the value by and a client
+    /// holding a <c>PushSubscription</c> has no "token" to send. Either spelling deletes the same
+    /// row.</param>
     [HttpDelete("self/push-token")]
-    public async Task<IActionResult> DeletePushTokenAsync([FromQuery] string token, [FromQuery] PushTokenKind? kind)
+    public async Task<IActionResult> DeletePushTokenAsync(
+        [FromQuery] string? token,
+        [FromQuery] PushTokenKind? kind,
+        [FromQuery] string? endpoint = null)
     {
         var userId = User.Claims.FirstOrDefault(u => u.Type == ClaimTypes.NameIdentifier)?.Value;
         if (userId is null) return BadRequest();
-        if (string.IsNullOrWhiteSpace(token)) return BadRequest("token is required.");
+
+        var value = string.IsNullOrWhiteSpace(token) ? endpoint : token;
+        if (string.IsNullOrWhiteSpace(value)) return BadRequest("token or endpoint is required.");
 
         var rows = await ctx.UserPushTokens
-            .Where(t => t.UserId == userId && t.Token == token && (kind == null || t.Kind == kind))
+            .Where(t => t.UserId == userId && t.Token == value && (kind == null || t.Kind == kind))
             .ToListAsync();
 
         if (rows.Count == 0) return NotFound();

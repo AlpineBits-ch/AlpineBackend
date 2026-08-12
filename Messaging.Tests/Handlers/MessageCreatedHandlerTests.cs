@@ -87,7 +87,7 @@ public class MessageCreatedHandlerTests
 
         var bus = BusWithNoDeviceTokens();
 
-        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Has.Count.EqualTo(1));
@@ -105,7 +105,7 @@ public class MessageCreatedHandlerTests
 
         var bus = BusWithNoDeviceTokens();
 
-        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         var tokenRequest = (GetPushTokensForUsersRequest)bus.Invoked.Single(m => m is GetPushTokensForUsersRequest);
         Assert.That(tokenRequest.UserIds, Is.EquivalentTo(new[] { "user-2", "user-3" }));
@@ -120,7 +120,7 @@ public class MessageCreatedHandlerTests
         var bus = BusWithNoDeviceTokens();
 
         Assert.DoesNotThrowAsync(() => MessageCreatedHandler.Handle(
-            MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance));
+            MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance));
     }
 
     [Test]
@@ -137,7 +137,7 @@ public class MessageCreatedHandlerTests
         var systemMessage = MakeEvent(conversationId: "conv-1");
         systemMessage.Type = DomainMessageType.CallEnded;
 
-        await MessageCreatedHandler.Handle(systemMessage, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(systemMessage, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         Assert.That(bus.Invoked.Any(m => m is GetPushTokensForUsersRequest), Is.False);
     }
@@ -156,7 +156,7 @@ public class MessageCreatedHandlerTests
         var systemMessage = MakeEvent(conversationId: "conv-1");
         systemMessage.Type = DomainMessageType.CallMissed;
 
-        await MessageCreatedHandler.Handle(systemMessage, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(systemMessage, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages.Single().Method, Is.EqualTo("conversation.MessageCreated"));
@@ -170,7 +170,7 @@ public class MessageCreatedHandlerTests
     {
         var bus = new FakeMessageBus();
 
-        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         Assert.That(bus.Sent.Any(m => m is MessageCreatedForChannel evt && evt.ChannelId == "chan-1"), Is.True);
     }
@@ -180,7 +180,7 @@ public class MessageCreatedHandlerTests
     {
         var bus = new FakeMessageBus();
 
-        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Is.Empty);
@@ -197,7 +197,7 @@ public class MessageCreatedHandlerTests
         var evt = MakeEvent(channelId: "chan-1");
         evt.CreatedAt = new DateTimeOffset(2026, 3, 4, 5, 6, 7, 890, TimeSpan.Zero);
 
-        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
         Assert.That(forwarded.CreatedAt, Is.EqualTo(evt.CreatedAt));
@@ -210,7 +210,7 @@ public class MessageCreatedHandlerTests
         var evt = MakeEvent(channelId: "chan-1");
         evt.Type = DomainMessageType.Invite;
 
-        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance);
+        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
 
         var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
         Assert.That(forwarded.Type, Is.EqualTo(Guild.Contracts.Bus.Events.MessageType.Invite));
@@ -222,7 +222,7 @@ public class MessageCreatedHandlerTests
         var bus = new FakeMessageBus();
 
         Assert.DoesNotThrowAsync(() => MessageCreatedHandler.Handle(
-            MakeEvent(), _hub, _context, bus, Blocks(bus), Privacy(bus), NullLogger<MessageCreatedHandler>.Instance));
+            MakeEvent(), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance));
     }
 
     // ══════════════════════════════════════════════════════════════════════════ LoadAsync

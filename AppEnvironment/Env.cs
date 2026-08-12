@@ -48,6 +48,8 @@ public static class Env
 
     public static readonly ApnsConfiguration Apns = new();
 
+    public static readonly VapidConfiguration Vapid = new();
+
     public static readonly AccountDeletionConfiguration AccountDeletion = new();
 
     public static readonly HouseholdConfiguration Household = new();
@@ -509,6 +511,43 @@ public class ApnsConfiguration
     public string AuthKeyContent => string.IsNullOrEmpty(AuthKeyBase64)
         ? string.Empty
         : Encoding.UTF8.GetString(Convert.FromBase64String(AuthKeyBase64));
+}
+
+/// <summary>
+/// The VAPID keypair every Web Push send is signed with (RFC 8292), and the browser client's
+/// <c>applicationServerKey</c>.
+/// </summary>
+public class VapidConfiguration
+{
+    /// <summary>Uncompressed P-256 public key, base64url, 87 chars.</summary>
+    public string PublicKey { get; set; } = GetEnvironmentVariable("VAPID_PUBLIC_KEY") ?? string.Empty;
+
+    /// <summary>Raw 32-byte P-256 private scalar, base64url.</summary>
+    public string PrivateKey { get; set; } = GetEnvironmentVariable("VAPID_PRIVATE_KEY") ?? string.Empty;
+
+    /// <summary>
+    /// The <c>sub</c> claim of the VAPID JWT: a <c>mailto:</c> or <c>https:</c> URI a push service
+    /// operator can use to reach whoever runs this instance.
+    /// </summary>
+    public string Subject { get; set; } =
+        GetEnvironmentVariable("VAPID_SUBJECT")
+        ?? GetEnvironmentVariable("INSTANCE_URL")
+        ?? "https://api.venta.gg";
+
+    /// <summary>How long a signed JWT is valid.</summary>
+    public TimeSpan TokenLifetime { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("VAPID_TOKEN_LIFETIME_SECONDS") ?? (12 * 60 * 60).ToString()));
+
+    /// <summary>
+    /// The <c>TTL</c> header on every push: how long the push service may hold a message for a device
+    /// that is offline. Required by RFC 8030 - omitting it is a 400 from some services.
+    /// </summary>
+    public TimeSpan MessageTtl { get; set; } =
+        TimeSpan.FromSeconds(int.Parse(GetEnvironmentVariable("VAPID_MESSAGE_TTL_SECONDS") ?? (4 * 60 * 60).ToString()));
+
+    /// <summary>Whether this instance can send Web Push at all.</summary>
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(PublicKey) && !string.IsNullOrWhiteSpace(PrivateKey);
 }
 
 /// <summary>Grace-period/sweep tuning for the "delete my account" flow (Identity's

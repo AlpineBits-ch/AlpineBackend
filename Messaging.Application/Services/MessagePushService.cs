@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using FirebaseAdmin.Messaging;
 
 namespace Messaging.Application.Services;
@@ -205,6 +206,31 @@ public static class MessagePushService
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// The Web Push payload for one recipient: the same object <see cref="BuildData"/> produces,
+    /// serialised as JSON.
+    /// </summary>
+    /// <param name="maxBytes">
+    /// Budget for the serialised JSON - <c>WebPushEncryption.MaxPayloadBytes</c> at the call site.
+    /// </param>
+    public static string BuildWebPushPayload(MessagePushPayload payload, string recipientUserId, int maxBytes)
+    {
+        var data = BuildData(payload, recipientUserId);
+        var json = JsonSerializer.Serialize(data);
+        if (Encoding.UTF8.GetByteCount(json) <= maxBytes) return json;
+
+        if (data.Remove("ciphertext")) data["truncated"] = "1";
+
+        json = JsonSerializer.Serialize(data);
+        if (Encoding.UTF8.GetByteCount(json) <= maxBytes) return json;
+
+        // Still over budget with no ciphertext in it: something unbounded that is not the
+        // ciphertext - a very long plaintext body - so trim that too rather than send nothing.
+        data["body"] = HiddenContentPlaceholder;
+        data.Remove("senderAvatarUrl");
+        return JsonSerializer.Serialize(data);
     }
 
     private static string Truncate(string value, int max) =>

@@ -31,6 +31,9 @@ public class GetPushTokensHandler
                 t.UserId,
                 t.Token,
                 t.Kind,
+                // Null for FCM and APNs rows.
+                t.P256dh,
+                t.Auth,
                 // Devices are addressed by the client-supplied id everywhere off this service, so
                 // the row id never leaves.
                 ClientDeviceId = t.Device != null ? t.Device.ClientDeviceId : null,
@@ -50,6 +53,8 @@ public class GetPushTokensHandler
                     UserId = r.UserId,
                     Token = r.Token,
                     Kind = ToContract(r.Kind),
+                    P256dh = r.P256dh,
+                    Auth = r.Auth,
                     ClientDeviceId = r.ClientDeviceId,
                     Capabilities = r.Capabilities ?? [],
                 })
@@ -57,15 +62,19 @@ public class GetPushTokensHandler
         };
     }
 
+    // Every member named explicitly, with Fcm as the fall-through only because it is the historical
+    // default for an unrecognised value.
     private static DomainKind ToDomain(ContractKind kind) => kind switch
     {
         ContractKind.ApnsVoip => DomainKind.ApnsVoip,
+        ContractKind.WebPush => DomainKind.WebPush,
         _ => DomainKind.Fcm,
     };
 
     private static ContractKind ToContract(DomainKind kind) => kind switch
     {
         DomainKind.ApnsVoip => ContractKind.ApnsVoip,
+        DomainKind.WebPush => ContractKind.WebPush,
         _ => ContractKind.Fcm,
     };
 }

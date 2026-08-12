@@ -88,6 +88,10 @@ builder.Services.AddHttpClient("CloudflareRtc", client =>
     client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
 });
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
+
+// Web Push, for the browser client: a named HTTP client plus the sender that resolves it.
+builder.Services.AddWebPush();
+
 builder.Services.AddScoped<ConversationPermissionService>();
 builder.Services.AddScoped<MlsJoinRequestService>();
 builder.Services.AddScoped<MlsDeviceCoverageService>();

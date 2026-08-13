@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Isle.Api.Services.State;
 using Isle.Domain.Aggregates;
+using Isle.Domain.Entity;
 using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -101,11 +102,17 @@ public sealed class SkinDto
 {
     public string Id { get; init; } = string.Empty;
 
+    /// <summary>What the player calls this skin.</summary>
+    public string Name { get; init; } = string.Empty;
+
     /// <summary>Friendly species name resolved from the stored engine class.</summary>
     public string Species { get; init; } = string.Empty;
 
     /// <summary>The per-part colours as they are sent to the game.</summary>
     public SkinCustomizer? Customizer { get; init; }
+
+    /// <summary>Whether the player has explicitly equipped this skin.</summary>
+    public bool IsEquipped { get; init; }
 
     /// <summary>
     /// Whether this is the skin the game would currently reapply for this player.
@@ -235,9 +242,8 @@ public static class PlayerProfileEndpoints
 
         if (player is null) return Results.Ok(new IsleSkinsDto { Linked = false });
 
-        // Deliberately the same pick SkinStore makes, unordered LastOrDefault included - see
-        // SkinDto.IsEffective.
-        var effectiveSkinId = player.Skins.LastOrDefault()?.Id;
+        // The same call SkinStore makes, not a reimplementation of it.
+        var effectiveSkinId = SkinSelection.Effective(player.Skins)?.Id;
 
         return Results.Ok(new IsleSkinsDto
         {
@@ -247,8 +253,10 @@ public static class PlayerProfileEndpoints
                 .Select(skin => new SkinDto
                 {
                     Id = skin.Id,
+                    Name = skin.Name,
                     Species = IsleBridge.Sdk.Species.FriendlyName(skin.Species),
                     Customizer = skin.Customizer,
+                    IsEquipped = skin.IsEquipped,
                     IsEffective = skin.Id == effectiveSkinId,
                     CreatedAt = skin.CreatedAt,
                 })

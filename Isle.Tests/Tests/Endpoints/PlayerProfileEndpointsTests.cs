@@ -388,10 +388,9 @@ public class PlayerProfileEndpointsTests
         player.AddSkin(new CreateSkinParams { PlayerId = player.Id, Species = IsleBridge.Sdk.Species.Triceratops, Customizer = SkinCustomizer.FromProps("body=00FF00") });
         await _context.SaveChangesAsync();
 
-        // SkinStore.GetAsync picks Skins.LastOrDefault() off exactly this query shape, with no
-        // ordering of its own.
-        var expectedId = (await _context.Players.AsNoTracking().Include(p => p.Skins)
-            .FirstAsync(p => p.UserId == "user-1")).Skins.LastOrDefault()!.Id;
+        // SkinStore.GetAsync resolves through SkinSelection.Effective off exactly this query shape.
+        var expectedId = SkinSelection.Effective((await _context.Players.AsNoTracking().Include(p => p.Skins)
+            .FirstAsync(p => p.UserId == "user-1")).Skins)!.Id;
 
         var result = await PlayerProfileEndpoints.Skins(
             TestPrincipal.Create("user-1"), _context, CancellationToken.None);
@@ -402,6 +401,30 @@ public class PlayerProfileEndpointsTests
             Assert.That(skins, Has.Count.EqualTo(2));
             Assert.That(skins.Count(s => s.IsEffective), Is.EqualTo(1));
             Assert.That(skins.Single(s => s.IsEffective).Id, Is.EqualTo(expectedId));
+        });
+    }
+
+    [Test]
+    public async Task Skins_EquippedOlderSkin_IsEffectiveRatherThanTheNewest()
+    {
+        // The regression this pins: the endpoint used to answer Skins.LastOrDefault() while
+        // SkinStore answered SkinSelection.Effective.
+        var player = await LinkedPlayerAsync();
+        var olderId = player.AddSkin(new CreateSkinParams { PlayerId = player.Id, Species = IsleBridge.Sdk.Species.Tyrannosaurus, Customizer = SkinCustomizer.FromProps("body=FF0000") });
+        await Task.Delay(5);
+        player.AddSkin(new CreateSkinParams { PlayerId = player.Id, Species = IsleBridge.Sdk.Species.Triceratops, Customizer = SkinCustomizer.FromProps("body=00FF00") });
+        player.Skins.Single(s => s.Id == olderId).IsEquipped = true;
+        await _context.SaveChangesAsync();
+
+        var result = await PlayerProfileEndpoints.Skins(
+            TestPrincipal.Create("user-1"), _context, CancellationToken.None);
+
+        var skins = Value<IsleSkinsDto>(result).Skins;
+        Assert.Multiple(() =>
+        {
+            Assert.That(skins.Single(s => s.IsEffective).Id, Is.EqualTo(olderId));
+            Assert.That(skins.Single(s => s.IsEquipped).Id, Is.EqualTo(olderId));
+            Assert.That(skins.Count(s => s.IsEffective), Is.EqualTo(1));
         });
     }
 

@@ -59,7 +59,11 @@ public sealed class WorldRosterService(
                     Growth: player.Growth,
                     Position: position,
                     RegionId: region?.Id,
-                    LocationName: regions.Describe(position)));
+                    LocationName: regions.Describe(position),
+
+                    // Taken here because this is the only read in the service that carries it - the
+                    // bridge's stats feed has no gender field at all.
+                    Gender: string.IsNullOrWhiteSpace(player.Gender) ? null : player.Gender));
             }
 
             cache.Replace(entries);

@@ -6,6 +6,10 @@ namespace Isle.Api.Services.World;
 /// <summary>
 /// One player as the game server last reported them, with their region already resolved.
 /// </summary>
+/// <param name="Gender">
+/// The dinosaur's sex as RCON reports it ("Male" / "Female"), or null when the read did not carry
+/// one.
+/// </param>
 public sealed record RosterEntry(
     string Steam,
     string Name,
@@ -13,7 +17,8 @@ public sealed record RosterEntry(
     float Growth,
     Vector3 Position,
     string? RegionId,
-    string LocationName)
+    string LocationName,
+    string? Gender = null)
 {
     public string Coordinates => RegionMap.FormatCoordinates(Position.X, Position.Y);
 }

@@ -29,6 +29,11 @@ public abstract class BridgeStreamIngestionService<TMessage> : BackgroundService
     /// <summary>Cheap pre-filter applied before a DI scope is created.</summary>
     protected virtual bool IsRelevant(TMessage message) => true;
 
+    /// <summary>
+    /// Runs for every message, before <see cref="IsRelevant"/> and outside any DI scope.
+    /// </summary>
+    protected virtual Task ObserveAsync(TMessage message, CancellationToken ct) => Task.CompletedTask;
+
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         _logger.LogInformation("{Stream} stream ingestion started", StreamName);
@@ -39,6 +44,8 @@ public abstract class BridgeStreamIngestionService<TMessage> : BackgroundService
             {
                 await foreach (var message in OpenStreamAsync(ct))
                 {
+                    await ObserveAsync(message, ct);
+
                     if (!IsRelevant(message))
                         continue;
 

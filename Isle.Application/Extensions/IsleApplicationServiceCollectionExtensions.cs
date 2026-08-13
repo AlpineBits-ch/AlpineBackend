@@ -8,6 +8,7 @@ using Isle.Api.Services.Hosted;
 using Isle.Api.Services.Ingestion;
 using Isle.Api.Services.KingOfTheHill;
 using Isle.Api.Services.Privacy;
+using Isle.Api.Services.Progression;
 using Isle.Api.Services.Quests;
 using Isle.Api.Services.Rcon;
 using Isle.Api.Services.Rewards;
@@ -38,6 +39,27 @@ public static class IsleApplicationServiceCollectionExtensions
         services.AddIsleGameModes();
         services.AddIsleStreamIngestion();
         services.AddIsleBackgroundWork();
+        services.AddIsleProgression();
+
+        return services;
+    }
+
+    /// <summary>
+    /// What the companion website reads: playtime, the leaderboard, per-player quest history, live
+    /// vitals and the isle-scoped preferences that gate the public surfaces.
+    /// </summary>
+    private static IServiceCollection AddIsleProgression(this IServiceCollection services)
+    {
+        services.AddSingleton<PlayerVitalsCache>();
+
+        services.AddScoped<PlaySessionTracker>();
+        services.AddScoped<LeaderboardService>();
+        services.AddScoped<PlayerPreferencesService>();
+        services.AddScoped<QuestParticipationRecorder>();
+
+        // Its own loop rather than a line in VoicePresenceReconcileService - the two want opposite
+        // behaviour when the roster cannot be read. See the service's own remarks.
+        services.AddHostedService<PlaySessionReconcileService>();
 
         return services;
     }

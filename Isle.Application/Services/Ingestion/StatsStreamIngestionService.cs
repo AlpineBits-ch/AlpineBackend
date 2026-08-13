@@ -12,6 +12,7 @@ namespace Isle.Api.Services.Ingestion;
 public sealed class StatsStreamIngestionService(
     IStatsStream statsStream,
     VoicePlayerRegistry registry,
+    PlayerVitalsCache vitals,
     IServiceScopeFactory scopeFactory,
     ILogger<StatsStreamIngestionService> logger)
     : BridgeStreamIngestionService<StatsSnapshot>(scopeFactory, logger)
@@ -20,6 +21,10 @@ public sealed class StatsStreamIngestionService(
 
     protected override IAsyncEnumerable<StatsSnapshot> OpenStreamAsync(CancellationToken ct) =>
         statsStream.StreamAsync(ct);
+
+    /// <summary>Caches every player's vitals, whether or not they use voice.</summary>
+    protected override Task ObserveAsync(StatsSnapshot message, CancellationToken ct) =>
+        vitals.CaptureAsync(message, ct);
 
     // Not opted into voice - ignore.
     protected override bool IsRelevant(StatsSnapshot message) =>

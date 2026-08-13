@@ -24,6 +24,10 @@ public class MicroserviceContext : DbContext
     public DbSet<Quest> Quests { get; set; }
     public DbSet<QuestLocation> QuestLocations { get; set; }
     public DbSet<QuestInstance> QuestInstances { get; set; }
+    public DbSet<QuestParticipation> QuestParticipations { get; set; }
+
+    public DbSet<PlaySession> PlaySessions { get; set; }
+    public DbSet<PlayerPreferences> PlayerPreferences { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -39,6 +43,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<RewardType>();
             options.MapEnum<QuestType>();
             options.MapEnum<QuestInstanceState>();
+            options.MapEnum<PlaySessionEndReason>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -193,11 +198,61 @@ public class MicroserviceContext : DbContext
         });
 
 
+        modelBuilder.Entity<QuestParticipation>(participationBuilder =>
+        {
+            participationBuilder.HasOne(p => p.QuestInstance)
+                .WithMany()
+                .HasForeignKey(p => p.QuestInstanceId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Cascade, unlike the two nullable Player FKs on QuestInstance: a participation row is
+            // meaningless without the player it describes, and there is only one path, so the
+            // multiple-cascade-path problem those two avoid does not arise here.
+            participationBuilder.HasOne(p => p.Player)
+                .WithMany(player => player.QuestParticipations)
+                .HasForeignKey(p => p.PlayerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One row per player per run.
+            participationBuilder.HasIndex(p => new { p.QuestInstanceId, p.PlayerId }).IsUnique();
+
+            // The player-facing query is always "my history, newest first".
+            participationBuilder.HasIndex(p => new { p.PlayerId, p.RecordedAt });
+        });
+
+        modelBuilder.Entity<PlaySession>(sessionBuilder =>
+        {
+            sessionBuilder.HasOne(s => s.Player)
+                .WithMany(p => p.PlaySessions)
+                .HasForeignKey(s => s.PlayerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Two queries, two indexes.
+            sessionBuilder.HasIndex(s => new { s.PlayerId, s.EndedAt });
+            sessionBuilder.HasIndex(s => new { s.PlayerId, s.Species });
+
+            // The reconcile pass asks for every open session across all players, which is a tiny
+            // fraction of the table once the service has been up for a while.
+            sessionBuilder.HasIndex(s => s.EndedAt);
+        });
+
+        modelBuilder.Entity<PlayerPreferences>(preferencesBuilder =>
+        {
+            preferencesBuilder.HasOne(p => p.Player)
+                .WithOne(player => player.Preferences)
+                .HasForeignKey<PlayerPreferences>(p => p.PlayerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            preferencesBuilder.HasIndex(p => p.PlayerId).IsUnique();
+        });
+
         modelBuilder.Entity<Skin>(skinBuilder =>
         {
             skinBuilder.HasOne(s => s.Player)
                 .WithMany(p => p.Skins)
                 .HasForeignKey(s => s.PlayerId);
+
+            skinBuilder.Property(s => s.Name).HasMaxLength(Skin.MaxNameLength);
             
             skinBuilder.OwnsOne(s => s.Customizer, customizerBuilder =>
             {

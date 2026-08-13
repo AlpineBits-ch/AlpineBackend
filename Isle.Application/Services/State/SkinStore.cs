@@ -1,4 +1,5 @@
 using Isle.Api.Services.Quests;
+using Isle.Domain.Entity;
 using Isle.Infrastructure.Persistence;
 using IsleBridge.Sdk;
 using IsleBridge.Sdk.Models;
@@ -22,6 +23,7 @@ public class SkinStore(IServiceScopeFactory scopeFactory, BountyRegistry bountie
             .Include(p => p.Skins)
             .FirstOrDefaultAsync(x => x.SteamId == steam, ct);
 
-        return player?.Skins.LastOrDefault()?.Customizer;
+        // Their chosen skin, not whichever row the database happened to return last.
+        return SkinSelection.Effective(player?.Skins)?.Customizer;
     }
 }

@@ -17,6 +17,7 @@ public sealed class QuestCompletionService(
     RewardGranter rewards,
     QuestAnnouncer announcer,
     WorldRosterCache roster,
+    QuestParticipationRecorder participation,
     IMessageBus bus,
     ILogger<QuestCompletionService> logger)
 {
@@ -28,9 +29,17 @@ public sealed class QuestCompletionService(
     /// <param name="PaidPlayerIds">
     /// Exactly the players something reached, in the order they were paid.
     /// </param>
-    private sealed record Payout(IReadOnlyList<string> WinnerLines, IReadOnlyList<string> PaidPlayerIds)
+    /// <param name="Grants">
+    /// The same payouts broken down per player, which the durable participation record needs: a
+    /// history entry has to say what this player received, and the announcement-facing count cannot
+    /// answer that.
+    /// </param>
+    private sealed record Payout(
+        IReadOnlyList<string> WinnerLines,
+        IReadOnlyList<string> PaidPlayerIds,
+        IReadOnlyList<QuestRewardGrant> Grants)
     {
-        public static readonly Payout Nothing = new([], []);
+        public static readonly Payout Nothing = new([], [], []);
 
         public int PaidCount => PaidPlayerIds.Count;
     }
@@ -42,6 +51,9 @@ public sealed class QuestCompletionService(
 
     /// <summary>Qualified visitors, after the first, who still place above the participation tier.</summary>
     private const int TopTierSize = 3;
+
+    /// <summary>What a hunt asks for, snapshotted onto its participation rows.</summary>
+    private const int HuntGoal = 1;
 
     /// <summary>Fallback payout for an exploration template authored without rewards.</summary>
     private static readonly RewardConfig[] DefaultExplorationRewards =
@@ -153,6 +165,13 @@ public sealed class QuestCompletionService(
         var winner = new RankedVisitor(killer, Ticks: 0, RankRequirement.Winner);
         var payout = await PayOutAsync(instance, [winner], HuntLead, ct);
 
+        // Only the killer.
+        await participation.RecordAsync(
+            instance,
+            [new ResolvedParticipant(killer.Id, HuntGoal, RankRequirement.Winner, RewardsFor(payout, killer.Id))],
+            HuntGoal,
+            ct);
+
         await FinishAsync(instance, payout, ct);
 
         var killerName = killer.InGameName ?? roster.FindBySteam(killer.SteamId)?.Name ?? "Someone";
@@ -202,6 +221,9 @@ public sealed class QuestCompletionService(
 
             var payout = await PayOutAsync(instance, qualified, ExplorationLead, ct);
 
+            // Before FinishAsync, which drops the ledger this reads from.
+            await RecordExplorationParticipationAsync(instance, qualified, payout, ct);
+
             await FinishAsync(instance, payout, ct);
 
             // No winner named: an exploration is a crowd who all did the same thing, and singling out
@@ -226,6 +248,10 @@ public sealed class QuestCompletionService(
             return false;
 
         await context.SaveChangesAsync(ct);
+
+        // Before the ledger goes.
+        await RecordExplorationParticipationAsync(instance, ranked: [], payout: Payout.Nothing, ct);
+
         await ledger.ClearAsync(instance.Id);
 
         await announcer.AnnounceQuestExpiredAsync(instance, ct);
@@ -244,6 +270,59 @@ public sealed class QuestCompletionService(
 
         return true;
     }
+
+    // --- Durable history ----------------------------------------------------------------------------
+
+    /// <summary>Writes the participation rows for a settled non-bounty instance.</summary>
+    private async Task RecordExplorationParticipationAsync(
+        QuestInstance instance,
+        IReadOnlyList<RankedVisitor> ranked,
+        Payout payout,
+        CancellationToken ct)
+    {
+        // Explorations only.
+        if (instance.Type != QuestType.Exploration)
+            return;
+
+        // minTicks 0: the resolution asked who cleared the bar, the history asks who was there.
+        var visitors = await ledger.GetQualifiedAsync(instance.Id, minTicks: 0);
+        if (visitors.Count == 0)
+            return;
+
+        var steamIds = visitors.Select(visitor => visitor.SteamId).ToList();
+
+        // Grouped rather than keyed directly, for the reason RankAsync documents: nothing constrains
+        // steam_id to be unique, and a duplicate would throw - here, after the quest had already been
+        // paid and closed.
+        var playerIdBySteam = (await context.Players
+                .AsNoTracking()
+                .Where(player => steamIds.Contains(player.SteamId))
+                .Select(player => new { player.SteamId, player.Id })
+                .ToListAsync(ct))
+            .GroupBy(row => row.SteamId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First().Id, StringComparer.Ordinal);
+
+        var rankByPlayer = ranked.ToDictionary(visitor => visitor.Player.Id, visitor => visitor.Rank, StringComparer.Ordinal);
+
+        var participants = new List<ResolvedParticipant>(visitors.Count);
+        foreach (var visitor in visitors)
+        {
+            if (!playerIdBySteam.TryGetValue(visitor.SteamId, out var playerId))
+                continue;
+
+            participants.Add(new ResolvedParticipant(
+                playerId,
+                visitor.Ticks,
+                rankByPlayer.TryGetValue(playerId, out var rank) ? rank : null,
+                RewardsFor(payout, playerId)));
+        }
+
+        await participation.RecordAsync(instance, participants, RequiredPresenceTicks, ct);
+    }
+
+    /// <summary>What one player actually received, or nothing. See <see cref="Payout.Grants"/>.</summary>
+    private static IReadOnlyList<string> RewardsFor(Payout payout, string playerId) =>
+        payout.Grants.FirstOrDefault(grant => grant.PlayerId == playerId)?.Rewards ?? [];
 
     // --- Shared teardown and payout -----------------------------------------------------------------
 
@@ -380,7 +459,7 @@ public sealed class QuestCompletionService(
                 Grants = grants,
             });
 
-        return new Payout(winnerLines, grants.Select(g => g.PlayerId).ToList());
+        return new Payout(winnerLines, grants.Select(g => g.PlayerId).ToList(), grants);
     }
 
     /// <summary>

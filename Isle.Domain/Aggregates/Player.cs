@@ -22,6 +22,18 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     public virtual Storage Storage { get; set; }
     
     public virtual ICollection<Skin> Skins { get; set; } = [];
+
+    /// <summary>Their play history.</summary>
+    public virtual ICollection<PlaySession> PlaySessions { get; set; } = [];
+
+    /// <summary>What they did on each quest run they turned up to. Written once per run, at resolution.</summary>
+    public virtual ICollection<QuestParticipation> QuestParticipations { get; set; } = [];
+
+    /// <summary>
+    /// Null for every player who has never opened the settings page, which is most of them.
+    /// </summary>
+    public virtual PlayerPreferences? Preferences { get; set; }
+
     public long Xp { get; private set; }
     public string SteamId { get; set; }
     public string? UserId { get; set; }
@@ -33,7 +45,11 @@ public class Player : Aggregate<Player>, IPrefixedEntity
     
     public int FriendlyIdSeq { get; set; }           
 
-    public string FriendlyId => _sqids.Encode(FriendlyIdSeq);
+    public string FriendlyId => EncodeFriendlyId(FriendlyIdSeq);
+
+    /// <summary>The friendly id for a sequence number, without needing the row.</summary>
+    public static string EncodeFriendlyId(int friendlyIdSeq) =>
+        friendlyIdSeq < 0 ? string.Empty : _sqids.Encode(friendlyIdSeq);
 
     /// <summary>
     /// Decodes a <see cref="FriendlyId"/> back to its <see cref="FriendlyIdSeq"/>, or null when the
@@ -64,7 +80,22 @@ public class Player : Aggregate<Player>, IPrefixedEntity
         });
         return skin.Id;
     }
-    
+
+    /// <summary>
+    /// Makes one of this player's skins the one they wear, and unequips the rest.
+    /// </summary>
+    public bool EquipSkin(string skinId)
+    {
+        var target = Skins.FirstOrDefault(s => s.Id == skinId);
+        if (target is null) return false;
+
+        foreach (var skin in Skins)
+            skin.IsEquipped = ReferenceEquals(skin, target);
+
+        return true;
+    }
+
+
     public string? InGameName { get; set; }
     
     public static Player Create(CreatePlayerArgs args)

@@ -20,6 +20,7 @@ public class QuestCompletionServiceTests
     private QuestProgressLedger _ledger = null!;
     private WorldRosterCache _roster = null!;
     private IMessageBus _bus = null!;
+    private QuestParticipationRecorder _participation = null!;
     private QuestCompletionService _service = null!;
 
     [SetUp]
@@ -35,7 +36,9 @@ public class QuestCompletionServiceTests
         var presence = new PlayerPresenceManager(RedisTestFactory.Create(), NullLogger<PlayerPresenceManager>.Instance);
         var announcer = new QuestAnnouncer(bridge, NullLogger<QuestAnnouncer>.Instance, presence, _context);
 
-        _service = new QuestCompletionService(_context, _ledger, rewards, announcer, _roster, _bus, NullLogger<QuestCompletionService>.Instance);
+        _participation = new QuestParticipationRecorder(_context, NullLogger<QuestParticipationRecorder>.Instance);
+
+        _service = new QuestCompletionService(_context, _ledger, rewards, announcer, _roster, _participation, _bus, NullLogger<QuestCompletionService>.Instance);
     }
 
     [TearDown]

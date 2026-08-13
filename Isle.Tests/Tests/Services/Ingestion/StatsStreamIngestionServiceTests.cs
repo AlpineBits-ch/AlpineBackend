@@ -32,6 +32,7 @@ public class StatsStreamIngestionServiceTests
         _service = new StatsStreamIngestionService(
             Substitute.For<IStatsStream>(),
             _registry,
+            new PlayerVitalsCache(new FakeDistributedCache(), NullLogger<PlayerVitalsCache>.Instance),
             Substitute.For<IServiceScopeFactory>(),
             NullLogger<StatsStreamIngestionService>.Instance);
     }

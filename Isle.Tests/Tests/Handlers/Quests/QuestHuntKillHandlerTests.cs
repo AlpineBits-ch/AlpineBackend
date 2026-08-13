@@ -36,7 +36,9 @@ public class QuestHuntKillHandlerTests
         var presence = new PlayerPresenceManager(RedisTestFactory.Create(), NullLogger<PlayerPresenceManager>.Instance);
         var announcer = new QuestAnnouncer(bridge, NullLogger<QuestAnnouncer>.Instance, presence, _context);
 
-        _service = new QuestCompletionService(_context, _ledger, rewards, announcer, _roster, bus, NullLogger<QuestCompletionService>.Instance);
+        var participation = new QuestParticipationRecorder(_context, NullLogger<QuestParticipationRecorder>.Instance);
+
+        _service = new QuestCompletionService(_context, _ledger, rewards, announcer, _roster, participation, bus, NullLogger<QuestCompletionService>.Instance);
     }
 
     [TearDown]

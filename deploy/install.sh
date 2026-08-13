@@ -424,6 +424,10 @@ fi
 # The OIDC client allowlist. No prompt: it is a JSON array, nobody types one at an install
 # prompt, and an instance with no partner sites correctly has none. See docs/specs/sso-integration.md.
 : "${AUTH_CLIENTS:=}"
+# Extra browser origins allowed to call the API. Additive to the built-ins and to the web client
+# derived from INSTANCE_URL, so empty is right for a plain install. A site of your own on its own
+# hostname needs its origin here as well as in AUTH_CLIENTS.
+: "${CORS_ALLOWED_ORIGINS:=}"
 : "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
 : "${USE_EXTERNAL_DB:=no}"
 : "${DATABASE_HOSTNAME:=postgres}"
@@ -582,6 +586,12 @@ AUTH_ISSUER_URL="${AUTH_ISSUER_URL:-}"
 # docs/specs/sso-integration.md. Single quotes - the value is full of double quotes.
 #   AUTH_CLIENTS='[{"clientId":"wiki","displayName":"Wiki","redirectUris":["https://wiki.example.com/callback"],"scopes":["openid","profile","email"],"firstParty":true,"public":true}]'
 AUTH_CLIENTS='${AUTH_CLIENTS:-}'
+# Browser origins allowed to READ API responses, which is a separate grant from being allowed to
+# sign people in. Additive; comma, semicolon or space separated. localhost:4200 and localhost:1420
+# are built in, so a site of yours works in development whether or not this is set and then fails
+# in production only, with a CORS error the browser shows and no server log at all.
+#   CORS_ALLOWED_ORIGINS="https://isle.example.com"
+CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-}"
 
 # ── Images ───────────────────────────────────────────────────────────────────────────
 IMAGE_SOURCE="$IMAGE_SOURCE"

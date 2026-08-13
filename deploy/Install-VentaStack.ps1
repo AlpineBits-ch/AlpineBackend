@@ -396,7 +396,9 @@ $Defaults = @{
     # to derive keeps them in agreement. AUTH_CLIENTS is the JSON allowlist of sites permitted
     # to sign people in through this instance; empty until there is one. See
     # docs/specs/sso-integration.md.
-    AUTH_ISSUER_URL = ''; AUTH_CLIENTS = ''
+    # CORS_ALLOWED_ORIGINS is the other half of putting a site of your own on this instance:
+    # AUTH_CLIENTS lets it sign people in, this lets its browser code read API responses.
+    AUTH_ISSUER_URL = ''; AUTH_CLIENTS = ''; CORS_ALLOWED_ORIGINS = ''
     USE_EXTERNAL_DB = 'no'; DATABASE_HOSTNAME = 'postgres'; DATABASE_PORT = '5432'
     DATABASE_USERNAME = 'postgres'; DATABASE_PASSWORD = (New-Secret 24)
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
@@ -578,6 +580,12 @@ AUTH_ISSUER_URL="$($Config['AUTH_ISSUER_URL'])"
 # docs/specs/sso-integration.md. Single quotes - the value is full of double quotes.
 #   AUTH_CLIENTS='[{"clientId":"wiki","displayName":"Wiki","redirectUris":["https://wiki.example.com/callback"],"scopes":["openid","profile","email"],"firstParty":true,"public":true}]'
 AUTH_CLIENTS='$($Config['AUTH_CLIENTS'])'
+# Browser origins allowed to READ API responses, which is a separate grant from being allowed to
+# sign people in. Additive; comma, semicolon or space separated. localhost:4200 and localhost:1420
+# are built in, so a site of yours works in development whether or not this is set and then fails
+# in production only, with a CORS error the browser shows and no server log at all.
+#   CORS_ALLOWED_ORIGINS="https://isle.example.com"
+CORS_ALLOWED_ORIGINS="$($Config['CORS_ALLOWED_ORIGINS'])"
 
 # -- Images ---------------------------------------------------------------------------
 IMAGE_SOURCE="$($Config['IMAGE_SOURCE'])"

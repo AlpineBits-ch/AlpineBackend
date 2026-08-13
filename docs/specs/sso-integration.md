@@ -159,6 +159,60 @@ uppercased, every non-alphanumeric character replaced with `_`, prefixed `AUTH_C
 name it does not know about, so add the line to the `identity` service's `environment:` block
 yourself; the file has a comment marking the spot.
 
+### If the site also calls the API from a browser
+
+An `AUTH_CLIENTS` entry buys sign-in and nothing else. A browser app that then calls `api.<domain>`
+with the token is making a cross-origin request, and its origin has to be in
+**`CORS_ALLOWED_ORIGINS`** as well. That is a different variable, read by *every* service rather
+than by Identity, and it is set in the shared environment block (`AppEnvironment/ClientOrigins.cs`).
+
+This is worth spelling out because of how it fails. `http://localhost:4200` and
+`http://localhost:1420` are built in, so a site being developed against the instance works, and
+keeps working, right up to the moment it is deployed to its real hostname. The refusal then happens
+in the browser: the request reached the API, the API answered, and the browser threw the answer away
+for want of a header. Nothing appears in any server log, so it reads as a bug in the site.
+
+The list is additive (it never removes a built-in or the web client derived from `INSTANCE_URL`),
+comma/semicolon/space separated, and rejects `*`. Entries it could not parse are named in the
+startup log.
+
+### A worked first-party example
+
+The Isle companion site, `isle.venta.gg`, as it is configured on the hosted instance:
+
+```
+CORS_ALLOWED_ORIGINS=https://isle.venta.gg
+```
+
+```json
+[
+  {
+    "clientId": "isle",
+    "displayName": "VentaIsle",
+    "redirectUris": [
+      "https://isle.venta.gg/auth/callback",
+      "http://localhost:4200/auth/callback"
+    ],
+    "postLogoutRedirectUris": ["https://isle.venta.gg/"],
+    "scopes": ["openid", "profile", "email"],
+    "firstParty": true,
+    "public": true
+  }
+]
+```
+
+Both redirect URIs are listed because the match is exact and the development one is simply a
+different URI. `public` because it is a browser app with nowhere to keep a secret, and `firstParty`
+because it is ours, which skips the consent screen.
+
+No `offline_access`, deliberately: the site keeps no refresh token, and renews instead with a
+top-level `prompt=none` authorization redirect just before the access token expires. So the SSO
+cookie's sliding 14-day life is what the person actually experiences as "still signed in", and a
+`login_required` back from one of those renewals is a normal, expected outcome that the site has to
+handle as "sign them out here" rather than as an error (see §8). A silent-renew **iframe** would be
+the usual alternative and cannot work against this provider: the sign-in site sends
+`frame-ancestors 'none'`.
+
 ### Removing one
 
 Delete the entry and restart. The client is **disabled, not deleted** - which means tokens it already
@@ -215,5 +269,6 @@ result.
 | `invalid_scope` | Asking for a scope the client entry does not list. Note `roles` is not implied by `profile`. |
 | `invalid_grant` on the token call | The `code_verifier` does not match the challenge, the code was already used, or more than a few minutes passed. |
 | `login_required` | You sent `prompt=none` and there was no session. Expected; fall back to an interactive attempt. |
+| Sign-in works, then every API call fails in the browser only | The site's origin is not in `CORS_ALLOWED_ORIGINS`. See §5. Nothing is wrong with the token, and nothing is in the server log. |
 | Everything 401s after a deploy | The issuer changed. See §6 - check that every service has the same `AUTH_ISSUER_URL`. |
 | Sign-in page loads but the browser never comes back | Usually the SSO cookie: `auth.<domain>` must be HTTPS. The cookie is `__Host-` prefixed and a browser will not store it over plain http. |

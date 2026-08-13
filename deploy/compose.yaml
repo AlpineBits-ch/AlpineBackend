@@ -57,6 +57,25 @@ x-app-env: &app-env
   ASPNETCORE_URLS: http://+:8080
   ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
 
+  # --- Browser origins allowed to read authenticated API responses --------------------
+  # Additive: it never removes the built-ins (the desktop shells, `http://localhost:4200`,
+  # `http://localhost:1420`) or the web client derived from INSTANCE_URL, so you cannot lock
+  # your own apps out with it. See AppEnvironment/ClientOrigins.cs. Comma, semicolon or
+  # whitespace separated; `*` is refused, and anything unparseable is dropped with a line in
+  # the startup log rather than silently.
+  #
+  # IN THE SHARED BLOCK because the gateway is not the only service with a CORS policy -
+  # Federation has its own, and the two lists had already drifted once.
+  #
+  # This is the setting a first-party site of your own needs and does not obviously ask for:
+  # only the two localhost dev origins are built in, so a browser app you serve from your own
+  # hostname works perfectly in development and then fails in production with a CORS error and
+  # NOTHING IN ANY SERVER LOG. The hosted instance carries the Isle companion site this way:
+  #   CORS_ALLOWED_ORIGINS=https://isle.venta.gg
+  # Signing in is a separate grant, in AUTH_CLIENTS on the identity service below. A site
+  # generally needs both, and each fails in its own way.
+  CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-}"
+
   # --- Auth ---------------------------------------------------------------------------
   # The OIDC issuer: the name Identity stamps into every `iss` claim and every other service
   # checks it against. It is IN THE SHARED BLOCK for that reason - one service left on a
@@ -326,6 +345,10 @@ services:
       # forward a name it does not know, so add the line yourself next to this one, e.g.
       #   AUTH_CLIENT_SECRET_WIKI: "${AUTH_CLIENT_SECRET_WIKI:-}"
       # Browser and mobile clients should be public + PKCE instead; PKCE is required either way.
+      #
+      # An entry here buys a site sign-in and nothing else. If it also calls the API from the
+      # browser, its origin has to be in CORS_ALLOWED_ORIGINS (shared block, top of this file)
+      # as well; the two are enforced by different services and neither implies the other.
       AUTH_CLIENTS: "${AUTH_CLIENTS:-}"
       STEAM_PUBLIC_BASE_URL: "${STEAM_PUBLIC_BASE_URL:-${INSTANCE_URL}}"
       STEAM_PUBLIC_CALLBACK_PATH: "${STEAM_PUBLIC_CALLBACK_PATH:-/api/v1/identity/authentication/steam/callback}"

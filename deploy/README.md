@@ -212,6 +212,8 @@ The installer leaves the optional integrations blank and the stack runs without 
 | `STEAM_WEB_API_KEY` | Steam login still works (the key is only for profile enrichment) |
 | `SENTRY_URL` | no error reporting |
 | `ISLE_*` | only read when the `isle` profile is enabled |
+| `AUTH_CLIENTS` | no site other than Venta's own apps can sign people in through this instance |
+| `CORS_ALLOWED_ORIGINS` | only the built-in dev and desktop origins, plus the web client derived from `INSTANCE_URL`, may call the API from a browser - see below |
 | `GATEWAY_PROXY_SECRET` | forwarded headers are ignored and **every anonymous caller on the internet shares one rate-limit bucket** - see below |
 | `GATEWAY_TRUSTED_PROXIES` | nothing, unless you are using it instead of the secret |
 
@@ -288,6 +290,41 @@ earlier builds, so callers that were previously unlimited will now see 429s.
 
 There is deliberately **no tighter bucket on credential routes** (`/connect/token`, password
 reset, registration) - brute-force protection for those is not implemented.
+
+### Putting a site of your own on this instance
+
+A browser app you host yourself needs **two** grants, in two different places, enforced by two
+different services. Missing either one is a working-looking site that does not work, and neither
+failure writes anything to a server log.
+
+| | Where | Refusal looks like |
+| --- | --- | --- |
+| Sign people in | `AUTH_CLIENTS`, on the identity service | `invalid_client` on the sign-in page, or `invalid_request` about the redirect URI |
+| Read API responses in the browser | `CORS_ALLOWED_ORIGINS`, shared by every service | a CORS error in the browser console; the request itself succeeded server-side |
+
+`CORS_ALLOWED_ORIGINS` is additive and takes a comma, semicolon or space separated list. It never
+removes the built-ins (`http://localhost:4200`, `http://localhost:1420`, the two packaged-desktop
+origins) or the web client derived from `INSTANCE_URL`, so you cannot lock your own apps out with
+it. `*` is refused outright: on a policy that carries credentials, ASP.NET reads it as "reflect
+whatever origin asked", which is a working credentialed grant to every site on the internet.
+
+The two localhost entries are why this is a **production-only** failure. A site under `ng serve`
+is already allowed, so nothing goes wrong until it is deployed to its real hostname.
+
+Worked example, the Isle companion site on the hosted instance. In `deploy/.env`:
+
+```
+CORS_ALLOWED_ORIGINS=https://isle.venta.gg
+AUTH_CLIENTS='[{"clientId":"isle","displayName":"VentaIsle","redirectUris":["https://isle.venta.gg/auth/callback","http://localhost:4200/auth/callback"],"postLogoutRedirectUris":["https://isle.venta.gg/"],"scopes":["openid","profile","email"],"firstParty":true,"public":true}]'
+```
+
+Both redirect URIs are listed because they are matched exactly and the development one is a
+different URI, not a special case. `public: true` because the client runs in a browser and can
+keep no secret; `firstParty: true` because it is our own site, which skips the consent screen.
+Then `ventactl restart identity` for `AUTH_CLIENTS`, or `ventactl up` for the origins, which every
+service reads.
+
+Field-by-field reference: [`docs/specs/sso-integration.md`](../docs/specs/sso-integration.md).
 
 ### Storage URLs
 

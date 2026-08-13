@@ -18,7 +18,10 @@ public static class SteamReturnTargets
     /// </summary>
     public static string WebClient => WebClientHost.Link(WebClientHost.SteamAuthPath);
 
-    public static IReadOnlyList<string> Allowed => [Default, AuthSite, WebClient];
+    /// <summary>The Isle companion site's page, for a Steam link started from there.</summary>
+    public static string IsleSite => IsleSiteHost.Link(IsleSiteHost.SteamAuthPath);
+
+    public static IReadOnlyList<string> Allowed => [Default, AuthSite, WebClient, IsleSite];
 
     /// <summary>The target to use for <paramref name="requested"/>.</summary>
     public static string Resolve(string? requested) =>

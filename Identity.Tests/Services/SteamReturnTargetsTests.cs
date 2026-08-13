@@ -9,12 +9,14 @@ namespace Identity.Tests.Services;
 public class SteamReturnTargetsTests
 {
     private string _originalApp = null!;
+    private string _originalIsle = null!;
     private string _originalInstance = null!;
 
     [SetUp]
     public void CaptureEnv()
     {
         _originalApp = Environment.GetEnvironmentVariable(WebClientHost.EnvironmentVariable) ?? string.Empty;
+        _originalIsle = Environment.GetEnvironmentVariable(IsleSiteHost.EnvironmentVariable) ?? string.Empty;
         _originalInstance = Env.GeneralConfiguration.InstanceUrl;
     }
 
@@ -24,6 +26,9 @@ public class SteamReturnTargetsTests
         Environment.SetEnvironmentVariable(
             WebClientHost.EnvironmentVariable,
             string.IsNullOrEmpty(_originalApp) ? null : _originalApp);
+        Environment.SetEnvironmentVariable(
+            IsleSiteHost.EnvironmentVariable,
+            string.IsNullOrEmpty(_originalIsle) ? null : _originalIsle);
         Env.GeneralConfiguration.InstanceUrl = _originalInstance;
     }
 
@@ -91,16 +96,71 @@ public class SteamReturnTargetsTests
         Assert.That(SteamReturnTargets.Resolve(attacker), Is.EqualTo(SteamReturnTargets.Default));
     }
 
-    /// <summary>Three, and only three.</summary>
+    /// <summary>Four, and only four.</summary>
     [Test]
-    public void Exactly_the_deep_link_the_auth_site_and_the_web_client_are_allowed()
+    public void Exactly_the_deep_link_the_auth_site_the_web_client_and_the_isle_site_are_allowed()
     {
         Assert.That(SteamReturnTargets.Allowed, Is.EquivalentTo(new[]
         {
             SteamReturnTargets.Default,
             SteamReturnTargets.AuthSite,
             WebClientHost.Link(WebClientHost.SteamAuthPath),
+            IsleSiteHost.Link(IsleSiteHost.SteamAuthPath),
         }));
+    }
+
+    /// <summary>
+    /// The isle companion site, added for exactly the failure <see cref="WebClientHost"/> was added
+    /// for: without it a Steam link started on <c>isle.venta.gg</c> resolves to
+    /// <c>SteamReturnTargets.Default</c>, which is <c>venta://steam-auth</c>, and the browser it was
+    /// started in cannot follow it.
+    /// </summary>
+    [Test]
+    public void The_isle_site_page_is_allowed()
+    {
+        var target = IsleSiteHost.Link(IsleSiteHost.SteamAuthPath);
+
+        Assert.That(SteamReturnTargets.Resolve(target), Is.EqualTo(target));
+    }
+
+    /// <summary>An https URL a browser can navigate, not a custom scheme.</summary>
+    [Test]
+    public void The_isle_site_target_is_a_url_a_browser_can_follow()
+    {
+        Assert.That(SteamReturnTargets.IsleSite, Does.StartWith("https://"));
+        Assert.That(SteamReturnTargets.IsleSite, Does.EndWith(IsleSiteHost.SteamAuthPath));
+    }
+
+    /// <summary>Derived from the instance host, never a literal.</summary>
+    [Test]
+    public void The_isle_site_target_follows_the_instance_host()
+    {
+        Env.GeneralConfiguration.InstanceUrl = "https://api.selfhosted.test";
+
+        Assert.That(SteamReturnTargets.IsleSite, Is.EqualTo("https://isle.selfhosted.test/steam"));
+        Assert.That(SteamReturnTargets.Allowed, Contains.Item(SteamReturnTargets.IsleSite));
+    }
+
+    /// <summary>And <c>ISLE_DOMAIN</c> overrides the derivation, the way the other site variables do.</summary>
+    [Test]
+    public void The_isle_site_target_honours_its_override()
+    {
+        Env.GeneralConfiguration.InstanceUrl = "https://api.venta.gg";
+        Environment.SetEnvironmentVariable(IsleSiteHost.EnvironmentVariable, "play.somewhere-else.test");
+
+        Assert.That(SteamReturnTargets.IsleSite, Is.EqualTo("https://play.somewhere-else.test/steam"));
+    }
+
+    /// <summary>Exact match applies to the new entry too - the same prefix and suffix tricks the web
+    /// client entry is guarded against.</summary>
+    [TestCase("https://isle.venta.gg.attacker.example/steam")]
+    [TestCase("https://isle.venta.gg/steam/../../evil")]
+    [TestCase("https://isle.venta.gg/steam.evil")]
+    public void An_unrecognised_isle_shaped_target_is_refused(string requested)
+    {
+        Env.GeneralConfiguration.InstanceUrl = "https://api.venta.gg";
+
+        Assert.That(SteamReturnTargets.Resolve(requested), Is.EqualTo(SteamReturnTargets.Default));
     }
 
     /// <summary>The auth site keeps working - it is the target the SSO flow has been using since before

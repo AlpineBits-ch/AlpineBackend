@@ -212,11 +212,17 @@ Checkout is the redirect-to-Stripe option we are correctly not using.
 
 ### Flow
 
-1. `GET /api/v1/billing/plans` - sellable plans, price, currency, interval, which subject kinds each
-   applies to, and enough of the entitlement values to render a comparison. Anonymous-safe.
+The exact shapes are in `billing-checkout-api-contract.md`, **which is authoritative wherever this
+summary and that document differ.** This section is the reasoning; that one is the interface.
+
+1. `GET /api/v1/billing/catalogue` - authenticated. Whether anything is for sale, and the sellable
+   plans with price, currency, interval, subject kind, and the entitlement values needed to render a
+   comparison.
 2. `POST /api/v1/billing/subscriptions` `{ planName, subjectKind, subjectId }` - Billing ensures a
-   customer, creates the subscription with `payment_behavior: default_incomplete`, and returns
-   `{ subscriptionId, clientSecret, publishableKey, status }`.
+   customer, creates the subscription with `payment_behavior: default_incomplete`, and returns the
+   subscription plus a `clientSecret`. It does **not** return the publishable key: that already
+   reaches the client on the entitlement snapshot, and a third source for one value is how sources
+   start disagreeing.
 3. The client mounts the Payment Element against the client secret and confirms.
 4. The webhook activates the subscription and writes the assignment.
 5. The client polls the subscription until it is active. Polling rather than a realtime push because
@@ -273,6 +279,32 @@ plan panel exactly as a self-hosted one does rather than showing a buy button th
 
 Nothing in this wave changes what a self-hosted instance resolves. `SelfHostEverythingSource` still
 short-circuits above all of it.
+
+### Sandbox credentials as compiled-in fallbacks
+
+The three Stripe values fall back to the **AlpineBits KLG sandbox** test credentials when their
+environment variables are unset, so that a deployment works without a Helm change and production
+values are a pure override.
+
+This is a deliberate trade and it has a sharp edge: if a live key is ever meant to be set and the
+variable is missing, the service does not fail, it quietly transacts against the sandbox. A missing
+publishable key would mean cards tokenised against a sandbox and payments that appear to do nothing.
+So the fallback is paired with a **startup warning that fires whenever a test-mode credential is in
+use on a `hosted` instance**, naming which one. The warning is the whole reason the fallback is
+acceptable; do not remove it and leave the defaults.
+
+Test-mode is detected from the value itself (`pk_test_` / `sk_test_` prefixes), not from a separate
+flag, so the warning cannot disagree with reality.
+
+### Operator setup already done in the sandbox
+
+- Webhook destination `we_1U4SLw2c7cgnhryPUqDJS3rG`, active, pointing at
+  `https://api.venta.gg/api/v1/billing/stripe/webhook`, API version `2026-04-22.dahlia`, subscribed
+  to exactly the six events in §5.
+- No products and no prices exist, and none should be created by hand. §2.
+
+`2026-04-22.dahlia` is well past the 2025-03-31 cutover, which settles the open question in §7: the
+client secret comes from `latest_invoice.confirmation_secret`, not `latest_invoice.payment_intent`.
 
 ---
 

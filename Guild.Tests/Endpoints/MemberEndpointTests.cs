@@ -531,4 +531,129 @@ public class MemberEndpointTests
         var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == ModMemberId);
         Assert.That(member.Nickname, Is.EqualTo("Self"));
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SetMemberPermissionsAsync
+    // ══════════════════════════════════════════════════════════════════════
+
+    private Task<IResult> SetPermissions(SetMemberPermissionsDto dto, string actorUserId = UserId,
+        string memberId = TargetMemberId) =>
+        _endpoint.SetMemberPermissionsAsync(GuildId, memberId, dto, _context,
+            actorUserId.Length == 0 ? TestPrincipal.CreateAnonymous() : TestPrincipal.Create(actorUserId),
+            _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
+
+    [Test]
+    public async Task SetMemberPermissions_Unauthenticated_ReturnsUnauthorized()
+    {
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel }, actorUserId: "");
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_LacksManageRoles_ReturnsForbid()
+    {
+        await SeedModeratorAndTarget(Permissions.ViewChannel);
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel });
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_UnknownMember_ReturnsNotFound()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageRoles | Permissions.ViewChannel);
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel },
+            memberId: "gmbr_does_not_exist");
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    /// <summary>The escalation guard: ManageRoles lets you hand out permissions, not permissions you
+    /// do not hold yourself.</summary>
+    [Test]
+    public async Task SetMemberPermissions_GrantsBitActorLacks_ReturnsForbid()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageRoles);
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.BanMembers });
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_DenyingBitActorLacks_ReturnsForbid()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageRoles);
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { DenyPermissions = Permissions.BanMembers });
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_TargetOutranksActor_ReturnsForbid()
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.Roles.Add(new Role { Id = ModRoleId, GuildId = GuildId, Name = "mod", Permissions = Permissions.ManageRoles | Permissions.ViewChannel, Position = 1, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.GuildMembers.Add(new GuildMember { Id = ModMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
+        _context.RoleMembers.Add(new RoleMember { Id = "rm-mod", RoleId = ModRoleId, MemberId = ModMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Roles.Add(new Role { Id = TargetRoleId, GuildId = GuildId, Name = "target-role", Position = 5, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.GuildMembers.Add(new GuildMember { Id = TargetMemberId, GuildId = GuildId, UserId = TargetUserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{TargetUserId}#{GuildId}" });
+        _context.RoleMembers.Add(new RoleMember { Id = "rm-target", RoleId = TargetRoleId, MemberId = TargetMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        await _context.SaveChangesAsync();
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel });
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_Valid_WritesAllowMaskAndAuditsAndNotifies()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageRoles | Permissions.ViewChannel);
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel });
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.MemberPermissionsDto>>());
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == TargetMemberId);
+        Assert.That(member.AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
+
+        var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.ActionType == AuditActionType.MemberPermissionsChanged).ToList();
+        Assert.That(entries, Has.Count.EqualTo(1));
+        Assert.That(entries[0].TargetId, Is.EqualTo(TargetUserId));
+        Assert.That(_bus.Published.OfType<MemberUpdatedForBots>().Any(e => e.UserId == TargetUserId), Is.True);
+    }
+
+    /// <summary>The reason the body is four nullable masks rather than four masks: the only client
+    /// editing these shows the core allow mask alone, so the three it omits have to survive a save
+    /// it cannot represent them in.</summary>
+    [Test]
+    public async Task SetMemberPermissions_OmittedMasks_AreLeftAlone()
+    {
+        var target = await SeedModeratorAndTarget(Permissions.ManageRoles | Permissions.ViewChannel);
+        target.DenyPermissions = Permissions.SendMessages;
+        target.AllowModulePermissions = ModulePermissions.CreateWikiPages;
+        await _context.SaveChangesAsync();
+
+        await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel });
+        await _context.SaveChangesAsync();
+
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == TargetMemberId);
+        Assert.That(member.AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
+        Assert.That(member.DenyPermissions, Is.EqualTo(Permissions.SendMessages));
+        Assert.That(member.AllowModulePermissions, Is.EqualTo(ModulePermissions.CreateWikiPages));
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_NoActualChange_WritesNoAuditEntry()
+    {
+        var target = await SeedModeratorAndTarget(Permissions.ManageRoles | Permissions.ViewChannel);
+        target.AllowPermissions = Permissions.ViewChannel;
+        await _context.SaveChangesAsync();
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel });
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.MemberPermissionsDto>>());
+        Assert.That(_context.Set<GuildAuditLogEntry>().Count(e => e.ActionType == AuditActionType.MemberPermissionsChanged), Is.EqualTo(0));
+        Assert.That(_bus.Published.OfType<MemberUpdatedForBots>().Any(), Is.False);
+    }
 }

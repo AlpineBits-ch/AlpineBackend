@@ -59,7 +59,7 @@ no per-channel equivalent. Don't build per-channel toggles for them.
 ## 1. Read everything at once (do this on login)
 
 ```http
-GET /api/v1/guild/api/v1/users/me/notification-settings
+GET /api/v1/guild/users/me/notification-settings
 ```
 
 Returns one entry **per guild you're in**, including guilds you've never configured - those report
@@ -91,7 +91,7 @@ Single-guild read is also available: `GET /api/v1/guilds/{guildId}/notification-
 ## 2. Guild level
 
 ```http
-PUT /api/v1/guild/api/v1/guilds/{guildId}/notification-settings
+PUT /api/v1/guild/guilds/{guildId}/notification-settings
 
 {
   "level": 1,
@@ -126,11 +126,11 @@ clock skew against the server.
 Same body shape for both:
 
 ```http
-PUT    /api/v1/guild/api/v1/channels/{channelId}/notification-settings
-DELETE /api/v1/guild/api/v1/channels/{channelId}/notification-settings
+PUT    /api/v1/guild/channels/{channelId}/notification-settings
+DELETE /api/v1/guild/channels/{channelId}/notification-settings
 
-PUT    /api/v1/guild/api/v1/categories/{categoryId}/notification-settings
-DELETE /api/v1/guild/api/v1/categories/{categoryId}/notification-settings
+PUT    /api/v1/guild/categories/{categoryId}/notification-settings
+DELETE /api/v1/guild/categories/{categoryId}/notification-settings
 ```
 
 ```json

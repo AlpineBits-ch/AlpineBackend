@@ -90,7 +90,7 @@ endpoints.
 ### Change your own
 
 ```http
-PATCH /api/v1/guild/api/v1/guilds/{guildId}/members/me/nickname
+PATCH /api/v1/guild/guilds/{guildId}/members/me/nickname
 Content-Type: application/json
 
 { "nickname": "Newt" }
@@ -102,7 +102,7 @@ member has it unless a server removed it.
 ### Change someone else's
 
 ```http
-PATCH /api/v1/guild/api/v1/guilds/{guildId}/members/{memberId}/nickname
+PATCH /api/v1/guild/guilds/{guildId}/members/{memberId}/nickname
 
 { "nickname": "Renamed" }
 ```
@@ -144,7 +144,7 @@ rename arrives this way too. Note `nickname` may be `null`, meaning "fall back t
 
 ### Member search now matches nicknames
 
-`GET /api/v1/guild/api/v1/guilds/{id}/members/search?search=...` previously matched only the
+`GET /api/v1/guild/guilds/{id}/members/search?search=...` previously matched only the
 account username. It now matches **either** the username or the current nickname. No API change -
 your existing call just returns better results. If you were client-side filtering on nickname to
 compensate, you can drop that.

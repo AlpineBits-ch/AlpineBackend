@@ -310,28 +310,16 @@ public class MemberEndpoint
             !await permissionService.CanGrantPermissionsAsync(userId, guildId, moduleDeny))
             return Results.Forbid();
 
-        var previous = new
-        {
-            member.AllowPermissions,
-            member.DenyPermissions,
-            member.AllowModulePermissions,
-            member.DenyModulePermissions,
-        };
+        var previous = Snapshot(member);
 
         member.AllowPermissions = dto.AllowPermissions ?? member.AllowPermissions;
         member.DenyPermissions = dto.DenyPermissions ?? member.DenyPermissions;
         member.AllowModulePermissions = dto.AllowModulePermissions ?? member.AllowModulePermissions;
         member.DenyModulePermissions = dto.DenyModulePermissions ?? member.DenyModulePermissions;
 
-        var current = new
-        {
-            member.AllowPermissions,
-            member.DenyPermissions,
-            member.AllowModulePermissions,
-            member.DenyModulePermissions,
-        };
+        var current = Snapshot(member);
 
-        if (current.Equals(previous)) return Results.Ok(current);
+        if (current == previous) return Results.Ok(current);
 
         member.UpdatedAt = DateTime.UtcNow;
 
@@ -354,6 +342,14 @@ public class MemberEndpoint
 
         return Results.Ok(current);
     }
+
+    private static MemberPermissionsDto Snapshot(GuildMember member) => new()
+    {
+        AllowPermissions = member.AllowPermissions,
+        DenyPermissions = member.DenyPermissions,
+        AllowModulePermissions = member.AllowModulePermissions,
+        DenyModulePermissions = member.DenyModulePermissions,
+    };
 
     /// <summary>Maximum nickname length, matching Discord's. Enforced on the trimmed value.</summary>
     private const int MaxNicknameLength = 32;

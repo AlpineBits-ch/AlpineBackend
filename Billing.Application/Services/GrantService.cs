@@ -22,6 +22,11 @@ public static class GrantErrorCodes
     public const string InvalidEntitlementValue = "invalid_entitlement_value";
     public const string ExpiryInThePast = "expiry_in_the_past";
     public const string AlreadyRevoked = "already_revoked";
+
+    /// <summary>A start date at or after the expiry, which would be a grant that never counts for a
+    /// single instant. Its own code rather than folded into <see cref="ExpiryInThePast"/>, because
+    /// the two are fixed by editing different fields.</summary>
+    public const string StartAfterExpiry = "start_after_expiry";
 }
 
 /// <summary>A grant was refused.</summary>
@@ -39,7 +44,8 @@ public sealed record IssueGrant(
     IReadOnlyDictionary<string, string>? Entitlements,
     DateTimeOffset? ExpiresAt,
     string Reason,
-    GrantSource Source);
+    GrantSource Source,
+    DateTimeOffset? StartsAt = null);
 
 /// <summary>
 /// Issuing, amending and revoking admin grants (monetization.md section 6), and answering the
@@ -96,6 +102,16 @@ public sealed class GrantService(
                 + "Leave it null for a permanent grant.");
         }
 
+        // A future start is legitimate and is what a queued credit purchase is made of; a start at or
+        // after the expiry is a grant that never counts for a single instant, which is the same
+        // nothing an expiry in the past buys.
+        if (request.StartsAt is { } start && request.ExpiresAt is { } end && start >= end)
+        {
+            throw new GrantRefusedException(GrantErrorCodes.StartAfterExpiry,
+                $"This grant would start at {start:O} and expire at {end:O}, so it would never count "
+                + "for a single instant.");
+        }
+
         var changedKeys = await ValidateAsync(request, cancellationToken);
 
         var grant = new Grant
@@ -109,6 +125,7 @@ public sealed class GrantService(
                 ? JsonSerializer.Serialize(request.Entitlements)
                 : null,
             ExpiresAt = request.ExpiresAt,
+            StartsAt = request.StartsAt,
             Reason = request.Reason.Trim(),
             Source = request.Source,
             CreatedBy = createdBy,
@@ -211,8 +228,10 @@ public sealed class GrantService(
     public async Task<IReadOnlyList<EntitlementGrant>> ActiveGrantsAsync(
         EntitlementSubject subject, CancellationToken cancellationToken)
     {
+        var now = clock.GetUtcNow();
         var live = await ListAsync(subject, activeOnly: true, cancellationToken);
-        return live.Select(ToEntitlementGrant).ToList();
+
+        return live.Where(grant => grant.HasStartedAt(now)).Select(ToEntitlementGrant).ToList();
     }
 
     public static EntitlementGrant ToEntitlementGrant(Grant grant)
@@ -223,7 +242,8 @@ public sealed class GrantService(
             grant.Id,
             grant.GrantKind == GrantKind.Plan ? grant.Plan : null,
             grant.GrantKind == GrantKind.Entitlements ? ReadEntitlements(grant.EntitlementsJson) : null,
-            grant.ExpiresAt);
+            grant.ExpiresAt,
+            grant.StartsAt);
     }
 
     /// <summary>The key names a grant touches, for the advisory <c>changedKeys</c> on the event. Best

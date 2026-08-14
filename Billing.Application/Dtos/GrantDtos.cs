@@ -36,7 +36,9 @@ public sealed record GrantDto(
     DateTimeOffset? RevokedAt,
     string? RevokedBy,
     string? RevokeReason,
-    bool IsActive)
+    bool IsActive,
+    DateTimeOffset? StartsAt = null,
+    bool IsScheduled = false)
 {
     public static GrantDto From(Grant grant, DateTimeOffset now)
     {
@@ -59,7 +61,9 @@ public sealed record GrantDto(
             grant.RevokedAt,
             grant.RevokedBy,
             grant.RevokeReason,
-            grant.IsActiveAt(now));
+            grant.IsActiveAt(now),
+            grant.StartsAt,
+            grant.IsScheduledAt(now));
     }
 }
 

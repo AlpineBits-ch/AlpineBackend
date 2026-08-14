@@ -1,4 +1,5 @@
 using AppEnvironment;
+using Billing.Application.Credit;
 using Billing.Application.Security;
 using Billing.Application.Services;
 using Billing.Application.Stripe;
@@ -80,6 +81,9 @@ builder.Services.AddScoped<PaymentMethodService>();
 
 // The webhook half of wave 6, registered by the package that owns it.
 builder.Services.AddStripeWebhooks();
+
+// Promotional credit (monetization.md section 8), same arrangement.
+builder.Services.AddCreditLedger();
 
 // Billing is the write side, so it registers the grant provider rather than the entitlement source
 // built on it.

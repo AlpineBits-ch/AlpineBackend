@@ -10,14 +10,20 @@ namespace Echo.Entitlements.Sources;
 /// Shown verbatim as provenance, so it has to name something a human can then go and look up.
 /// </param>
 /// <param name="ExpiresAt">Null means permanent (spec section 6).</param>
+/// <param name="StartsAt">
+/// Null means immediately, which is what every grant meant before credit purchases needed to queue
+/// (spec section 8.3).
+/// </param>
 public sealed record EntitlementGrant(
     string GrantId,
     string? Plan,
     IReadOnlyDictionary<string, string>? Entitlements,
-    DateTimeOffset? ExpiresAt = null)
+    DateTimeOffset? ExpiresAt = null,
+    DateTimeOffset? StartsAt = null)
 {
     /// <summary>Whether this grant still counts at a given instant.</summary>
-    public bool IsActiveAt(DateTimeOffset instant) => ExpiresAt is null || ExpiresAt > instant;
+    public bool IsActiveAt(DateTimeOffset instant) =>
+        (ExpiresAt is null || ExpiresAt > instant) && (StartsAt is null || StartsAt <= instant);
 }
 
 /// <summary>Where <see cref="GrantEntitlementSource"/> gets its grants.</summary>

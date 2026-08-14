@@ -19,6 +19,9 @@ public enum GrantSource
     Promotion,
     Boost,
     Migration,
+
+    /// <summary>Bought with promotional credit.</summary>
+    Credit,
 }
 
 /// <summary>
@@ -49,6 +52,9 @@ public class Grant : BaseEntity<Grant>, IPrefixedEntity
     /// <summary>Null means permanent.</summary>
     public DateTimeOffset? ExpiresAt { get; set; }
 
+    /// <summary>When the grant begins counting.</summary>
+    public DateTimeOffset? StartsAt { get; set; }
+
     /// <summary>Required, free text, and the reason the audit trail is worth having.</summary>
     public string Reason { get; set; } = null!;
 
@@ -70,8 +76,16 @@ public class Grant : BaseEntity<Grant>, IPrefixedEntity
     /// <summary>Null <see cref="ExpiresAt"/> is permanent and this is false forever.</summary>
     public bool HasExpiredAt(DateTimeOffset instant) => ExpiresAt is not null && ExpiresAt <= instant;
 
+    /// <summary>Null <see cref="StartsAt"/> is "immediately" and this is false forever.</summary>
+    public bool HasStartedAt(DateTimeOffset instant) => StartsAt is null || StartsAt <= instant;
+
     /// <summary>Whether this grant contributes anything at a given instant.</summary>
-    public bool IsActiveAt(DateTimeOffset instant) => !IsRevoked && !HasExpiredAt(instant);
+    public bool IsActiveAt(DateTimeOffset instant) =>
+        !IsRevoked && HasStartedAt(instant) && !HasExpiredAt(instant);
+
+    /// <summary>Issued, still good, and waiting for its start date.</summary>
+    public bool IsScheduledAt(DateTimeOffset instant) =>
+        !IsRevoked && !HasStartedAt(instant) && !HasExpiredAt(instant);
 
     /// <summary>Ends a grant without ending the record of it.</summary>
     public void Revoke(string revokedBy, string reason, DateTimeOffset at)

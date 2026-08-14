@@ -26,6 +26,14 @@ public class MicroserviceContext : DbContext
 
     public DbSet<ProcessedStripeEvent> ProcessedStripeEvents { get; set; }
 
+    public DbSet<CreditEntry> CreditEntries { get; set; }
+
+    public DbSet<CreditLot> CreditLots { get; set; }
+
+    public DbSet<CreditWallet> CreditWallets { get; set; }
+
+    public DbSet<CreditCampaign> CreditCampaigns { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (optionsBuilder.IsConfigured)
@@ -172,6 +180,86 @@ public class MicroserviceContext : DbContext
 
             eventBuilder.Property(x => x.EventId).IsRequired();
             eventBuilder.Property(x => x.Type).IsRequired();
+        });
+
+        modelBuilder.Entity<CreditEntry>(entryBuilder =>
+        {
+            entryBuilder.Property(x => x.Kind).HasConversion<string>();
+            entryBuilder.Property(x => x.UserId).IsRequired();
+            entryBuilder.Property(x => x.IdempotencyKey).IsRequired();
+
+            // The one constraint the concurrency story rests on.
+            entryBuilder.HasIndex(x => x.IdempotencyKey).IsUnique();
+
+            // The ledger read, and the balance rebuild.
+            entryBuilder.HasIndex(x => new { x.UserId, x.CreatedAt });
+
+            // Lot remainders: every entry that drew a lot down, which is how "what is left in this
+            // lot" is answered without a counter to get out of step.
+            entryBuilder.HasIndex(x => x.LotId);
+
+            // Per-campaign, per-recipient caps.
+            entryBuilder.HasIndex(x => new { x.CampaignId, x.UserId })
+                .HasFilter("campaign_id IS NOT NULL");
+
+            entryBuilder.ToTable(table =>
+            {
+                // Required on the two kinds a human chose to write.
+                table.HasCheckConstraint(
+                    "ck_credit_entries_reason_required",
+                    "kind NOT IN ('Adjustment', 'Reversal') OR (reason IS NOT NULL AND btrim(reason) <> '')");
+
+                // The sign belongs to the kind, so a spend that credited somebody cannot be written
+                // at all. Without this the ledger's arithmetic is only as good as the last caller.
+                table.HasCheckConstraint(
+                    "ck_credit_entries_amount_sign",
+                    "(kind = 'Issue' AND amount > 0) "
+                    + "OR (kind IN ('Spend', 'Expiry', 'Reversal') AND amount < 0) "
+                    + "OR (kind = 'Adjustment' AND amount <> 0)");
+            });
+        });
+
+        modelBuilder.Entity<CreditLot>(lotBuilder =>
+        {
+            lotBuilder.Property(x => x.UserId).IsRequired();
+
+            // Earliest-expiring first, which is the order every spend walks.
+            lotBuilder.HasIndex(x => new { x.UserId, x.ExpiresAt });
+
+            // The two sweeps: what has lapsed, and what is about to and has not been warned about.
+            lotBuilder.HasIndex(x => x.ExpiresAt);
+            lotBuilder.HasIndex(x => new { x.ExpiresAt, x.ExpiryWarningSentAt })
+                .HasFilter("expiry_warning_sent_at IS NULL");
+
+            lotBuilder.ToTable(table => table.HasCheckConstraint(
+                "ck_credit_lots_amount_positive", "original_amount > 0"));
+        });
+
+        modelBuilder.Entity<CreditWallet>(walletBuilder =>
+        {
+            walletBuilder.Property(x => x.UserId).IsRequired();
+
+            // Unique, and load-bearing for the same reason the entitlement version's index is: the
+            // spend takes its row lock with INSERT ...
+            walletBuilder.HasIndex(x => x.UserId).IsUnique();
+
+            // "Never negative" (section 8.5), said to the database as well as to the service.
+            walletBuilder.ToTable(table => table.HasCheckConstraint(
+                "ck_credit_wallets_balance_not_negative", "cached_balance >= 0"));
+        });
+
+        modelBuilder.Entity<CreditCampaign>(campaignBuilder =>
+        {
+            campaignBuilder.Property(x => x.Code).IsRequired();
+            campaignBuilder.Property(x => x.Description).IsRequired();
+            campaignBuilder.Property(x => x.CreatedBy).IsRequired();
+
+            campaignBuilder.HasIndex(x => x.Code).IsUnique();
+
+            // The budget, in the database.
+            campaignBuilder.ToTable(table => table.HasCheckConstraint(
+                "ck_credit_campaigns_within_budget",
+                "total_budget_points > 0 AND issued_points >= 0 AND issued_points <= total_budget_points"));
         });
     }
 

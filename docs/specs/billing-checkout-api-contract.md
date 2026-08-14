@@ -113,8 +113,32 @@ token claim.
 Request:
 
 ```json
-{ "planName": "pro", "subjectKind": "Guild", "subjectId": "gld_..." }
+{ "planName": "pro", "subjectKind": "guild", "subjectId": "gld_..." }
 ```
+
+`subjectId` for a **user** plan is the caller's real user id. The literal `me` is a client-side
+sentinel in `EntitlementSubjectRef` and must never be accepted on the wire. The server validates that
+the id equals the authenticated caller and returns `not_permitted` when it does not - it does **not**
+silently substitute the caller, because a request asking to subscribe somebody else should be refused
+rather than quietly rewritten into a different, valid request. Silent coercion is how an
+authorization bug hides as a working feature.
+
+### Reopening an abandoned checkout
+
+Somebody who opens checkout, abandons at the card field and opens it again sends a second `POST`. The
+unique index over `(SubjectKind, SubjectId)` is filtered to live statuses so that a cancelled
+subscription does not block re-subscribing, which means it does **not** stop `incomplete` ones
+stacking up - and two of those being confirmed is a double charge.
+
+So the server reuses rather than stacks: an existing `incomplete` subscription for the same subject,
+plan and payer is **returned with a freshly retrieved client secret**, and the gateway's create is not
+called again. Reopening checkout resumes it, which is what a customer expects anyway. An incomplete
+attempt for a *different* plan is cancelled explicitly rather than left for Stripe to expire, so a
+stale client secret in a background tab cannot be confirmed into a plan they decided against.
+
+**`already_subscribed` is for live statuses only.** An incomplete subscription is an unfinished
+attempt, not a subscription, and returning 409 for one would leave the customer unable to buy
+anything until it expired roughly a day later.
 
 Response `200`:
 
@@ -173,7 +197,7 @@ subject.
 ```json
 {
   "id": "sub_...",
-  "subjectKind": "Guild",
+  "subjectKind": "guild",
   "subjectId": "gld_...",
   "planName": "pro",
   "planDisplayName": "Pro",

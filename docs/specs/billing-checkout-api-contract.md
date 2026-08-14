@@ -44,20 +44,35 @@ Authenticated. What is for sale, and whether anything is.
       "displayName": "Pro",
       "description": "For communities that stream.",
       "versionNumber": 3,
-      "subjectKind": "Guild",
+      "subjectKind": "guild",
       "priceMinorUnits": 2900,
       "currency": "usd",
       "interval": "month",
       "purchasable": true,
-      "entitlements": [
-        { "key": "voice.max_participants", "kind": "Numeric", "value": "75" },
-        { "key": "voice.video_ceiling",    "kind": "Ladder",  "value": "2160p60" },
-        { "key": "guild.vanity_url",       "kind": "Flag",    "value": "true" }
-      ]
+      "entitlements": {
+        "voice.max_participants": { "kind": "numeric", "value": 75, "unlimited": false },
+        "voice.video_ceiling":    { "kind": "ladder",  "rung": "2160p60", "rank": 6 },
+        "guild.bots_installed":   { "kind": "numeric", "value": null, "unlimited": true },
+        "guild.vanity_url":       { "kind": "flag",    "granted": true }
+      }
     }
-  ]
+  ],
+  "ladders": { "...": "the same ladder map the entitlement snapshot publishes" }
 }
 ```
+
+**`entitlements` is byte-identical in shape to the snapshot's own `entitlements`**: a
+`Record<string, EntitlementValueDto>` in the three discriminated shapes
+(`{kind:"numeric", value, unlimited}`, `{kind:"flag", granted}`, `{kind:"ladder", rung, rank}`),
+lowercase discriminators, `value` a real JSON number, and `unlimited: true` with `value: null` where
+the ceiling is `long.MaxValue` - which exceeds `Number.MAX_SAFE_INTEGER` and must never be put on the
+wire as a number.
+
+This is stated so precisely because the first draft of this document described the encoding in prose
+and then gave an example that did not match it, which would have produced exactly the second
+formatter the prose was arguing against. **Reuse `EntitlementValueDto`; do not define a parallel
+type.** `ladders` rides on the envelope rather than on each plan, once, for the same reason it does
+on the snapshot: rung metrics are a property of the ladder, not of who is buying.
 
 `enabled` is answered by the service that actually holds the secret key, which is the only place
 that can answer it honestly. It is false when `STRIPE_SECRET_KEY` is unset, and in that case `plans`
@@ -70,8 +85,15 @@ client's existing `licenseMode` check is what suppresses the surface there.
 - Archived plans and archived versions are absent.
 - A plan with no `priceMinorUnits` is present with `purchasable: false` and a null price - that is
   how `free` and `free_user` appear, and the comparison table needs them.
-- `subjectKind` is `Guild` or `User`, matching `EntitlementSubject`. `free`/`plus`/`pro` are guild
-  plans; `free_user`/`venta_plus` are user plans.
+- `subjectKind` is **lowercase** `guild` or `user`. `free`/`plus`/`pro` are guild plans;
+  `free_user`/`venta_plus` are user plans.
+
+  Lowercase deliberately, and not the `JsonStringEnumConverter` default of `Guild`/`User` that
+  Billing's staff endpoints emit. The entitlement snapshot already sends lowercase, the same client
+  screen renders both payloads, and two casings for one concept on one screen is a bug waiting for
+  somebody to write `===`. The staff endpoints keep PascalCase - they are a different audience and
+  the two are never compared in one place. Serialise these customer-facing DTOs with an explicit
+  lowercase converter rather than changing the service-wide default.
 - `entitlements` uses the **same value encoding as the entitlement snapshot** the client already
   renders (`Echo.Entitlements/Wire`). It is deliberately the same shape so the client reuses one
   formatter rather than growing a second one that disagrees with the first in some edge case. The
@@ -99,27 +121,44 @@ Response `200`:
 ```json
 {
   "subscription": { "...": "SubscriptionDto, see 3" },
-  "clientSecret": "pi_..._secret_...",
-  "requiresAction": true
+  "clientSecret": "pi_..._secret_..."
 }
 ```
 
 `clientSecret` may be **null**, which means Stripe had nothing to confirm. The client must treat null
 as "go straight to polling" rather than as an error.
 
+There is no `requiresAction` flag. An earlier draft had one, and it was removable precisely because
+it was exactly `clientSecret != null` - two fields that can only ever agree are two fields that will
+eventually disagree, and then nobody knows which one is authoritative. `clientSecret` is.
+
 **The client is not the source of truth for activation.** A successful `confirmPayment` means the
 card worked; only the webhook makes the subscription live. After confirming, poll §3 until `status`
 is `active`, then refresh the entitlement snapshot.
 
-Errors, as `application/problem+json` with a machine-readable `code` in `extensions`:
+### Errors, for this endpoint and every other one in this document
+
+`application/problem+json` with a machine-readable `code`. ASP.NET serialises `ProblemDetails`
+extensions **flat onto the problem body**, not nested under an `extensions` key, so `code` is a
+top-level member. The client reads both positions anyway, since the cost of that is three lines and
+the cost of being wrong is an error that renders as "something went wrong".
 
 | `code` | HTTP | Meaning for the client |
 |---|---|---|
 | `billing_disabled` | 404 | Stripe is not configured. Unreachable if §1's `enabled` was honoured. |
 | `not_purchasable` | 400 | The plan exists but is not sold. |
 | `already_subscribed` | 409 | This subject already has a live subscription. Offer "change plan" instead. |
-| `not_permitted` | 403 | The caller lacks `ManageGuild`. |
+| `not_permitted` | 403 | The caller lacks `ManageGuild`, or is not the payer on a payer-only action. |
+| `not_the_payer` | 403 | Specifically: they manage the guild but somebody else's card is behind it. |
+| `subscription_lapsed` | 409 | Resume was called on a subscription that has already ended. |
+| `last_payment_method` | 409 | Detaching the only card under a live subscription. |
 | `stripe_error` | 502 | Show the message; it is safe to display and already customer-worded. |
+
+This table is global on purpose. The first draft documented codes only for subscription creation and
+payment-method detach, which left cancel, resume, change and preview with no named failures despite
+all four being able to refuse for reasons a person would want explained. An unrecognised code must
+still degrade to "the request failed" plus the HTTP status rather than crashing, because this table
+will grow.
 
 ---
 
@@ -206,7 +245,9 @@ most of it.
 - `POST /api/v1/billing/payment-methods/setup-intent` - `{ "clientSecret": "seti_..._secret_..." }`
 - `POST /api/v1/billing/payment-methods/{id}/default` - `204`
 - `DELETE /api/v1/billing/payment-methods/{id}` - `204`, or `409` with code `last_payment_method`
-  when it is the only one and a live subscription depends on it.
+  when it is the only one and a live subscription depends on it. Stripe would otherwise accept the
+  detach and fail the next invoice, which turns a refusable action into a support ticket a month
+  later.
 
 Brand, last four and expiry are the only card data that exists on our side, and that is the whole
 point of Elements.

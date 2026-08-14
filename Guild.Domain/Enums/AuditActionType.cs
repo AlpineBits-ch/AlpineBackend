@@ -82,4 +82,11 @@ public enum AuditActionType
     MaintenanceAssetUpdated,
     MaintenanceAssetDeleted,
     MaintenanceRecordCreated,
+
+    /// <summary>
+    /// A member's guild-level allow/deny overrides were rewritten - the member-row equivalent of
+    /// <see cref="RoleUpdated"/>, kept separate because it grants guild-wide bits to one person and
+    /// leaves no role anybody can inspect afterwards.
+    /// </summary>
+    MemberPermissionsChanged,
 }

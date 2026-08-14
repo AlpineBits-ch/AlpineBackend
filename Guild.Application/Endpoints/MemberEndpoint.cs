@@ -266,6 +266,95 @@ public class MemberEndpoint
         return Results.NoContent();
     }
 
+    /// <summary>
+    /// Rewrites the guild-level permission overrides stored on the member row itself - the tier
+    /// <c>GuildPermissionService</c> applies after role aggregation and before any channel/category
+    /// overwrite.
+    /// </summary>
+    [WolverinePatch("/api/v1/guilds/{guildId}/members/{memberId}/permissions")]
+    public async Task<IResult> SetMemberPermissionsAsync(string guildId, string memberId,
+        SetMemberPermissionsDto dto,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] IMessageBus bus, [NotBody] MfaElevationService mfa)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageRoles))
+            return Results.Forbid();
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return mfaRejection;
+
+        var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
+        if (member is null) return Results.NotFound();
+
+        // Same hierarchy rule as kick/ban/mute/nickname.
+        if (!await permissionService.CanModerateTargetAsync(userId, member.UserId, guildId))
+            return Results.Forbid();
+
+        if (dto.AllowPermissions is { } allow &&
+            !await permissionService.CanGrantPermissionsAsync(userId, guildId, allow))
+            return Results.Forbid();
+
+        if (dto.DenyPermissions is { } deny &&
+            !await permissionService.CanGrantPermissionsAsync(userId, guildId, deny))
+            return Results.Forbid();
+
+        if (dto.AllowModulePermissions is { } moduleAllow &&
+            !await permissionService.CanGrantPermissionsAsync(userId, guildId, moduleAllow))
+            return Results.Forbid();
+
+        if (dto.DenyModulePermissions is { } moduleDeny &&
+            !await permissionService.CanGrantPermissionsAsync(userId, guildId, moduleDeny))
+            return Results.Forbid();
+
+        var previous = new
+        {
+            member.AllowPermissions,
+            member.DenyPermissions,
+            member.AllowModulePermissions,
+            member.DenyModulePermissions,
+        };
+
+        member.AllowPermissions = dto.AllowPermissions ?? member.AllowPermissions;
+        member.DenyPermissions = dto.DenyPermissions ?? member.DenyPermissions;
+        member.AllowModulePermissions = dto.AllowModulePermissions ?? member.AllowModulePermissions;
+        member.DenyModulePermissions = dto.DenyModulePermissions ?? member.DenyModulePermissions;
+
+        var current = new
+        {
+            member.AllowPermissions,
+            member.DenyPermissions,
+            member.AllowModulePermissions,
+            member.DenyModulePermissions,
+        };
+
+        if (current.Equals(previous)) return Results.Ok(current);
+
+        member.UpdatedAt = DateTime.UtcNow;
+
+        // The resolved set is cached for 15 minutes, so without this a demotion does not bite until
+        // long after the moderator watched the dialog close - the same reason ban/kick/mute all
+        // invalidate here rather than relying on the next read.
+        await permissionService.InvalidateUserPermissionsCacheAsync(guildId, member.UserId);
+
+        auditLog.Log(guildId, userId, AuditActionType.MemberPermissionsChanged, member.UserId,
+            new { Previous = previous, Current = current });
+
+        var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
+        var audience = presence.Select(p => p.UserId).Append(member.UserId).Distinct();
+        // guild.MemberUpdated rather than an event of its own: it is what OwnMemberRevisionService
+        // already listens to, so the target's client re-reads /me and re-gates its UI.
+        await hub.Clients.Users(audience).SendAsync("guild.MemberUpdated",
+            new { GuildId = guildId, UserId = member.UserId, member.Nickname });
+
+        await bus.PublishAsync(new MemberUpdatedForBots { GuildId = guildId, UserId = member.UserId });
+
+        return Results.Ok(current);
+    }
+
     /// <summary>Maximum nickname length, matching Discord's. Enforced on the trimmed value.</summary>
     private const int MaxNicknameLength = 32;
 

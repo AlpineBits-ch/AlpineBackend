@@ -19,6 +19,9 @@ public static class VoiceEvents
     public const string ScreenShareStopped = "ScreenShareStopped";
     public const string ShareViewersChanged = "ShareViewersChanged";
 
+    /// <summary>"This is what you should be pulling now."</summary>
+    public const string SubscriptionsChanged = "SubscriptionsChanged";
+
     // ── Recovery ──────────────────────────────────────────────────────────────
 
     /// <summary>Full authoritative state. See <see cref="VoiceRoomSnapshot"/>.</summary>

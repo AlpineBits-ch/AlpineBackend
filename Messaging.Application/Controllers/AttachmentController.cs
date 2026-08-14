@@ -2,6 +2,8 @@
 using Amazon.S3;
 using Amazon.S3.Model;
 using AppEnvironment;
+using Echo.Entitlements.Model;
+using Echo.Entitlements.Wire;
 using Facet.Extensions;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
@@ -59,22 +61,46 @@ public class AttachmentController(
         return await conversationPermissions.HasPermission(userId, attachment.ContextId);
     }
 
+    /// <summary>
+    /// Stores attachments, subject to the storage entitlements enforced in <see
+    /// cref="FileService"/>.
+    /// </summary>
     [HttpPost]
-    public async Task<IActionResult> UploadFileAsync([FromForm] ICollection<IFormFile> files)
+    public async Task<IActionResult> UploadFileAsync(
+        [FromForm] ICollection<IFormFile> files, [FromQuery] string? guildId = null)
     {
-
-        // TODO: Get the users file upload limit. For now 35 may suffice
-
        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
        if(userId is null) return BadRequest();
-        
-        if (files.Any(file => file.Length > 1024 * 1024 * 35))
-        {
-            return BadRequest("A file is too large");
-        }
-        
-        var uploadedFiles = await fileService.UploadFileAsync(files);
 
+        var chargedGuildId = string.IsNullOrWhiteSpace(guildId) ? null : guildId.Trim();
+
+        if (chargedGuildId is not null)
+        {
+            var attach = await messageBus.InvokeAsync<HasUserPermissionToGuildResponse>(
+                new HasUserPermissionToGuildRequest
+                {
+                    GuildId = chargedGuildId,
+                    UserId = userId,
+                    Permission = ExternalPermission.AttachFiles,
+                });
+
+            if (!attach.IsAllowed) return Forbid();
+        }
+
+        var uploadContext = chargedGuildId is null
+            ? StorageUploadContext.ForUser(userId)
+            : StorageUploadContext.ForGuild(chargedGuildId, userId);
+
+        var result = await fileService.UploadFileAsync(files, uploadContext, HttpContext.RequestAborted);
+
+        var degradations = await DescribeAsync(result.Rejected, chargedGuildId, userId);
+
+        if (result.Refused)
+        {
+            return StatusCode(EntitlementDenialDto.StatusCode, EntitlementDenialDto.From(degradations[0]));
+        }
+
+        var uploadedFiles = result.Uploaded;
 
         foreach (var file in uploadedFiles)
         {
@@ -103,14 +129,84 @@ public class AttachmentController(
             });
         }
         
-        return Ok(uploadedFiles.Select(f =>
+        var stored = uploadedFiles.Select(f => new CreateAttachmentResponse()
         {
-            return new CreateAttachmentResponse()
+            AttachmentId = f.Id,
+            FileName = f.FileName
+        }).ToList();
+
+        // The success body has always been a bare array, and degradations have to ride the body of
+        // the action that caused them - there is no client interceptor that would find them
+        // anywhere else.
+        return degradations.Count == 0
+            ? Ok(stored)
+            : Ok(EntitlementResponses.WithDegradations(new { attachments = stored }, degradations));
+    }
+
+    /// <summary>
+    /// The guild's storage consumption, for the meter that <c>storage.guild_quota_bytes</c> is
+    /// otherwise unrenderable without.
+    /// </summary>
+    [HttpGet("usage")]
+    public async Task<IActionResult> GetStorageUsageAsync([FromQuery] string guildId)
+    {
+        var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (userId is null) return BadRequest();
+        if (string.IsNullOrWhiteSpace(guildId)) return BadRequest();
+
+        var attach = await messageBus.InvokeAsync<HasUserPermissionToGuildResponse>(
+            new HasUserPermissionToGuildRequest
             {
-                AttachmentId = f.Id,
-                FileName = f.FileName
-            };
-        }));
+                GuildId = guildId.Trim(),
+                UserId = userId,
+                Permission = ExternalPermission.AttachFiles,
+            });
+
+        if (!attach.IsAllowed) return Forbid();
+
+        return Ok(await fileService.UsageForGuildAsync(guildId.Trim(), HttpContext.RequestAborted));
+    }
+
+    /// <summary>Every rejected file as the client reads it.</summary>
+    private async Task<IReadOnlyList<EntitlementDegradationDto>> DescribeAsync(
+        IReadOnlyList<RejectedUpload> rejected, string? guildId, string userId)
+    {
+        if (rejected.Count == 0) return [];
+
+        var sellsUpgrades = Env.License.IsHosted && Env.License.IsBillingConfigured;
+
+        var needsGuildRemedy = sellsUpgrades && guildId is not null
+            && rejected.Any(rejection => rejection.BoundBy == EntitlementBoundBy.Guild);
+
+        var canManageGuild = needsGuildRemedy && await HasGuildPermissionAsync(
+            guildId!, userId, ExternalPermission.ManageGuild);
+
+        return rejected.Select(rejection => EntitlementDegradationDto.From(
+            rejection.Degradation,
+            rejection.Key,
+            SubjectOf(rejection, guildId, userId),
+            EntitlementRemedyPolicy.For(rejection.Cause, rejection.BoundBy, sellsUpgrades, canManageGuild),
+            rejection.BoundBy)).ToList();
+    }
+
+    /// <summary>Whose limit it was.</summary>
+    private static EntitlementSubject SubjectOf(RejectedUpload rejection, string? guildId, string userId) =>
+        guildId is null || rejection.BoundBy == EntitlementBoundBy.User
+            ? EntitlementSubject.ForUser(userId)
+            : EntitlementSubject.ForGuild(guildId);
+
+    private async Task<bool> HasGuildPermissionAsync(
+        string guildId, string userId, ExternalPermission permission)
+    {
+        var response = await messageBus.InvokeAsync<HasUserPermissionToGuildResponse>(
+            new HasUserPermissionToGuildRequest
+            {
+                GuildId = guildId,
+                UserId = userId,
+                Permission = permission,
+            });
+
+        return response.IsAllowed;
     }
 
 

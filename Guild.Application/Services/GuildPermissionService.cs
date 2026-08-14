@@ -54,10 +54,17 @@ public class GuildPermissionsForUser
     public string GetCacheKey() => GetCacheKey(GuildId, UserId);
 }
 
+/// <summary>Which modules a guild's paid plan covers.</summary>
+public interface IGuildPlanFeatures
+{
+    Task<GuildFeatures> IncludedFeaturesAsync(string guildId, CancellationToken cancellationToken = default);
+}
+
 public class GuildPermissionService(
     IDistributedCache cache,
     MicroserviceContext ctx,
-    ILogger<GuildPermissionService> logger)
+    ILogger<GuildPermissionService> logger,
+    IGuildPlanFeatures? planFeatures = null)
 {
     private async Task<string?> ResolveGuildIdAsync(string channelId)
     {
@@ -74,8 +81,8 @@ public class GuildPermissionService(
         return $"guild:{PermissionCacheVersion.Token}:{g}:features";
     }
 
-    /// <summary>The guild's enabled modules.</summary>
-    public async Task<GuildFeatures> GetGuildFeaturesAsync(string guildId)
+    /// <summary>The guild's own module choice.</summary>
+    private async Task<GuildFeatures> GetChosenFeaturesAsync(string guildId)
     {
         var cacheKey = FeaturesCacheKey(guildId);
         var cached = await cache.GetStringAsync(cacheKey);
@@ -98,6 +105,29 @@ public class GuildPermissionService(
 
         return resolved;
     }
+
+    /// <summary>
+    /// Both module masks a guild has - what its owner switched on, and what its plan covers - kept
+    /// apart.
+    /// </summary>
+    public async Task<GuildFeatureResolution> GetGuildFeatureResolutionAsync(string guildId)
+    {
+        var chosen = await GetChosenFeaturesAsync(guildId);
+
+        // No plan source is the normal state before Billing is deployed, and in selfhost it is the
+        // permanent one.
+        var included = planFeatures is null
+            ? ~GuildFeatures.None
+            : await planFeatures.IncludedFeaturesAsync(guildId);
+
+        return GuildFeatureMap.ResolveWithPlan(chosen, included);
+    }
+
+    /// <summary>The guild's effective modules: its own choice intersected with what its plan
+    /// covers. Every feature gate reads this, so a module outside the plan strips its permissions
+    /// through the same path a switched-off module does and no second mechanism exists.</summary>
+    public async Task<GuildFeatures> GetGuildFeaturesAsync(string guildId) =>
+        (await GetGuildFeatureResolutionAsync(guildId)).Effective;
 
     public async Task<bool> IsFeatureEnabledAsync(string guildId, GuildFeatures feature) =>
         (await GetGuildFeaturesAsync(guildId)).HasFlag(feature);

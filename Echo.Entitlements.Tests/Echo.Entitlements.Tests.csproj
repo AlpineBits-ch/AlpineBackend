@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <!-- No database and no Redis here on purpose: Echo.Entitlements is pure domain, so there is
+         nothing to arrange that a plain object cannot arrange. The dual-provider Postgres harness
+         the other suites need exists to catch untranslatable LINQ, and there is no LINQ over a
+         provider in this library. -->
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="coverlet.MTP" Version="10.0.1" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.9.0" />
+        <PackageReference Include="NSubstitute" Version="6.0.0" />
+        <PackageReference Include="NUnit" Version="4.6.1" />
+        <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="NUnit.Framework"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
+    </ItemGroup>
+
+    <!--
+      Shared architecture test: fails the build if anything in this assembly compiles to an
+      async void method, whose assertions would pass regardless of what they assert. Linked
+      into each test project rather than shared through a library, because the only thing worth
+      sharing is the failure message and no existing project is referenced by all of them.
+    -->
+    <ItemGroup>
+        <Compile Include="..\TestConventions\AsyncVoidTestConventionTests.cs"
+                 Link="TestConventions\AsyncVoidTestConventionTests.cs" />
+    </ItemGroup>
+
+</Project>

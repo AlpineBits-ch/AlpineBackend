@@ -1,4 +1,6 @@
 using Echo.Auth;
+using Echo.Entitlements;
+using Echo.Entitlements.Sources;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
@@ -51,6 +53,12 @@ builder.Services.AddSingleton<IDistributedLockService, RedisDistributedLockServi
 builder.Services.AddSingleton<LockedJsonCacheStore>();
 builder.Services.AddSingleton<StreamViewerStore>();
 builder.Services.AddVoiceRooms();
+
+// Voice entitlements, enforced by VoiceRoomService at join and at publish.
+builder.Services.AddEntitlements(builder.Configuration);
+builder.Services.AddLicenseMode(
+    LicenseModes.Parse(Env.License.Mode), OperatorCeilings.Parse(Env.License.OperatorCeilings));
+
 builder.Services.AddSingleton<GuildVoiceActivityStore>();
 // Scoped: it takes IMessageBus, which Wolverine registers per scope.
 builder.Services.AddScoped<DeviceIdResolver>();

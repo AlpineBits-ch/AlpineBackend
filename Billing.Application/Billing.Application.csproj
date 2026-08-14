@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <!-- .NET 10's OpenAPI generator reads XML doc comments, but only if the doc file
+             exists. CS1591 is suppressed: these are services, not a published library, so
+             demanding a comment on every public member would be noise, not rigour. -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);CS1591</NoWarn>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+        <!-- The hub itself is hosted by the gateway; Billing only sends. The Redis backplane is what
+             makes that work across processes, so it is not optional here. -->
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
+        <PackageReference Include="WolverineFx" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.Http" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.Postgresql" Version="6.24.6" />
+        <PackageReference Include="WolverineFx.RabbitMQ" Version="6.24.6" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\AppEnvironment\AppEnvironment.csproj" />
+      <ProjectReference Include="..\Billing.Contracts\Billing.Contracts.csproj" />
+      <ProjectReference Include="..\Billing.Infrastructure\Billing.Infrastructure.csproj" />
+      <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
+      <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
+      <!-- Contracts only, in both cases, and both for one question each: Identity resolves the
+           caller's staff tier per request rather than from a token claim, and Guild answers who is in
+           a guild so an entitlement change can be pushed to its members. Billing holds neither piece
+           of state and must not start holding either. -->
+      <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
+      <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
+      <ProjectReference Include="..\Messaging\Messaging.csproj" />
+    </ItemGroup>
+
+</Project>

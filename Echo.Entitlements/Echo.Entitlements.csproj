@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- The shared framework is here for IServiceCollection and IConfiguration alone. There are
+             deliberately no package or project references: this library is referenced BY Guild,
+             Messaging, Voice, Identity and the gateway, so anything it pulls in they all pull in,
+             and a dependency on a service project would make the direction of that arrow
+             unenforceable. -->
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+</Project>

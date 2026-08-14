@@ -55,9 +55,29 @@ public sealed class VoiceAnnouncer(IHubContext<EchoRealtimeHub> hub)
             .SendAsync(Prefix(room.Kind) + eventName, Envelope(room, payload), ct);
 
     /// <summary>Pushes the authoritative state to one client.</summary>
-    public Task SendSnapshotAsync(VoiceRoom room, string userId, CancellationToken ct = default) =>
+    public Task SendSnapshotAsync(
+        VoiceRoom room, string userId, VoiceSubscriptionPlan? plan = null, CancellationToken ct = default) =>
         hub.Clients.User(userId).SendAsync(
-            Prefix(room.Kind) + SnapshotEvent, VoiceRoomSnapshot.From(room), ct);
+            Prefix(room.Kind) + SnapshotEvent, VoiceRoomSnapshot.From(room, plan, userId), ct);
+
+    /// <summary>Tells each participant what they should now be pulling.</summary>
+    public async Task SendSubscriptionsAsync(
+        VoiceRoom room, VoiceSubscriptionPlan plan, CancellationToken ct = default)
+    {
+        foreach (var participant in room.Participants)
+        {
+            var set = plan.For(participant.UserId);
+            await ToUserAsync(room, participant.UserId, VoiceEvents.SubscriptionsChanged, new
+            {
+                mode = plan.Mode,
+                revision = plan.Revision,
+                activeSpeakers = plan.ActiveSpeakers,
+                // Named to match VoiceSubscriptionSnapshot's own field, so the same object read
+                // off a snapshot and off this event is parsed by one piece of client code.
+                tracks = set.Tracks,
+            }, ct);
+        }
+    }
 
     /// <summary>Tells a client its room is gone and it should rejoin from scratch.</summary>
     public Task SendRoomGoneAsync(VoiceRoomKey key, string userId, CancellationToken ct = default) =>

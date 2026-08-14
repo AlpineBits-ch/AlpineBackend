@@ -33,7 +33,11 @@
 
     <ItemGroup>
       <ProjectReference Include="..\Echo.Domain\Echo.Domain.csproj" />
+      <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
       <ProjectReference Include="..\Echo.Infrastructure\Echo.Infrastructure.csproj" />
+      <!-- The entitlement endpoints answer for guilds, and membership plus ManageGuild are Guild's
+           to say. Contracts only: the gateway asks over the bus like every other caller. -->
+      <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
       <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Messaging.Infrastructure\Messaging.Infrastructure.csproj" />
       <ProjectReference Include="..\Messaging\Messaging.csproj" />

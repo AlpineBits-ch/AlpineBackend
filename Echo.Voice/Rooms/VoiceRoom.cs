@@ -38,6 +38,21 @@ public sealed class ActiveScreenShare
 {
     public string ShareId { get; set; } = string.Empty;
     public List<string> TrackNames { get; set; } = [];
+
+    /// <summary>The session the share's tracks were published on.</summary>
+    public string? MediaSessionId { get; set; }
+}
+
+/// <summary>
+/// A published track that is neither the microphone nor part of a screen share - in practice a
+/// camera.
+/// </summary>
+public sealed class ActiveVideoTrack
+{
+    public string TrackName { get; set; } = string.Empty;
+
+    /// <summary>The session it was published on, which need not be the microphone's.</summary>
+    public string? MediaSessionId { get; set; }
 }
 
 /// <summary>One participant's state in a room.</summary>
@@ -57,6 +72,10 @@ public sealed class VoiceParticipant
     public bool IsServerDeafened { get; set; }
     public bool IsStreaming { get; set; }
     public List<ActiveScreenShare> ActiveScreenShares { get; set; } = [];
+
+    /// <summary>Camera and any other non-microphone, non-share track.</summary>
+    public List<ActiveVideoTrack> ActiveVideoTracks { get; set; } = [];
+
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>Derived, never stored, and therefore impossible to set wrong.</summary>
@@ -90,6 +109,13 @@ public sealed class VoiceRoom
     public long Version { get; internal set; }
 
     public List<VoiceParticipant> Participants { get; set; } = [];
+
+    /// <summary>
+    /// The entitlement ceilings in force here, or null on a room whose limits have never been
+    /// resolved - which is what every room looked like before enforcement existed, and what a call
+    /// with no guild behind it still looks like.
+    /// </summary>
+    public VoiceRoomLimits? Limits { get; set; }
 
     [JsonIgnore]
     public VoiceRoomKey Key => new(Kind, RoomId);

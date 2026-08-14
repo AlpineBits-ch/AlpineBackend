@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- SubjectKind only. Every consumer of this contract is a service that already resolves
+             entitlements, so it already has this reference; sending the subject as a string instead
+             would let a publisher and a cache key disagree about capitalisation. -->
+        <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
+    </ItemGroup>
+
+</Project>

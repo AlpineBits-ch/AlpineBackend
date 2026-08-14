@@ -32,6 +32,17 @@ x-app-env: &app-env
   FEDERATION_PRIVATE_KEY_BASE_64: "${FEDERATION_PRIVATE_KEY_BASE_64}"
   FEDERATION_PUBLIC_KEY_BASE_64: "${FEDERATION_PUBLIC_KEY_BASE_64}"
 
+  # Self-host: every entitlement resolves to its maximum and no billing surface is shown. The
+  # default everywhere, stated here rather than left implicit so it is obvious there is a knob and
+  # that nothing has to be done about it. Nothing validates this - there is no license check.
+  #
+  # Set LICENSE_MODE=hosted and BILLING_SERVICE_URL=http://billing:8080 together with
+  # `--profile hosted` to bring the billing service up locally. All three, or none: hosted with
+  # nothing configured refuses to start (deliberately, see AppEnvironment.LicenseConfiguration), and
+  # the billing service refuses to start in selfhost, where nothing would route to it.
+  LICENSE_MODE: "${LICENSE_MODE:-selfhost}"
+  BILLING_SERVICE_URL: "${BILLING_SERVICE_URL:-}"
+
   BUCKET_NAME: "echo-chat"
   ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
   SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
@@ -50,7 +61,7 @@ services:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
-      POSTGRES_MULTIPLE_DATABASES: identity_db,guild_db,messaging_db,social_db,echo_db,federation_db
+      POSTGRES_MULTIPLE_DATABASES: identity_db,guild_db,messaging_db,social_db,echo_db,federation_db,billing_db
     ports:
       - "5433:5432"
     volumes:
@@ -263,6 +274,37 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/federation/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 60s
+    restart: unless-stopped
+
+  # Subscriptions, grants and the Stripe key (docs/specs/monetization.md). Behind the `hosted`
+  # profile and therefore NOT started by a plain `docker compose up`: in selfhost every entitlement
+  # already resolves to its maximum, no billing surface is shown, and this service would have nothing
+  # to answer. Nothing else depends on it, so the rest of the stack is healthy without it.
+  billing:
+    profiles: ["hosted"]
+    build:
+      context: .
+      dockerfile: Billing.Application/Dockerfile
+    container_name: billing_service
+    environment:
+      <<: *app-env
+      DATABASE_NAME: billing_db
+      # The one place a Stripe key ever lives. Deliberately not in x-app-env, for the same reason
+      # GATEWAY_PROXY_SECRET is not: putting it there would hand it to all six other services.
+      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/billing/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 8

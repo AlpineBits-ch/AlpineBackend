@@ -70,6 +70,85 @@ public static class Env
 
     public static readonly ProductCatalogConfiguration ProductCatalog = new();
 
+    public static readonly LicenseConfiguration License = new();
+
+}
+
+/// <summary>
+/// Whether this instance is somebody's own server or the hosted product, and what its operator will
+/// let their own hardware do.
+/// </summary>
+public class LicenseConfiguration
+{
+    /// <summary>Somebody's own server. The default, and the mode the installers write.</summary>
+    public const string SelfHost = "selfhost";
+
+    /// <summary>The hosted product, where billing decides.</summary>
+    public const string Hosted = "hosted";
+
+    public string Mode { get; set; } =
+        GetEnvironmentVariable("LICENSE_MODE")?.Trim() is { Length: > 0 } mode ? mode : SelfHost;
+
+    public bool IsSelfHost => string.Equals(Mode, SelfHost, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsHosted => string.Equals(Mode, Hosted, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Where Billing lives, and the Stripe key it charges with.</summary>
+    public string BillingServiceUrl { get; set; } = GetEnvironmentVariable("BILLING_SERVICE_URL") ?? string.Empty;
+
+    public string StripeSecretKey { get; set; } = GetEnvironmentVariable("STRIPE_SECRET_KEY") ?? string.Empty;
+
+    /// <summary>
+    /// Whether anything in <see cref="Hosted"/> can actually answer "what has this guild paid for".
+    /// </summary>
+    public bool IsBillingConfigured =>
+        !string.IsNullOrWhiteSpace(BillingServiceUrl) || !string.IsNullOrWhiteSpace(StripeSecretKey);
+
+    // ── Operator ceilings ────────────────────────────────────────────────────
+
+    /// <summary>Hard cap on people in one voice room, whatever the guild's plan says. A number.</summary>
+    public string VoiceMaxParticipants { get; set; } =
+        GetEnvironmentVariable("VOICE_MAX_PARTICIPANTS") ?? string.Empty;
+
+    /// <summary>Hard cap on published video quality.</summary>
+    public string VoiceVideoCeiling { get; set; } =
+        GetEnvironmentVariable("VOICE_VIDEO_CEILING") ?? string.Empty;
+
+    /// <summary>Hard cap on a single upload, in bytes. A number.</summary>
+    public string StorageUploadMaxBytes { get; set; } =
+        GetEnvironmentVariable("STORAGE_UPLOAD_MAX_BYTES") ?? string.Empty;
+
+    /// <summary>The ceilings keyed by entitlement key name, in the shape
+    /// <c>Echo.Entitlements.Sources.OperatorCeilings.Parse</c> takes. Names rather than a typed key
+    /// for the reason above; they are a stable public contract on that side.</summary>
+    public IReadOnlyDictionary<string, string?> OperatorCeilings => new Dictionary<string, string?>
+    {
+        ["voice.max_participants"] = VoiceMaxParticipants,
+        ["voice.video_ceiling"] = VoiceVideoCeiling,
+        ["storage.upload_max_bytes"] = StorageUploadMaxBytes,
+    };
+
+    /// <summary>
+    /// Refuses to start on a license mode that cannot work, and is called by the gateway before
+    /// anything else.
+    /// </summary>
+    public void EnsureConfigured()
+    {
+        if (!IsSelfHost && !IsHosted)
+        {
+            throw new InvalidOperationException(
+                $"LICENSE_MODE is '{Mode}', which is neither '{SelfHost}' nor '{Hosted}'. "
+                + $"Leave it unset for '{SelfHost}', which is the default and needs no configuration.");
+        }
+
+        if (IsHosted && !IsBillingConfigured)
+        {
+            throw new InvalidOperationException(
+                $"LICENSE_MODE is '{Hosted}' but neither BILLING_SERVICE_URL nor STRIPE_SECRET_KEY is set, "
+                + "so nothing can say what any guild has paid for and every entitlement would resolve to "
+                + $"unlimited. Configure billing, or leave LICENSE_MODE unset for '{SelfHost}'.");
+        }
+    }
 }
 
 /// <summary>The shared barcode-to-product catalog behind the pantry scanner.</summary>

@@ -1,3 +1,4 @@
+using Echo.Voice.Usage;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
 
@@ -19,15 +20,36 @@ public enum VoiceReconcileOutcome
     RoomGone,
 }
 
+/// <summary>What a reap pass decided about one room.</summary>
+public enum VoiceReapOutcome
+{
+    /// <summary>There was no room at that key. Already reaped, or never created.</summary>
+    NotFound,
+
+    /// <summary>Somebody is still in it and still alive. The overwhelming majority.</summary>
+    Live,
+
+    /// <summary>The room was dropped: its roster was empty, or every participant on it had stopped
+    /// heartbeating long enough ago to be certain.</summary>
+    Closed,
+}
+
 /// <summary>
 /// Turns the heartbeat from a liveness ping into a state assertion, which is what makes backfill
 /// converge rather than merely usually work.
 /// </summary>
+/// <param name="usage">
+/// Optional, and defaulted so that a host which does not register it - or a test that does not care
+/// about it - constructs a reconciler unchanged.
+/// </param>
+/// <param name="subscriptions">Also optional, also defaulted.</param>
 public sealed class VoiceReconciler(
     VoiceRoomStore rooms,
     VoiceAnnouncer announcer,
     IDistributedCache cache,
-    ILogger<VoiceReconciler> logger)
+    ILogger<VoiceReconciler> logger,
+    VoiceUsageMeter? usage = null,
+    VoiceSubscriptions? subscriptions = null)
 {
     /// <summary>How long a participant survives without a heartbeat before the sweep evicts them.
     /// Matches <see cref="Echo.Realtime.Caching.StreamViewerStore.ViewerTtl"/> so one client timer
@@ -78,6 +100,22 @@ public sealed class VoiceReconciler(
             return VoiceReconcileOutcome.RoomGone;
         }
 
+        // Refreshed before the sample, not after, because the plan is what the sample is measured
+        // against: a meter handed last minute's ranking reports last minute's bill.
+        var (plan, planChanged) = subscriptions is null
+            ? (VoiceSubscriptionPlan.Unplanned, false)
+            : await subscriptions.RefreshAsync(room, ct);
+
+        if (planChanged && plan.IsSelective)
+            await announcer.SendSubscriptionsAsync(room, plan, ct);
+
+        // Sampled here rather than after the reconciliation below, because what is being measured
+        // is the room's fan-out and not this caller's opinion of it - a heartbeat from somebody the
+        // roster has already dropped still proves the room is live.
+        if (usage is not null)
+            await usage.SampleAsync(
+                room, subscriptions?.Options.Enforce == true ? plan : null, ct);
+
         var me = room.Find(userId);
         if (me is null)
         {
@@ -86,6 +124,11 @@ public sealed class VoiceReconciler(
                 "Heartbeat from {UserId} for room {Room}, which they are not in - asking them to rejoin",
                 userId, key);
             await announcer.SendRoomGoneAsync(key, userId, ct);
+
+            // A room whose roster emptied - the sweep evicted the last stale participant, or the
+            // last leave raced this read - is one nobody can be in.
+            if (room.Participants.Count == 0) await DropAsync(key, ct);
+
             return VoiceReconcileOutcome.RoomGone;
         }
 
@@ -119,7 +162,7 @@ public sealed class VoiceReconciler(
                     await announcer.ToOthersAsync(repaired, userId, VoiceAnnouncer.ResyncEvent,
                         new { reason = "peerPublishChanged", userId }, ct);
 
-                await announcer.SendSnapshotAsync(repaired, userId, ct);
+                await announcer.SendSnapshotAsync(repaired, userId, plan, ct);
                 return VoiceReconcileOutcome.Repaired;
             }
         }
@@ -127,10 +170,50 @@ public sealed class VoiceReconciler(
         // Any disagreement, in either direction, and any change of incarnation.
         if (knownInstanceId != room.InstanceId || knownVersion != room.Version)
         {
-            await announcer.SendSnapshotAsync(room, userId, ct);
+            await announcer.SendSnapshotAsync(room, userId, plan, ct);
             return VoiceReconcileOutcome.SnapshotSent;
         }
 
         return VoiceReconcileOutcome.InSync;
+    }
+
+    /// <summary>Closes a room that nobody is in any more.</summary>
+    public async Task<VoiceReapOutcome> ReapAsync(VoiceRoomKey key, CancellationToken ct = default)
+    {
+        var options = subscriptions?.Options ?? VoiceSubscriptionOptions.Default;
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room is null) return VoiceReapOutcome.NotFound;
+
+        if (room.Participants.Count == 0) return await DropAsync(key, ct);
+
+        var cutoff = DateTime.UtcNow - options.IdleRoomGrace;
+        if (room.Participants.Any(p => p.JoinedAt > cutoff)) return VoiceReapOutcome.Live;
+
+        foreach (var participant in room.Participants)
+        {
+            if (await cache.GetStringAsync(LivenessKey(participant.UserId), ct) is not null)
+                return VoiceReapOutcome.Live;
+        }
+
+        // Told before the roster is cleared, because the whole premise is that these clients have
+        // stopped heartbeating - and one of them may be a live client whose liveness key expired
+        // during an outage rather than a dead one.
+        await announcer.ToAllAsync(room, VoiceEvents.Resync, new { reason = "roomReaped" }, ct);
+
+        logger.LogInformation(
+            "Reaping voice room {Room}: {Count} participants, none heartbeating",
+            key, room.Participants.Count);
+
+        await rooms.MutateExistingAsync(key, r => r.Participants.Clear(), ct);
+        return await DropAsync(key, ct);
+    }
+
+    private async Task<VoiceReapOutcome> DropAsync(VoiceRoomKey key, CancellationToken ct)
+    {
+        if (!await rooms.RemoveIfEmptyAsync(key, ct)) return VoiceReapOutcome.Live;
+
+        if (subscriptions is not null) await subscriptions.DropAsync(key, ct);
+        return VoiceReapOutcome.Closed;
     }
 }

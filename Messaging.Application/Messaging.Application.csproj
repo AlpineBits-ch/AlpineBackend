@@ -60,6 +60,9 @@
       <ProjectReference Include="..\Federation.Contracts\Federation.Contracts.csproj" />
       <ProjectReference Include="..\Echo.Voice\Echo.Voice.csproj" />
       <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
+      <!-- Storage limits are enforced at the FileService choke point, which needs the resolver in
+           process; see docs/specs/monetization.md §4.3 on why this is a library and not a service. -->
+      <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
     </ItemGroup>
 
     <ItemGroup>

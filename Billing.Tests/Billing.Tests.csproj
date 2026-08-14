@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+        <PackageReference Include="NUnit" Version="4.6.1" />
+        <PackageReference Include="NUnit.Analyzers" Version="4.14.0">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="NSubstitute" Version="6.0.0" />
+        <PackageReference Include="NUnit3TestAdapter" Version="6.2.0" />
+        <!-- A real Postgres, because the only thing worth asserting about a first migration is that
+             it applies to an empty database and does nothing the second time. The InMemory provider
+             has no migrations at all and would answer neither question. -->
+        <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="NUnit.Framework" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Billing.Application\Billing.Application.csproj" />
+    </ItemGroup>
+
+    <!--
+      Shared architecture test: fails the build if anything in this assembly compiles to an
+      async void method, whose assertions would pass regardless of what they assert. Linked
+      into each test project rather than shared through a library, because the only thing worth
+      sharing is the failure message and no existing project is referenced by all of them.
+    -->
+    <ItemGroup>
+      <Compile Include="..\TestConventions\AsyncVoidTestConventionTests.cs"
+               Link="TestConventions\AsyncVoidTestConventionTests.cs" />
+    </ItemGroup>
+
+</Project>

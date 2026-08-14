@@ -1,5 +1,11 @@
+using Echo.Entitlements.Keys;
+using Echo.Entitlements.Model;
+using Echo.Entitlements.Resolution;
+using Echo.Entitlements.Sources;
+using Echo.Entitlements.Wire;
 using Echo.Voice.Tracks;
 using Echo.Voice.Transport;
+using Microsoft.Extensions.Logging;
 
 namespace Echo.Voice.Rooms;
 
@@ -7,13 +13,48 @@ namespace Echo.Voice.Rooms;
 /// Every room lifecycle transition that both guild channels and direct calls share, implemented
 /// once.
 /// </summary>
-public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announcer)
+/// <param name="subscriptions">
+/// Optional, and defaulted so a host that does not register it - or a test that does not care -
+/// gets the all-to-all behaviour this service had before subscription planning existed.
+/// </param>
+/// <param name="entitlements">Also optional.</param>
+/// <param name="operatorCeilings">
+/// What this box will carry, as opposed to what a guild has paid for.
+/// </param>
+/// <param name="logger">
+/// Only ever used to record that a limit could not be resolved, which is a condition this class
+/// swallows rather than propagates - see <see cref="ResolvedVoiceLimits.Unresolved"/>.
+/// </param>
+public sealed class VoiceRoomService(
+    VoiceRoomStore rooms,
+    VoiceAnnouncer announcer,
+    VoiceSubscriptions? subscriptions = null,
+    EntitlementResolver? entitlements = null,
+    OperatorCeilings? operatorCeilings = null,
+    ILogger<VoiceRoomService>? logger = null)
 {
+    private readonly OperatorCeilings _ceilings = operatorCeilings ?? OperatorCeilings.None;
+
+    private VoiceSubscriptionOptions Options => subscriptions?.Options ?? VoiceSubscriptionOptions.Default;
+
     /// <summary>Puts a participant in the room before any media work begins.</summary>
     public async Task<VoiceRoom> JoinAsync(
         VoiceRoomKey key, string userId, string? deviceId, string? guildId = null,
+        CancellationToken ct = default) =>
+        (await AdmitAsync(key, userId, deviceId, guildId, ct)).Room;
+
+    /// <summary>
+    /// The join, plus what the room's limits are and whether this joiner is past them.
+    /// </summary>
+    public async Task<VoiceAdmission> AdmitAsync(
+        VoiceRoomKey key, string userId, string? deviceId, string? guildId = null,
         CancellationToken ct = default)
     {
+        // Resolved before the mutation because the mutation has to be idempotent - it is re-run from
+        // a fresh read on every contention retry - and a resolver call inside it would be made once
+        // per attempt for a value that cannot change between them.
+        var limits = await ResolveLimitsAsync(guildId, ct);
+
         var room = await rooms.MutateAsync(key, r =>
         {
             var existing = r.Find(userId);
@@ -32,12 +73,47 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
                 // the device actually connecting now.
                 existing.DeviceId = deviceId;
             }
+
+            // Skipped when the resolver could not answer, so a room keeps the last limits somebody
+            // successfully resolved rather than being told it has none.
+            if (limits.Resolved) r.Limits = limits.Limits;
         }, guildId, ct);
+
+        // A joiner changes who is eligible for a ranked slot, so the plan is refreshed before the
+        // snapshot is built rather than after it - a joiner handed a plan computed without them in
+        // it would be told to pull nothing and would hear nothing until the next recomputation.
+        var (plan, changed) = await ReselectAsync(room, ct);
 
         // The joiner gets the authoritative state immediately, so they never depend on having been
         // connected for earlier events.
-        await announcer.SendSnapshotAsync(room, userId, ct);
-        return room;
+        await announcer.SendSnapshotAsync(room, userId, plan, ct);
+        await AnnouncePlanAsync(room, plan, changed, ct);
+
+        return Admit(room, userId, limits);
+    }
+
+    /// <summary>
+    /// Where one participant stands against the room's capacity, and the degradation if they are
+    /// past it.
+    /// </summary>
+    private VoiceAdmission Admit(VoiceRoom room, string userId, ResolvedVoiceLimits limits)
+    {
+        var position = PositionOf(room, userId);
+        var cap = limits.Limits.MaxParticipants;
+
+        if (position == 0 || position <= cap)
+        {
+            return new VoiceAdmission(room, limits.Limits, position, null);
+        }
+
+        return new VoiceAdmission(room, limits.Limits, position, new VoiceDegradation(
+            EntitlementKeys.VoiceMaxParticipants,
+            // The room's size as it now stands, not this one person, because a client comparing a
+            // headcount of one against a cap of ten would render a meter that never fills.
+            EntitlementValue.OfNumber(position),
+            EntitlementValue.OfNumber(cap),
+            limits.Participants,
+            SubjectOf(room, userId, limits.Participants.BoundBy)));
     }
 
     /// <summary>Removes a participant and tells the room.</summary>
@@ -48,8 +124,25 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             r.Participants.RemoveAll(p => p.UserId == userId), ct);
         if (room is null) return null;
 
+        if (room.Participants.Count == 0)
+        {
+            if (await rooms.RemoveIfEmptyAsync(key, ct) && subscriptions is not null)
+                await subscriptions.DropAsync(key, ct);
+
+            // Returned rather than null, because callers read the guild id off it to finish their
+            // own cleanup, and there is nobody left to announce anything to.
+            return room;
+        }
+
         await announcer.ToAllAsync(room, VoiceEvents.Resync,
             new { reason = "participantLeft", userId }, ct);
+
+        if (subscriptions is not null)
+        {
+            var (plan, changed) = await subscriptions.ForgetAsync(room, userId, ct);
+            await AnnouncePlanAsync(room, plan, changed, ct);
+        }
+
         return room;
     }
 
@@ -75,9 +168,14 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             audioTrackName = me.AudioTrackName,
         }, ct);
 
+        // Publishing is what makes somebody eligible for a ranked slot, so this is the other point
+        // besides speech at which the set genuinely has to move.
+        var (plan, changed) = await ReselectAsync(room, ct);
+
         // And the publisher gets the current room back, which replaces the two separate
         // hand-rolled backfills that used to live in the call and channel controllers.
-        await announcer.SendSnapshotAsync(room, userId, ct);
+        await announcer.SendSnapshotAsync(room, userId, plan, ct);
+        await AnnouncePlanAsync(room, plan, changed, ct);
         return room;
     }
 
@@ -95,7 +193,18 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
 
             foreach (var track in described)
             {
-                if (track.ShareId is not { } shareId) continue;
+                if (track.ShareId is not { } shareId)
+                {
+                    // A camera, or anything else unrecognised.
+                    if (TrackNaming.IsMicrophone(track.TrackName)) continue;
+
+                    var video = me.ActiveVideoTracks
+                        .FirstOrDefault(v => v.TrackName == track.TrackName);
+                    if (video is null)
+                        me.ActiveVideoTracks.Add(video = new ActiveVideoTrack { TrackName = track.TrackName });
+                    video.MediaSessionId = mediaSessionId;
+                    continue;
+                }
 
                 var share = me.ActiveScreenShares.FirstOrDefault(s => s.ShareId == shareId);
                 if (share is null)
@@ -105,6 +214,10 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
                 }
                 if (!share.TrackNames.Contains(track.TrackName))
                     share.TrackNames.Add(track.TrackName);
+
+                // Recorded so that anything reconstructing state from the roster alone can address
+                // the share.
+                share.MediaSessionId = mediaSessionId;
             }
         }, ct);
         if (room is null) return null;
@@ -121,6 +234,91 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             }, ct);
         }
 
+        var (plan, changed) = await ReselectAsync(room, ct);
+        await AnnouncePlanAsync(room, plan, changed, ct, force: true);
+        return room;
+    }
+
+    /// <summary>Whether one more participant may distribute video in this room.</summary>
+    public async Task<bool> CanPublishVideoAsync(
+        VoiceRoomKey key, string userId, CancellationToken ct = default) =>
+        (await EvaluateVideoPublishAsync(key, userId, VoiceVideoRequest.Best, ct)).VideoAllowed;
+
+    /// <summary>
+    /// What this participant may actually publish, and why it is not what they asked for.
+    /// </summary>
+    /// <param name="request">What the publisher intends to send.</param>
+    public async Task<VoicePublishDecision> EvaluateVideoPublishAsync(
+        VoiceRoomKey key, string userId, VoiceVideoRequest request, CancellationToken ct = default)
+    {
+        var room = await rooms.LoadAsync(key, ct);
+        var limits = await ResolveLimitsAsync(room?.GuildId, ct);
+
+        // No room means nothing to enforce against - the same answer CanPublishVideoAsync gives, and
+        // for the same reason: refusing a publish into a room the server has not created yet would
+        // fail the first publisher of every call.
+        if (room is null) return VoicePublishDecision.Unconstrained(limits.Limits, request);
+
+        var ceiling = await ResolveVideoCeilingAsync(room, userId, limits, ct);
+        var ladder = EntitlementLadders.VideoQuality;
+        var granted = ladder.RungAt(ceiling.Rank);
+        var requested = ladder.RankOf(VideoRungs.RungFor(ladder, request.Height, request.Framerate));
+        var publishers = room.Participants.Count(VoiceSubscriptionPlanner.HasVideo);
+
+        if (ceiling.Rank == ladder.LowestRank)
+        {
+            return VoicePublishDecision.Refused(limits.Limits, publishers, new VoiceDegradation(
+                EntitlementKeys.VoiceVideoCeiling,
+                EntitlementValue.OfRank(requested),
+                EntitlementValue.OfRank(ceiling.Rank),
+                ceiling.Cause,
+                SubjectOf(room, userId, ceiling.Cause.BoundBy)));
+        }
+
+        if (!HasPublisherSlot(room, userId, limits.Limits.MaxPublishers))
+        {
+            return VoicePublishDecision.Refused(limits.Limits, publishers, new VoiceDegradation(
+                EntitlementKeys.VoiceMaxPublishers,
+                // The count this publish would produce against the count allowed, so the client can
+                // write "2 of 2 people are sharing" rather than the mystery that is "you cannot
+                // share".
+                EntitlementValue.OfNumber(publishers + 1),
+                EntitlementValue.OfNumber(limits.Limits.MaxPublishers),
+                limits.Publishers,
+                SubjectOf(room, userId, limits.Publishers.BoundBy)));
+        }
+
+        var (height, framerate) = VideoRungs.Clamp(granted, request.Height, request.Framerate);
+
+        var reduced = requested <= ceiling.Rank
+            ? null
+            : new VoiceDegradation(
+                EntitlementKeys.VoiceVideoCeiling,
+                EntitlementValue.OfRank(requested),
+                EntitlementValue.OfRank(ceiling.Rank),
+                ceiling.Cause,
+                SubjectOf(room, userId, ceiling.Cause.BoundBy));
+
+        return new VoicePublishDecision(
+            true, granted, height, framerate, limits.Limits, publishers,
+            reduced is null ? [] : [reduced], null);
+    }
+
+    /// <summary>
+    /// Re-resolves the room's limits and, if they moved, writes them - which advances the version.
+    /// </summary>
+    public async Task<VoiceRoom?> RefreshLimitsAsync(VoiceRoomKey key, CancellationToken ct = default)
+    {
+        var current = await rooms.LoadAsync(key, ct);
+        if (current is null) return null;
+
+        var resolved = await ResolveLimitsAsync(current.GuildId, ct);
+        if (!resolved.Resolved || current.Limits == resolved.Limits) return current;
+
+        var room = await rooms.MutateExistingAsync(key, r => r.Limits = resolved.Limits, ct);
+        if (room is null) return null;
+
+        await announcer.ToAllAsync(room, VoiceEvents.Resync, new { reason = "limitsChanged" }, ct);
         return room;
     }
 
@@ -182,6 +380,8 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             }, ct);
         }
 
+        var (plan, changed) = await ReselectAsync(room, ct);
+        await AnnouncePlanAsync(room, plan, changed, ct, force: true);
         return room;
     }
 
@@ -209,6 +409,7 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
                     continue;
                 }
 
+                me.ActiveVideoTracks.RemoveAll(v => v.TrackName == track.TrackName);
                 foreach (var share in me.ActiveScreenShares)
                     share.TrackNames.Remove(track.TrackName);
             }
@@ -226,6 +427,8 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
             }, ct);
         }
 
+        var (plan, changed) = await ReselectAsync(room, ct);
+        await AnnouncePlanAsync(room, plan, changed, ct, force: true);
         return room;
     }
 
@@ -264,8 +467,10 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         return room;
     }
 
-    /// <summary>Speaking indicators are pure relay: high frequency, no durable meaning, and
-    /// worthless a second later. Deliberately not stored and deliberately not versioned state.</summary>
+    /// <summary>
+    /// Speaking indicators are pure relay to peers: high frequency, no durable meaning, and
+    /// worthless a second later.
+    /// </summary>
     public async Task<VoiceRoom?> SetSpeakingAsync(
         VoiceRoomKey key, string userId, bool isSpeaking, CancellationToken ct = default)
     {
@@ -274,7 +479,84 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
 
         await announcer.ToOthersAsync(room, userId, VoiceEvents.SpeakingChanged,
             new { userId, isSpeaking }, ct);
+
+        if (subscriptions is not null)
+        {
+            var (plan, changed) = await subscriptions.RecordSpeakingAsync(room, userId, isSpeaking, ct);
+            await AnnouncePlanAsync(room, plan, changed, ct);
+        }
+
         return room;
+    }
+
+    /// <summary>
+    /// Applies what one subscriber has reported about its own rendering - what it has pinned, what
+    /// it has collapsed, how large it draws each tile, and whether it wants a share's audio.
+    /// </summary>
+    public async Task<VoiceSubscriptionPlan> SetSubscriberAsync(
+        VoiceRoomKey key, string userId, VoiceSubscriberUpdate update, CancellationToken ct = default)
+    {
+        if (subscriptions is null) return VoiceSubscriptionPlan.Unplanned;
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room?.Find(userId) is null) return VoiceSubscriptionPlan.Unplanned;
+
+        var (plan, _) = await subscriptions.UpdateSubscriberAsync(room, userId, update, ct);
+
+        // Only the caller is told, whatever else moved.
+        await announcer.ToUserAsync(room, userId, VoiceEvents.SubscriptionsChanged, new
+        {
+            mode = plan.Mode,
+            revision = plan.Revision,
+            activeSpeakers = plan.ActiveSpeakers,
+            tracks = plan.For(userId).Tracks,
+        }, ct);
+
+        return plan;
+    }
+
+    /// <summary>The current plan for a room, for a caller that wants it without waiting for the
+    /// next push. Null room, or planning not registered, reads as all-to-all.</summary>
+    public async Task<VoiceSubscriptionPlan> GetSubscriptionsAsync(
+        VoiceRoomKey key, CancellationToken ct = default)
+    {
+        if (subscriptions is null) return VoiceSubscriptionPlan.Unplanned;
+
+        var room = await rooms.LoadAsync(key, ct);
+        return room is null
+            ? VoiceSubscriptionPlan.Unplanned
+            : await subscriptions.PlanAsync(room, ct);
+    }
+
+    /// <summary>
+    /// The tracks in a subscribe request that this subscriber's plan does not include.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> FindUnplannedSubscriptionsAsync(
+        VoiceRoomKey key, string subscriberUserId, IEnumerable<VoiceTrackRef> tracks,
+        CancellationToken ct = default)
+    {
+        var subscribes = tracks
+            .Where(t => t.Direction == VoiceTrackDirection.Subscribe && t.TrackName is not null)
+            .ToList();
+        if (subscribes.Count == 0 || subscriptions is null) return [];
+        if (!subscriptions.Options.Enforce) return [];
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room is null) return [];
+
+        var plan = await subscriptions.PlanAsync(room, ct);
+        if (!plan.IsSelective) return [];
+
+        var permitted = plan.For(subscriberUserId).Tracks
+            .Select(t => t.MatchKey())
+            .ToHashSet(StringComparer.Ordinal);
+
+        return subscribes
+            .Where(t => !permitted.Contains(
+                VoiceSubscription.MatchKey(t.MediaSessionId, t.TrackName!)))
+            .Select(t => t.TrackName!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     /// <summary>Starts or stops a screen share.</summary>
@@ -297,6 +579,9 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         await announcer.ToOthersAsync(room, userId,
             isStreaming ? VoiceEvents.ScreenShareStarted : VoiceEvents.ScreenShareStopped,
             new { userId, shareId }, ct);
+
+        var (plan, changed) = await ReselectAsync(room, ct);
+        await AnnouncePlanAsync(room, plan, changed, ct, force: true);
         return room;
     }
 
@@ -374,5 +659,320 @@ public sealed class VoiceRoomService(VoiceRoomStore rooms, VoiceAnnouncer announ
         else await announcer.ToOthersAsync(room, targetUserId, eventName, payload, ct);
 
         return room;
+    }
+
+    /// <summary>
+    /// The room's own ceilings: the guild-scoped keys, clamped by the operator's, with the
+    /// configured publisher cap composed in.
+    /// </summary>
+    private async Task<ResolvedVoiceLimits> ResolveLimitsAsync(string? guildId, CancellationToken ct)
+    {
+        try
+        {
+            return await ResolveLimitsCoreAsync(guildId, ct);
+        }
+        catch (Exception ex)
+        {
+            // Fail open, and only in this direction.
+            logger?.LogWarning(
+                ex, "Could not resolve voice limits for guild {Guild} - nothing is enforced", guildId);
+            return ResolvedVoiceLimits.Unresolved(Options);
+        }
+    }
+
+    private async Task<ResolvedVoiceLimits> ResolveLimitsCoreAsync(string? guildId, CancellationToken ct)
+    {
+        var guild = entitlements is null || guildId is null
+            ? EntitlementSet.Empty
+            : await entitlements.ResolveAsync(EntitlementSubject.ForGuild(guildId), ct);
+
+        var (participants, participantsCause) = Numeric(guild, EntitlementKeys.VoiceMaxParticipants);
+        var (publishers, publishersCause) = Numeric(guild, EntitlementKeys.VoiceMaxPublishers);
+
+        // The configured cap is not replaced by the entitlement, it composes with it, and the lower
+        // wins - because it is an operator ceiling in everything but name: a number somebody set
+        // about what this box will carry.
+        var configured = (long)Math.Max(0, Options.MaxVideoPublishers);
+        if (configured < publishers)
+        {
+            publishers = configured;
+            publishersCause = VoiceCause.Operator;
+        }
+
+        var key = EntitlementKeys.VoiceVideoCeiling;
+        var entitled = guild.Value(key);
+        var ceiling = _ceilings.Clamp(key, entitled);
+        var ceilingCause = _ceilings.Binds(key, entitled) ? VoiceCause.Operator : VoiceCause.GuildPlan;
+
+        return new ResolvedVoiceLimits(
+            new VoiceRoomLimits(participants, key.Ladder!.RungAt(ceiling.AsRank), publishers),
+            participantsCause, ceilingCause, publishersCause);
+    }
+
+    /// <summary>A guild-scoped numeric ceiling, and whether the plan or this box set it.</summary>
+    private (long Value, VoiceCause Cause) Numeric(EntitlementSet guild, EntitlementKey key)
+    {
+        var entitled = guild.Value(key);
+
+        return _ceilings.Binds(key, entitled)
+            ? (_ceilings.Clamp(key, entitled).AsNumber, VoiceCause.Operator)
+            : (entitled.AsNumber, VoiceCause.GuildPlan);
+    }
+
+    /// <summary>
+    /// The publish ceiling for one member of one room: the paired key resolved, or <c>none</c> when
+    /// they are past the room's capacity.
+    /// </summary>
+    private async Task<VoiceCeiling> ResolveVideoCeilingAsync(
+        VoiceRoom room, string userId, ResolvedVoiceLimits limits, CancellationToken ct)
+    {
+        var ladder = EntitlementLadders.VideoQuality;
+
+        // Over capacity is audio-only, and it reports the capacity limit rather than the quality
+        // one: raising a room's video ceiling would change nothing at all for the eleventh member of
+        // a ten-person room, so pointing them at that upgrade would be a lie.
+        if (PositionOf(room, userId) > limits.Limits.MaxParticipants)
+        {
+            return new VoiceCeiling(ladder.LowestRank, limits.Participants);
+        }
+
+        var key = EntitlementKeys.VoiceVideoCeiling;
+        var mine = EntitlementSet.Empty;
+
+        try
+        {
+            if (entitlements is not null)
+                mine = await entitlements.ResolveAsync(EntitlementSubject.ForUser(userId), ct);
+        }
+        catch (Exception ex)
+        {
+            // Same direction as everywhere else: an unanswerable user side means their ceiling is
+            // the key's default, which is unlimited, so the guild's is what applies.
+            logger?.LogWarning(ex, "Could not resolve the user side of the voice video ceiling for {User}", userId);
+        }
+
+        var guildRank = ladder.RankOf(limits.Limits.VideoCeiling);
+        var userRank = mine.Value(key).AsRank;
+
+        if (userRank < guildRank)
+        {
+            return new VoiceCeiling(userRank, VoiceCause.Paired(EntitlementBoundBy.User));
+        }
+
+        // The guild is the lower side, or the two agree.
+        return new VoiceCeiling(
+            guildRank,
+            limits.VideoCeiling.Reason == EntitlementDegradationReason.OperatorCeiling || userRank == guildRank
+                ? limits.VideoCeiling
+                : VoiceCause.Paired(EntitlementBoundBy.Guild));
+    }
+
+    /// <summary>Whether this participant may hold one of the room's video publisher slots. Somebody
+    /// already distributing video always may, so adding a second track to a share they already have
+    /// is never what the cap catches.</summary>
+    private static bool HasPublisherSlot(VoiceRoom room, string userId, long cap)
+    {
+        var publishers = room.Participants
+            .Where(VoiceSubscriptionPlanner.HasVideo)
+            .Select(p => p.UserId)
+            .ToList();
+
+        return publishers.Contains(userId, StringComparer.Ordinal) || publishers.Count < cap;
+    }
+
+    /// <summary>
+    /// One participant's place in join order, one-based, or zero when they are not in the room.
+    /// </summary>
+    private static int PositionOf(VoiceRoom room, string userId) =>
+        room.Participants
+            .OrderBy(p => p.JoinedAt)
+            .ThenBy(p => p.UserId, StringComparer.Ordinal)
+            .Select((p, index) => (p.UserId, Place: index + 1))
+            .FirstOrDefault(entry => string.Equals(entry.UserId, userId, StringComparison.Ordinal))
+            .Place;
+
+    /// <summary>Whose limit it was, so a call to action links at the thing an upgrade would apply to
+    /// rather than at whichever subject the request mentioned. A direct call has no guild behind it,
+    /// so its limits can only ever be the caller's own or the operator's.</summary>
+    private static EntitlementSubject SubjectOf(VoiceRoom room, string userId, string? boundBy) =>
+        room.GuildId is { } guildId && boundBy != EntitlementBoundBy.User
+            ? EntitlementSubject.ForGuild(guildId)
+            : EntitlementSubject.ForUser(userId);
+
+    private readonly record struct VoiceCeiling(int Rank, VoiceCause Cause);
+
+    /// <summary>Re-ranks after a roster change, or answers all-to-all when planning is not
+    /// registered.</summary>
+    private Task<(VoiceSubscriptionPlan Plan, bool Changed)> ReselectAsync(
+        VoiceRoom room, CancellationToken ct) =>
+        subscriptions is null
+            ? Task.FromResult((VoiceSubscriptionPlan.Unplanned, false))
+            : subscriptions.ReselectAsync(room, ct);
+
+    /// <summary>Pushes the plan to the room, but only when the ranked set actually moved.</summary>
+    private Task AnnouncePlanAsync(
+        VoiceRoom room, VoiceSubscriptionPlan plan, bool changed, CancellationToken ct,
+        bool force = false) =>
+        (changed || force) && plan.IsSelective
+            ? announcer.SendSubscriptionsAsync(room, plan, ct)
+            : Task.CompletedTask;
+}
+
+/// <summary>
+/// The ceilings in force in one room, as they are stored on the roster and read off the snapshot.
+/// </summary>
+/// <param name="MaxParticipants">
+/// <see cref="EntitlementValue.Unlimited"/> when nothing caps the room.
+/// </param>
+/// <param name="VideoCeiling">
+/// A rung name of <see cref="EntitlementLadders.VideoQuality"/>, stored by name rather than by rank
+/// because the rung list is what the whole system agrees on and a stored index would quietly mean
+/// something else the day a rung is added in the middle.
+/// </param>
+/// <param name="MaxPublishers">The lower of the guild's entitlement and the configured cap.</param>
+public sealed record VoiceRoomLimits(long MaxParticipants, string VideoCeiling, long MaxPublishers)
+{
+    public int VideoCeilingRank => EntitlementLadders.VideoQuality.RankOf(VideoCeiling);
+
+    /// <param name="publisherCount">Room state rather than entitlement state, and on the wire because
+    /// a cap without a count is unrenderable: "2 of 2 people are sharing" is a sentence, "you cannot
+    /// share" is a mystery.</param>
+    public VoiceRoomLimitsDto ToDto(int publisherCount) => new(
+        EntitlementValueDto.Number(MaxParticipants),
+        EntitlementValueDto.OnLadder(EntitlementLadders.VideoQuality, VideoCeilingRank),
+        EntitlementValueDto.Number(MaxPublishers),
+        publisherCount);
+}
+
+/// <summary>Which side set a limit, in the closed reason vocabulary, and which subject that side is.
+/// <see cref="BoundBy"/> is null exactly when the reason is an operator ceiling, which is not a
+/// subject anybody can upgrade.</summary>
+public readonly record struct VoiceCause(EntitlementDegradationReason Reason, string? BoundBy)
+{
+    public static readonly VoiceCause Operator =
+        new(EntitlementDegradationReason.OperatorCeiling, null);
+
+    public static readonly VoiceCause GuildPlan =
+        new(EntitlementDegradationReason.GuildPlanLimit, EntitlementBoundBy.Guild);
+
+    /// <summary>Both sides carried a ceiling and the lower won.</summary>
+    public static VoiceCause Paired(string boundBy) =>
+        new(EntitlementDegradationReason.PairedCeiling, boundBy);
+}
+
+/// <summary>
+/// One reduction a voice limit caused, in the terms the enforcement site decided them.
+/// </summary>
+public sealed record VoiceDegradation(
+    EntitlementKey Key,
+    EntitlementValue Requested,
+    EntitlementValue Granted,
+    VoiceCause Cause,
+    EntitlementSubject Subject)
+{
+    /// <param name="instanceSellsUpgrades">False on a self-hosted instance and on a hosted one whose
+    /// billing is not configured. Both render as a sentence with no button.</param>
+    /// <param name="actorCanManageGuild">Whether this caller could actually buy the guild's upgrade.
+    /// Ignored for a user-side limit, where the caller is the person who would upgrade.</param>
+    public EntitlementDegradationDto Describe(bool instanceSellsUpgrades, bool actorCanManageGuild) =>
+        EntitlementDegradationDto.From(
+            Key, Requested, Granted, Cause.Reason, Subject,
+            EntitlementRemedyPolicy.For(
+                Cause.Reason, Cause.BoundBy, instanceSellsUpgrades, actorCanManageGuild),
+            Cause.BoundBy);
+}
+
+/// <summary>The room's ceilings plus which side set each of them.</summary>
+/// <param name="Resolved">False when the resolver could not answer.</param>
+public sealed record ResolvedVoiceLimits(
+    VoiceRoomLimits Limits,
+    VoiceCause Participants,
+    VoiceCause VideoCeiling,
+    VoiceCause Publishers,
+    bool Resolved = true)
+{
+    /// <summary>
+    /// What applies when nothing could be resolved: no participant cap, the top of the video
+    /// ladder, and the configured publisher cap.
+    /// </summary>
+    public static ResolvedVoiceLimits Unresolved(VoiceSubscriptionOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        var ladder = EntitlementLadders.VideoQuality;
+
+        return new ResolvedVoiceLimits(
+            new VoiceRoomLimits(
+                EntitlementValue.Unlimited,
+                ladder.RungAt(ladder.HighestRank),
+                Math.Max(0, options.MaxVideoPublishers)),
+            VoiceCause.GuildPlan,
+            VoiceCause.GuildPlan,
+            VoiceCause.Operator,
+            false);
+    }
+}
+
+/// <summary>A join that happened, and what it cost the joiner.</summary>
+/// <param name="Position">One-based place in join order.</param>
+public sealed record VoiceAdmission(
+    VoiceRoom Room,
+    VoiceRoomLimits Limits,
+    int Position,
+    VoiceDegradation? OverCapacity)
+{
+    /// <summary>The degradations for the response body, empty when nothing was reduced - which is
+    /// what a client must treat as the normal case, and what makes the reply byte-identical to what a
+    /// v1 client already receives.</summary>
+    public IReadOnlyList<EntitlementDegradationDto> Describe(
+        bool instanceSellsUpgrades, bool actorCanManageGuild) =>
+        OverCapacity is null ? [] : [OverCapacity.Describe(instanceSellsUpgrades, actorCanManageGuild)];
+}
+
+/// <summary>What a publisher intends to send.</summary>
+public readonly record struct VoiceVideoRequest(int Height, int Framerate)
+{
+    /// <summary>Whatever the room will allow, for a caller that has not been told a size.</summary>
+    public static readonly VoiceVideoRequest Best = new(int.MaxValue, int.MaxValue);
+}
+
+/// <summary>What a publisher may actually send.</summary>
+/// <param name="Rung">The granted rung.</param>
+/// <param name="Height">The request clamped to <paramref name="Rung"/>.</param>
+public sealed record VoicePublishDecision(
+    bool VideoAllowed,
+    string Rung,
+    int Height,
+    int Framerate,
+    VoiceRoomLimits Limits,
+    int PublisherCount,
+    IReadOnlyList<VoiceDegradation> Degradations,
+    VoiceDegradation? Refusal)
+{
+    public IReadOnlyList<EntitlementDegradationDto> Describe(
+        bool instanceSellsUpgrades, bool actorCanManageGuild) =>
+        Degradations
+            .Select(degradation => degradation.Describe(instanceSellsUpgrades, actorCanManageGuild))
+            .ToList();
+
+    /// <summary>The refusal body, or null when the publish was allowed.</summary>
+    public EntitlementDenialDto? Denial(bool instanceSellsUpgrades, bool actorCanManageGuild) =>
+        Refusal is null
+            ? null
+            : EntitlementDenialDto.From(Refusal.Describe(instanceSellsUpgrades, actorCanManageGuild));
+
+    internal static VoicePublishDecision Refused(
+        VoiceRoomLimits limits, int publisherCount, VoiceDegradation refusal) =>
+        new(false, EntitlementLadders.VideoQuality.RungAt(EntitlementLadders.VideoQuality.LowestRank),
+            0, 0, limits, publisherCount, [], refusal);
+
+    /// <summary>The answer for a room the server does not have, which is the same answer
+    /// <see cref="VoiceRoomService.CanPublishVideoAsync"/> gives and for the same reason: refusing a
+    /// publish into a room that has not been created yet would fail the first publisher of every
+    /// call.</summary>
+    internal static VoicePublishDecision Unconstrained(VoiceRoomLimits limits, VoiceVideoRequest request)
+    {
+        var (height, framerate) = VideoRungs.Clamp(limits.VideoCeiling, request.Height, request.Framerate);
+        return new VoicePublishDecision(true, limits.VideoCeiling, height, framerate, limits, 0, [], null);
     }
 }

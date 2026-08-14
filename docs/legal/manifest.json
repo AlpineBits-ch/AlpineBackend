@@ -12,6 +12,34 @@
     "replaced were never deployed. Any change here must be mirrored in that repo, or venta.gg and",
     "the in-app policy will disagree."
   ],
+  "$pendingComment": [
+    "'documents' is what this build publishes. '$pendingDocuments' is what has been drafted and is",
+    "waiting on counsel; the catalog reads neither the key nor anything under it, so a draft sitting",
+    "here is inert - not hashed, not served, not consented to, and not able to become the current",
+    "document of its type.",
+    "The five 2026-08-14 entries are the monetization legal groundwork (WP-04 of",
+    "docs/specs/monetization-implementation-plan.md). Every one of them carries a",
+    "'LEGAL REVIEW REQUIRED' banner in its first line and is a DRAFT, NOT OPERATIVE TEXT.",
+    "They are pending rather than published for a reason that is not squeamishness: removing the",
+    "banner changes the bytes, and this directory's rule is that changed bytes are a new file plus a",
+    "new entry. So the reviewed text will always be a NEW file dated the day it was approved, and a",
+    "'documents' entry pointing at a draft could therefore only ever publish text nobody signed off.",
+    "Identity.Tests asserts exactly that: no document the manifest declares may contain the banner.",
+    "To publish one: counsel produces <type>-<approval date>.md without the banner, with a matching",
+    "'Last updated' line (the version IS that date - LegalDocumentCatalogTests checks the two agree),",
+    "and its entry moves into 'documents' with a real effectiveAt. Mirror it to alpine-angular-landing",
+    "in the same change.",
+    "privacy-2026-08-14.md supersedes privacy-2026-08-05.md and adds section 6, the fraud-prevention",
+    "processing purpose for hashed phone, device and payment-instrument identifiers. Publishing it",
+    "puts every existing account into consent-required for Privacy, which is correct and intended but",
+    "is a user-visible event to schedule deliberately rather than to ship as a side effect.",
+    "PaidServices, Refunds, Downgrade and Credit are new document types. Identity.Domain's",
+    "LegalDocumentType enum has only Terms, Privacy and Cookies, so those four need an enum member",
+    "before they can be published at all; the column is character varying(32), so no migration is",
+    "involved. None of the four belongs in ConsentService.RequiredDocumentTypes - only Terms and",
+    "Privacy may put an account into a consent-required state, and these are recordable but never",
+    "required."
+  ],
   "documents": [
     {
       "documentType": "Terms",
@@ -42,6 +70,38 @@
       "version": "2026-08-05",
       "effectiveAt": "2026-08-05T00:00:00Z",
       "file": "cookies-2026-08-05.md"
+    }
+  ],
+  "$pendingDocuments": [
+    {
+      "documentType": "Privacy",
+      "version": "2026-08-14",
+      "effectiveAt": null,
+      "file": "privacy-2026-08-14.md"
+    },
+    {
+      "documentType": "PaidServices",
+      "version": "2026-08-14",
+      "effectiveAt": null,
+      "file": "paid-services-2026-08-14.md"
+    },
+    {
+      "documentType": "Refunds",
+      "version": "2026-08-14",
+      "effectiveAt": null,
+      "file": "refunds-2026-08-14.md"
+    },
+    {
+      "documentType": "Downgrade",
+      "version": "2026-08-14",
+      "effectiveAt": null,
+      "file": "downgrade-2026-08-14.md"
+    },
+    {
+      "documentType": "Credit",
+      "version": "2026-08-14",
+      "effectiveAt": null,
+      "file": "credit-2026-08-14.md"
     }
   ]
 }

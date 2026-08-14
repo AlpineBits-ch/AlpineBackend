@@ -2,6 +2,10 @@ using Echo.Auth;
 using AppEnvironment;
 using Echo.Cors;
 using Echo.Docs;
+using Echo.Dtos.Entitlements;
+using Echo.Entitlements;
+using Echo.Entitlements.Sources;
+using Echo.Entitlements.Wire;
 using Echo.Moderation;
 using Echo.Persistence;
 using Echo.Persistence.Persistance;
@@ -24,6 +28,11 @@ using Wolverine;
 using Wolverine.EntityFrameworkCore;
 using JasperFx.RuntimeCompiler;
 using Yarp.ReverseProxy.Health;
+
+// Before anything else, because the alternative to failing here is failing invisibly: a hosted
+// instance with no billing configuration resolves every entitlement to unlimited and looks healthy
+// while giving the product away.
+Env.License.EnsureConfigured();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -116,6 +125,19 @@ builder.Services.AddScoped<EmailService>();
 // The status page: the request counters, the detector, the public snapshot, and the CORS and
 // rate-limit policies that belong to it alone.
 builder.Services.AddVentaStatus();
+
+// Entitlements, read side.
+builder.Services.AddEntitlements(builder.Configuration);
+builder.Services.AddLicenseMode(
+    LicenseModes.Parse(Env.License.Mode),
+    OperatorCeilings.Parse(Env.License.OperatorCeilings));
+builder.Services.AddSingleton(new EntitlementInstanceInfo(
+    Env.License.Mode.Trim().ToLowerInvariant(),
+    Env.License.IsHosted && Env.License.IsBillingConfigured));
+builder.Services.AddSingleton(new EntitlementReadOptions());
+builder.Services.AddSingleton<IEntitlementVersionProvider, StaticEntitlementVersionProvider>();
+builder.Services.AddSingleton<EntitlementSnapshotBuilder>();
+builder.Services.AddSingleton<EntitlementsChangeNotifier>();
 
 builder.Services.AddScoped<IGitHubClient>(s =>
 {

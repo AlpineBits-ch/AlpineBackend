@@ -679,6 +679,28 @@ MICROSOFT_GRAPH_CLIENT_SECRET="${MICROSOFT_GRAPH_CLIENT_SECRET:-}"
 CLOUDFLARE_APP_ID="${CLOUDFLARE_APP_ID:-mock_app_id}"
 CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-mock_tocken}"
 
+# ── License mode ─────────────────────────────────────────────────────────────────────
+# "selfhost" means every limit is off: no plans, no tiers, no billing, nothing to buy and
+# nothing to unlock. It is the default and it is what you want. Nothing here is checked
+# against anything - there is no license key, nothing expires and nothing phones home.
+LICENSE_MODE="${LICENSE_MODE:-selfhost}"
+
+# ── Limits on this server ────────────────────────────────────────────────────────────
+# A different question from the one above, and the only one worth thinking about: what will
+# THIS machine do? Voice and video are relayed through Cloudflare and billed by the
+# gigabyte, and a busy video room costs roughly forty times what the same room costs on
+# audio alone - so if the bill is yours, these are the two numbers that decide it.
+#
+# Empty means no limit, which is how it ships. Set them and they apply on top of everything
+# else, so nobody can exceed them however they joined.
+#   VOICE_MAX_PARTICIPANTS   people in one voice room, e.g. 12
+#   VOICE_VIDEO_CEILING      best video anyone may send: none, 480p30, 720p30, 1080p30, 1080p60
+#                            ("none" leaves voice working and turns off camera and screenshare)
+#   STORAGE_UPLOAD_MAX_BYTES largest single file anyone may upload, in bytes, e.g. 26214400
+VOICE_MAX_PARTICIPANTS="${VOICE_MAX_PARTICIPANTS:-}"
+VOICE_VIDEO_CEILING="${VOICE_VIDEO_CEILING:-}"
+STORAGE_UPLOAD_MAX_BYTES="${STORAGE_UPLOAD_MAX_BYTES:-}"
+
 # ── Push notifications ───────────────────────────────────────────────────────────────
 FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64="${FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64:-}"
 GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64="${GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64:-}"

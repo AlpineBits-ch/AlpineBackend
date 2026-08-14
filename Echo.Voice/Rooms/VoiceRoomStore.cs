@@ -126,4 +126,17 @@ public sealed class VoiceRoomStore(
         await using var _ = await locks.AcquireAsync(key.CacheKey, LockWait, ct);
         await cache.RemoveAsync(key.CacheKey, ct);
     }
+
+    /// <summary>Drops a room only if its roster is still empty, returning whether it did.</summary>
+    public async Task<bool> RemoveIfEmptyAsync(VoiceRoomKey key, CancellationToken ct = default)
+    {
+        await using var _ = await locks.AcquireAsync(key.CacheKey, LockWait, ct);
+
+        var room = await store.LoadAsync<VoiceRoom>(key.CacheKey, ct);
+        if (room is null) return false;
+        if (room.Participants.Count > 0) return false;
+
+        await cache.RemoveAsync(key.CacheKey, ct);
+        return true;
+    }
 }

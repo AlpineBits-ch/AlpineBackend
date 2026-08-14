@@ -20,6 +20,11 @@
              actually run rooms (Guild, Messaging) - deliberately NOT by the gateway or Bots, which
              reference Echo.Realtime for the hub alone. -->
         <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
+
+        <!-- The entitlement contracts and the resolver, for the join and publish ceilings. Safe to
+             take: Echo.Entitlements has no references of its own by design, so this adds nothing to
+             what Guild and Messaging already carry. -->
+        <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
     </ItemGroup>
 
 </Project>

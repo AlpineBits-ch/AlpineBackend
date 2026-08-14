@@ -1,4 +1,5 @@
-﻿using Echo.RateLimiter;
+﻿using AppEnvironment;
+using Echo.RateLimiter;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
 
@@ -6,6 +7,12 @@ namespace Echo.Proxy;
 
 public static class ProxyConfig
 {
+    // Named rather than repeated, because the route and its cluster are both filtered out below on
+    // the same condition and a typo in either string would leave half a service wired up.
+    private const string BillingRouteId = "billing-route";
+
+    private const string BillingClusterId = "billing-cluster";
+
     public static IReadOnlyList<RouteConfig> GetRoutes() => new[]
     {
         new RouteConfig
@@ -174,7 +181,18 @@ public static class ProxyConfig
             ClusterId = "federation-cluster",
             Match = new RouteMatch { Path = "/api/v1/admin/federation/{**catch-all}" }
         },
-    };
+
+        // Billing (docs/specs/monetization.md).
+        new RouteConfig
+        {
+            RouteId = BillingRouteId,
+            ClusterId = BillingClusterId,
+            Match = new RouteMatch { Path = "/api/v1/billing/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+    }
+    // Dropped entirely in selfhost, which is the default and is what nearly every deployment is.
+    .Where(route => route.RouteId != BillingRouteId || Env.License.IsHosted)
+    .ToArray();
 
     public static IReadOnlyList<ClusterConfig> GetClusters()
     {
@@ -187,6 +205,13 @@ public static class ProxyConfig
         var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://bots.default.svc.cluster.local";
         var imports = Environment.GetEnvironmentVariable("Services__Import") ?? "http://import.default.svc.cluster.local";
         var unfurl = Environment.GetEnvironmentVariable("Services__Unfurl") ?? "http://unfurl.default.svc.cluster.local";
+
+        // BILLING_SERVICE_URL rather than a Services__Billing of its own, because that variable
+        // already exists: it is half of what Env.License.EnsureConfigured accepts as proof that a
+        // `hosted` instance can answer "what has this guild paid for".
+        var billing = Env.License.BillingServiceUrl is { Length: > 0 } billingUrl
+            ? billingUrl
+            : "http://billing.default.svc.cluster.local";
 
         return new[]
         {
@@ -503,8 +528,36 @@ public static class ProxyConfig
                     Interval = TimeSpan.FromSeconds(15),
                 }
             },
+        },
+
+        new ClusterConfig
+        {
+            ClusterId = BillingClusterId,
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = billing } }
+            },
+            HealthCheck = new HealthCheckConfig
+            {
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "billing/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                }
+            },
         }
 
-        };
+        }
+        // Same condition as the route above, and it has to be the same: a cluster with no route is
+        // harmless, but a route with no cluster is a startup failure in YARP's config validation.
+        .Where(cluster => cluster.ClusterId != BillingClusterId || Env.License.IsHosted)
+        .ToArray();
     }
 }

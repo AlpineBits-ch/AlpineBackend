@@ -2,6 +2,8 @@ using Echo.Auth;
 using System.Net.Http.Headers;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
+using Echo.Entitlements;
+using Echo.Entitlements.Sources;
 using Echo.Realtime.Sfu;
 using Echo.Voice;
 using AppEnvironment;
@@ -33,6 +35,13 @@ builder.Services.AddInfrastructure();
 builder.Services.AddGracefulShutdownHealthCheck();
 
 builder.Services.AddScoped<FileService>();
+
+// Storage entitlements, enforced by FileService.
+builder.Services.AddEntitlements(builder.Configuration);
+builder.Services.AddLicenseMode(
+    LicenseModes.Parse(Env.License.Mode), OperatorCeilings.Parse(Env.License.OperatorCeilings));
+builder.Services.AddSingleton<IGuildStorageLedger, RedisGuildStorageLedger>();
+
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
 var redis = Env.Redis;

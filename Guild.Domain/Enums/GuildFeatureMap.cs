@@ -56,6 +56,15 @@ public static class GuildFeatureMap
             ModulePermissions.LogMaintenance | ModulePermissions.ManageMaintenance),
     ];
 
+    /// <summary>The capabilities the type comment lists as ungated by design, as data.</summary>
+    public const Permissions NeverGated =
+        Permissions.ViewChannel | Permissions.ReadMessageHistory |
+        Permissions.SendMessages | Permissions.EditOwnMessages | Permissions.EditAnyMessage |
+        Permissions.DeleteOwnMessages | Permissions.DeleteAnyMessage | Permissions.PinMessages |
+        Permissions.AttachFiles | Permissions.EmbedLinks | Permissions.AddReactions |
+        Permissions.CreateInvite | Permissions.ManageChannel | Permissions.ManagePermissions |
+        Permissions.ManageGuild | Permissions.UseApplicationCommands;
+
     /// <summary>Every core permission bit owned by a module that <paramref name="enabled"/> does
     /// not include. A required permission intersecting this mask is unavailable in the guild no
     /// matter who is asking - owner and Superadmin included.</summary>
@@ -105,6 +114,21 @@ public static class GuildFeatureMap
     public static ModulePermissions ClampToEnabled(GuildFeatures enabled, ModulePermissions requested) =>
         requested & ~DisabledModulePermissions(enabled);
 
+    /// <summary>Modules no plan may withhold, whatever the plan is configured to cover.</summary>
+    public const GuildFeatures PlanIndependentFeatures =
+        GuildFeatures.Moderation | GuildFeatures.AutoMod | GuildFeatures.VoiceChannels;
+
+    /// <summary>
+    /// The effective module set: what the owner switched on, intersected with what the guild's plan
+    /// covers, and never anything else.
+    /// </summary>
+    public static GuildFeatures ClampToPlan(GuildFeatures enabled, GuildFeatures includedByPlan) =>
+        enabled & (includedByPlan | PlanIndependentFeatures);
+
+    /// <inheritdoc cref="GuildFeatureResolution"/>
+    public static GuildFeatureResolution ResolveWithPlan(
+        GuildFeatures enabled, GuildFeatures includedByPlan) => new(enabled, includedByPlan);
+
     /// <summary>The module a channel of this type belongs to, or null when the type is part of
     /// the always-on core. Text has no feature flag on purpose - a guild with no text channels
     /// is not a guild.</summary>
@@ -124,4 +148,26 @@ public static class GuildFeatureMap
         ChannelType.Maintenance => GuildFeatures.Maintenance,
         _ => null,
     };
+}
+
+/// <summary>
+/// A guild's module state as the two separate masks it actually is, plus what they come to when
+/// composed.
+/// </summary>
+/// <param name="Chosen">
+/// The guild's own mask - product state, the owner's choice, the thing the module toggles write.
+/// </param>
+/// <param name="IncludedByPlan">
+/// What the guild's plan covers - commercial state, stored by whoever owns billing and never
+/// written into the guild row.
+/// </param>
+public readonly record struct GuildFeatureResolution(
+    GuildFeatures Chosen,
+    GuildFeatures IncludedByPlan)
+{
+    /// <summary>What every gate reads.</summary>
+    public GuildFeatures Effective => GuildFeatureMap.ClampToPlan(Chosen, IncludedByPlan);
+
+    /// <summary>Modules the owner has switched on that the plan does not cover.</summary>
+    public GuildFeatures WithheldByPlan => Chosen & ~Effective;
 }

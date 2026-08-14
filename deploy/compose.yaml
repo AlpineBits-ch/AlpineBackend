@@ -17,6 +17,7 @@
 #   scylla         ScyllaDB message store (Messaging falls back to Postgres without it)
 #   caddy          bundled TLS-terminating reverse proxy
 #   isle           The Isle game-server integration service
+#   hosted         the Billing service - only for the hosted product, never for a self-hoster
 # =====================================================================================
 
 name: venta
@@ -113,6 +114,29 @@ x-app-env: &app-env
   MICROSOFT_GRAPH_CLIENT_ID: "${MICROSOFT_GRAPH_CLIENT_ID:-}"
   MICROSOFT_GRAPH_CLIENT_SECRET: "${MICROSOFT_GRAPH_CLIENT_SECRET:-}"
 
+  # --- License mode and operator ceilings ---------------------------------------------
+  # LICENSE_MODE=selfhost is the default and means every entitlement resolves to its maximum:
+  # no plan limits, no billing surface, nothing to configure and nothing to pay. There is no
+  # license check anywhere in this stack - no key, no expiry, nothing phones home - so this is a
+  # statement about what this deployment is, not a credential. Leave it alone.
+  #
+  # The three ceilings below are a different question and are the ones a self-hoster may actually
+  # want: they cap what THIS SERVER will do regardless of what anyone is entitled to, because a
+  # voice room's bandwidth is billed to whoever runs the SFU. Empty means no cap, which is how the
+  # stack ships. VOICE_VIDEO_CEILING takes a quality name (none, 480p30, 720p30, 1080p30, 1080p60);
+  # the other two take a plain number, bytes for the upload one. VOICE_MAX_PARTICIPANTS=12 with
+  # VOICE_VIDEO_CEILING=720p30 is a sensible pair for a small server on a metered connection.
+  LICENSE_MODE: "${LICENSE_MODE:-selfhost}"
+  # Where the billing service answers. Empty is the shipped state and is correct in selfhost, where
+  # the service is not deployed at all (it sits behind the `hosted` profile below). A hosted instance
+  # sets this to http://billing:8080 and LICENSE_MODE=hosted together - the gateway refuses to start
+  # on `hosted` with neither this nor a Stripe key, because it would otherwise resolve every
+  # entitlement to unlimited and look perfectly healthy giving the product away.
+  BILLING_SERVICE_URL: "${BILLING_SERVICE_URL:-}"
+  VOICE_MAX_PARTICIPANTS: "${VOICE_MAX_PARTICIPANTS:-}"
+  VOICE_VIDEO_CEILING: "${VOICE_VIDEO_CEILING:-}"
+  STORAGE_UPLOAD_MAX_BYTES: "${STORAGE_UPLOAD_MAX_BYTES:-}"
+
   # --- Optional third-party integrations ----------------------------------------------
   CLOUDFLARE_APP_ID: "${CLOUDFLARE_APP_ID:-mock_app_id}"
   CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-mock_tocken}"
@@ -186,7 +210,7 @@ services:
           sleep 2
         done
         pg_isready -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" -U "${DATABASE_USERNAME}"
-        for db in identity_db guild_db messaging_db social_db federation_db bots_db import_db isle_db echo_db unfurl_db; do
+        for db in identity_db guild_db messaging_db social_db federation_db bots_db import_db isle_db echo_db unfurl_db billing_db; do
           psql -v ON_ERROR_STOP=1 -h "${DATABASE_HOSTNAME}" -p "${DATABASE_PORT}" \
                -U "${DATABASE_USERNAME}" -d postgres <<SQL
         SELECT 'CREATE DATABASE $$db' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$$db')\gexec
@@ -552,6 +576,40 @@ services:
       UNFURL_PUBLIC_BASE_URL: "${UNFURL_PUBLIC_BASE_URL:-${INSTANCE_URL:-}}"
     healthcheck:
       test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/unfurl/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # Subscriptions, grants, promotions and the Stripe integration (docs/specs/monetization.md).
+  #
+  # **Not deployed by a self-hosted stack, and that is the whole design.** In LICENSE_MODE=selfhost -
+  # the default, and what every installer writes - every entitlement already resolves to its maximum
+  # and every billing surface is hidden, so this service would have nothing to answer and no caller.
+  # It sits behind the `hosted` profile for that reason, nothing else depends on it, and the gateway
+  # does not even register a route to it unless the instance says it is hosted. A self-hosted stack
+  # is fully healthy without this container ever having existed.
+  #
+  # Bringing it up is three things together: `--profile hosted`, LICENSE_MODE=hosted, and
+  # BILLING_SERVICE_URL=http://billing:8080. Any one of them alone is a misconfiguration, and each of
+  # the three refuses rather than degrading quietly.
+  billing:
+    <<: *app-common
+    profiles: ["hosted"]
+    image: "${IMAGE_PREFIX:-ghcr.io/alpinebits-ch}/billing-application:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: Billing.Application/Dockerfile
+    environment:
+      <<: *app-env
+      DATABASE_NAME: billing_db
+      # The only component that ever holds a Stripe key, per monetization.md section 4.3.
+      # Deliberately NOT in the shared block above, for the same reason GATEWAY_PROXY_SECRET is not:
+      # a value in x-app-env is handed to all nine other services, which is exactly what "only this
+      # component" is supposed to prevent.
+      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
+    healthcheck:
+      test: ["CMD", "bash", "/opt/venta/healthcheck.sh", "/billing/health"]
       interval: 15s
       timeout: 10s
       retries: 10

@@ -424,6 +424,11 @@ $Defaults = @{
     # own since the traffic is theirs. An empty address turns the lookup off.
     PRODUCT_CATALOG_LIVE_FILL_ENABLED = 'true'
     PRODUCT_CATALOG_CONTACT_EMAIL = 'hello@alpinebits.ch'
+    # 'selfhost' turns every limit off and is what a server of your own should stay on. Nothing
+    # checks it, nothing expires, nothing phones home. The three limits below are the separate
+    # question of what this machine will carry, and empty means no limit.
+    LICENSE_MODE = 'selfhost'
+    VOICE_MAX_PARTICIPANTS = ''; VOICE_VIDEO_CEILING = ''; STORAGE_UPLOAD_MAX_BYTES = ''
     FEDERATION_PRIVATE_KEY_BASE_64 = ''; FEDERATION_PUBLIC_KEY_BASE_64 = ''; IDENTITY_SIGNING_CERT = ''
     # Generated once and then carried forward by the loop below, which only fills keys that are
     # missing or empty: the value has to match what the generated Caddyfile sends, and rotating
@@ -672,6 +677,28 @@ MICROSOFT_GRAPH_CLIENT_SECRET="$($Config['MICROSOFT_GRAPH_CLIENT_SECRET'])"
 # -- Voice / video (Cloudflare Calls SFU) ---------------------------------------------
 CLOUDFLARE_APP_ID="$($Config['CLOUDFLARE_APP_ID'])"
 CLOUDFLARE_API_TOKEN="$($Config['CLOUDFLARE_API_TOKEN'])"
+
+# -- License mode ---------------------------------------------------------------------
+# "selfhost" means every limit is off: no plans, no tiers, no billing, nothing to buy and
+# nothing to unlock. It is the default and it is what you want. Nothing here is checked
+# against anything - there is no license key, nothing expires and nothing phones home.
+LICENSE_MODE="$($Config['LICENSE_MODE'])"
+
+# -- Limits on this server ------------------------------------------------------------
+# A different question from the one above, and the only one worth thinking about: what will
+# THIS machine do? Voice and video are relayed through Cloudflare and billed by the
+# gigabyte, and a busy video room costs roughly forty times what the same room costs on
+# audio alone - so if the bill is yours, these are the two numbers that decide it.
+#
+# Empty means no limit, which is how it ships. Set them and they apply on top of everything
+# else, so nobody can exceed them however they joined.
+#   VOICE_MAX_PARTICIPANTS   people in one voice room, e.g. 12
+#   VOICE_VIDEO_CEILING      best video anyone may send: none, 480p30, 720p30, 1080p30, 1080p60
+#                            ("none" leaves voice working and turns off camera and screenshare)
+#   STORAGE_UPLOAD_MAX_BYTES largest single file anyone may upload, in bytes, e.g. 26214400
+VOICE_MAX_PARTICIPANTS="$($Config['VOICE_MAX_PARTICIPANTS'])"
+VOICE_VIDEO_CEILING="$($Config['VOICE_VIDEO_CEILING'])"
+STORAGE_UPLOAD_MAX_BYTES="$($Config['STORAGE_UPLOAD_MAX_BYTES'])"
 
 # -- Push notifications ---------------------------------------------------------------
 FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64="$($Config['FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64'])"

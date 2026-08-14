@@ -196,6 +196,14 @@ jobs:
             context: .
             dockerfile: Unfurl.Application/Dockerfile
             image: unfurl-application
+          # Built and published like every other service even though a self-hosted instance never
+          # starts it: LICENSE_MODE decides whether it runs, not whether an image exists. Publishing
+          # it unconditionally keeps the tag set uniform, so the E2E dispatch below and anything
+          # pinning a sha do not have to special-case one service being absent.
+          - project: billing
+            context: .
+            dockerfile: Billing.Application/Dockerfile
+            image: billing-application
 
     steps:
       - name: Checkout
@@ -257,7 +265,7 @@ jobs:
   # one commit, and a red run at 03:00 names everything that landed that day.
   #
   # `needs: build` and nothing else, so the dispatch cannot fire for images that were not pushed.
-  # The matrix means "all ten succeeded" - if any image failed, this is skipped and the suite is
+  # The matrix means "all eleven succeeded" - if any image failed, this is skipped and the suite is
   # not asked to test a half-published set.
   # ---------------------------------------------------------------------------------------------
   notify-e2e:

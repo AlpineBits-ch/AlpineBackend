@@ -89,12 +89,18 @@ public static class OutboundAddressGuard
         uri = null;
         error = null;
 
+        
+        
         if (string.IsNullOrWhiteSpace(url))
         {
             error = "URL is required.";
             return false;
         }
-
+        if(url.Contains("/invite/"))
+        {
+            error = "This is an invite url";
+            return false;
+        }
         if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed))
         {
             error = "URL must be absolute.";

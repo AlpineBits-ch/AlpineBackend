@@ -44,11 +44,17 @@ public static class EntitlementCacheServiceCollectionExtensions
 
         // Resolved from the container rather than computed here, because the sources are registered
         // by the caller and the last of them may be registered after this call.
-        services.TryAddSingleton(provider => new EntitlementCacheKeyspace(
-            options.KeyPrefix,
-            EntitlementCacheKeyspace.FingerprintOf(
-                provider.GetServices<IEntitlementSource>(),
-                provider.GetService<EntitlementPlanOptions>())));
+        services.TryAddSingleton(provider =>
+        {
+            var catalogue = provider.GetService<IPlanCatalogueSource>();
+
+            return new EntitlementCacheKeyspace(
+                options.KeyPrefix,
+                EntitlementCacheKeyspace.FingerprintOf(
+                    provider.GetServices<IEntitlementSource>(),
+                    provider.GetService<EntitlementPlanOptions>()),
+                catalogue is null ? null : () => catalogue.Revision);
+        });
 
         services.TryAddSingleton(provider => new EntitlementCacheInvalidator(
             provider.GetRequiredService<IEntitlementCacheStore>(),

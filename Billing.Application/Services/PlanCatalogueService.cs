@@ -16,29 +16,10 @@ public sealed class PlanCatalogueService(
     PlanCatalogue configured,
     ILogger<PlanCatalogueService>? logger = null)
 {
-    /// <summary>Separates a plan name from a pinned version number.</summary>
-    public const char VersionSeparator = '@';
-
     private PlanCatalogue? _resolved;
 
     /// <summary>What the instance would resolve with no rows at all.</summary>
     public PlanCatalogue Configured { get; } = configured;
-
-    public static string Reference(string planName, int versionNumber) =>
-        $"{planName}{VersionSeparator}{versionNumber}";
-
-    /// <summary>Splits <c>pro@2</c> into its parts.</summary>
-    public static (string Name, int? Version) SplitReference(string reference)
-    {
-        ArgumentNullException.ThrowIfNull(reference);
-
-        var at = reference.LastIndexOf(VersionSeparator);
-        if (at <= 0 || at == reference.Length - 1) return (reference, null);
-
-        return int.TryParse(reference.AsSpan(at + 1), out var version)
-            ? (reference[..at], version)
-            : (reference, null);
-    }
 
     /// <summary>
     /// Every plan a grant may name or a subject may be on, current versions under their bare name
@@ -50,7 +31,10 @@ public sealed class PlanCatalogueService(
 
         var plans = await db.Plans
             .AsNoTracking()
-            .Select(plan => new { plan.Id, plan.Name, plan.CurrentVersionNumber, plan.ArchivedAt })
+            .Select(plan => new
+            {
+                plan.Id, plan.Name, plan.DisplayName, plan.CurrentVersionNumber, plan.ArchivedAt,
+            })
             .ToListAsync(cancellationToken);
 
         if (plans.Count == 0) return _resolved = Configured;
@@ -73,11 +57,13 @@ public sealed class PlanCatalogueService(
             {
                 var values = ReadValues(version.ValuesJson);
 
-                definitions.Add(Definition(Reference(plan.Name, version.VersionNumber), values));
+                // The display name rides both entries.
+                definitions.Add(Definition(
+                    PlanReference.Of(plan.Name, version.VersionNumber), values, plan.DisplayName));
 
                 if (version.VersionNumber == plan.CurrentVersionNumber)
                 {
-                    definitions.Add(Definition(plan.Name, values));
+                    definitions.Add(Definition(plan.Name, values, plan.DisplayName));
                 }
             }
         }
@@ -105,7 +91,7 @@ public sealed class PlanCatalogueService(
             .Select(plan => plan.Name)
             .FirstOrDefaultAsync(cancellationToken);
 
-        return name is null ? null : Reference(name, assignment.VersionNumber);
+        return name is null ? null : PlanReference.Of(name, assignment.VersionNumber);
     }
 
     /// <summary>
@@ -149,7 +135,8 @@ public sealed class PlanCatalogueService(
         }
     }
 
-    private PlanDefinition Definition(string name, IReadOnlyDictionary<string, string> values)
+    private PlanDefinition Definition(
+        string name, IReadOnlyDictionary<string, string> values, string? displayName = null)
     {
         var parsed = new Dictionary<EntitlementKey, EntitlementValue>();
 
@@ -175,6 +162,6 @@ public sealed class PlanCatalogueService(
             }
         }
 
-        return new PlanDefinition(name, parsed);
+        return new PlanDefinition(name, parsed, displayName);
     }
 }

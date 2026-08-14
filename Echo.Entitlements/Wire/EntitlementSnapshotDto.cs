@@ -98,10 +98,14 @@ public sealed record EntitlementSnapshotDto(
 /// </param>
 /// <param name="DisplayName">What to render.</param>
 /// <param name="Version">The version of the plan this subject is actually on.</param>
+/// <param name="CurrentVersion">
+/// What the plan's newest version is, when the catalogue publishes versions.
+/// </param>
 public sealed record EntitlementPlanDto(
     string Name,
     string DisplayName,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Version)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Version,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CurrentVersion = null)
 {
     /// <summary>
     /// The plan a reference names, or null when it names nothing this instance knows.
@@ -123,7 +127,9 @@ public sealed record EntitlementPlanDto(
             display = plans.Find(name)?.DisplayName ?? name;
         }
 
-        return new EntitlementPlanDto(name, display, version ?? plans.CurrentVersionOf(name));
+        var current = plans.CurrentVersionOf(name);
+
+        return new EntitlementPlanDto(name, display, version ?? current, current);
     }
 }
 

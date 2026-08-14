@@ -29,7 +29,7 @@ treat the "planned" rows as absent-until-present rather than as a reason to desi
 | §6 usage endpoints | Planned. Owned by the services that do the counting |
 | §8 voice `limits` block | Shipped. It rides every voice snapshot, and `degradations[]` rides the join reply in both room kinds |
 | §10 guild feature resolution | Shipped, on `GET /guilds/{guildId}` as `featureResolution` and on `GET /guilds/{guildId}/features`. **Not** on the guild list, and not on a nested guild - see §10 |
-| §5.5 `plan` on the snapshot | Shipped. Absent on `selfhost` and on any instance with no plans configured, which is every instance today |
+| §5.5 `plan` on the snapshot | Shipped, with `currentVersion` beside `version`. Absent on `selfhost`, and on an instance with no plans or no configured default for that kind of subject. On a hosted instance with Billing deployed the plans come from Billing's table, so it is present for everybody |
 | §5.6 `stripePublishableKey` | Shipped. Absent unless the instance was configured with one |
 
 ---
@@ -249,7 +249,8 @@ Both return the same shape. Both are authenticated. The guild one is **members o
   "version": 7,
   "ttlSeconds": 60,
 
-  "plan": { "name": "plus", "displayName": "Venta Plus", "version": 2 },   // §5.5, may be absent
+  // §5.5, may be absent. version < currentVersion means grandfathered.
+  "plan": { "name": "plus", "displayName": "Venta Plus", "version": 2, "currentVersion": 3 },
   "stripePublishableKey": "pk_live_...",                                   // §5.6, may be absent
 
   "entitlements": {
@@ -336,7 +337,7 @@ past the TTL, and when a guild settings screen opens.
 ### 5.5 `plan`: which plan these numbers came from
 
 ```jsonc
-{ "name": "plus", "displayName": "Venta Plus", "version": 2 }
+{ "name": "plus", "displayName": "Venta Plus", "version": 2, "currentVersion": 3 }
 ```
 
 This is the only thing on the payload that answers "what am I on", and it is the sentence a settings
@@ -345,17 +346,27 @@ screen leads with. Everything else here is a ceiling.
 - **`name` is the key, `displayName` is the copy.** Branch on `name`; render `displayName`. The
   display name is never null - a plan an operator gave no display name shows its own name - so you
   never have to pick between two fields.
-- **`version` is the version this subject is actually on, not the current one.** Plans are
-  grandfathered: a subject who joined on version 1 keeps version 1's numbers when the plan's numbers
-  move. Render it only where a version is meaningful (a plan-change screen, a support form); it is
-  not a thing to put next to the plan name on a settings row.
-- **`version` is absent when the subject is on whatever is current**, which is every subject on an
-  instance whose plans are configuration rather than rows. Absent is not "version 0".
+- **`version` is the version this subject is actually on, not necessarily the current one.** Plans
+  are grandfathered: a subject who joined on version 1 keeps version 1's numbers when the plan's
+  numbers move. Render it only where a version is meaningful (a plan-change screen, a support form);
+  it is not a thing to put next to the plan name on a settings row.
+- **`version < currentVersion` means this subject is grandfathered**, and that comparison is the only
+  honest way to tell. An unassigned subject is resolved through whatever is current and reports that
+  number, so `version` on its own cannot distinguish "held on older terms" from "on the newest
+  terms" - which is exactly the sentence a grandfathered subscriber is owed.
+- **Both are absent together on an instance whose plans are configuration rather than rows**, which
+  has never heard of a plan version at all. Absent is not "version 0". On a hosted instance with
+  Billing deployed both are present, including for a subject with no assignment of their own.
 - **The whole object is absent when there is no plan**, and that is a real state rather than a gap:
-  an instance with no plans configured resolves every key to its catalogue default, and a `selfhost`
-  instance resolves everything to maximum with no billing service deployed at all. **Do not
-  substitute a "Free"**. Nobody configured one, and inventing it puts a tier boundary on the screen
-  of a self-hoster who is not being charged for anything. Render the limits, and no plan row.
+  an instance with no plans configured, or one that configured plans but named no default for that
+  kind of subject, resolves every key to its catalogue default, and a `selfhost` instance resolves
+  everything to maximum with no billing service deployed at all. **Do not substitute a "Free"**.
+  Nobody configured one, and inventing it puts a tier boundary on the screen of a self-hoster who is
+  not being charged for anything. Render the limits, and no plan row.
+- **An unassigned subject is on the instance's default plan, not on no plan.** Almost nobody holds an
+  explicit assignment - the free tier is the state a subject is in rather than one somebody put them
+  in - so on an instance that configured a default, the plan object is present for everybody and
+  names it.
 
 This is not provenance (§15). Which *source* won a particular key - a subscription id, a grant, the
 staff member who issued it - remains staff-facing and will never appear here. The plan a subject is

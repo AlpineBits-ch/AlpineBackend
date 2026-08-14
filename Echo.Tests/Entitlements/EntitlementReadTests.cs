@@ -152,6 +152,74 @@ public class EntitlementReadTests
     }
 
     /// <summary>
+    /// The pinned and the unpinned subject are on the same plan and are not in the same position,
+    /// and until <c>currentVersion</c> rode along no client could tell them apart: both reported a
+    /// number, and one of them was the current one.
+    /// </summary>
+    [Test]
+    public async Task A_grandfathered_subject_is_distinguishable_from_one_on_the_current_version()
+    {
+        var pinned = await Builder(
+                new EntitlementInstanceInfo("hosted", UpgradesAvailable: true),
+                assignment: new ScriptedAssignment(guildPlan: "pro@1", userPlan: null),
+                plans: Versioned())
+            .ForGuildAsync(GuildId, actorCanManageGuild: true);
+
+        var current = await Builder(
+                new EntitlementInstanceInfo("hosted", UpgradesAvailable: true),
+                assignment: new ScriptedAssignment(guildPlan: "pro", userPlan: null),
+                plans: Versioned())
+            .ForGuildAsync(GuildId, actorCanManageGuild: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pinned.Plan!.Version, Is.EqualTo(1));
+            Assert.That(pinned.Plan.CurrentVersion, Is.EqualTo(2));
+            Assert.That(current.Plan!.Version, Is.EqualTo(2));
+            Assert.That(current.Plan.CurrentVersion, Is.EqualTo(2),
+                "on the newest version the two are equal, which is what makes the comparison the test");
+        });
+    }
+
+    /// <summary>
+    /// A billing outage must not take the endpoint a client fetches before it draws anything.
+    /// </summary>
+    [Test]
+    public async Task An_unreadable_assignment_falls_back_to_the_configured_default()
+    {
+        var snapshot = await Builder(
+                new EntitlementInstanceInfo("hosted", UpgradesAvailable: true),
+                assignment: new UnreachableAssignment(),
+                plans: Versioned(),
+                planFallback: new FixedPlanAssignment(new EntitlementPlanOptions
+                {
+                    DefaultGuildPlan = "pro",
+                }))
+            .ForGuildAsync(GuildId, actorCanManageGuild: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.Plan!.Name, Is.EqualTo("pro"));
+            Assert.That(snapshot.Plan.Version, Is.EqualTo(2), "the default is whatever is current");
+        });
+    }
+
+    /// <summary>The negative half of the same path: an instance that configured no default has no
+    /// plan to name during an outage either, and absent stays absent rather than becoming an invented
+    /// Free.</summary>
+    [Test]
+    public async Task An_unreadable_assignment_with_no_configured_default_names_no_plan()
+    {
+        var snapshot = await Builder(
+                new EntitlementInstanceInfo("hosted", UpgradesAvailable: true),
+                assignment: new UnreachableAssignment(),
+                plans: Versioned())
+            .ForGuildAsync(GuildId, actorCanManageGuild: true);
+
+        Assert.That(snapshot.Plan, Is.Null);
+    }
+
+    /// <summary>
     /// <b>Self-hosting names no plan, whatever is configured.</b> The license source short-circuits
     /// above every other source there, so every key is at maximum regardless of what any plan says -
     /// and naming a plan that is deciding nothing is a paywall-shaped sentence on the one instance
@@ -293,7 +361,8 @@ public class EntitlementReadTests
         long version = 0,
         int ttlSeconds = 60,
         IPlanAssignment? assignment = null,
-        PlanCatalogue? plans = null) =>
+        PlanCatalogue? plans = null,
+        FixedPlanAssignment? planFallback = null) =>
         new(
             new EntitlementResolver([]),
             new FixedVersionProvider(version),
@@ -301,7 +370,8 @@ public class EntitlementReadTests
             new EntitlementReadOptions { TtlSeconds = ttlSeconds },
             new FixedClock(),
             assignment,
-            plans);
+            plans is null ? null : new FixedPlanCatalogueSource(plans),
+            planFallback);
 
     private static PlanCatalogue Configured() =>
         PlanCatalogue.FromOptions(new EntitlementPlanOptions
@@ -322,6 +392,15 @@ public class EntitlementReadTests
             new PlanDefinition("pro@1", new Dictionary<EntitlementKey, EntitlementValue>()),
             new PlanDefinition("pro@2", new Dictionary<EntitlementKey, EntitlementValue>()),
         ]);
+
+    /// <summary>What the Billing-backed assignment does when Billing does not answer: it throws,
+    /// rather than reporting an assignment nobody made.</summary>
+    private sealed class UnreachableAssignment : IPlanAssignment
+    {
+        public ValueTask<string?> PlanNameForAsync(
+            EntitlementSubject subject, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Billing did not answer.");
+    }
 
     private sealed class ScriptedAssignment(string? guildPlan, string? userPlan) : IPlanAssignment
     {

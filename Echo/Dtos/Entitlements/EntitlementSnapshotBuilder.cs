@@ -19,6 +19,9 @@ public sealed class EntitlementReadOptions
 }
 
 /// <summary>Assembles the client-facing entitlement snapshot.</summary>
+/// <param name="planFallback">
+/// The configured default, used only when the registered assignment could not be asked.
+/// </param>
 public sealed class EntitlementSnapshotBuilder(
     EntitlementResolver resolver,
     IEntitlementVersionProvider versions,
@@ -26,7 +29,9 @@ public sealed class EntitlementSnapshotBuilder(
     EntitlementReadOptions options,
     TimeProvider? clock = null,
     IPlanAssignment? planAssignment = null,
-    PlanCatalogue? plans = null)
+    IPlanCatalogueSource? plans = null,
+    FixedPlanAssignment? planFallback = null,
+    ILogger<EntitlementSnapshotBuilder>? logger = null)
 {
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
 
@@ -75,15 +80,39 @@ public sealed class EntitlementSnapshotBuilder(
             stripePublishableKey: instance.StripePublishableKey);
     }
 
-    /// <summary>The subject's plan, resolved through the same assignment the plan source resolves
-    /// its values through, so the name on the snapshot and the numbers under it cannot disagree.
-    /// </summary>
+    /// <summary>The subject's plan, resolved through the same assignment and the same catalogue the
+    /// plan source resolves its values through, so the name on the snapshot and the numbers under it
+    /// cannot disagree.</summary>
     private async Task<EntitlementPlanDto?> PlanAsync(
         EntitlementSubject subject, CancellationToken cancellationToken)
     {
         if (!PlansApply) return null;
 
-        var reference = await planAssignment!.PlanNameForAsync(subject, cancellationToken);
-        return EntitlementPlanDto.Resolve(reference, plans);
+        var catalogue = await plans!.CurrentAsync(cancellationToken);
+        var reference = await ReferenceAsync(subject, cancellationToken);
+
+        return EntitlementPlanDto.Resolve(reference, catalogue);
+    }
+
+    /// <summary>Which plan this subject is on, falling back to the configured default when the
+    /// registered assignment could not be asked at all. See <c>planFallback</c>: the numbers on this
+    /// snapshot came from the resolver's own fail-open path during an outage, and the plan name has to
+    /// degrade the same way rather than turn a readable screen into an error.</summary>
+    private async ValueTask<string?> ReferenceAsync(
+        EntitlementSubject subject, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await planAssignment!.PlanNameForAsync(subject, cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            logger?.LogWarning(exception,
+                "Could not read the plan assignment for {Subject}. Naming this instance's configured "
+                + "default instead; the ceilings on this snapshot are the resolver's own answer and are "
+                + "unaffected.", subject);
+
+            return planFallback?.DefaultFor(subject.Kind);
+        }
     }
 }

@@ -153,6 +153,9 @@ builder.Services.AddStackExchangeRedisCache(config =>
 if (Env.License.IsHosted && Env.License.IsBillingConfigured)
 {
     builder.Services.AddBillingGrantSource();
+
+    // And the plans themselves, from the service that owns them.
+    builder.Services.AddBillingPlanSource();
     builder.Services.AddBillingEntitlementVersions();
 }
 else

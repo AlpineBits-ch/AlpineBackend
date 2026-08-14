@@ -12,24 +12,35 @@ public sealed class EntitlementCacheKeyspace
     public const string FormatVersion = "v1";
 
     private readonly string _prefix;
+    private readonly Func<string>? _catalogueRevision;
 
-    public EntitlementCacheKeyspace(string prefix, string fingerprint)
+    /// <param name="catalogueRevision">
+    /// How to ask the registered catalogue source what it is currently answering with.
+    /// </param>
+    public EntitlementCacheKeyspace(
+        string prefix, string fingerprint, Func<string>? catalogueRevision = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(prefix);
         ArgumentException.ThrowIfNullOrWhiteSpace(fingerprint);
 
         Fingerprint = fingerprint;
+        _catalogueRevision = catalogueRevision;
         _prefix = $"{prefix}:{FormatVersion}:{fingerprint}";
     }
 
     public string Fingerprint { get; }
 
-    /// <summary>The resolved set for a subject.</summary>
-    public string SetKey(EntitlementSubject subject) => $"{_prefix}:set:{subject.Kind}:{subject.Id}";
+    /// <summary>What the catalogue source is answering with right now, or <c>fixed</c> when this
+    /// keyspace was built without one.</summary>
+    public string CatalogueRevision => _catalogueRevision?.Invoke() ?? "fixed";
 
-    /// <summary>The entitlement version for a subject, which is a different question with a different
-    /// owner (Billing's counter) and therefore a different key. Folding it into the set would tie a
-    /// number that changes on every write to a payload whose whole point is that it does not.
+    /// <summary>The resolved set for a subject.</summary>
+    public string SetKey(EntitlementSubject subject) =>
+        $"{_prefix}:{CatalogueRevision}:set:{subject.Kind}:{subject.Id}";
+
+    /// <summary>
+    /// The entitlement version for a subject, which is a different question with a different owner
+    /// (Billing's counter) and therefore a different key.
     /// </summary>
     public string VersionKey(EntitlementSubject subject) => $"{_prefix}:ver:{subject.Kind}:{subject.Id}";
 

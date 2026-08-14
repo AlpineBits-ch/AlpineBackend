@@ -448,6 +448,41 @@ public class EntitlementWireTests
         Assert.That(EntitlementPlanDto.Resolve("pro", Versioned())!.Version, Is.EqualTo(2));
     }
 
+    /// <summary>
+    /// <b>The pin is only readable next to the current version.</b> Both a grandfathered subject and
+    /// one on the newest version report a number, so <c>version</c> alone cannot tell them apart -
+    /// which means a client cannot honestly tell a grandfathered subscriber that they are
+    /// grandfathered, the one thing the pin exists to make true. The comparison is the contract.
+    /// </summary>
+    [Test]
+    public void A_grandfathered_subject_is_distinguishable_from_one_on_the_newest_version()
+    {
+        var pinned = EntitlementPlanDto.Resolve("pro@1", Versioned())!;
+        var current = EntitlementPlanDto.Resolve("pro", Versioned())!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pinned.Version, Is.LessThan(pinned.CurrentVersion));
+            Assert.That(current.Version, Is.EqualTo(current.CurrentVersion));
+            Assert.That(pinned.CurrentVersion, Is.EqualTo(2));
+        });
+    }
+
+    /// <summary>Both halves are absent together on a configuration-only instance, which has never
+    /// heard of a plan version. A v1 client sees exactly the object it saw before this field
+    /// existed.</summary>
+    [Test]
+    public void An_unversioned_catalogue_reports_neither_version()
+    {
+        var plan = EntitlementPlanDto.Resolve("plus", Configured())!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.Version, Is.Null);
+            Assert.That(plan.CurrentVersion, Is.Null);
+        });
+    }
+
     /// <summary>Configuration-only instances have never heard of a plan version, and null there is
     /// the truth rather than a gap - there is exactly one version of a plan somebody wrote into a
     /// config file.</summary>

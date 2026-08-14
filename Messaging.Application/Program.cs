@@ -47,6 +47,9 @@ builder.Services.AddLicenseMode(
 if (Env.License.IsHosted && Env.License.IsBillingConfigured)
 {
     builder.Services.AddBillingGrantSource();
+
+    // And the plan catalogue and assignments, from the same service.
+    builder.Services.AddBillingPlanSource();
 }
 
 // And the cache in front of all of it, because the alternative is a broker hop per upload.

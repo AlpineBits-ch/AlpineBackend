@@ -440,7 +440,7 @@ public sealed class PlanService(
         Plan plan, CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
-        var prefix = plan.Name + PlanCatalogueService.VersionSeparator;
+        var prefix = plan.Name + PlanReference.VersionSeparator;
 
         var rows = await db.Grants
             .Where(grant => grant.RevokedAt == null
@@ -470,8 +470,7 @@ public sealed class PlanService(
             var key = $"{row.SubjectKind}:{row.SubjectId}";
             if (pinned.Contains(key) || !seen.Add(key)) continue;
 
-            var version = PlanCatalogueService.SplitReference(row.Plan!).Version
-                          ?? plan.CurrentVersionNumber;
+            var version = PlanReference.Split(row.Plan!).Version ?? plan.CurrentVersionNumber;
 
             counts[version] = counts.GetValueOrDefault(version) + 1;
         }
@@ -485,7 +484,7 @@ public sealed class PlanService(
         Plan plan, CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
-        var prefix = plan.Name + PlanCatalogueService.VersionSeparator;
+        var prefix = plan.Name + PlanReference.VersionSeparator;
 
         var assigned = await db.PlanAssignments
             .Where(assignment => assignment.PlanId == plan.Id)
@@ -647,13 +646,13 @@ public sealed class PlanService(
 
         var trimmed = name.Trim().ToLowerInvariant();
 
-        if (trimmed.Contains(PlanCatalogueService.VersionSeparator)
+        if (trimmed.Contains(PlanReference.VersionSeparator)
             || trimmed.Any(char.IsWhiteSpace)
             || trimmed.Length > 64)
         {
             throw new PlanRefusedException(PlanErrorCodes.InvalidPlanName,
                 $"'{trimmed}' is not usable as a plan name: no whitespace, no "
-                + $"'{PlanCatalogueService.VersionSeparator}' (that is how a pinned version is "
+                + $"'{PlanReference.VersionSeparator}' (that is how a pinned version is "
                 + "addressed) and at most 64 characters.");
         }
 

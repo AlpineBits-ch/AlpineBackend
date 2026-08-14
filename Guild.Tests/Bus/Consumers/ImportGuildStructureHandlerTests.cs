@@ -154,7 +154,7 @@ public class ImportGuildStructureHandlerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(everyone.Permissions.HasFlag(Permissions.ViewWiki), Is.True);
+            Assert.That(everyone.ModulePermissions.HasFlag(ModulePermissions.ViewWiki), Is.True);
             Assert.That(everyone.Permissions.HasFlag(Permissions.ManageOwnThreads), Is.True);
             Assert.That(everyone.Permissions.HasFlag(Permissions.EditOwnMessages), Is.True);
             Assert.That(everyone.Permissions.HasFlag(Permissions.DeleteOwnMessages), Is.True);
@@ -175,11 +175,80 @@ public class ImportGuildStructureHandlerTests
 
         Assert.Multiple(() =>
         {
-            Assert.That(moderator.Permissions.HasFlag(Permissions.ViewWiki), Is.False);
+            Assert.That(moderator.ModulePermissions.HasFlag(ModulePermissions.ViewWiki), Is.False);
             Assert.That(moderator.Permissions.HasFlag(Permissions.ManageOwnThreads), Is.False);
             Assert.That(moderator.Permissions, Is.EqualTo((Permissions)0b1000ul),
                 "an ordinary role must carry exactly the mask the command supplied");
         });
+    }
+
+    [Test]
+    public async Task Handle_ManagedDiscordRole_ArrivesIntegrationOwnedAndNonEditable()
+    {
+        var command = BasicCommand();
+        command.Roles.Add(new ImportedRoleDto
+        {
+            DiscordId = "role-bot", Name = "MusicBot", Color = "#00FF00", Position = 2,
+            IsManaged = true, BotUserId = "1234567890", IntegrationId = "9876543210",
+        });
+
+        var response = await Invoke(command);
+        var botRole = _context.Roles.Single(r => r.Id == response.DiscordToEchoRoleIds["role-bot"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(botRole.IsManaged, Is.True);
+            Assert.That(botRole.IsEditableByHumans, Is.False,
+                "an integration owns this role on the Discord side and would contradict any local edit");
+            Assert.That(botRole.BotUserId, Is.EqualTo("1234567890"));
+            Assert.That(botRole.IntegrationId, Is.EqualTo("9876543210"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_OrdinaryDiscordRole_IsNotManaged()
+    {
+        var response = await Invoke(BasicCommand());
+        var moderator = _context.Roles.Single(r => r.Id == response.DiscordToEchoRoleIds["role-mod"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(moderator.IsManaged, Is.False);
+            Assert.That(moderator.BotUserId, Is.Null);
+            Assert.That(moderator.IntegrationId, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task Handle_RoleDisplayMetadata_IsCarriedThrough()
+    {
+        var command = BasicCommand();
+        command.Roles.Add(new ImportedRoleDto
+        {
+            DiscordId = "role-vip", Name = "VIP", Color = "#FFD700", Position = 3,
+            Hoist = true, Mentionable = false, UnicodeEmoji = "⭐",
+        });
+
+        var response = await Invoke(command);
+        var vip = _context.Roles.Single(r => r.Id == response.DiscordToEchoRoleIds["role-vip"]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(vip.Hoist, Is.True);
+            Assert.That(vip.Mentionable, Is.False);
+            Assert.That(vip.UnicodeEmoji, Is.EqualTo("⭐"));
+            Assert.That(vip.IconUrl, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task Handle_EveryoneRole_KeepsItsModuleBaselineDespiteDiscordHavingNoModuleBits()
+    {
+        var response = await Invoke(BasicCommand());
+        var everyone = _context.Roles.Single(r => r.GuildId == response.GuildId && r.Type == RoleType.Everyone);
+
+        Assert.That(everyone.ModulePermissions, Is.EqualTo(Role.ExternalEveryoneModuleBaseline),
+            "the module mask has no Discord source, so the baseline is the whole of it");
     }
 
     [Test]

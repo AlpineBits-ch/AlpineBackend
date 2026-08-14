@@ -382,6 +382,19 @@ public class InboxServiceTests(IGuildContextProvider provider)
     }
 
     [Test]
+    public async Task Previews_NameTheCallerSoMessagingCanRefuseThem()
+    {
+        // The batched contract carries a principal because Messaging now filters the batch itself.
+        await SeedGuildAsync();
+        await AddChannelAsync("chan-1", JoinedAt.AddHours(5));
+
+        await GetAsync();
+
+        var request = _bus.Invoked.OfType<GetChannelMessagePagesRequest>().Single();
+        Assert.That(request.RequestingUserId, Is.EqualTo(UserId));
+    }
+
+    [Test]
     public async Task NeverOpenedChannel_AsksForPreviewsWithNoAnchor()
     {
         await SeedGuildAsync();

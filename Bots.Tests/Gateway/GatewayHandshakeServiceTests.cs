@@ -183,6 +183,72 @@ public class GatewayHandshakeServiceTests
         Assert.That(guildCreate.Roles.Single().Color, Is.EqualTo(0));
     }
 
+    // ── R21: role metadata in the handshake ──────────────────────────────────
+
+    [Test]
+    public async Task SendReadyAndGuildsAsync_RoleMetadata_ReachesTheBotInsteadOfDefaultingToFalse()
+    {
+        await InstallBotAsync("usr_bot1", "gld_1");
+        _bus.GuildSnapshotResponse = new GetGuildSnapshotForBotResponse
+        {
+            Guild = new GuildSnapshot
+            {
+                Id = "gld_1", Name = "My Guild", OwnerId = "usr_owner",
+                Roles =
+                [
+                    new RoleSnapshot
+                    {
+                        Id = "rol_1", Name = "Staff", Color = "#101010", Position = 4,
+                        Permissions = ulong.MaxValue,
+                        Hoist = true, Mentionable = false, Managed = true,
+                        UnicodeEmoji = "\U0001F984", BotUserId = "usr_bot1",
+                    },
+                ],
+            },
+        };
+        var session = new GatewaySession { SessionId = "gwss_1", BotUserId = "usr_bot1" };
+
+        await _service.SendReadyAndGuildsAsync(_connection, session, CancellationToken.None);
+
+        var role = ParseSent(_socket).Single(e => e.T == "GUILD_CREATE")
+            .D!.Value.Deserialize<Bots.Contracts.Gateway.Payloads.GuildCreatePayload>()!.Roles.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.Hoist, Is.True);
+            Assert.That(role.Mentionable, Is.False);
+            Assert.That(role.Managed, Is.True);
+            Assert.That(role.UnicodeEmoji, Is.EqualTo("\U0001F984"));
+            Assert.That(role.Tags!.BotId, Is.EqualTo("usr_bot1"));
+            Assert.That(role.Permissions, Is.EqualTo("18446744073709551615"),
+                "the full 64-bit mask survives as a decimal string; as a JSON number it would not");
+        });
+    }
+
+    [Test]
+    public async Task SendReadyAndGuildsAsync_RoleIcon_IsForwardedAsTheIconField()
+    {
+        await InstallBotAsync("usr_bot1", "gld_1");
+        _bus.GuildSnapshotResponse = new GetGuildSnapshotForBotResponse
+        {
+            Guild = new GuildSnapshot
+            {
+                Id = "gld_1", Name = "My Guild", OwnerId = "usr_owner",
+                Roles = [new RoleSnapshot { Id = "rol_1", Name = "Staff", Color = "", IconUrl = "https://cdn/role.png" }],
+            },
+        };
+        var session = new GatewaySession { SessionId = "gwss_1", BotUserId = "usr_bot1" };
+
+        await _service.SendReadyAndGuildsAsync(_connection, session, CancellationToken.None);
+
+        var role = ParseSent(_socket).Single(e => e.T == "GUILD_CREATE")
+            .D!.Value.Deserialize<Bots.Contracts.Gateway.Payloads.GuildCreatePayload>()!.Roles.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.Icon, Is.EqualTo("https://cdn/role.png"));
+            Assert.That(role.Tags, Is.Null, "an unowned role carries no tags object at all");
+        });
+    }
+
     [Test]
     public async Task SendReadyAndGuildsAsync_MultipleInstalledGuilds_SendsAGuildCreatePerGuild()
     {

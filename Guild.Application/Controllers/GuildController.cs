@@ -230,6 +230,7 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
 
         // Not part of the projection - none of it is a column.
         member.EffectivePermissions = await permissionService.GetGuildPermissionsAsync(userId, guildId);
+        member.EffectiveModulePermissions = await permissionService.GetGuildModulePermissionsAsync(userId, guildId);
 
         return Ok(member);
 

@@ -55,7 +55,7 @@ public class HouseholdHardeningTests
         _context.Roles.Add(new Role
         {
             Id = RoleId, GuildId = GuildId, Type = RoleType.None, Name = "Flatmates",
-            Permissions = Role.FlatmatePermissions,
+            ModulePermissions = Role.FlatmatePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 

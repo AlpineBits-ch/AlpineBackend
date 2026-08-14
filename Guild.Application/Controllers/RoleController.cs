@@ -1,5 +1,4 @@
-﻿using System.Security.Claims;
-using Facet.Extensions;
+using System.Security.Claims;
 using Facet.Extensions.EFCore;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
@@ -13,8 +12,11 @@ namespace Guild.Application.Controllers;
 
 [ApiController]
 [Route("api/v1/roles")]
-public class RoleController(MicroserviceContext ctx, GuildThumbnailService thumbnailService, GuildPermissionService permissionService, ILogger<GuildController> logger): ControllerBase
+public class RoleController(MicroserviceContext ctx, GuildPermissionService permissionService, ILogger<GuildController> logger): ControllerBase
 {
+    /// <summary>The largest page this endpoint will hand out.</summary>
+    private const int MaxPageSize = 100;
+
     [HttpGet("{roleId}/members")]
     public async Task<IActionResult> GetRoleMembersAsync(string roleId, [FromQuery] int take = 10, [FromQuery] int skip = 0)
     {
@@ -24,7 +26,7 @@ public class RoleController(MicroserviceContext ctx, GuildThumbnailService thumb
             return Unauthorized();
         }
 
-        var role = await ctx.Roles.Include(r => r.Members).FirstOrDefaultAsync(r => r.Id == roleId);
+        var role = await ctx.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == roleId);
         if (role == null)
         {
             return NotFound();
@@ -33,9 +35,15 @@ public class RoleController(MicroserviceContext ctx, GuildThumbnailService thumb
         if(!await permissionService.CanUserPerformActionOnGuildAsync(userId, role.GuildId, Permissions.ViewChannel))
         {
             return Forbid();
-        }   
-        
-        var roleMembers = await ctx.RoleMembers.Where(x => x.RoleId == roleId).Skip(skip).Take(take).ToFacetsAsync<RoleMember, RoleMemberDto>(); 
+        }
+
+        var roleMembers = await ctx.RoleMembers
+            .Where(x => x.RoleId == roleId)
+            .OrderBy(x => x.Id)
+            .Skip(Math.Max(skip, 0))
+            .Take(Math.Clamp(take, 1, MaxPageSize))
+            .ToFacetsAsync<RoleMember, RoleMemberDto>();
+
         return Ok(roleMembers);
     }
 }

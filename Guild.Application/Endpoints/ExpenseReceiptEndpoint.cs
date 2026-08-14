@@ -65,11 +65,11 @@ public class ExpenseReceiptEndpoint
         Url = PresignedUrl(s3, receipt.StorageKey),
     };
 
-    /// <summary>Correcting or annotating your own expense needs only <see cref="Permissions.AddExpenses"/>;
+    /// <summary>Correcting or annotating your own expense needs only <see cref="ModulePermissions.AddExpenses"/>;
     /// attaching evidence to one somebody else entered changes what their record says, so it is a
     /// moderator action - the same split the expense edit and delete routes already use.</summary>
-    private static Permissions RequiredFor(Expense expense, string userId) =>
-        expense.CreatedByUserId == userId ? Permissions.AddExpenses : Permissions.ManageLedger;
+    private static ModulePermissions RequiredFor(Expense expense, string userId) =>
+        expense.CreatedByUserId == userId ? ModulePermissions.AddExpenses : ModulePermissions.ManageLedger;
 
     [WolverineGet("/api/v1/expenses/{expenseId}/receipts")]
     public async Task<IResult> ListAsync(string expenseId, [NotBody] HouseholdChannelService household,

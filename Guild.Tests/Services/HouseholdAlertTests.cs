@@ -55,6 +55,7 @@ public class HouseholdAlertTests
         {
             Id = EveryoneRoleId, GuildId = GuildId, Type = RoleType.Everyone, Name = "Everyone",
             Permissions = Role.DefaultEveryonePermissions,
+            ModulePermissions = Role.DefaultEveryoneModulePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 
@@ -85,17 +86,15 @@ public class HouseholdAlertTests
         {
             Id = memberId, GuildId = GuildId, UserId = userId, JoinedAt = DateTime.UtcNow,
             SearchValue = userId.ToUpperInvariant(),
+            DenyPermissions = canSee ? Permissions.None : Permissions.ViewChannel,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 
-        if (canSee)
+        _context.RoleMembers.Add(new RoleMember
         {
-            _context.RoleMembers.Add(new RoleMember
-            {
-                Id = $"rm-{userId}", RoleId = EveryoneRoleId, MemberId = memberId,
-                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
-            });
-        }
+            Id = $"rm-{userId}", RoleId = EveryoneRoleId, MemberId = memberId,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
 
         await _context.SaveChangesAsync();
     }

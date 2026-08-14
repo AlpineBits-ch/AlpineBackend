@@ -122,6 +122,50 @@ public class BotCommandEndpointTests
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
+    // ── UseApplicationCommands gate ──────────────────────────────────────────
+
+    [Test]
+    public async Task Invoke_DeniedUseApplicationCommands_ReturnsForbidEvenWhenTheMemberMaySpeak()
+    {
+        await InstallBotAsync("usr_bot1", "gld_1");
+        var (registry, subscriber) = GatewayRegistryTestFactory.Create();
+        _bus.ChannelPermissionOverrides[Guild.Contracts.ExternalPermission.SendMessages] = true;
+        _bus.ChannelPermissionOverrides[Guild.Contracts.ExternalPermission.UseApplicationCommands] = false;
+
+        var result = await _endpoint.InvokeCommandAsync("gld_1", "ch_1", new InvokeCommandDto { BotUserId = "usr_bot1", CommandName = "ping" },
+            MakeUser("usr_caller"), _context, _bus, registry, _pendingStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(subscriber.Messages, Is.Empty, "a refused invocation must reach no bot");
+        });
+    }
+
+    /// <summary>The @everyone default holds UseApplicationCommands, and the back-fill migration set
+    /// it on every pre-existing @everyone role - so enforcement is invisible to guilds that were
+    /// working yesterday. This is that claim expressed at this layer: both answers yes, invocation
+    /// proceeds.</summary>
+    [Test]
+    public async Task Invoke_DefaultEveryoneHoldsBothPermissions_Proceeds()
+    {
+        var app = await InstallBotAsync("usr_bot1", "gld_1");
+        AddCommand(app, "ping");
+        await _context.SaveChangesAsync();
+        var (registry, subscriber) = GatewayRegistryTestFactory.Create();
+        _bus.ChannelPermissionOverrides[Guild.Contracts.ExternalPermission.SendMessages] = true;
+        _bus.ChannelPermissionOverrides[Guild.Contracts.ExternalPermission.UseApplicationCommands] = true;
+
+        var result = await _endpoint.InvokeCommandAsync("gld_1", "ch_1", new InvokeCommandDto { BotUserId = "usr_bot1", CommandName = "ping" },
+            MakeUser("usr_caller"), _context, _bus, registry, _pendingStore);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Accepted>());
+            Assert.That(subscriber.Messages, Has.Count.EqualTo(1));
+        });
+    }
+
     [Test]
     public async Task Invoke_UnknownBot_ReturnsNotFound()
     {

@@ -42,13 +42,15 @@ public class GuildTemplateEndpoint
             .FirstOrDefaultAsync(g => g.Id == guildId);
         if (guild is null) return Results.NotFound();
 
+        var overwrites = await CaptureOverwritesAsync(ctx, guild);
+
         var snapshot = new TemplateSnapshot
         {
             Kind = guild.Kind,
             Features = guild.Features,
             Roles = guild.Roles
                 .Where(r => r.Type != RoleType.Everyone)
-                .Select(r => new TemplateRole { Name = r.Name, Color = r.Color, Position = r.Position, Permissions = r.Permissions })
+                .Select(ToTemplateRole)
                 .ToList(),
             Categories = guild.Categories
                 .OrderBy(c => c.Position)
@@ -56,10 +58,15 @@ public class GuildTemplateEndpoint
                 {
                     Name = c.Name,
                     Position = c.Position,
+                    Overwrites = overwrites.ForCategory(c.Id),
                     Channels = c.Channels
                         .Where(ch => ch.Type != ChannelType.Thread && ch.Type != ChannelType.Ticket)
                         .OrderBy(ch => ch.Position)
-                        .Select(ch => new TemplateChannel { Name = ch.Name, Type = ch.Type, Description = ch.Description, Position = ch.Position })
+                        .Select(ch => new TemplateChannel
+                        {
+                            Name = ch.Name, Type = ch.Type, Description = ch.Description, Position = ch.Position,
+                            Overwrites = overwrites.ForChannel(ch.Id),
+                        })
                         .ToList(),
                 })
                 .ToList(),
@@ -67,17 +74,21 @@ public class GuildTemplateEndpoint
             UncategorizedChannels = guild.Channels
                 .Where(ch => ch.CategoryId is null && ch.Type != ChannelType.Thread && ch.Type != ChannelType.Ticket)
                 .OrderBy(ch => ch.Position)
-                .Select(ch => new TemplateChannel { Name = ch.Name, Type = ch.Type, Description = ch.Description, Position = ch.Position })
+                .Select(ch => new TemplateChannel
+                {
+                    Name = ch.Name, Type = ch.Type, Description = ch.Description, Position = ch.Position,
+                    Overwrites = overwrites.ForChannel(ch.Id),
+                })
                 .ToList(),
         };
 
         var everyoneRole = guild.Roles.FirstOrDefault(r => r.Type == RoleType.Everyone);
         if (everyoneRole is not null)
         {
-            snapshot.Roles.Insert(0, new TemplateRole
-            {
-                Name = "Everyone", Position = 0, Permissions = everyoneRole.Permissions, IsEveryone = true,
-            });
+            var everyoneEntry = ToTemplateRole(everyoneRole);
+            everyoneEntry.Position = 0;
+            everyoneEntry.IsEveryone = true;
+            snapshot.Roles.Insert(0, everyoneEntry);
         }
 
         snapshot.Onboarding = await CaptureOnboardingAsync(ctx, guild);
@@ -155,22 +166,52 @@ public class GuildTemplateEndpoint
                                // the role only by the name and position the capture side writes.
                                ?? template.Snapshot.Roles.FirstOrDefault(r => r.Position == 0 && r.Name == "Everyone");
         if (everyoneTemplate is not null)
-            everyoneRole.ApplyExternalEveryonePermissions(everyoneTemplate.Permissions);
+            everyoneRole.ApplyExternalEveryonePermissions(everyoneTemplate.Permissions, everyoneTemplate.ModulePermissions);
 
-        // Onboarding in a template references roles and channels by name (ids don't survive into a
-        // new guild), so the replay needs a name -> freshly-generated-id map.
+        // Onboarding and permission overwrites in a template reference roles and channels by name
+        // (ids don't survive into a new guild), so the replay needs a name -> freshly-generated-id
+        // map. @everyone goes in first and wins the slot: a template that also carries a custom role
+        // literally named "Everyone" would otherwise decide by insertion order whether the overwrite
+        // that makes a channel private lands on the role every member holds.
         var roleIdsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var channelIdsByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        roleIdsByName[everyoneRole.Name] = everyoneRole.Id;
 
-        foreach (var roleTemplate in template.Snapshot.Roles.Where(r => r != everyoneTemplate))
+        // Guild.Create seeds more than @everyone for a Household (see its Roles assignment), and
+        // the snapshot carries its own copy of the same role.
+        var seededByName = guild.Roles
+            .Where(r => r.Type != RoleType.Everyone)
+            .ToDictionary(r => r.Name, r => r, StringComparer.OrdinalIgnoreCase);
+        foreach (var seeded in seededByName) roleIdsByName.TryAdd(seeded.Key, seeded.Value.Id);
+
+        // Sorted and renumbered rather than replayed verbatim - see TemplateRole.Position for why
+        // only the relative order can be trusted. @everyone keeps 0, which is what the rest of the
+        // permission system assumes of it, and the seeded roles keep the ranks they were given.
+        var rolePosition = guild.Roles.Max(r => r.Position) + 1;
+        foreach (var roleTemplate in template.Snapshot.Roles
+                     .Where(r => r != everyoneTemplate)
+                     .OrderBy(r => r.Position)
+                     .ThenBy(r => r.Name, StringComparer.Ordinal))
         {
+            if (seededByName.TryGetValue(roleTemplate.Name, out var existing))
+            {
+                ApplyTemplateToSeededRole(existing, roleTemplate);
+                continue;
+            }
+
             var role = Role.Create(new CreateRoleParams
             {
                 Name = roleTemplate.Name,
+                Description = roleTemplate.Description,
                 Color = roleTemplate.Color,
                 GuildId = guild.Id,
                 Permissions = roleTemplate.Permissions,
+                ModulePermissions = roleTemplate.ModulePermissions,
+                Hoist = roleTemplate.Hoist,
+                Mentionable = roleTemplate.Mentionable ?? true,
+                UnicodeEmoji = roleTemplate.UnicodeEmoji,
             });
+            role.Position = rolePosition++;
             ctx.Roles.Add(role);
             roleIdsByName.TryAdd(role.Name, role.Id);
         }
@@ -181,6 +222,7 @@ public class GuildTemplateEndpoint
         {
             var category = Category.Create(new CreateCategoryParams { Name = categoryTemplate.Name, GuildId = guild.Id, Position = position++ });
             ctx.Categories.Add(category);
+            ReplayOverwrites(ctx, categoryTemplate.Overwrites, roleIdsByName, categoryId: category.Id, channelId: null);
 
             foreach (var channelTemplate in categoryTemplate.Channels)
             {
@@ -194,6 +236,7 @@ public class GuildTemplateEndpoint
                     Position = channelTemplate.Position,
                 });
                 ctx.Channels.Add(channel);
+                ReplayOverwrites(ctx, channelTemplate.Overwrites, roleIdsByName, categoryId: null, channelId: channel.Id);
                 channelIdsByName.TryAdd(channel.Name, channel.Id);
                 firstTextChannelId ??= channelTemplate.Type == ChannelType.Text ? channel.Id : null;
             }
@@ -210,6 +253,7 @@ public class GuildTemplateEndpoint
                 Position = channelTemplate.Position,
             });
             ctx.Channels.Add(channel);
+            ReplayOverwrites(ctx, channelTemplate.Overwrites, roleIdsByName, categoryId: null, channelId: channel.Id);
             channelIdsByName.TryAdd(channel.Name, channel.Id);
             firstTextChannelId ??= channelTemplate.Type == ChannelType.Text ? channel.Id : null;
         }
@@ -242,6 +286,117 @@ public class GuildTemplateEndpoint
         }
 
         return Results.Ok(new { guild.Id, guild.Name });
+    }
+
+    /// <summary>
+    /// Overlays a captured role onto the identically named role Guild.Create already seeded.
+    /// </summary>
+    private static void ApplyTemplateToSeededRole(Role role, TemplateRole roleTemplate)
+    {
+        role.Description = roleTemplate.Description ?? role.Description;
+        role.Color = roleTemplate.Color;
+        role.Permissions = roleTemplate.Permissions;
+        role.ModulePermissions = roleTemplate.ModulePermissions;
+        role.Hoist = roleTemplate.Hoist;
+        role.Mentionable = roleTemplate.Mentionable ?? true;
+        role.SetBadge(null, roleTemplate.UnicodeEmoji);
+    }
+
+    /// <summary>
+    /// Recreates a captured channel's or category's overwrites against the new guild's roles.
+    /// </summary>
+    private static void ReplayOverwrites(MicroserviceContext ctx, List<TemplateOverwrite> overwrites,
+        Dictionary<string, string> roleIdsByName, string? categoryId, string? channelId)
+    {
+        foreach (var overwrite in overwrites)
+        {
+            if (overwrite.RoleName is null || !roleIdsByName.TryGetValue(overwrite.RoleName, out var roleId)) continue;
+
+            ctx.Set<ChannelPermission>().Add(new ChannelPermission
+            {
+                Id = ChannelPermission.GenerateId(),
+                CategoryId = categoryId,
+                ChannelId = channelId,
+                RoleId = roleId,
+                AllowPermissions = overwrite.Allow,
+                DenyPermissions = overwrite.Deny,
+                AllowModulePermissions = overwrite.AllowModule,
+                DenyModulePermissions = overwrite.DenyModule,
+            });
+        }
+    }
+
+    /// <summary>The role fields a template carries.</summary>
+    private static TemplateRole ToTemplateRole(Role role) => new()
+    {
+        Name = role.Name,
+        Description = role.Description,
+        Color = role.Color,
+        Position = role.Position,
+        Permissions = role.Permissions,
+        ModulePermissions = role.ModulePermissions,
+        Hoist = role.Hoist,
+        Mentionable = role.Mentionable,
+        UnicodeEmoji = role.UnicodeEmoji,
+    };
+
+    /// <summary>
+    /// Every role-targeted overwrite on the guild's categories and channels, indexed by the entity
+    /// it hangs off and already resolved to role names.
+    /// </summary>
+    private static async Task<CapturedOverwrites> CaptureOverwritesAsync(MicroserviceContext ctx,
+        Domain.Aggregates.Guild guild)
+    {
+        var roleNamesById = guild.Roles.ToDictionary(r => r.Id, r => r.Name);
+        var categoryIds = guild.Categories.Select(c => c.Id).ToList();
+        var channelIds = guild.Channels
+            .Concat(guild.Categories.SelectMany(c => c.Channels))
+            .Select(ch => ch.Id)
+            .Distinct()
+            .ToList();
+
+        var rows = await ctx.Set<ChannelPermission>().AsNoTracking()
+            .Where(p => p.RoleId != null && p.MemberId == null &&
+                        ((p.ChannelId != null && channelIds.Contains(p.ChannelId)) ||
+                         (p.CategoryId != null && categoryIds.Contains(p.CategoryId))))
+            .ToListAsync();
+
+        var byCategory = new Dictionary<string, List<TemplateOverwrite>>();
+        var byChannel = new Dictionary<string, List<TemplateOverwrite>>();
+
+        foreach (var row in rows)
+        {
+            if (!roleNamesById.TryGetValue(row.RoleId!, out var roleName)) continue;
+
+            var captured = new TemplateOverwrite
+            {
+                RoleName = roleName,
+                Allow = row.AllowPermissions,
+                Deny = row.DenyPermissions,
+                AllowModule = row.AllowModulePermissions,
+                DenyModule = row.DenyModulePermissions,
+            };
+
+            var target = row.ChannelId is not null ? byChannel : byCategory;
+            var key = row.ChannelId ?? row.CategoryId;
+            if (key is null) continue;
+
+            if (!target.TryGetValue(key, out var list)) target[key] = list = [];
+            list.Add(captured);
+        }
+
+        return new CapturedOverwrites(byCategory, byChannel);
+    }
+
+    private sealed record CapturedOverwrites(
+        Dictionary<string, List<TemplateOverwrite>> ByCategory,
+        Dictionary<string, List<TemplateOverwrite>> ByChannel)
+    {
+        public List<TemplateOverwrite> ForCategory(string categoryId) =>
+            ByCategory.TryGetValue(categoryId, out var list) ? list : [];
+
+        public List<TemplateOverwrite> ForChannel(string channelId) =>
+            ByChannel.TryGetValue(channelId, out var list) ? list : [];
     }
 
     /// <summary>Captures the guild's onboarding into the snapshot, referencing roles and channels by

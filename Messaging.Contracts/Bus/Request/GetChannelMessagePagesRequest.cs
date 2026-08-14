@@ -12,6 +12,9 @@ public class ChannelMessagePageQuery
 /// <summary>Fetches unread previews for several channels in one round trip.</summary>
 public class GetChannelMessagePagesRequest
 {
+    /// <summary>The user whose inbox this is.</summary>
+    public required string RequestingUserId { get; init; }
+
     /// <summary>Hard cap on channels per request.</summary>
     public const int MaxChannels = 25;
 

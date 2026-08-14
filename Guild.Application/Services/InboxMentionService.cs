@@ -69,7 +69,7 @@ public class InboxMentionService(
 
         page = await DropUnviewableAsync(userId, page);
 
-        var rendered = await RenderAsync(page);
+        var rendered = await RenderAsync(userId, page);
 
         var last = page.Count > 0 ? page[^1] : null;
 
@@ -222,7 +222,9 @@ public class InboxMentionService(
         return candidates;
     }
 
-    /// <summary>Re-checks ViewChannel per distinct channel on the page.</summary>
+    /// <summary>
+    /// Re-checks ViewChannel and ReadMessageHistory per distinct channel on the page.
+    /// </summary>
     private async Task<List<Candidate>> DropUnviewableAsync(string userId, List<Candidate> page)
     {
         if (page.Count == 0) return page;
@@ -240,20 +242,22 @@ public class InboxMentionService(
                 continue;
             }
 
-            if (!allowed.TryGetValue(candidate.ChannelId, out var canView))
+            if (!allowed.TryGetValue(candidate.ChannelId, out var canRead))
             {
-                canView = await permissions.CanUserPerformActionAsync(userId, candidate.ChannelId, Permissions.ViewChannel);
-                allowed[candidate.ChannelId] = canView;
+                canRead = await permissions.CanUserPerformActionAsync(userId, candidate.ChannelId, Permissions.ViewChannel)
+                          && await permissions.CanUserPerformActionAsync(userId, candidate.ChannelId, Permissions.ReadMessageHistory);
+
+                allowed[candidate.ChannelId] = canRead;
             }
 
-            if (canView) result.Add(candidate);
+            if (canRead) result.Add(candidate);
         }
 
         return result;
     }
 
     /// <summary>Resolves the message bodies and breadcrumbs for one page.</summary>
-    private async Task<List<InboxMentionDto>> RenderAsync(List<Candidate> page)
+    private async Task<List<InboxMentionDto>> RenderAsync(string userId, List<Candidate> page)
     {
         if (page.Count == 0) return [];
 
@@ -277,7 +281,7 @@ public class InboxMentionService(
             .Where(r => roleIds.Contains(r.Id))
             .ToDictionaryAsync(r => r.Id, r => r.Name, StringComparer.Ordinal);
 
-        var messages = await LoadMessagesAsync(page);
+        var messages = await LoadMessagesAsync(userId, page);
 
         var rendered = new List<InboxMentionDto>(page.Count);
 
@@ -326,7 +330,7 @@ public class InboxMentionService(
         return rendered;
     }
 
-    private async Task<Dictionary<string, InboxMessageDto>> LoadMessagesAsync(List<Candidate> page)
+    private async Task<Dictionary<string, InboxMessageDto>> LoadMessagesAsync(string userId, List<Candidate> page)
     {
         var messages = new Dictionary<string, InboxMessageDto>(StringComparer.Ordinal);
 
@@ -336,7 +340,7 @@ public class InboxMentionService(
             try
             {
                 var response = await bus.InvokeAsync<GetMessageResponse>(
-                    new GetMessageRequest { MessageId = candidate.MessageId });
+                    new GetMessageRequest { MessageId = candidate.MessageId, RequestingUserId = userId });
                 return (candidate.MessageId, response.Message);
             }
             catch (Exception ex)

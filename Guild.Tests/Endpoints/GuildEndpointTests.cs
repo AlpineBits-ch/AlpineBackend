@@ -37,6 +37,7 @@ public class GuildEndpointTests
     private FakeDistributedCache _cache = null!;
     private GuildPermissionService _permissionService = null!;
     private AuditLogService _auditLog = null!;
+    private MfaElevationService _mfa = null!;
     private FakeInvokingMessageBus _bus = null!;
     private FakeHubContext _hub = null!;
     private GuildHydrateService _hydrateService = null!;
@@ -49,6 +50,7 @@ public class GuildEndpointTests
         _cache = new FakeDistributedCache();
         _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _auditLog = new AuditLogService(_context);
+        _mfa = new MfaElevationService(_context);
         _bus = new FakeInvokingMessageBus();
         _hub = new FakeHubContext();
         _hydrateService = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
@@ -172,14 +174,14 @@ public class GuildEndpointTests
     [Test]
     public async Task UpdateGuild_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _hub, _hydrateService);
+        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task UpdateGuild_DoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.UpdateGuild("nonexistent", new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        var result = await _endpoint.UpdateGuild("nonexistent", new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -190,7 +192,7 @@ public class GuildEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -202,7 +204,7 @@ public class GuildEndpointTests
         _context.Channels.Add(voiceChannel);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", SystemChannelId = voiceChannel.Id }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", SystemChannelId = voiceChannel.Id }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -212,7 +214,7 @@ public class GuildEndpointTests
     {
         await SeedManagerMember();
 
-        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", SystemChannelId = "nonexistent-channel" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", SystemChannelId = "nonexistent-channel" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -228,7 +230,7 @@ public class GuildEndpointTests
         var result = await _endpoint.UpdateGuild(
             GuildId,
             new UpdateGuildDto { Name = "x", DefaultMessageNotifications = NotificationLevel.OnlyMentions },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
 
         Assert.Multiple(() =>
         {
@@ -250,7 +252,7 @@ public class GuildEndpointTests
 
         await _endpoint.UpdateGuild(
             GuildId, new UpdateGuildDto { Name = "renamed" },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
 
         Assert.That(_context.Guilds.Single(g => g.Id == GuildId).DefaultMessageNotifications,
             Is.EqualTo(NotificationLevel.OnlyMentions));
@@ -264,7 +266,7 @@ public class GuildEndpointTests
         var result = await _endpoint.UpdateGuild(
             GuildId,
             new UpdateGuildDto { Name = "x", DefaultMessageNotifications = NotificationLevel.Nothing },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
 
         Assert.Multiple(() =>
         {
@@ -289,7 +291,7 @@ public class GuildEndpointTests
     {
         await SeedManagerMember();
 
-        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "New Name", Description = "New Desc" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        var result = await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "New Name", Description = "New Desc" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<GuildDto>>());
@@ -306,7 +308,7 @@ public class GuildEndpointTests
         _context.Channels.Add(textChannel);
         await _context.SaveChangesAsync();
 
-        await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", SystemChannelId = textChannel.Id }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", SystemChannelId = textChannel.Id }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         await _context.SaveChangesAsync();
 
         var reloaded = await _context.Guilds.AsNoTracking().FirstAsync(g => g.Id == GuildId);
@@ -318,7 +320,7 @@ public class GuildEndpointTests
     {
         await SeedManagerMember();
 
-        await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", VerificationLevel = GuildVerificationLevel.High }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x", VerificationLevel = GuildVerificationLevel.High }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         await _context.SaveChangesAsync();
 
         var reloaded = await _context.Guilds.AsNoTracking().FirstAsync(g => g.Id == GuildId);
@@ -330,7 +332,7 @@ public class GuildEndpointTests
     {
         await SeedManagerMember();
 
-        await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService);
+        await _endpoint.UpdateGuild(GuildId, new UpdateGuildDto { Name = "x" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
         await _context.SaveChangesAsync();
 
         var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.GuildId == GuildId).ToList();

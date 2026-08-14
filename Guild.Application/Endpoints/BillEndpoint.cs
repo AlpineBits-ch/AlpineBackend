@@ -96,7 +96,7 @@ public class BillEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+        var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Description)) return Results.BadRequest("Description is required");
@@ -191,7 +191,7 @@ public class BillEndpoint
         if (template is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            template.ChannelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+            template.ChannelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.Description is not null)
@@ -333,7 +333,7 @@ public class BillEndpoint
         if (template is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            template.ChannelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+            template.ChannelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
         if (access.ToFailure() is { } failure) return failure;
 
         // Logged before the remove, so the entry still says what was cancelled rather than the id of
@@ -413,7 +413,7 @@ public class BillEndpoint
             .FirstOrDefaultAsync(t => t.Id == occurrence.RecurringExpenseId);
         if (template is null) return Results.NotFound();
 
-        var required = template.PayerUserId == userId ? Permissions.AddExpenses : Permissions.ManageLedger;
+        var required = template.PayerUserId == userId ? ModulePermissions.AddExpenses : ModulePermissions.ManageLedger;
 
         var access = await household.ResolveAsync(
             occurrence.ChannelId, ChannelType.Ledger, userId, required);
@@ -461,7 +461,7 @@ public class BillEndpoint
         if (occurrence is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            occurrence.ChannelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+            occurrence.ChannelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
         if (access.ToFailure() is { } failure) return failure;
 
         if (occurrence.Status == BillStatus.Posted)

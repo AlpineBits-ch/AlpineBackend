@@ -70,14 +70,7 @@ public class GatewayHandshakeService(MicroserviceContext ctx, IMessageBus bus, I
                 OwnerId = guild.OwnerId,
                 Unavailable = false,
                 MemberCount = guild.Self is null ? 0 : 1,
-                Roles = guild.Roles.Select(r => new GatewayRolePayload
-                {
-                    Id = r.Id,
-                    Name = r.Name,
-                    Color = ParseHexColor(r.Color),
-                    Position = r.Position,
-                    Permissions = r.Permissions.ToString(),
-                }).ToList(),
+                Roles = guild.Roles.Select(GatewayRoleMapper.ToPayload).ToList(),
                 Channels = guild.Channels.Select(c => new GatewayChannelPayload
                 {
                     Id = c.Id,
@@ -106,12 +99,5 @@ public class GatewayHandshakeService(MicroserviceContext ctx, IMessageBus bus, I
             logger.LogError(e, "Failed to fetch guild snapshot for bot {BotUserId} in guild {GuildId}", botUserId, guildId);
             return null;
         }
-    }
-
-    private static int ParseHexColor(string hex)
-    {
-        if (string.IsNullOrWhiteSpace(hex)) return 0;
-        var value = hex.TrimStart('#');
-        return int.TryParse(value, System.Globalization.NumberStyles.HexNumber, null, out var parsed) ? parsed : 0;
     }
 }

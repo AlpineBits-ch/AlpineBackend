@@ -58,13 +58,15 @@ public class MemberEndpoint
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
-        [NotBody] IMessageBus bus)
+        [NotBody] IMessageBus bus, [NotBody] MfaElevationService mfa)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.BanMembers);
         if (!isAuthorized) return Results.Forbid();
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return mfaRejection;
 
         var canModerate = await permissionService.CanModerateTargetAsync(userId, dto.UserId, guildId);
         if (!canModerate) return Results.Forbid();
@@ -104,13 +106,16 @@ public class MemberEndpoint
     [WolverineDelete("/api/v1/guilds/{guildId}/bans/{bannedUserId}")]
     public async Task<IResult> UnbanMemberAsync(string guildId, string bannedUserId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.BanMembers);
         if (!isAuthorized) return Results.Forbid();
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return mfaRejection;
 
         var ban = await ctx.Set<GuildBan>().FirstOrDefaultAsync(b => b.GuildId == guildId && b.BannedUserId == bannedUserId);
         if (ban is null) return Results.NotFound();
@@ -153,13 +158,15 @@ public class MemberEndpoint
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
-        [NotBody] IMessageBus bus)
+        [NotBody] IMessageBus bus, [NotBody] MfaElevationService mfa)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.KickMembers);
         if (!isAuthorized) return Results.Forbid();
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return mfaRejection;
 
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
         if (member is null) return Results.NotFound();
@@ -188,7 +195,7 @@ public class MemberEndpoint
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
-        [NotBody] IMessageBus bus)
+        [NotBody] IMessageBus bus, [NotBody] MfaElevationService mfa)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -197,6 +204,8 @@ public class MemberEndpoint
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ModerateMembers);
         if (!isAuthorized) return Results.Forbid();
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return mfaRejection;
 
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
         if (member is null) return Results.NotFound();
@@ -225,13 +234,15 @@ public class MemberEndpoint
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] GuildHydrateService guildHydrateService,
-        [NotBody] IMessageBus bus)
+        [NotBody] IMessageBus bus, [NotBody] MfaElevationService mfa)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ModerateMembers);
         if (!isAuthorized) return Results.Forbid();
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return mfaRejection;
 
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
         if (member is null) return Results.NotFound();

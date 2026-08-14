@@ -5,56 +5,79 @@ namespace Guild.Domain.Enums;
 /// </summary>
 public static class GuildFeatureMap
 {
-    private static readonly (GuildFeatures Feature, Permissions Permissions)[] PermissionOwners =
+    private static readonly (GuildFeatures Feature, Permissions Permissions)[] CorePermissionOwners =
     [
         (GuildFeatures.VoiceChannels,
             Permissions.Connect | Permissions.Speak | Permissions.Stream |
-            Permissions.MuteMembers | Permissions.DeafenMembers | Permissions.MoveMembers),
+            Permissions.MuteMembers | Permissions.DeafenMembers | Permissions.MoveMembers |
+            Permissions.PrioritySpeaker | Permissions.RequestToSpeak | Permissions.UseVoiceActivity),
 
         (GuildFeatures.Threads,
-            Permissions.CreateThreads | Permissions.SendMessagesInThreads |
+            Permissions.CreateThreads | Permissions.CreatePrivateThreads |
+            Permissions.SendMessagesInThreads |
             Permissions.ManageOwnThreads | Permissions.ManageAnyThread),
 
         (GuildFeatures.Moderation,
             Permissions.KickMembers | Permissions.BanMembers |
             Permissions.ModerateMembers | Permissions.ViewAuditLog),
 
-        (GuildFeatures.Emojis, Permissions.ManageEmojis),
+        (GuildFeatures.Emojis,
+            Permissions.ManageEmojis | Permissions.CreateExpressions | Permissions.ManageExpressions),
 
         (GuildFeatures.Events, Permissions.ManageEvents),
-
-        (GuildFeatures.Wiki,
-            Permissions.ViewWiki | Permissions.CreateWikiPages | Permissions.EditOwnWikiPages |
-            Permissions.EditAnyWikiPage | Permissions.DeleteWikiPages |
-            Permissions.ManageWikiRevisions | Permissions.ManageWikiStructure |
-            Permissions.ModerateWikiComments | Permissions.PublishWikiPublicly),
-
-        (GuildFeatures.Lists,
-            Permissions.ManageLists | Permissions.AddListItems | Permissions.CheckOffListItems),
-
-        (GuildFeatures.Chores, Permissions.ManageChores | Permissions.CompleteChores),
-
-        (GuildFeatures.Ledger, Permissions.ManageLedger | Permissions.AddExpenses),
-
-        (GuildFeatures.Pantry, Permissions.ManagePantry),
-
-        (GuildFeatures.Decisions, Permissions.CreateDecisions | Permissions.VoteDecisions),
-
-        (GuildFeatures.GuestAccess, Permissions.ManageGuests),
-
-        (GuildFeatures.Meals, Permissions.PlanMeals | Permissions.ManageMeals),
-
-        (GuildFeatures.Maintenance,
-            Permissions.LogMaintenance | Permissions.ManageMaintenance),
     ];
 
-    /// <summary>Every permission bit owned by a module that <paramref name="enabled"/> does not
-    /// include. A required permission intersecting this mask is unavailable in the guild no
+    private static readonly (GuildFeatures Feature, ModulePermissions Permissions)[] ModulePermissionOwners =
+    [
+        (GuildFeatures.Wiki,
+            ModulePermissions.ViewWiki | ModulePermissions.CreateWikiPages |
+            ModulePermissions.EditOwnWikiPages | ModulePermissions.EditAnyWikiPage |
+            ModulePermissions.DeleteWikiPages | ModulePermissions.ManageWikiRevisions |
+            ModulePermissions.ManageWikiStructure | ModulePermissions.ModerateWikiComments |
+            ModulePermissions.PublishWikiPublicly),
+
+        (GuildFeatures.Lists,
+            ModulePermissions.ManageLists | ModulePermissions.AddListItems |
+            ModulePermissions.CheckOffListItems),
+
+        (GuildFeatures.Chores, ModulePermissions.ManageChores | ModulePermissions.CompleteChores),
+
+        (GuildFeatures.Ledger, ModulePermissions.ManageLedger | ModulePermissions.AddExpenses),
+
+        (GuildFeatures.Pantry, ModulePermissions.ManagePantry),
+
+        (GuildFeatures.Decisions, ModulePermissions.CreateDecisions | ModulePermissions.VoteDecisions),
+
+        (GuildFeatures.GuestAccess, ModulePermissions.ManageGuests),
+
+        (GuildFeatures.Meals, ModulePermissions.PlanMeals | ModulePermissions.ManageMeals),
+
+        (GuildFeatures.Maintenance,
+            ModulePermissions.LogMaintenance | ModulePermissions.ManageMaintenance),
+    ];
+
+    /// <summary>Every core permission bit owned by a module that <paramref name="enabled"/> does
+    /// not include. A required permission intersecting this mask is unavailable in the guild no
     /// matter who is asking - owner and Superadmin included.</summary>
     public static Permissions DisabledPermissions(GuildFeatures enabled)
     {
         var disabled = Permissions.None;
-        foreach (var (feature, permissions) in PermissionOwners)
+        foreach (var (feature, permissions) in CorePermissionOwners)
+        {
+            if (!enabled.HasFlag(feature)) disabled |= permissions;
+        }
+
+        return disabled;
+    }
+
+    /// <summary>The <see cref="ModulePermissions"/> counterpart of
+    /// <see cref="DisabledPermissions(GuildFeatures)"/>. Every bit in the module mask is owned by
+    /// some module, so a guild with no optional modules on has this return every bit there is.
+    /// </summary>
+    public static ModulePermissions DisabledModulePermissions(GuildFeatures enabled)
+    {
+        var disabled = ModulePermissions.None;
+        foreach (var (feature, permissions) in ModulePermissionOwners)
         {
             if (!enabled.HasFlag(feature)) disabled |= permissions;
         }
@@ -68,11 +91,19 @@ public static class GuildFeatureMap
     public static bool IsPermissionAvailable(GuildFeatures enabled, Permissions required) =>
         (required & DisabledPermissions(enabled)) == Permissions.None;
 
+    /// <inheritdoc cref="IsPermissionAvailable(GuildFeatures, Permissions)"/>
+    public static bool IsPermissionAvailable(GuildFeatures enabled, ModulePermissions required) =>
+        (required & DisabledModulePermissions(enabled)) == ModulePermissions.None;
+
     /// <summary>Clamps a requested bitmask down to what the guild's modules actually allow - used
     /// where an over-broad request should be silently downgraded rather than rejected (bot
     /// installs), mirroring GuildPermissionService.ClampToGrantableAsync.</summary>
     public static Permissions ClampToEnabled(GuildFeatures enabled, Permissions requested) =>
         requested & ~DisabledPermissions(enabled);
+
+    /// <inheritdoc cref="ClampToEnabled(GuildFeatures, Permissions)"/>
+    public static ModulePermissions ClampToEnabled(GuildFeatures enabled, ModulePermissions requested) =>
+        requested & ~DisabledModulePermissions(enabled);
 
     /// <summary>The module a channel of this type belongs to, or null when the type is part of
     /// the always-on core. Text has no feature flag on purpose - a guild with no text channels

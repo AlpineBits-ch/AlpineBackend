@@ -187,7 +187,7 @@ public class BillAlertService(
             if (members.Count == 0) return false;
 
             var recipients = await permissions.FilterUsersWithChannelPermissionAsync(
-                occurrence.ChannelId, members, Permissions.ManageLedger);
+                occurrence.ChannelId, members, ModulePermissions.ManageLedger);
 
             if (recipients.Count == 0) return false;
 

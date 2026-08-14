@@ -124,14 +124,14 @@ public class BillServiceTests
         _context.Roles.Add(new Role
         {
             Id = EveryoneRoleId, GuildId = GuildId, Type = RoleType.Everyone, Name = "Everyone",
-            Permissions = Role.DefaultEveryonePermissions,
+            Permissions = Role.DefaultEveryonePermissions, ModulePermissions = Role.DefaultEveryoneModulePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 
         _context.Roles.Add(new Role
         {
             Id = FlatmateRoleId, GuildId = GuildId, Type = RoleType.None, Name = "Flatmates",
-            Permissions = Role.FlatmatePermissions,
+            ModulePermissions = Role.FlatmatePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 

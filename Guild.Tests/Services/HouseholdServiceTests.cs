@@ -72,12 +72,14 @@ public class HouseholdServiceTests
         return memberId;
     }
 
-    private async Task AddRoleAsync(Permissions permissions = Permissions.None)
+    private Task AddRoleAsync(Permissions permissions) => AddRoleAsync(ModulePermissions.None, permissions);
+
+    private async Task AddRoleAsync(ModulePermissions permissions = ModulePermissions.None, Permissions corePermissions = Permissions.None)
     {
         _context.Roles.Add(new Role
         {
             Id = RoleId, GuildId = GuildId, Type = RoleType.None, Name = "Flatmates",
-            Permissions = permissions,
+            ModulePermissions = permissions, Permissions = corePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
         await _context.SaveChangesAsync();
@@ -375,14 +377,14 @@ public class HouseholdServiceTests
     // Feature gating over the new permissions
     // ══════════════════════════════════════════════════════════════════════════
 
-    private static readonly (GuildFeatures Feature, Permissions Permission)[] ModulePermissions =
+    private static readonly (GuildFeatures Feature, ModulePermissions Permission)[] ModuleGatedPermissions =
     [
-        (GuildFeatures.Lists, Permissions.AddListItems),
-        (GuildFeatures.Chores, Permissions.CompleteChores),
-        (GuildFeatures.Ledger, Permissions.AddExpenses),
-        (GuildFeatures.Pantry, Permissions.ManagePantry),
-        (GuildFeatures.Decisions, Permissions.VoteDecisions),
-        (GuildFeatures.GuestAccess, Permissions.ManageGuests),
+        (GuildFeatures.Lists, ModulePermissions.AddListItems),
+        (GuildFeatures.Chores, ModulePermissions.CompleteChores),
+        (GuildFeatures.Ledger, ModulePermissions.AddExpenses),
+        (GuildFeatures.Pantry, ModulePermissions.ManagePantry),
+        (GuildFeatures.Decisions, ModulePermissions.VoteDecisions),
+        (GuildFeatures.GuestAccess, ModulePermissions.ManageGuests),
     ];
 
     [Test]
@@ -392,7 +394,7 @@ public class HouseholdServiceTests
         await AddRoleAsync(Permissions.Superadmin);
         await AddMemberAsync("anna");
 
-        foreach (var (feature, permission) in ModulePermissions)
+        foreach (var (feature, permission) in ModuleGatedPermissions)
         {
             var guild = await _context.Guilds.FindAsync(GuildId);
             guild!.Features = GuildFeaturePresets.Household & ~feature;
@@ -414,7 +416,7 @@ public class HouseholdServiceTests
         await AddRoleAsync(Permissions.Superadmin);
         await AddMemberAsync("anna");
 
-        foreach (var (_, permission) in ModulePermissions)
+        foreach (var (_, permission) in ModuleGatedPermissions)
         {
             Assert.That(await _permissions.CanUserPerformActionOnGuildAsync("anna", GuildId, permission),
                 Is.False, $"{permission} must not exist in a Community guild - even for the owner");
@@ -425,13 +427,13 @@ public class HouseholdServiceTests
     public async Task HouseholdGuild_HasItsModulePermissions()
     {
         await SeedGuildAsync(GuildFeaturePresets.Household);
-        await AddRoleAsync(Permissions.ManageLists | Permissions.AddListItems | Permissions.CompleteChores);
+        await AddRoleAsync(ModulePermissions.ManageLists | ModulePermissions.AddListItems | ModulePermissions.CompleteChores);
         await AddMemberAsync("anna");
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await _permissions.CanUserPerformActionOnGuildAsync("anna", GuildId, Permissions.AddListItems), Is.True);
-            Assert.That(await _permissions.CanUserPerformActionOnGuildAsync("anna", GuildId, Permissions.CompleteChores), Is.True);
+            Assert.That(await _permissions.CanUserPerformActionOnGuildAsync("anna", GuildId, ModulePermissions.AddListItems), Is.True);
+            Assert.That(await _permissions.CanUserPerformActionOnGuildAsync("anna", GuildId, ModulePermissions.CompleteChores), Is.True);
         });
     }
 

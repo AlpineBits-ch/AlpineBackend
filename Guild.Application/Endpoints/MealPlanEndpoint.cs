@@ -77,7 +77,7 @@ public class MealPlanEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, Permissions.PlanMeals);
+        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, ModulePermissions.PlanMeals);
         if (access.ToFailure() is { } failure) return failure;
 
         if (ValidateSubject(dto.RecipeId, dto.FreeText) is { } invalid) return Results.BadRequest(invalid);
@@ -227,7 +227,7 @@ public class MealPlanEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, Permissions.PlanMeals);
+        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, ModulePermissions.PlanMeals);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.To < dto.From) return Results.BadRequest("To must not be before From");
@@ -245,7 +245,7 @@ public class MealPlanEndpoint
             return Results.BadRequest("No shopping list is configured - pass ListChannelId or set one in the meals config");
 
         var listAccess = await household.ResolveAsync(
-            listChannelId, ChannelType.List, userId, Permissions.AddListItems);
+            listChannelId, ChannelType.List, userId, ModulePermissions.AddListItems);
 
         if (listAccess.ToFailure() is { } listFailure) return listFailure;
 
@@ -321,7 +321,7 @@ public class MealPlanEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, Permissions.ManageMeals);
+        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, ModulePermissions.ManageMeals);
         if (access.ToFailure() is { } failure) return failure;
 
         var guildId = access.Channel!.GuildId;
@@ -370,13 +370,13 @@ public class MealPlanEndpoint
     // ── Shared ───────────────────────────────────────────────────────────────
 
     /// <summary>Editing an entry you put on the board, or one you are down to cook, needs only
-    /// <see cref="Permissions.PlanMeals"/>; editing anybody else's is a moderator action. Swapping
+    /// <see cref="ModulePermissions.PlanMeals"/>; editing anybody else's is a moderator action. Swapping
     /// yourself out of Thursday is the single most common edit there is, and needing
-    /// <see cref="Permissions.ManageMeals"/> for it would mean asking permission to not cook.</summary>
-    private static Permissions RequiredFor(MealPlanEntry entry, string userId) =>
+    /// <see cref="ModulePermissions.ManageMeals"/> for it would mean asking permission to not cook.</summary>
+    private static ModulePermissions RequiredFor(MealPlanEntry entry, string userId) =>
         entry.CreatedByUserId == userId || entry.CookUserId == userId
-            ? Permissions.PlanMeals
-            : Permissions.ManageMeals;
+            ? ModulePermissions.PlanMeals
+            : ModulePermissions.ManageMeals;
 
     /// <summary>An entry has to be about something.</summary>
     private static string? ValidateSubject(string? recipeId, string? freeText)

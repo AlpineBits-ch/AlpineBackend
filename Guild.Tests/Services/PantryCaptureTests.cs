@@ -96,6 +96,7 @@ public class PantryCaptureTests
         {
             Id = EveryoneRoleId, GuildId = GuildId, Type = RoleType.Everyone, Name = "Everyone",
             Permissions = Role.DefaultEveryonePermissions,
+            ModulePermissions = Role.DefaultEveryoneModulePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 
@@ -146,6 +147,7 @@ public class PantryCaptureTests
         {
             Id = "role-everyone-2", GuildId = OtherGuildId, Type = RoleType.Everyone, Name = "Everyone",
             Permissions = Role.DefaultEveryonePermissions,
+            ModulePermissions = Role.DefaultEveryoneModulePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 

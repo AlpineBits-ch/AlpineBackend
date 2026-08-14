@@ -1,5 +1,6 @@
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
+using Guild.Persistence.Migrations;
 
 namespace Guild.Tests.Domain;
 
@@ -35,7 +36,15 @@ public class EveryoneRoleDefaultsTests
             Permissions.Stream,
             Permissions.CreateInvite,
             Permissions.ChangeNickname,
-            Permissions.ViewWiki,
+
+            // The Discord-parity block.
+            Permissions.ReadMessageHistory,
+            Permissions.UseApplicationCommands,
+            Permissions.UseExternalEmojis,
+            Permissions.UseExternalStickers,
+            Permissions.UseVoiceActivity,
+            Permissions.SendPolls,
+            Permissions.SendVoiceMessages,
         ];
 
         Assert.Multiple(() =>
@@ -45,6 +54,9 @@ public class EveryoneRoleDefaultsTests
                 Assert.That(Role.DefaultEveryonePermissions.HasFlag(permission), Is.True,
                     $"{permission} must be part of the @everyone default");
             }
+
+            Assert.That(Role.DefaultEveryoneModulePermissions.HasFlag(ModulePermissions.ViewWiki), Is.True,
+                "the module half of the grant carries wiki read");
         });
     }
 
@@ -75,6 +87,16 @@ public class EveryoneRoleDefaultsTests
             Permissions.ManageEmojis,
             Permissions.ManageEvents,
             Permissions.Superadmin,
+
+            // Withheld from the parity block: PrioritySpeaker and RequestToSpeak are stage-running
+            // controls, CreateExpressions/ManageExpressions change what the guild itself owns, and
+            // a private thread is an unlogged side room - none is an @everyone default in Discord
+            // either.
+            Permissions.PrioritySpeaker,
+            Permissions.RequestToSpeak,
+            Permissions.CreateExpressions,
+            Permissions.ManageExpressions,
+            Permissions.CreatePrivateThreads,
         ];
 
         Assert.Multiple(() =>
@@ -90,24 +112,24 @@ public class EveryoneRoleDefaultsTests
     [Test]
     public void DefaultEveryonePermissions_GrantsNoWikiBitBeyondReading()
     {
-        Permissions[] authoringAndModeration =
+        ModulePermissions[] authoringAndModeration =
         [
-            Permissions.CreateWikiPages,
-            Permissions.EditOwnWikiPages,
-            Permissions.EditAnyWikiPage,
-            Permissions.DeleteWikiPages,
-            Permissions.ManageWikiRevisions,
-            Permissions.ManageWikiStructure,
-            Permissions.ModerateWikiComments,
-            Permissions.PublishWikiPublicly,
+            ModulePermissions.CreateWikiPages,
+            ModulePermissions.EditOwnWikiPages,
+            ModulePermissions.EditAnyWikiPage,
+            ModulePermissions.DeleteWikiPages,
+            ModulePermissions.ManageWikiRevisions,
+            ModulePermissions.ManageWikiStructure,
+            ModulePermissions.ModerateWikiComments,
+            ModulePermissions.PublishWikiPublicly,
         ];
 
         Assert.Multiple(() =>
         {
-            Assert.That(Role.DefaultEveryonePermissions.HasFlag(Permissions.ViewWiki), Is.True);
+            Assert.That(Role.DefaultEveryoneModulePermissions.HasFlag(ModulePermissions.ViewWiki), Is.True);
             foreach (var permission in authoringAndModeration)
             {
-                Assert.That(Role.DefaultEveryonePermissions.HasFlag(permission), Is.False,
+                Assert.That(Role.DefaultEveryoneModulePermissions.HasFlag(permission), Is.False,
                     $"{permission} is an authoring/moderation bit and must stay with staff");
             }
         });
@@ -118,20 +140,20 @@ public class EveryoneRoleDefaultsTests
     {
         // Without these a Household guild is read-only for every member except the owner, whose
         // Superadmin short-circuit hides the problem from whoever created it.
-        Permissions[] participation =
+        ModulePermissions[] participation =
         [
-            Permissions.AddListItems, Permissions.CheckOffListItems,
-            Permissions.CompleteChores,
-            Permissions.AddExpenses,
-            Permissions.ManagePantry,
-            Permissions.CreateDecisions, Permissions.VoteDecisions,
+            ModulePermissions.AddListItems, ModulePermissions.CheckOffListItems,
+            ModulePermissions.CompleteChores,
+            ModulePermissions.AddExpenses,
+            ModulePermissions.ManagePantry,
+            ModulePermissions.CreateDecisions, ModulePermissions.VoteDecisions,
         ];
 
         Assert.Multiple(() =>
         {
             foreach (var permission in participation)
             {
-                Assert.That(Role.DefaultEveryonePermissions.HasFlag(permission), Is.True,
+                Assert.That(Role.DefaultEveryoneModulePermissions.HasFlag(permission), Is.True,
                     $"{permission} is what an ordinary flatmate does and must be an @everyone default");
             }
         });
@@ -142,19 +164,19 @@ public class EveryoneRoleDefaultsTests
     {
         // The asymmetric bits - the ones that change something belonging to somebody else - stay
         // with the seeded Flatmates role and the owner.
-        Permissions[] moderation =
+        ModulePermissions[] moderation =
         [
-            Permissions.ManageLists,
-            Permissions.ManageChores,
-            Permissions.ManageLedger,
-            Permissions.ManageGuests,
+            ModulePermissions.ManageLists,
+            ModulePermissions.ManageChores,
+            ModulePermissions.ManageLedger,
+            ModulePermissions.ManageGuests,
         ];
 
         Assert.Multiple(() =>
         {
             foreach (var permission in moderation)
             {
-                Assert.That(Role.DefaultEveryonePermissions.HasFlag(permission), Is.False,
+                Assert.That(Role.DefaultEveryoneModulePermissions.HasFlag(permission), Is.False,
                     $"{permission} rewrites someone else's row and must not be an @everyone default");
             }
         });
@@ -165,7 +187,7 @@ public class EveryoneRoleDefaultsTests
     {
         // The Flatmates role exists to add what @everyone deliberately lacks.
         Assert.That(Role.HouseholdEveryonePermissions & Role.FlatmatePermissions,
-            Is.EqualTo(Permissions.None));
+            Is.EqualTo(ModulePermissions.None));
     }
 
     [Test]
@@ -174,14 +196,14 @@ public class EveryoneRoleDefaultsTests
         // Guards against a new household permission being added to the enum and to GuildFeatureMap
         // while nobody decides whether a flatmate or only a manager should hold it - the failure
         // mode that produced the read-only-household bug in the first place.
-        Permissions[] allHousehold =
+        ModulePermissions[] allHousehold =
         [
-            Permissions.ManageLists, Permissions.AddListItems, Permissions.CheckOffListItems,
-            Permissions.ManageChores, Permissions.CompleteChores,
-            Permissions.ManageLedger, Permissions.AddExpenses,
-            Permissions.ManagePantry,
-            Permissions.CreateDecisions, Permissions.VoteDecisions,
-            Permissions.ManageGuests,
+            ModulePermissions.ManageLists, ModulePermissions.AddListItems, ModulePermissions.CheckOffListItems,
+            ModulePermissions.ManageChores, ModulePermissions.CompleteChores,
+            ModulePermissions.ManageLedger, ModulePermissions.AddExpenses,
+            ModulePermissions.ManagePantry,
+            ModulePermissions.CreateDecisions, ModulePermissions.VoteDecisions,
+            ModulePermissions.ManageGuests,
         ];
 
         var covered = Role.HouseholdEveryonePermissions | Role.FlatmatePermissions;
@@ -205,21 +227,24 @@ public class EveryoneRoleDefaultsTests
         {
             Assert.That(role.Permissions, Is.EqualTo(Role.DefaultEveryonePermissions),
                 "the constant is the single source of truth; the factory must not re-list bits");
+            Assert.That(role.ModulePermissions, Is.EqualTo(Role.DefaultEveryoneModulePermissions),
+                "and the same for the module half");
             Assert.That(role.Type, Is.EqualTo(RoleType.Everyone));
             Assert.That(role.Position, Is.Zero);
             Assert.That(role.Members, Has.Count.EqualTo(1), "the founding member joins @everyone");
         });
     }
 
-    /// <summary>Guards the coupling between the constant and the literals in
-    /// 20260806093730_BackfillHouseholdEveryonePermissions. If a bit joins
-    /// HouseholdEveryonePermissions without a matching UPDATE, new guilds get it and every existing
-    /// one silently does not - which is the exact shape of the bug that migration exists to fix.</summary>
+    /// <summary>
+    /// Guards the coupling between the constant and the literals in
+    /// 20260806093730_BackfillHouseholdEveryonePermissions, across the bit remap that has since
+    /// moved them.
+    /// </summary>
     [Test]
-    public void HouseholdEveryonePermissionsMatchTheMigrationLiterals()
+    public void HouseholdEveryonePermissionsMatchTheMigrationLiteralsThroughTheRemap()
     {
-        // The 2^n values the migration adds, in the order they appear in it.
-        ulong[] literals =
+        // The 2^n values the migrations added, in the order they appear in them.
+        ulong[] preRemapLiterals =
         [
             1099511627776,      // AddListItems         2^40
             2199023255552,      // CheckOffListItems    2^41
@@ -235,10 +260,16 @@ public class EveryoneRoleDefaultsTests
             144115188075855872, // LogMaintenance       2^57
         ];
 
-        var fromMigration = literals.Aggregate(0ul, (mask, bit) => mask | bit);
+        var preRemap = preRemapLiterals.Aggregate(0ul, (mask, bit) => mask | bit);
 
-        Assert.That((ulong)Role.HouseholdEveryonePermissions, Is.EqualTo(fromMigration),
-            "the migration's UPDATE list and HouseholdEveryonePermissions must name the same bits");
+        var postRemap = 0ul;
+        foreach (var (oldBit, newBit, _) in ModulePermissionBitRemap.Mapping)
+        {
+            if ((preRemap & (1ul << oldBit)) != 0) postRemap |= 1ul << newBit;
+        }
+
+        Assert.That((ulong)Role.HouseholdEveryonePermissions, Is.EqualTo(postRemap),
+            "the migrations' UPDATE list, the remap table and HouseholdEveryonePermissions must name the same bits");
     }
 
     // ── The external-mask baseline ────────────────────────────────────────────
@@ -247,8 +278,13 @@ public class EveryoneRoleDefaultsTests
     public void ExternalEveryoneBaseline_IsASubsetOfTheDefault()
     {
         // If a bit is worth restoring on an imported role it is worth granting on a native one.
-        Assert.That(Role.DefaultEveryonePermissions & Role.ExternalEveryoneBaseline,
-            Is.EqualTo(Role.ExternalEveryoneBaseline));
+        Assert.Multiple(() =>
+        {
+            Assert.That(Role.DefaultEveryonePermissions & Role.ExternalEveryoneBaseline,
+                Is.EqualTo(Role.ExternalEveryoneBaseline));
+            Assert.That(Role.DefaultEveryoneModulePermissions & Role.ExternalEveryoneModuleBaseline,
+                Is.EqualTo(Role.ExternalEveryoneModuleBaseline));
+        });
     }
 
     [Test]
@@ -268,7 +304,7 @@ public class EveryoneRoleDefaultsTests
             Assert.That(role.Permissions.HasFlag(Permissions.SendMessages), Is.True);
             Assert.That(role.Permissions.HasFlag(Permissions.Speak), Is.True);
 
-            Assert.That(role.Permissions.HasFlag(Permissions.ViewWiki), Is.True,
+            Assert.That(role.ModulePermissions.HasFlag(ModulePermissions.ViewWiki), Is.True,
                 "Discord cannot express ViewWiki, so it must be restored rather than lost");
             Assert.That(role.Permissions.HasFlag(Permissions.ManageOwnThreads), Is.True);
             Assert.That(role.Permissions.HasFlag(Permissions.EditOwnMessages), Is.True);
@@ -278,6 +314,12 @@ public class EveryoneRoleDefaultsTests
             Assert.That(role.Permissions.HasFlag(Permissions.CreateInvite), Is.False,
                 "an external mask that withheld CreateInvite must keep it withheld");
             Assert.That(role.Permissions.HasFlag(Permissions.Stream), Is.False);
+
+            // Discord DOES have a source bit for these, so the baseline must not force them back
+            // on - an admin who denied ReadMessageHistory on the Discord side chose that.
+            Assert.That(role.Permissions.HasFlag(Permissions.ReadMessageHistory), Is.False,
+                "the parity bits come from the imported mask, not from the baseline");
+            Assert.That(role.Permissions.HasFlag(Permissions.UseExternalEmojis), Is.False);
         });
     }
 
@@ -288,7 +330,29 @@ public class EveryoneRoleDefaultsTests
 
         role.ApplyExternalEveryonePermissions(Permissions.None);
 
-        Assert.That(role.Permissions, Is.EqualTo(Role.ExternalEveryoneBaseline));
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.Permissions, Is.EqualTo(Role.ExternalEveryoneBaseline));
+            Assert.That(role.ModulePermissions, Is.EqualTo(Role.ExternalEveryoneModuleBaseline));
+        });
+    }
+
+    [Test]
+    public void ApplyExternalEveryonePermissions_CarriesTheExternalModuleMask()
+    {
+        // The template path is Echo-native and CAN express module permissions, unlike a Discord
+        // import - so a captured module mask has to survive the round trip rather than being
+        // flattened back to the baseline.
+        var role = Role.CreateEveryoneRole(GuildId, MemberId);
+
+        role.ApplyExternalEveryonePermissions(Permissions.None, ModulePermissions.ManageWikiStructure);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.ModulePermissions.HasFlag(ModulePermissions.ManageWikiStructure), Is.True);
+            Assert.That(role.ModulePermissions.HasFlag(ModulePermissions.ViewWiki), Is.True,
+                "the baseline still applies on top of whatever the external mask carried");
+        });
     }
 
     [Test]

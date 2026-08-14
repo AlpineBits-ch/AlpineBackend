@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Security.Claims;
 using System.Text.Json;
 using Guild.Domain.Aggregates;
@@ -10,19 +11,26 @@ using Microsoft.Extensions.Logging;
 
 namespace Guild.Application.Services;
 
+/// <summary>The version token embedded in every permission cache key.</summary>
+internal static class PermissionCacheVersion
+{
+    public const string Token = "v2";
+}
+
 public class GuildChannelPermission
 {
     public string UserId { get; set; }
     public string ChannelId { get; set; }
     public string GuildId { get; set; }
     public Permissions Permissions { get; set; }
+    public ModulePermissions ModulePermissions { get; set; }
 
     public static string GetCacheKey(string guildId, string channelId, string userId)
     {
         var g = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(guildId));
         var c = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channelId));
         var u = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(userId));
-        return $"guild:{g}:channel:{c}:user:{u}";
+        return $"guild:{PermissionCacheVersion.Token}:{g}:channel:{c}:user:{u}";
     }
 
     public string GetCacheKey() => GetCacheKey(GuildId, ChannelId, UserId);
@@ -33,13 +41,14 @@ public class GuildPermissionsForUser
     public string UserId { get; set; }
     public string GuildId { get; set; }
     public Permissions BasePermissions { get; set; }
+    public ModulePermissions BaseModulePermissions { get; set; }
     public ICollection<GuildChannelPermission> Permissions { get; set; }
 
     public static string GetCacheKey(string guildId, string userId)
     {
         var g = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(guildId));
         var u = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(userId));
-        return $"guild:{g}:user:{u}";
+        return $"guild:{PermissionCacheVersion.Token}:{g}:user:{u}";
     }
 
     public string GetCacheKey() => GetCacheKey(GuildId, UserId);
@@ -62,7 +71,7 @@ public class GuildPermissionService(
     private static string FeaturesCacheKey(string guildId)
     {
         var g = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(guildId));
-        return $"guild:{g}:features";
+        return $"guild:{PermissionCacheVersion.Token}:{g}:features";
     }
 
     /// <summary>The guild's enabled modules.</summary>
@@ -99,7 +108,7 @@ public class GuildPermissionService(
     private static string SlowModeCacheKey(string channelId)
     {
         var c = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channelId));
-        return $"channel:{c}:slowmode";
+        return $"channel:{PermissionCacheVersion.Token}:{c}:slowmode";
     }
 
     /// <summary>The channel's configured slowmode window in seconds (0 = off).</summary>
@@ -130,7 +139,7 @@ public class GuildPermissionService(
     public async Task InvalidateChannelSlowModeCacheAsync(string channelId) =>
         await cache.RemoveAsync(SlowModeCacheKey(channelId));
 
-    private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, DateTimeOffset? mutedUntil, bool onboardingPending)> GetMembershipAsync(
+    private async Task<(bool isOwner, List<string> roleIds, string? memberId, Permissions memberAllow, Permissions memberDeny, ModulePermissions memberModuleAllow, ModulePermissions memberModuleDeny, DateTimeOffset? mutedUntil, bool onboardingPending)> GetMembershipAsync(
         string userId, string guildId)
     {
         var isOwner = await ctx.Guilds
@@ -140,12 +149,14 @@ public class GuildPermissionService(
         var memberRow = await ctx.GuildMembers
             .AsNoTracking()
             .Where(m => m.UserId == userId && m.GuildId == guildId)
-            .Select(m => new { m.Id, m.AllowPermissions, m.DenyPermissions, m.MutedUntil, m.OnboardingCompletedAt })
+            .Select(m => new { m.Id, m.AllowPermissions, m.DenyPermissions, m.AllowModulePermissions, m.DenyModulePermissions, m.MutedUntil, m.OnboardingCompletedAt })
             .FirstOrDefaultAsync();
 
         var memberId = memberRow?.Id;
         var memberAllow = memberRow?.AllowPermissions ?? Permissions.None;
         var memberDeny = memberRow?.DenyPermissions ?? Permissions.None;
+        var memberModuleAllow = memberRow?.AllowModulePermissions ?? ModulePermissions.None;
+        var memberModuleDeny = memberRow?.DenyModulePermissions ?? ModulePermissions.None;
         var mutedUntil = memberRow?.MutedUntil;
 
         // A never-accepted member only counts as pending while the guild actually has onboarding
@@ -167,7 +178,7 @@ public class GuildPermissionService(
                 .Select(rm => rm.RoleId)
                 .ToListAsync();
 
-        return (isOwner, roleIds, memberId, memberAllow, memberDeny, mutedUntil, onboardingPending);
+        return (isOwner, roleIds, memberId, memberAllow, memberDeny, memberModuleAllow, memberModuleDeny, mutedUntil, onboardingPending);
     }
 
     public async Task<bool> CanUserPerformActionAsync(
@@ -190,7 +201,7 @@ public class GuildPermissionService(
         if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
             return false;
 
-        var (isOwner, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, _, _, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return true;
 
         var channelPermission = await ResolveChannelPermissionAsync(userId, guildId, channelId);
@@ -216,6 +227,47 @@ public class GuildPermissionService(
         }
 
         return (channelPermission.Permissions & requiredPermission) == requiredPermission;
+    }
+
+    /// <summary>
+    /// The <see cref="ModulePermissions"/> overload of <see
+    /// cref="CanUserPerformActionAsync(string,string,Permissions)"/>, in the same order and with
+    /// the same fail-closed branches: unknown channel denies, the feature gate runs ahead of the
+    /// owner short-circuit, an unresolvable channel permission denies.
+    /// </summary>
+    public async Task<bool> CanUserPerformActionAsync(
+        string userId,
+        string channelId,
+        ModulePermissions requiredPermission)
+    {
+        var guildId = await ResolveGuildIdAsync(channelId);
+
+        if (guildId is null)
+        {
+            logger.LogWarning(
+                "Permission check for user {UserId} on channel {ChannelId} failed: channel not found.",
+                userId, channelId);
+            return false;
+        }
+
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
+            return false;
+
+        var (isOwner, _, _, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        if (isOwner) return true;
+
+        var channelPermission = await ResolveChannelPermissionAsync(userId, guildId, channelId);
+
+        if (channelPermission == null)
+        {
+            logger.LogWarning(
+                "Permission check for user {UserId} on channel {ChannelId} in guild {GuildId} " +
+                "found no matching channel in computed permissions.",
+                userId, channelId, guildId);
+            return false;
+        }
+
+        return (channelPermission.ModulePermissions & requiredPermission) == requiredPermission;
     }
 
     /// <summary>
@@ -272,6 +324,58 @@ public class GuildPermissionService(
 
             if (channelPermission is not null &&
                 (channelPermission.Permissions & requiredPermission) == requiredPermission)
+            {
+                allowed.Add(userId);
+            }
+        }
+
+        return allowed;
+    }
+
+    /// <inheritdoc cref="FilterUsersWithChannelPermissionAsync(string,IReadOnlyCollection{string},Permissions)"/>
+    public async Task<List<string>> FilterUsersWithChannelPermissionAsync(
+        string channelId,
+        IReadOnlyCollection<string> userIds,
+        ModulePermissions requiredPermission)
+    {
+        var allowed = new List<string>(userIds.Count);
+        if (userIds.Count == 0) return allowed;
+
+        var channel = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.Id == channelId)
+            .Select(c => new { c.GuildId, c.Type })
+            .FirstOrDefaultAsync();
+
+        if (channel?.GuildId is null)
+        {
+            logger.LogWarning("Batched permission check failed: channel {ChannelId} not found.", channelId);
+            return allowed;
+        }
+
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(channel.GuildId), requiredPermission))
+            return allowed;
+
+        var ownerId = await ctx.Guilds
+            .AsNoTracking()
+            .Where(g => g.Id == channel.GuildId)
+            .Select(g => g.OwnerId)
+            .FirstOrDefaultAsync();
+
+        foreach (var userId in userIds.Distinct())
+        {
+            if (string.IsNullOrWhiteSpace(userId)) continue;
+
+            if (userId == ownerId)
+            {
+                allowed.Add(userId);
+                continue;
+            }
+
+            var channelPermission = await ResolveChannelPermissionAsync(userId, channel.GuildId, channelId);
+
+            if (channelPermission is not null &&
+                (channelPermission.ModulePermissions & requiredPermission) == requiredPermission)
             {
                 allowed.Add(userId);
             }
@@ -342,6 +446,94 @@ public class GuildPermissionService(
     }
 
     /// <summary>
+    /// <see
+    /// cref="FilterChannelsWithPermissionAsync(string,string,IReadOnlyCollection{string},Permissions)"/>
+    /// for a set of channels whose guild the caller does not know, which is every caller reaching
+    /// this from another service: a channel id is globally unique here and nothing outside Guild
+    /// carries the guild it belongs to.
+    /// </summary>
+    public async Task<HashSet<string>> FilterChannelsWithPermissionAsync(
+        string userId,
+        IReadOnlyCollection<string> channelIds,
+        Permissions requiredPermission)
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal);
+        if (channelIds.Count == 0 || string.IsNullOrWhiteSpace(userId)) return allowed;
+
+        var distinct = channelIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        if (distinct.Count == 0) return allowed;
+
+        var byGuild = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => distinct.Contains(c.Id))
+            .Select(c => new { c.Id, c.GuildId })
+            .ToListAsync();
+
+        foreach (var group in byGuild.GroupBy(c => c.GuildId, StringComparer.Ordinal))
+        {
+            allowed.UnionWith(await FilterChannelsWithPermissionAsync(
+                userId, group.Key, group.Select(c => c.Id).ToList(), requiredPermission));
+        }
+
+        return allowed;
+    }
+
+    /// <inheritdoc cref="FilterChannelsWithPermissionAsync(string,string,IReadOnlyCollection{string},Permissions)"/>
+    public async Task<HashSet<string>> FilterChannelsWithPermissionAsync(
+        string userId,
+        string guildId,
+        IReadOnlyCollection<string> channelIds,
+        ModulePermissions requiredPermission)
+    {
+        var allowed = new HashSet<string>(StringComparer.Ordinal);
+        if (channelIds.Count == 0 || string.IsNullOrWhiteSpace(userId)) return allowed;
+
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
+            return allowed;
+
+        var inGuild = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.GuildId == guildId && channelIds.Contains(c.Id))
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        if (inGuild.Count == 0) return allowed;
+
+        var ownerId = await ctx.Guilds
+            .AsNoTracking()
+            .Where(g => g.Id == guildId)
+            .Select(g => g.OwnerId)
+            .FirstOrDefaultAsync();
+
+        if (userId == ownerId)
+        {
+            foreach (var channelId in inGuild) allowed.Add(channelId);
+            return allowed;
+        }
+
+        var resolved = await ComputePermissionsForUserAsync(userId, guildId);
+
+        var byChannel = resolved.Permissions
+            .GroupBy(p => p.ChannelId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().ModulePermissions, StringComparer.Ordinal);
+
+        foreach (var channelId in inGuild)
+        {
+            if (!byChannel.TryGetValue(channelId, out var permissions))
+            {
+                var repaired = await ResolveChannelPermissionAsync(userId, guildId, channelId);
+                if (repaired is null) continue;
+                permissions = repaired.ModulePermissions;
+                byChannel[channelId] = permissions;
+            }
+
+            if ((permissions & requiredPermission) == requiredPermission) allowed.Add(channelId);
+        }
+
+        return allowed;
+    }
+
+    /// <summary>
     /// The user's resolved permissions for one channel, self-healing against a stale cache.
     /// </summary>
     private async Task<GuildChannelPermission?> ResolveChannelPermissionAsync(
@@ -378,7 +570,7 @@ public class GuildPermissionService(
             return JsonSerializer.Deserialize<GuildPermissionsForUser>(cachedData)!;
         }
 
-        var (isOwner, userRoleIds, memberId, memberAllow, memberDeny, mutedUntil, onboardingPending) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, userRoleIds, memberId, memberAllow, memberDeny, memberModuleAllow, memberModuleDeny, mutedUntil, onboardingPending) = await GetMembershipAsync(userId, guildId);
 
         // Fail closed for a non-member.
         if (!isOwner && memberId is null)
@@ -388,6 +580,7 @@ public class GuildPermissionService(
                 GuildId = guildId,
                 UserId = userId,
                 BasePermissions = Permissions.None,
+                BaseModulePermissions = ModulePermissions.None,
                 Permissions = [],
             };
 
@@ -408,13 +601,17 @@ public class GuildPermissionService(
                 GuildId = guildId,
                 UserId = userId,
                 BasePermissions = ExpandImpliedPermissions(Permissions.Superadmin),
+                // The module mask has no Superadmin bit to expand, so the owner's "everything" is
+                // spelled out as every bit.
+                BaseModulePermissions = AllModulePermissions,
                 Permissions = allChannelIds
                     .Select(cid => new GuildChannelPermission
                     {
                         UserId = userId,
                         ChannelId = cid,
                         GuildId = guildId,
-                        Permissions = Permissions.Superadmin
+                        Permissions = Permissions.Superadmin,
+                        ModulePermissions = AllModulePermissions,
                     })
                     .ToList()
             };
@@ -426,20 +623,31 @@ public class GuildPermissionService(
         // Guild-scoped on purpose.
         var rolePerms = await ctx.Roles
             .AsNoTracking()
-            .Where(r => userRoleIds.Contains(r.Id) && r.GuildId == guildId)
-            .Select(r => r.Permissions)
+            .Where(r => r.GuildId == guildId &&
+                        (userRoleIds.Contains(r.Id) || r.Type == RoleType.Everyone))
+            .Select(r => new { r.Permissions, r.ModulePermissions })
             .ToListAsync();
 
         Permissions basePermissions = Permissions.None;
+        ModulePermissions baseModulePermissions = ModulePermissions.None;
         foreach (var perm in rolePerms)
         {
-            basePermissions |= perm;
+            basePermissions |= perm.Permissions;
+            baseModulePermissions |= perm.ModulePermissions;
         }
 
-        // Member-level guild overrides take precedence over roles but are
-        // applied before channel/category overwrites.
-        basePermissions &= ~memberDeny;
+        // Implied bits are resolved here, on the assembled base, and never again.
+        basePermissions = ExpandImpliedPermissions(basePermissions);
+
+        // Member-level guild overrides take precedence over roles but are applied before
+        // channel/category overwrites, and follow the same allow/deny rules an overwrite does: the
+        // deny carries its transitive closure (denying ViewChannel here denies everything that
+        // implies it), the allow grants exactly the bits named and nothing more.
+        basePermissions &= ~ExpandDeniedPermissions(memberDeny);
         basePermissions |= memberAllow;
+
+        baseModulePermissions &= ~memberModuleDeny;
+        baseModulePermissions |= memberModuleAllow;
 
         var channels = await ctx.Channels
             .AsNoTracking()
@@ -490,28 +698,23 @@ public class GuildPermissionService(
         foreach (var channel in nonThreadChannels)
         {
             Permissions resolvedPermissions = basePermissions;
+            ModulePermissions resolvedModulePermissions = baseModulePermissions;
 
             if (!string.IsNullOrWhiteSpace(channel.CategoryId) &&
                 overwritesByCategory.TryGetValue(channel.CategoryId!, out var categoryOverwrites))
             {
-                var relevant = categoryOverwrites
-                    .Where(p => userRoleIds.Contains(p.RoleId) ||
-                                (memberId != null && p.MemberId == memberId) ||
-                                p.Role?.Type == RoleType.Everyone)
-                    .ToList();
+                var tiers = BucketOverwrites(categoryOverwrites, memberId, userRoleIds);
 
-                resolvedPermissions = ApplyOverwrites(resolvedPermissions, relevant, memberId, userRoleIds);
+                resolvedPermissions = ApplyOverwrites(resolvedPermissions, tiers);
+                resolvedModulePermissions = ApplyModuleOverwrites(resolvedModulePermissions, tiers);
             }
 
             if (overwritesByChannel.TryGetValue(channel.Id, out var channelOverwrites))
             {
-                var relevant = channelOverwrites
-                    .Where(p => userRoleIds.Contains(p.RoleId) ||
-                                (memberId != null && p.MemberId == memberId) ||
-                                p.Role?.Type == RoleType.Everyone)
-                    .ToList();
+                var tiers = BucketOverwrites(channelOverwrites, memberId, userRoleIds);
 
-                resolvedPermissions = ApplyOverwrites(resolvedPermissions, relevant, memberId, userRoleIds);
+                resolvedPermissions = ApplyOverwrites(resolvedPermissions, tiers);
+                resolvedModulePermissions = ApplyModuleOverwrites(resolvedModulePermissions, tiers);
             }
 
             channelPermissions.Add(new GuildChannelPermission
@@ -519,7 +722,8 @@ public class GuildPermissionService(
                 UserId = userId,
                 ChannelId = channel.Id,
                 GuildId = guildId,
-                Permissions = ExpandImpliedPermissions(resolvedPermissions)
+                Permissions = resolvedPermissions,
+                ModulePermissions = ExpandModuleForSuperadmin(resolvedPermissions, resolvedModulePermissions),
             });
         }
 
@@ -532,20 +736,21 @@ public class GuildPermissionService(
                 UserId = userId,
                 ChannelId = thread.Id,
                 GuildId = guildId,
-                Permissions = parentResult?.Permissions ?? ExpandImpliedPermissions(basePermissions)
+                Permissions = parentResult?.Permissions ?? basePermissions,
+                ModulePermissions = parentResult?.ModulePermissions ?? baseModulePermissions,
             });
         }
 
-        var expandedBase = ExpandImpliedPermissions(basePermissions);
+        var expandedBase = basePermissions;
 
-        // A muted (timed-out) member keeps their other permissions but loses the ability to speak:
-        // sending messages, reacting, starting threads, or connecting to voice.
+        // A timed-out member, and a member who has not yet accepted onboarding, are cut back to
+        // reading: they keep exactly MuteRetainedPermissions and lose everything else.
         if (((mutedUntil is not null && mutedUntil > DateTimeOffset.UtcNow) || onboardingPending)
             && !expandedBase.HasFlag(Permissions.Superadmin))
         {
-            expandedBase &= ~MuteStrippedPermissions;
+            expandedBase &= MuteRetainedPermissions;
             foreach (var channelPermission in channelPermissions)
-                channelPermission.Permissions &= ~MuteStrippedPermissions;
+                channelPermission.Permissions &= MuteRetainedPermissions;
         }
 
         var result = new GuildPermissionsForUser
@@ -553,6 +758,8 @@ public class GuildPermissionService(
             GuildId = guildId,
             UserId = userId,
             BasePermissions = expandedBase,
+            // No implication pass beyond Superadmin: no module permission implies another one.
+            BaseModulePermissions = ExpandModuleForSuperadmin(basePermissions, baseModulePermissions),
             Permissions = channelPermissions
         };
 
@@ -560,105 +767,235 @@ public class GuildPermissionService(
         return result;
     }
 
-    private const Permissions MuteStrippedPermissions =
-        Permissions.SendMessages | Permissions.SendMessagesInThreads | Permissions.AddReactions |
-        Permissions.CreateThreads | Permissions.Connect;
+    /// <summary>
+    /// Everything a timed-out member - or one who has not accepted onboarding - still holds.
+    /// </summary>
+    private const Permissions MuteRetainedPermissions =
+        Permissions.ViewChannel | Permissions.ReadMessageHistory;
 
-    private Permissions ApplyOverwrites(
-        Permissions initial,
+    /// <summary>
+    /// The three tiers of overwrite that apply to one member on one channel or category, each
+    /// already unioned across every row in that tier.
+    /// </summary>
+    private readonly record struct OverwriteTiers(
+        Permissions EveryoneDeny, Permissions EveryoneAllow,
+        Permissions RoleDeny, Permissions RoleAllow,
+        Permissions MemberDeny, Permissions MemberAllow,
+        ModulePermissions EveryoneModuleDeny, ModulePermissions EveryoneModuleAllow,
+        ModulePermissions RoleModuleDeny, ModulePermissions RoleModuleAllow,
+        ModulePermissions MemberModuleDeny, ModulePermissions MemberModuleAllow);
+
+    /// <summary>
+    /// Buckets the overwrites that apply to this member into the three tiers Discord's resolution
+    /// algorithm names, unioning both masks of both enums as it goes.
+    /// </summary>
+    private static OverwriteTiers BucketOverwrites(
         IReadOnlyList<ChannelPermission> overwrites,
         string? memberId,
         IReadOnlyList<string> roleIds)
     {
+        var tiers = new OverwriteTiers();
+
+        foreach (var overwrite in overwrites)
+        {
+            if (memberId != null && overwrite.MemberId == memberId)
+            {
+                tiers = tiers with
+                {
+                    MemberDeny = tiers.MemberDeny | overwrite.DenyPermissions,
+                    MemberAllow = tiers.MemberAllow | overwrite.AllowPermissions,
+                    MemberModuleDeny = tiers.MemberModuleDeny | overwrite.DenyModulePermissions,
+                    MemberModuleAllow = tiers.MemberModuleAllow | overwrite.AllowModulePermissions,
+                };
+                continue;
+            }
+
+            if (overwrite.RoleId is null) continue;
+
+            if (overwrite.Role?.Type == RoleType.Everyone)
+            {
+                tiers = tiers with
+                {
+                    EveryoneDeny = tiers.EveryoneDeny | overwrite.DenyPermissions,
+                    EveryoneAllow = tiers.EveryoneAllow | overwrite.AllowPermissions,
+                    EveryoneModuleDeny = tiers.EveryoneModuleDeny | overwrite.DenyModulePermissions,
+                    EveryoneModuleAllow = tiers.EveryoneModuleAllow | overwrite.AllowModulePermissions,
+                };
+                continue;
+            }
+
+            if (!roleIds.Contains(overwrite.RoleId)) continue;
+
+            tiers = tiers with
+            {
+                RoleDeny = tiers.RoleDeny | overwrite.DenyPermissions,
+                RoleAllow = tiers.RoleAllow | overwrite.AllowPermissions,
+                RoleModuleDeny = tiers.RoleModuleDeny | overwrite.DenyModulePermissions,
+                RoleModuleAllow = tiers.RoleModuleAllow | overwrite.AllowModulePermissions,
+            };
+        }
+
+        return tiers;
+    }
+
+    /// <summary>
+    /// Resolves one layer of overwrites - a category's or a channel's - onto an already expanded
+    /// mask, in Discord's documented order: the @everyone overwrite (deny then allow), then every
+    /// held role's overwrites unioned (deny then allow, so an allow on one role beats a deny on
+    /// another), then the member's own overwrite last.
+    /// </summary>
+    private static Permissions ApplyOverwrites(Permissions initial, in OverwriteTiers tiers)
+    {
+        if (initial.HasFlag(Permissions.Superadmin)) return initial;
+
         var result = initial;
 
-        var everyoneOverwrite = overwrites.FirstOrDefault(o => o.Role?.Type == RoleType.Everyone);
-        if (everyoneOverwrite != null)
+        result &= ~ExpandDeniedPermissions(tiers.EveryoneDeny);
+        result |= tiers.EveryoneAllow;
+
+        result &= ~ExpandDeniedPermissions(tiers.RoleDeny);
+        result |= tiers.RoleAllow;
+
+        result &= ~ExpandDeniedPermissions(tiers.MemberDeny);
+        result |= tiers.MemberAllow;
+
+        return result;
+    }
+
+    /// <summary>
+    /// The module-mask twin of <see cref="ApplyOverwrites"/>, deliberately kept as a separate
+    /// method with the identical shape rather than folded into it.
+    /// </summary>
+    private static ModulePermissions ApplyModuleOverwrites(ModulePermissions initial, in OverwriteTiers tiers)
+    {
+        var result = initial;
+
+        result &= ~tiers.EveryoneModuleDeny;
+        result |= tiers.EveryoneModuleAllow;
+
+        result &= ~tiers.RoleModuleDeny;
+        result |= tiers.RoleModuleAllow;
+
+        result &= ~tiers.MemberModuleDeny;
+        result |= tiers.MemberModuleAllow;
+
+        return result;
+    }
+
+    /// <summary>Every bit of the module mask, used where the core mask would use Superadmin.</summary>
+    internal const ModulePermissions AllModulePermissions = (ModulePermissions)ulong.MaxValue;
+
+    /// <summary>Carries the core mask's Superadmin bit across to the module mask.</summary>
+    private static ModulePermissions ExpandModuleForSuperadmin(Permissions core, ModulePermissions module) =>
+        core.HasFlag(Permissions.Superadmin) ? AllModulePermissions : module;
+
+    /// <summary>
+    /// Every "holding X means you also hold Y" rule in the core permission mask, as data.
+    /// </summary>
+    private static readonly (Permissions Holder, Permissions Implied)[] ImpliedPermissions =
+    [
+        (Permissions.EditAnyMessage,        Permissions.EditOwnMessages),
+        (Permissions.DeleteAnyMessage,      Permissions.DeleteOwnMessages),
+        (Permissions.ManageAnyThread,       Permissions.ManageOwnThreads),
+
+        (Permissions.Speak,                 Permissions.Connect),
+        (Permissions.Stream,                Permissions.Connect),
+        (Permissions.MuteMembers,           Permissions.Connect),
+        (Permissions.DeafenMembers,         Permissions.Connect),
+        (Permissions.MoveMembers,           Permissions.Connect),
+
+        (Permissions.PinMessages,           Permissions.SendMessages),
+        (Permissions.AttachFiles,           Permissions.SendMessages),
+        (Permissions.EmbedLinks,            Permissions.SendMessages),
+        (Permissions.AddReactions,          Permissions.SendMessages),
+        (Permissions.CreateThreads,         Permissions.SendMessages),
+
+        (Permissions.SendMessages,          Permissions.ViewChannel),
+        (Permissions.SendMessagesInThreads, Permissions.ViewChannel),
+        (Permissions.Connect,               Permissions.ViewChannel),
+        (Permissions.EditOwnMessages,       Permissions.ViewChannel),
+        (Permissions.DeleteOwnMessages,     Permissions.ViewChannel),
+        (Permissions.ManageOwnThreads,      Permissions.ViewChannel),
+        (Permissions.ManagePermissions,     Permissions.ViewChannel),
+        (Permissions.ManageChannel,         Permissions.ViewChannel),
+    ];
+
+    private const int PermissionBitCount = 64;
+
+    /// <summary>For each bit position, every bit a holder of it also holds, transitively.</summary>
+    private static readonly Permissions[] ForwardClosure = BuildClosure(reverse: false);
+
+    /// <summary>For each bit position, every bit whose holder would thereby hold it, transitively -
+    /// the set a deny of that bit has to take with it.</summary>
+    private static readonly Permissions[] ReverseClosure = BuildClosure(reverse: true);
+
+    /// <summary>Computes the transitive closure of <see cref="ImpliedPermissions"/> once per
+    /// direction at type-initialization time, so resolving a mask is a handful of ORs rather than a
+    /// graph walk on a path that runs on every message send.</summary>
+    private static Permissions[] BuildClosure(bool reverse)
+    {
+        var direct = new Permissions[PermissionBitCount];
+        foreach (var (holder, implied) in ImpliedPermissions)
         {
-            result &= ~everyoneOverwrite.DenyPermissions;
-            result |= everyoneOverwrite.AllowPermissions;
+            var from = reverse ? implied : holder;
+            var to = reverse ? holder : implied;
+            direct[BitOperations.TrailingZeroCount((ulong)from)] |= to;
         }
 
-        var roleOverwrites = overwrites
-            .Where(o => o.RoleId != null &&
-                        o.Role?.Type != RoleType.Everyone &&
-                        roleIds.Contains(o.RoleId))
-            .ToList();
-
-        foreach (var overwrite in roleOverwrites)
+        var closure = new Permissions[PermissionBitCount];
+        for (var bit = 0; bit < PermissionBitCount; bit++)
         {
-            result &= ~overwrite.DenyPermissions;
-            result |= overwrite.AllowPermissions;
+            var reached = (Permissions)(1ul << bit);
+            var frontier = direct[bit];
+
+            while ((frontier & ~reached) != Permissions.None)
+            {
+                var fresh = frontier & ~reached;
+                reached |= fresh;
+
+                frontier = Permissions.None;
+                var remaining = (ulong)fresh;
+                while (remaining != 0)
+                {
+                    frontier |= direct[BitOperations.TrailingZeroCount(remaining)];
+                    remaining &= remaining - 1;
+                }
+            }
+
+            closure[bit] = reached;
         }
 
-        var memberOverwrite = memberId != null
-            ? overwrites.FirstOrDefault(o => o.MemberId == memberId)
-            : null;
+        return closure;
+    }
 
-        if (memberOverwrite != null)
+    private static Permissions Close(Permissions mask, Permissions[] closure)
+    {
+        var result = mask;
+        var remaining = (ulong)mask;
+        while (remaining != 0)
         {
-            result &= ~memberOverwrite.DenyPermissions;
-            result |= memberOverwrite.AllowPermissions;
+            result |= closure[BitOperations.TrailingZeroCount(remaining)];
+            remaining &= remaining - 1;
         }
 
         return result;
     }
 
-    private static Permissions ExpandImpliedPermissions(Permissions p)
+    /// <summary>Widens a granted mask with everything its bits imply.</summary>
+    internal static Permissions ExpandImpliedPermissions(Permissions p)
     {
         // Superadmin short-circuits everything - no need to enumerate.
         if (p.HasFlag(Permissions.Superadmin))
             return p | ~Permissions.None;
 
-        // Each block grants the permissions that the held flag logically implies.
-
-        if (p.HasFlag(Permissions.EditAnyMessage))
-            p |= Permissions.EditOwnMessages;
-
-        if (p.HasFlag(Permissions.DeleteAnyMessage))
-            p |= Permissions.DeleteOwnMessages;
-
-        if (p.HasFlag(Permissions.ManageAnyThread))
-            p |= Permissions.ManageOwnThreads;
-
-        if (p.HasFlag(Permissions.Stream))
-            p |= Permissions.Speak;
-
-        if (p.HasFlag(Permissions.Speak))
-            p |= Permissions.Stream;
-
-        // Speak/Connect implication handled below via Speak flag
-        if (p.HasFlag(Permissions.Speak) ||
-            p.HasFlag(Permissions.MuteMembers) ||
-            p.HasFlag(Permissions.DeafenMembers) ||
-            p.HasFlag(Permissions.MoveMembers))
-            p |= Permissions.Connect;
-
-        if (p.HasFlag(Permissions.PinMessages) ||
-            p.HasFlag(Permissions.AttachFiles) ||
-            p.HasFlag(Permissions.EmbedLinks) ||
-            p.HasFlag(Permissions.AddReactions) ||
-            p.HasFlag(Permissions.CreateThreads))
-            p |= Permissions.SendMessages;
-
-        if (p.HasFlag(Permissions.ManagePermissions))
-            p |= Permissions.ViewChannel;
-
-        if (p.HasFlag(Permissions.ManageChannel))
-            p |= Permissions.ViewChannel | Permissions.ManagePermissions;
-
-        // Anything that implies SendMessages or Connect also implies ViewChannel.
-        if (p.HasFlag(Permissions.SendMessages) ||
-            p.HasFlag(Permissions.SendMessagesInThreads) ||
-            p.HasFlag(Permissions.Connect) ||
-            p.HasFlag(Permissions.EditOwnMessages) ||
-            p.HasFlag(Permissions.DeleteOwnMessages) ||
-            p.HasFlag(Permissions.ManageOwnThreads) ||
-            p.HasFlag(Permissions.ManageAnyThread))
-            p |= Permissions.ViewChannel;
-
-        return p;
+        return Close(p, ForwardClosure);
     }
+
+    /// <summary>
+    /// Widens a denied mask with everything that implies its bits, so that subtracting the result
+    /// cannot leave behind a bit whose meaning includes the one being taken away.
+    /// </summary>
+    internal static Permissions ExpandDeniedPermissions(Permissions p) => Close(p, ReverseClosure);
 
     private async Task CachePermissionsAsync(string cacheKey, GuildPermissionsForUser permissions)
     {
@@ -681,6 +1018,18 @@ public class GuildPermissionService(
         // whole mask.
         var features = await GetGuildFeaturesAsync(guildId);
         return GuildFeatureMap.ClampToEnabled(features, resolved.BasePermissions);
+    }
+
+    /// <summary>The module-mask half of <see cref="GetGuildPermissionsAsync"/>.</summary>
+    public async Task<ModulePermissions> GetGuildModulePermissionsAsync(string userId, string guildId)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(guildId))
+            throw new ArgumentException("UserId and GuildId cannot be null or whitespace");
+
+        var resolved = await ComputePermissionsForUserAsync(userId, guildId);
+
+        var features = await GetGuildFeaturesAsync(guildId);
+        return GuildFeatureMap.ClampToEnabled(features, resolved.BaseModulePermissions);
     }
 
     public async Task<bool> CanUserPerformActionOnGuildAsync(
@@ -707,7 +1056,34 @@ public class GuildPermissionService(
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return false;
-        return await CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);   
+        return await CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
+    }
+
+    /// <inheritdoc cref="CanUserPerformActionOnGuildAsync(string,string,Permissions)"/>
+    public async Task<bool> CanUserPerformActionOnGuildAsync(
+        string userId,
+        string guildId,
+        ModulePermissions requiredPermission)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(guildId))
+            throw new ArgumentException("UserId and GuildId cannot be null or whitespace");
+
+        if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(guildId), requiredPermission))
+            return false;
+
+        var userPermissions = await ComputePermissionsForUserAsync(userId, guildId);
+        return (userPermissions.BaseModulePermissions & requiredPermission) == requiredPermission;
+    }
+
+    /// <inheritdoc cref="CanUserPerformActionOnGuildAsync(string,string,ModulePermissions)"/>
+    public async Task<bool> CanUserPerformActionOnGuildAsync(
+        ClaimsPrincipal user,
+        string guildId,
+        ModulePermissions requiredPermission)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return false;
+        return await CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
     }
 
     public async Task InvalidateUserPermissionsCacheAsync(string guildId, string userId)
@@ -745,20 +1121,38 @@ public class GuildPermissionService(
         return requested & actorPermissions.BasePermissions;
     }
 
+    /// <inheritdoc cref="CanGrantPermissionsAsync(string,string,Permissions)"/>
+    public async Task<bool> CanGrantPermissionsAsync(string actorUserId, string guildId, ModulePermissions requestedPermissions)
+    {
+        var clamped = await ClampToGrantableAsync(actorUserId, guildId, requestedPermissions);
+        return clamped == requestedPermissions;
+    }
+
+    /// <inheritdoc cref="ClampToGrantableAsync(string,string,Permissions)"/>
+    public async Task<ModulePermissions> ClampToGrantableAsync(string actorUserId, string guildId, ModulePermissions requested)
+    {
+        var enabled = await GetGuildFeaturesAsync(guildId);
+        requested = GuildFeatureMap.ClampToEnabled(enabled, requested);
+
+        var actorPermissions = await ComputePermissionsForUserAsync(actorUserId, guildId);
+        return requested & actorPermissions.BaseModulePermissions;
+    }
+
     /// <summary>Highest role Position the user holds in this guild.</summary>
     public async Task<int> GetHighestRolePositionAsync(string userId, string guildId)
     {
-        var (isOwner, roleIds, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
+        var (isOwner, roleIds, memberId, _, _, _, _, _, _) = await GetMembershipAsync(userId, guildId);
         if (isOwner) return int.MaxValue;
 
-        if (roleIds.Count == 0) return int.MinValue;
+        if (memberId is null) return int.MinValue;
 
         // Guild-scoped for the same reason as ComputePermissionsForUserAsync: a foreign role's
         // Position must not be able to inflate the actor's rank and defeat CanManageRoleAsync /
         // CanModerateTargetAsync. MaxAsync throws on an empty sequence, so this filters first.
         var positions = await ctx.Roles
             .AsNoTracking()
-            .Where(r => roleIds.Contains(r.Id) && r.GuildId == guildId)
+            .Where(r => r.GuildId == guildId &&
+                        (roleIds.Contains(r.Id) || r.Type == RoleType.Everyone))
             .Select(r => r.Position)
             .ToListAsync();
 

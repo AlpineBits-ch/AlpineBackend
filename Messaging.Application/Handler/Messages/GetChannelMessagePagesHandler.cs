@@ -1,7 +1,9 @@
+using Messaging.Application.Services;
 using Messaging.Contracts.Bus.Request;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Repositories;
+using Wolverine;
 using DomainEncryptionState = Messaging.Domain.Enums.MessageEncryptionState;
 
 namespace Messaging.Application.Handler.Messages;
@@ -15,6 +17,7 @@ public class GetChannelMessagePagesHandler
     public static async Task<GetChannelMessagePagesResponse> Handle(
         GetChannelMessagePagesRequest request,
         IMessageRepository repo,
+        IMessageBus bus,
         ILogger<GetChannelMessagePagesHandler> logger)
     {
         var limit = Math.Clamp(request.MessagesPerChannel, 1, GetChannelMessagePagesRequest.MaxMessagesPerChannel);
@@ -24,6 +27,17 @@ public class GetChannelMessagePagesHandler
             .DistinctBy(i => i.ChannelId, StringComparer.Ordinal)
             .Take(GetChannelMessagePagesRequest.MaxChannels)
             .ToList();
+
+        if (items.Count == 0) return new GetChannelMessagePagesResponse { Pages = [] };
+
+        if (string.IsNullOrWhiteSpace(request.RequestingUserId))
+            return new GetChannelMessagePagesResponse { Pages = [] };
+
+        // Two bus round-trips for the whole batch, capped at 25 channels - not two per channel.
+        var readable = await MessageHistoryAccess.FilterReadableAsync(
+            items.Select(i => i.ChannelId).ToList(), request.RequestingUserId, bus);
+
+        items = items.Where(i => readable.Contains(i.ChannelId)).ToList();
 
         if (items.Count == 0) return new GetChannelMessagePagesResponse { Pages = [] };
 

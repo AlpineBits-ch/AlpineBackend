@@ -375,6 +375,14 @@ public class MicroserviceContext : DbContext
         modelBuilder.Entity<Domain.Aggregates.Role>(roleBuilder =>
         {
             roleBuilder.HasOne(x => x.Guild).WithMany(x => x.Roles).HasForeignKey(x => x.GuildId).OnDelete(DeleteBehavior.Cascade);
+
+            // A guild has exactly one @everyone role, and the database is where that is enforced.
+            roleBuilder.HasIndex(x => x.GuildId);
+
+            roleBuilder.HasIndex(x => x.GuildId, "ix_roles_guild_id_everyone")
+                .HasDatabaseName("ix_roles_guild_id_everyone")
+                .IsUnique()
+                .HasFilter("type = 'everyone'");
         });
 
         modelBuilder.Entity<PublicKeyStore>(keyStoreBuilder =>
@@ -629,10 +637,17 @@ public class MicroserviceContext : DbContext
             {
                 snapshotBuilder.ToJson();
                 snapshotBuilder.OwnsMany(s => s.Roles);
-                snapshotBuilder.OwnsMany(s => s.UncategorizedChannels);
+                snapshotBuilder.OwnsMany(s => s.UncategorizedChannels, channelBuilder =>
+                {
+                    channelBuilder.OwnsMany(c => c.Overwrites);
+                });
                 snapshotBuilder.OwnsMany(s => s.Categories, categoryBuilder =>
                 {
-                    categoryBuilder.OwnsMany(c => c.Channels);
+                    categoryBuilder.OwnsMany(c => c.Overwrites);
+                    categoryBuilder.OwnsMany(c => c.Channels, channelBuilder =>
+                    {
+                        channelBuilder.OwnsMany(c => c.Overwrites);
+                    });
                 });
                 snapshotBuilder.OwnsOne(s => s.Onboarding, onboardingBuilder =>
                 {
@@ -1121,6 +1136,9 @@ public class MicroserviceContext : DbContext
             // Guest-role expiry is filtered on every permission resolution, so it needs to be
             // cheap - see GuildPermissionService.GetMembershipAsync.
             roleMemberBuilder.HasIndex(x => x.ExpiresAt);
+
+            // A member either holds a role or does not; there is no meaning to holding it twice.
+            roleMemberBuilder.HasIndex(x => new { x.RoleId, x.MemberId }).IsUnique();
         });
     }
     

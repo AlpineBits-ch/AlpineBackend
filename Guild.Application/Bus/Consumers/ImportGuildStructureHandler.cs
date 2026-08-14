@@ -88,8 +88,9 @@ public class ImportGuildStructureHandler
                 // your own message, or for archiving your own thread, so DiscordPermissionMapper
                 // cannot produce them and an imported @everyone role would land strictly weaker
                 // than a natively created one.
-                everyoneRole.ApplyExternalEveryonePermissions((Permissions)roleDto.Permissions);
+                everyoneRole.ApplyExternalEveryonePermissions((Permissions)roleDto.Permissions, ModulePermissions.None);
                 everyoneRole.Color = roleDto.Color;
+                // The rest of the imported role metadata is deliberately not applied here.
                 roleIdMap[roleDto.DiscordId] = everyoneRole.Id;
                 response.DiscordToEchoRoleIds[roleDto.DiscordId] = everyoneRole.Id;
                 continue;
@@ -102,8 +103,18 @@ public class ImportGuildStructureHandler
                 GuildId = guild.Id,
                 Type = RoleType.None,
                 Permissions = (Permissions)roleDto.Permissions,
+                // No module mask: nothing in Discord maps to the wiki or a household module, so an
+                // imported ordinary role starts with none of them.
+                ModulePermissions = ModulePermissions.None,
+                Hoist = roleDto.Hoist,
+                Mentionable = roleDto.Mentionable,
+                IconUrl = roleDto.IconUrl,
+                UnicodeEmoji = roleDto.UnicodeEmoji,
             });
             role.Position = roleDto.Position;
+            role.IsManaged = roleDto.IsManaged;
+            role.BotUserId = roleDto.BotUserId;
+            role.IntegrationId = roleDto.IntegrationId;
 
             ctx.Roles.Add(role);
             roleIdMap[roleDto.DiscordId] = role.Id;

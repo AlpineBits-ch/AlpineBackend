@@ -1,3 +1,4 @@
+using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Messaging.Application.Controllers;
@@ -175,6 +176,88 @@ public class MessagingControllerTests
         Assert.That(result, Is.InstanceOf<OkObjectResult>());
         var messages = (((OkObjectResult)result).Value as IEnumerable<MessageDto>)!.ToList();
         Assert.That(messages, Has.Count.EqualTo(1));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ ReadMessageHistory
+
+    private static FakeMessageBus BusGranting(params ExternalPermission[] granted) =>
+        new(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = granted.Contains(r.Permission), Permission = r.Permission,
+            },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+    [Test]
+    public async Task GetMessagesForChannel_CanViewButNotReadHistory_ReturnsForbid()
+    {
+        var message = Message.Create(new CreateMessageParams { Content = "hi"u8.ToArray(), ChannelId = "chan-1", AuthorId = "author-1" });
+        await _repo.CreateMessageAsync(message);
+        await _context.SaveChangesAsync();
+
+        var bus = BusGranting(ExternalPermission.ViewChannel);
+        var controller = MakeController(bus, "user-1");
+
+        var result = await controller.GetMessagesForChannelAsync("chan-1", 0, 10);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidResult>());
+            Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>().Select(r => r.Permission),
+                Is.EqualTo(new[] { ExternalPermission.ViewChannel, ExternalPermission.ReadMessageHistory }));
+        });
+    }
+
+    [Test]
+    public async Task GetMessagesForChannel_HoldsBothBits_StillReturnsTheBacklog()
+    {
+        // The regression this whole item risks: a member on the default @everyone mask holds both,
+        // so enforcement must be invisible to them.
+        var message = Message.Create(new CreateMessageParams { Content = "hi"u8.ToArray(), ChannelId = "chan-1", AuthorId = "author-1" });
+        await _repo.CreateMessageAsync(message);
+        await _context.SaveChangesAsync();
+
+        var bus = BusGranting(ExternalPermission.ViewChannel, ExternalPermission.ReadMessageHistory);
+        var controller = MakeController(bus, "user-1");
+
+        var result = await controller.GetMessagesForChannelAsync("chan-1", 0, 10);
+
+        Assert.That(result, Is.InstanceOf<OkObjectResult>());
+        Assert.That((((OkObjectResult)result).Value as IEnumerable<MessageDto>)!.ToList(), Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task GetMessagesForChannel_ViewDenied_DoesNotAskAboutHistory()
+    {
+        var bus = BusGranting();
+        var controller = MakeController(bus, "user-1");
+
+        await controller.GetMessagesForChannelAsync("chan-1", 0, 10);
+
+        Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>().Select(r => r.Permission),
+            Is.EqualTo(new[] { ExternalPermission.ViewChannel }));
+    }
+
+    [Test]
+    public async Task GetMessagesForConversation_NeverAsksAboutHistory()
+    {
+        // A DM has no roles and no overwrites - membership is the whole access question, so there
+        // is nothing for ReadMessageHistory to say and the conversation path must not ask.
+        _context.Members.Add(MakeMember("cmem-1", "user-1", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var bus = BusGranting();
+        var controller = MakeController(bus, "user-1");
+
+        var result = await controller.GetMessages("conv-1", 0, 10);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(bus.Invoked, Is.Empty);
+        });
     }
 
     // ══════════════════════════════════════════════════════════════════════════ Paging

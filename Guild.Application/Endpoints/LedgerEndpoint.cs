@@ -123,7 +123,7 @@ public class LedgerEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, Permissions.AddExpenses);
+        var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, ModulePermissions.AddExpenses);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Description)) return Results.BadRequest("Description is required");
@@ -142,7 +142,7 @@ public class LedgerEndpoint
         var payerUserId = dto.PayerUserId ?? userId;
         if (payerUserId != userId)
         {
-            var onBehalf = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+            var onBehalf = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
             if (onBehalf.ToFailure() is { } onBehalfFailure) return onBehalfFailure;
         }
 
@@ -205,7 +205,7 @@ public class LedgerEndpoint
 
         // Fixing your own typo needs only AddExpenses; editing an expense someone else entered
         // changes what they're owed, so it's a moderator action.
-        var required = expense.CreatedByUserId == userId ? Permissions.AddExpenses : Permissions.ManageLedger;
+        var required = expense.CreatedByUserId == userId ? ModulePermissions.AddExpenses : ModulePermissions.ManageLedger;
         var access = await household.ResolveAsync(expense.ChannelId, ChannelType.Ledger, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
@@ -230,7 +230,7 @@ public class LedgerEndpoint
             if (dto.PayerUserId != userId)
             {
                 var reassign = await household.ResolveAsync(
-                    expense.ChannelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+                    expense.ChannelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
                 if (reassign.ToFailure() is { } reassignFailure) return reassignFailure;
             }
 
@@ -282,7 +282,7 @@ public class LedgerEndpoint
         var expense = await ctx.Expenses.FirstOrDefaultAsync(e => e.Id == expenseId);
         if (expense is null) return Results.NotFound();
 
-        var required = expense.CreatedByUserId == userId ? Permissions.AddExpenses : Permissions.ManageLedger;
+        var required = expense.CreatedByUserId == userId ? ModulePermissions.AddExpenses : ModulePermissions.ManageLedger;
         var access = await household.ResolveAsync(expense.ChannelId, ChannelType.Ledger, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
@@ -349,7 +349,7 @@ public class LedgerEndpoint
 
         // Recording a payment you made yourself is an ordinary action; recording one between two
         // other people rewrites their balances, so that needs ManageLedger.
-        var required = dto.FromUserId == userId ? Permissions.AddExpenses : Permissions.ManageLedger;
+        var required = dto.FromUserId == userId ? ModulePermissions.AddExpenses : ModulePermissions.ManageLedger;
         var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
@@ -433,7 +433,7 @@ public class LedgerEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, Permissions.ManageLedger);
+        var access = await household.ResolveAsync(channelId, ChannelType.Ledger, userId, ModulePermissions.ManageLedger);
         if (access.ToFailure() is { } failure) return failure;
 
         var currency = dto.Currency?.Trim().ToUpperInvariant();

@@ -192,6 +192,57 @@ public class StartDiscordStructureImportHandlerTests
     }
 
     [Test]
+    public async Task Handle_Success_CarriesRoleMetadataIncludingManagedAndTags()
+    {
+        EnqueueGuild();
+        EnqueueRoles(
+            new DiscordRolePayload
+            {
+                Id = "role-bot", Name = "MusicBot", Permissions = "0", Managed = true, Hoist = true,
+                Mentionable = false, Icon = "abc123",
+                Tags = new DiscordRoleTagsPayload { BotId = "1234567890", IntegrationId = "9876543210" },
+            });
+        EnqueueChannels();
+
+        await StartDiscordStructureImportHandler.Handle(Command(), _context, _discordApi, _bus, NullLogger<StartDiscordStructureImportHandler>.Instance, default);
+
+        var sentCommand = (ImportGuildStructureCommand)_bus.Invoked.Single(m => m is ImportGuildStructureCommand);
+        var bot = sentCommand.Roles.Single(r => r.DiscordId == "role-bot");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bot.IsManaged, Is.True);
+            Assert.That(bot.BotUserId, Is.EqualTo("1234567890"));
+            Assert.That(bot.IntegrationId, Is.EqualTo("9876543210"));
+            Assert.That(bot.Hoist, Is.True);
+            Assert.That(bot.Mentionable, Is.False);
+            Assert.That(bot.IconUrl, Is.EqualTo("https://cdn.discordapp.com/role-icons/role-bot/abc123.png"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_Success_UntaggedRole_ArrivesUnmanagedAndMentionable()
+    {
+        EnqueueGuild();
+        EnqueueRoles(new DiscordRolePayload { Id = "role-mod", Name = "Moderator", Permissions = "8" });
+        EnqueueChannels();
+
+        await StartDiscordStructureImportHandler.Handle(Command(), _context, _discordApi, _bus, NullLogger<StartDiscordStructureImportHandler>.Instance, default);
+
+        var sentCommand = (ImportGuildStructureCommand)_bus.Invoked.Single(m => m is ImportGuildStructureCommand);
+        var mod = sentCommand.Roles.Single(r => r.DiscordId == "role-mod");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mod.IsManaged, Is.False);
+            Assert.That(mod.BotUserId, Is.Null, "a role with no tags object must not fault on the lookup");
+            Assert.That(mod.Mentionable, Is.True);
+            Assert.That(mod.IconUrl, Is.Null);
+            Assert.That(mod.UnicodeEmoji, Is.Null);
+        });
+    }
+
+    [Test]
     public async Task Handle_Success_SanitizesChannelNamesWithWhitespace()
     {
         EnqueueGuild();

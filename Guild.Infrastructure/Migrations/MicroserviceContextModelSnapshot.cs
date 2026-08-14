@@ -193,6 +193,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("guild_kind")
                         .HasColumnName("kind");
 
+                    b.Property<bool>("MfaRequired")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mfa_required");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -235,6 +239,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<string>("BotUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("bot_user_id");
+
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasColumnType("text")
@@ -253,6 +261,30 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("guild_id");
 
+                    b.Property<bool>("Hoist")
+                        .HasColumnType("boolean")
+                        .HasColumnName("hoist");
+
+                    b.Property<string>("IconUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("icon_url");
+
+                    b.Property<string>("IntegrationId")
+                        .HasColumnType("text")
+                        .HasColumnName("integration_id");
+
+                    b.Property<bool>("IsManaged")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_managed");
+
+                    b.Property<bool>("Mentionable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("mentionable");
+
+                    b.Property<decimal>("ModulePermissions")
+                        .HasColumnType("numeric(20,0)")
+                        .HasColumnName("module_permissions");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -270,6 +302,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("role_type")
                         .HasColumnName("type");
 
+                    b.Property<string>("UnicodeEmoji")
+                        .HasColumnType("text")
+                        .HasColumnName("unicode_emoji");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -279,6 +315,11 @@ namespace Guild.Persistence.Migrations
 
                     b.HasIndex("GuildId")
                         .HasDatabaseName("ix_roles_guild_id");
+
+                    b.HasIndex(new[] { "GuildId" }, "ix_roles_guild_id_everyone")
+                        .IsUnique()
+                        .HasDatabaseName("ix_roles_guild_id_everyone")
+                        .HasFilter("type = 'everyone'");
 
                     b.ToTable("roles", (string)null);
                 });
@@ -466,6 +507,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<decimal>("AllowModulePermissions")
+                        .HasColumnType("numeric(20,0)")
+                        .HasColumnName("allow_module_permissions");
+
                     b.Property<decimal>("AllowPermissions")
                         .HasColumnType("numeric(20,0)")
                         .HasColumnName("allow_permissions");
@@ -481,6 +526,10 @@ namespace Guild.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<decimal>("DenyModulePermissions")
+                        .HasColumnType("numeric(20,0)")
+                        .HasColumnName("deny_module_permissions");
 
                     b.Property<decimal>("DenyPermissions")
                         .HasColumnType("numeric(20,0)")
@@ -1427,6 +1476,10 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
+                    b.Property<decimal>("AllowModulePermissions")
+                        .HasColumnType("numeric(20,0)")
+                        .HasColumnName("allow_module_permissions");
+
                     b.Property<decimal>("AllowPermissions")
                         .HasColumnType("numeric(20,0)")
                         .HasColumnName("allow_permissions");
@@ -1438,6 +1491,10 @@ namespace Guild.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<decimal>("DenyModulePermissions")
+                        .HasColumnType("numeric(20,0)")
+                        .HasColumnName("deny_module_permissions");
 
                     b.Property<decimal>("DenyPermissions")
                         .HasColumnType("numeric(20,0)")
@@ -3227,8 +3284,9 @@ namespace Guild.Persistence.Migrations
                     b.HasIndex("MemberId")
                         .HasDatabaseName("ix_role_members_member_id");
 
-                    b.HasIndex("RoleId")
-                        .HasDatabaseName("ix_role_members_role_id");
+                    b.HasIndex("RoleId", "MemberId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_role_members_role_id_member_id");
 
                     b.ToTable("role_members", (string)null);
                 });
@@ -4184,9 +4242,73 @@ namespace Guild.Persistence.Migrations
                                             b3.WithOwner()
                                                 .HasForeignKey("TemplateCategoryTemplateSnapshotGuildTemplateId", "TemplateCategory__synthesizedOrdinal")
                                                 .HasConstraintName("fk_guild_templates_guild_templates_template_category_template_sna");
+
+                                            b3.OwnsMany("Guild.Domain.Entity.TemplateOverwrite", "Overwrites", b4 =>
+                                                {
+                                                    b4.Property<string>("TemplateChannelTemplateCategoryTemplateSnapshotGuildTemplateId");
+
+                                                    b4.Property<int>("TemplateChannelTemplateCategory__synthesizedOrdinal");
+
+                                                    b4.Property<int>("TemplateChannel__synthesizedOrdinal");
+
+                                                    b4.Property<int>("__synthesizedOrdinal")
+                                                        .ValueGeneratedOnAdd();
+
+                                                    b4.Property<decimal>("Allow");
+
+                                                    b4.Property<decimal>("AllowModule");
+
+                                                    b4.Property<decimal>("Deny");
+
+                                                    b4.Property<decimal>("DenyModule");
+
+                                                    b4.Property<string>("RoleName")
+                                                        .IsRequired();
+
+                                                    b4.HasKey("TemplateChannelTemplateCategoryTemplateSnapshotGuildTemplateId", "TemplateChannelTemplateCategory__synthesizedOrdinal", "TemplateChannel__synthesizedOrdinal", "__synthesizedOrdinal");
+
+                                                    b4.ToTable("guild_templates");
+
+                                                    b4.WithOwner()
+                                                        .HasForeignKey("TemplateChannelTemplateCategoryTemplateSnapshotGuildTemplateId", "TemplateChannelTemplateCategory__synthesizedOrdinal", "TemplateChannel__synthesizedOrdinal")
+                                                        .HasConstraintName("fk_guild_templates_guild_templates_template_channel_template_cate");
+                                                });
+
+                                            b3.Navigation("Overwrites");
+                                        });
+
+                                    b2.OwnsMany("Guild.Domain.Entity.TemplateOverwrite", "Overwrites", b3 =>
+                                        {
+                                            b3.Property<string>("TemplateCategoryTemplateSnapshotGuildTemplateId");
+
+                                            b3.Property<int>("TemplateCategory__synthesizedOrdinal");
+
+                                            b3.Property<int>("__synthesizedOrdinal")
+                                                .ValueGeneratedOnAdd();
+
+                                            b3.Property<decimal>("Allow");
+
+                                            b3.Property<decimal>("AllowModule");
+
+                                            b3.Property<decimal>("Deny");
+
+                                            b3.Property<decimal>("DenyModule");
+
+                                            b3.Property<string>("RoleName")
+                                                .IsRequired();
+
+                                            b3.HasKey("TemplateCategoryTemplateSnapshotGuildTemplateId", "TemplateCategory__synthesizedOrdinal", "__synthesizedOrdinal");
+
+                                            b3.ToTable("guild_templates");
+
+                                            b3.WithOwner()
+                                                .HasForeignKey("TemplateCategoryTemplateSnapshotGuildTemplateId", "TemplateCategory__synthesizedOrdinal")
+                                                .HasConstraintName("fk_guild_templates_guild_templates_template_category_template_sna");
                                         });
 
                                     b2.Navigation("Channels");
+
+                                    b2.Navigation("Overwrites");
                                 });
 
                             b1.OwnsOne("Guild.Domain.Entity.TemplateOnboarding", "Onboarding", b2 =>
@@ -4290,7 +4412,15 @@ namespace Guild.Persistence.Migrations
                                     b2.Property<string>("Color")
                                         .IsRequired();
 
+                                    b2.Property<string>("Description");
+
+                                    b2.Property<bool>("Hoist");
+
                                     b2.Property<bool>("IsEveryone");
+
+                                    b2.Property<bool?>("Mentionable");
+
+                                    b2.Property<decimal>("ModulePermissions");
 
                                     b2.Property<string>("Name")
                                         .IsRequired();
@@ -4298,6 +4428,8 @@ namespace Guild.Persistence.Migrations
                                     b2.Property<decimal>("Permissions");
 
                                     b2.Property<int>("Position");
+
+                                    b2.Property<string>("UnicodeEmoji");
 
                                     b2.HasKey("TemplateSnapshotGuildTemplateId", "__synthesizedOrdinal")
                                         .HasName("pk_guild_templates");
@@ -4333,6 +4465,37 @@ namespace Guild.Persistence.Migrations
                                     b2.WithOwner()
                                         .HasForeignKey("TemplateSnapshotGuildTemplateId")
                                         .HasConstraintName("fk_guild_templates_guild_templates_template_snapshot_guild_templa");
+
+                                    b2.OwnsMany("Guild.Domain.Entity.TemplateOverwrite", "Overwrites", b3 =>
+                                        {
+                                            b3.Property<string>("TemplateChannelTemplateSnapshotGuildTemplateId");
+
+                                            b3.Property<int>("TemplateChannel__synthesizedOrdinal");
+
+                                            b3.Property<int>("__synthesizedOrdinal")
+                                                .ValueGeneratedOnAdd();
+
+                                            b3.Property<decimal>("Allow");
+
+                                            b3.Property<decimal>("AllowModule");
+
+                                            b3.Property<decimal>("Deny");
+
+                                            b3.Property<decimal>("DenyModule");
+
+                                            b3.Property<string>("RoleName")
+                                                .IsRequired();
+
+                                            b3.HasKey("TemplateChannelTemplateSnapshotGuildTemplateId", "TemplateChannel__synthesizedOrdinal", "__synthesizedOrdinal");
+
+                                            b3.ToTable("guild_templates");
+
+                                            b3.WithOwner()
+                                                .HasForeignKey("TemplateChannelTemplateSnapshotGuildTemplateId", "TemplateChannel__synthesizedOrdinal")
+                                                .HasConstraintName("fk_guild_templates_guild_templates_template_channel_template_snap");
+                                        });
+
+                                    b2.Navigation("Overwrites");
                                 });
 
                             b1.Navigation("Categories");

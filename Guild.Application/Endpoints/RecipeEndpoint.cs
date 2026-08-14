@@ -96,7 +96,7 @@ public class RecipeEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, Permissions.PlanMeals);
+        var access = await household.ResolveAsync(channelId, ChannelType.Meals, userId, ModulePermissions.PlanMeals);
         if (access.ToFailure() is { } failure) return failure;
 
         if (ValidateRecipe(dto.Title, dto.Servings, dto.Ingredients) is { } invalid)
@@ -147,7 +147,7 @@ public class RecipeEndpoint
 
         // Editing your own recipe needs only PlanMeals; editing somebody else's is a moderator
         // action.
-        var required = recipe.CreatedByUserId == userId ? Permissions.PlanMeals : Permissions.ManageMeals;
+        var required = recipe.CreatedByUserId == userId ? ModulePermissions.PlanMeals : ModulePermissions.ManageMeals;
         var access = await household.ResolveAsync(recipe.ChannelId, ChannelType.Meals, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
@@ -197,7 +197,7 @@ public class RecipeEndpoint
         var recipe = await ctx.Set<Recipe>().FirstOrDefaultAsync(r => r.Id == recipeId);
         if (recipe is null) return Results.NotFound();
 
-        var required = recipe.CreatedByUserId == userId ? Permissions.PlanMeals : Permissions.ManageMeals;
+        var required = recipe.CreatedByUserId == userId ? ModulePermissions.PlanMeals : ModulePermissions.ManageMeals;
         var access = await household.ResolveAsync(recipe.ChannelId, ChannelType.Meals, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 

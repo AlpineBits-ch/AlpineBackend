@@ -63,6 +63,7 @@ public class ReactionsEndpoint
 
         var emojiName = dto.Reaction;
 
+        // No UseExternalEmojis check here, and its absence is a finding rather than an omission.
         if (!string.IsNullOrWhiteSpace(dto.EmojiId))
         {
             if (string.IsNullOrWhiteSpace(channelId))

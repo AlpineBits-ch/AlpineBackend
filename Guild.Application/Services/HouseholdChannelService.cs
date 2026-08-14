@@ -53,6 +53,22 @@ public class HouseholdChannelService(
             : new ChannelAccess(Access.Forbidden, null);
     }
 
+    /// <inheritdoc cref="ResolveAsync(string,ChannelType,string,Permissions)"/>
+    /// <remarks>The overload every household endpoint actually calls: their permissions all live in
+    /// <see cref="ModulePermissions"/>. The core overload above remains for the ViewChannel checks
+    /// the same endpoints make when only reading.</remarks>
+    public async Task<ChannelAccess> ResolveAsync(
+        string channelId, ChannelType expectedType, string userId, ModulePermissions required)
+    {
+        var channel = await ctx.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null || channel.Type != expectedType) return new ChannelAccess(Access.NotFound, null);
+
+        var allowed = await permissionService.CanUserPerformActionAsync(userId, channelId, required);
+        return allowed
+            ? new ChannelAccess(Access.Ok, channel)
+            : new ChannelAccess(Access.Forbidden, null);
+    }
+
     /// <summary>
     /// Broadcasts a channel-scoped mutation to the online members who can actually see that
     /// channel.

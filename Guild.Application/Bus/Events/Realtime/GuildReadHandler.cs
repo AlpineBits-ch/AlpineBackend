@@ -56,7 +56,8 @@ public class GuildReadHandler
         }
 
         lastRead.LastReadMessageId = message.Id;
-        lastRead.LastReadAt = await ResolveReadTimeAsync(message.Id, channel.LastMessageId, channel.LastActivityAt, bus, logger);
+        lastRead.LastReadAt = await ResolveReadTimeAsync(
+            message.UserId, message.Id, channel.LastMessageId, channel.LastActivityAt, bus, logger);
         lastRead.MessageCountAtRead = channel.MessageCount;
         lastRead.UpdatedAt = DateTime.UtcNow;
         await microserviceContext.SaveChangesAsync();
@@ -66,6 +67,7 @@ public class GuildReadHandler
     /// The stored CreatedAt of the acked message - what the unread predicate compares against.
     /// </summary>
     private static async Task<DateTimeOffset?> ResolveReadTimeAsync(
+        string ackingUserId,
         string? ackedMessageId,
         string? channelLastMessageId,
         DateTimeOffset? channelLastActivityAt,
@@ -83,11 +85,16 @@ public class GuildReadHandler
 
         try
         {
-            var response = await bus.InvokeAsync<GetMessageResponse>(new GetMessageRequest { MessageId = ackedMessageId });
+            var response = await bus.InvokeAsync<GetMessageResponse>(new GetMessageRequest
+            {
+                MessageId = ackedMessageId,
+                RequestingUserId = ackingUserId,
+                Scope = MessageReadScope.MetadataOnly,
+            });
             if (response.Message is not null) return response.Message.CreatedAt;
 
-            // Acking a message that no longer exists is ordinary - it was deleted between being
-            // rendered and being acked. The channel head is the honest answer.
+            // Deleted between being rendered and being acked, or an id the acker has no business
+            // resolving - Messaging answers both the same way.
             return channelLastActivityAt ?? DateTimeOffset.UtcNow;
         }
         catch (Exception ex)

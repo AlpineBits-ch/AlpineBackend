@@ -66,7 +66,68 @@ public class RoleSyncHandlersTests
         Assert.That(_context.Roles.Count(r => r.GuildId == GuildId), Is.EqualTo(1), "must not create a second @everyone row");
 
         var role = _context.Roles.Single(r => r.Id == EveryoneRoleId);
-        Assert.That((ulong)role.Permissions, Is.EqualTo(0b11ul));
+        Assert.That(role.Permissions, Is.EqualTo((Permissions)0b11ul | Role.ExternalEveryoneBaseline));
+    }
+
+    [Test]
+    public async Task Upsert_EveryoneRole_KeepsTheEchoNativeBaselineOnEveryResync()
+    {
+        // Regression: the everyone branch used to assign the Discord mask raw, so the first
+        // GUILD_ROLE_UPDATE after an import silently took back the wiki and own-content permissions
+        // that ImportGuildStructureHandler had just restored.
+        await Upsert(new UpsertRoleFromSyncCommand
+        {
+            GuildId = GuildId, IsEveryoneRole = true, Name = "@everyone", Color = "#123456", Permissions = 0,
+        });
+
+        var role = _context.Roles.Single(r => r.Id == EveryoneRoleId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.Permissions.HasFlag(Permissions.EditOwnMessages), Is.True);
+            Assert.That(role.Permissions.HasFlag(Permissions.ManageOwnThreads), Is.True);
+            Assert.That(role.ModulePermissions, Is.EqualTo(Role.ExternalEveryoneModuleBaseline),
+                "Discord has no module bits, so the baseline is the whole module mask");
+        });
+    }
+
+    [Test]
+    public async Task Upsert_RoleMetadata_FlowsOnCreateAndOnUpdate()
+    {
+        var created = await Upsert(new UpsertRoleFromSyncCommand
+        {
+            GuildId = GuildId, Name = "Bots", Color = "#FF0000", Position = 1,
+            Hoist = true, Mentionable = false, UnicodeEmoji = "🤖",
+            IsManaged = true, BotUserId = "bot-1", IntegrationId = "intg-1",
+        });
+
+        var role = _context.Roles.Single(r => r.Id == created.EchoId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.Hoist, Is.True);
+            Assert.That(role.Mentionable, Is.False);
+            Assert.That(role.UnicodeEmoji, Is.EqualTo("🤖"));
+            Assert.That(role.IsManaged, Is.True);
+            Assert.That(role.BotUserId, Is.EqualTo("bot-1"));
+        });
+
+        // The integration was removed on the Discord side: the role must stop being managed rather
+        // than stay locked with nothing owning it.
+        await Upsert(new UpsertRoleFromSyncCommand
+        {
+            GuildId = GuildId, EchoRoleId = created.EchoId, Name = "Bots", Color = "#FF0000", Position = 1,
+            Hoist = false, Mentionable = true, IconUrl = "https://cdn.example/role-icons/1/a.png",
+        });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(role.Hoist, Is.False);
+            Assert.That(role.Mentionable, Is.True);
+            Assert.That(role.IsManaged, Is.False);
+            Assert.That(role.BotUserId, Is.Null);
+            Assert.That(role.IntegrationId, Is.Null);
+            Assert.That(role.IconUrl, Is.EqualTo("https://cdn.example/role-icons/1/a.png"));
+            Assert.That(role.UnicodeEmoji, Is.Null, "the badge is one or the other, never both");
+        });
     }
 
     [Test]

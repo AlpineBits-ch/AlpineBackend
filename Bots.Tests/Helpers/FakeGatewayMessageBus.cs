@@ -1,4 +1,5 @@
 using Guild.Contracts;
+using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Identity.Contracts.Bus.Response;
 using Messaging.Contracts.Bus.Response;
@@ -19,6 +20,11 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
     public GetGuildMemberResponse GuildMemberResponse { get; set; } = new() { Member = null };
     public GetUserByIdResponse UserResponse { get; set; } = new() { User = null };
     public HasUserPermissionToChannelResponse PermissionResponse { get; set; } = new() { IsAllowed = true, Permission = ExternalPermission.SendMessages };
+
+    /// <summary>
+    /// Per-permission overrides, consulted before <see cref="PermissionResponse"/>.
+    /// </summary>
+    public Dictionary<ExternalPermission, bool> ChannelPermissionOverrides { get; } = new();
     public HasUserPermissionToGuildResponse GuildPermissionResponse { get; set; } = new() { IsAllowed = true, Permission = ExternalPermission.ViewChannel };
     public GetGuildSnapshotForBotResponse GuildSnapshotResponse { get; set; } = new() { Guild = null };
     public GetMessageResponse MessageResponse { get; set; } = new() { Message = null };
@@ -31,7 +37,7 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
         {
             _ when typeof(T) == typeof(GetGuildMemberResponse) => GuildMemberResponse,
             _ when typeof(T) == typeof(GetUserByIdResponse) => UserResponse,
-            _ when typeof(T) == typeof(HasUserPermissionToChannelResponse) => PermissionResponse,
+            _ when typeof(T) == typeof(HasUserPermissionToChannelResponse) => ChannelPermission(message),
             _ when typeof(T) == typeof(HasUserPermissionToGuildResponse) => GuildPermissionResponse,
             _ when typeof(T) == typeof(GetGuildSnapshotForBotResponse) => GuildSnapshotResponse,
             _ when typeof(T) == typeof(GetMessageResponse) => MessageResponse,
@@ -39,6 +45,23 @@ internal sealed class FakeGatewayMessageBus : IMessageBus
         };
 
         return Task.FromResult((T)response);
+    }
+
+    private HasUserPermissionToChannelResponse ChannelPermission(object message)
+    {
+        if (message is HasUserPermissionToChannelRequest request
+            && ChannelPermissionOverrides.TryGetValue(request.Permission, out var allowed))
+        {
+            return new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = allowed,
+                UserId = request.UserId,
+                ChannelId = request.ChannelId,
+                Permission = request.Permission,
+            };
+        }
+
+        return PermissionResponse;
     }
 
     public Task InvokeAsync(object message, CancellationToken cancellation = default, TimeSpan? timeout = null)

@@ -180,6 +180,48 @@ public class DiscordStructureSyncHandlerTests
     }
 
     [Test]
+    public async Task HandleRoleUpsert_CarriesRoleMetadataSoLiveEditsDoNotDrift()
+    {
+        var role = MakeRole("role-bot", "MusicBot");
+        role.Managed = true;
+        role.Hoist = true;
+        role.Mentionable = false;
+        role.UnicodeEmoji = "🤖";
+        role.Tags = new DiscordRoleTagsPayload { BotId = "1234567890" };
+
+        await _handler.HandleRoleUpsertAsync(DiscordGuildId, role, CancellationToken.None);
+
+        var command = (UpsertRoleFromSyncCommand)_bus.Invoked[0];
+        Assert.Multiple(() =>
+        {
+            Assert.That(command.IsManaged, Is.True);
+            Assert.That(command.BotUserId, Is.EqualTo("1234567890"));
+            Assert.That(command.IntegrationId, Is.Null);
+            Assert.That(command.Hoist, Is.True);
+            Assert.That(command.Mentionable, Is.False);
+            Assert.That(command.UnicodeEmoji, Is.EqualTo("🤖"));
+            Assert.That(command.IconUrl, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task HandleRoleUpsert_RoleWithAnIcon_SendsTheCdnUrlAndDropsTheEmoji()
+    {
+        var role = MakeRole("role-vip", "VIP");
+        role.Icon = "abc123";
+        role.UnicodeEmoji = "⭐";
+
+        await _handler.HandleRoleUpsertAsync(DiscordGuildId, role, CancellationToken.None);
+
+        var command = (UpsertRoleFromSyncCommand)_bus.Invoked[0];
+        Assert.Multiple(() =>
+        {
+            Assert.That(command.IconUrl, Is.EqualTo("https://cdn.discordapp.com/role-icons/role-vip/abc123.png"));
+            Assert.That(command.UnicodeEmoji, Is.Null);
+        });
+    }
+
+    [Test]
     public async Task HandleRoleDelete_KnownMapping_DeletesAndRemovesMapping()
     {
         await _handler.HandleRoleUpsertAsync(DiscordGuildId, MakeRole("role-mod"), CancellationToken.None);

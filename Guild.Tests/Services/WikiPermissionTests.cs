@@ -47,10 +47,10 @@ public class WikiPermissionTests
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
     };
 
-    private static Role MakeRole(Permissions permissions) => new()
+    private static Role MakeRole(ModulePermissions permissions) => new()
     {
         Id = RoleId, GuildId = GuildId, Type = RoleType.None, Name = "wiki-role",
-        Permissions = permissions,
+        ModulePermissions = permissions,
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
     };
 
@@ -69,7 +69,7 @@ public class WikiPermissionTests
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
     };
 
-    private async Task SeedWithPermission(Permissions permission)
+    private async Task SeedWithPermission(ModulePermissions permission)
     {
         _context.Guilds.Add(MakeGuild());
         _context.Roles.Add(MakeRole(permission));
@@ -78,7 +78,22 @@ public class WikiPermissionTests
         await _context.SaveChangesAsync();
     }
 
-    private Task<bool> Can(Permissions permission) =>
+    /// <summary>Seeds a role holding a core-mask permission instead of a wiki one.</summary>
+    private async Task SeedWithCorePermission(Permissions permission)
+    {
+        _context.Guilds.Add(MakeGuild());
+        _context.Roles.Add(new Role
+        {
+            Id = RoleId, GuildId = GuildId, Type = RoleType.None, Name = "wiki-role",
+            Permissions = permission,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        _context.GuildMembers.Add(MakeMember());
+        _context.RoleMembers.Add(MakeRoleMember());
+        await _context.SaveChangesAsync();
+    }
+
+    private Task<bool> Can(ModulePermissions permission) =>
         _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, permission);
 
     // ══════════════════════════════════════════════════════════════════════════ Owner
@@ -92,14 +107,14 @@ public class WikiPermissionTests
 
         var wikiPermissions = new[]
         {
-            Permissions.ViewWiki,
-            Permissions.CreateWikiPages,
-            Permissions.EditOwnWikiPages,
-            Permissions.EditAnyWikiPage,
-            Permissions.DeleteWikiPages,
-            Permissions.ManageWikiRevisions,
-            Permissions.ManageWikiStructure,
-            Permissions.PublishWikiPublicly,
+            ModulePermissions.ViewWiki,
+            ModulePermissions.CreateWikiPages,
+            ModulePermissions.EditOwnWikiPages,
+            ModulePermissions.EditAnyWikiPage,
+            ModulePermissions.DeleteWikiPages,
+            ModulePermissions.ManageWikiRevisions,
+            ModulePermissions.ManageWikiStructure,
+            ModulePermissions.PublishWikiPublicly,
         };
 
         foreach (var perm in wikiPermissions)
@@ -114,17 +129,17 @@ public class WikiPermissionTests
     [Test]
     public async Task ViewWiki_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.ViewWiki);
+        await SeedWithPermission(ModulePermissions.ViewWiki);
 
-        Assert.That(await Can(Permissions.ViewWiki), Is.True);
+        Assert.That(await Can(ModulePermissions.ViewWiki), Is.True);
     }
 
     [Test]
     public async Task ViewWiki_UserLacksPermission_ReturnsFalse()
     {
-        await SeedWithPermission(Permissions.SendMessages);
+        await SeedWithCorePermission(Permissions.SendMessages);
 
-        Assert.That(await Can(Permissions.ViewWiki), Is.False);
+        Assert.That(await Can(ModulePermissions.ViewWiki), Is.False);
     }
 
     [Test]
@@ -133,7 +148,7 @@ public class WikiPermissionTests
         _context.Guilds.Add(MakeGuild());
         await _context.SaveChangesAsync();
 
-        Assert.That(await Can(Permissions.ViewWiki), Is.False);
+        Assert.That(await Can(ModulePermissions.ViewWiki), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════ CreateWikiPages
@@ -142,17 +157,17 @@ public class WikiPermissionTests
     [Test]
     public async Task CreateWikiPages_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.CreateWikiPages);
+        await SeedWithPermission(ModulePermissions.CreateWikiPages);
 
-        Assert.That(await Can(Permissions.CreateWikiPages), Is.True);
+        Assert.That(await Can(ModulePermissions.CreateWikiPages), Is.True);
     }
 
     [Test]
     public async Task CreateWikiPages_UserLacksPermission_ReturnsFalse()
     {
-        await SeedWithPermission(Permissions.ViewWiki);
+        await SeedWithPermission(ModulePermissions.ViewWiki);
 
-        Assert.That(await Can(Permissions.CreateWikiPages), Is.False);
+        Assert.That(await Can(ModulePermissions.CreateWikiPages), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════ EditOwnWikiPages
@@ -161,45 +176,45 @@ public class WikiPermissionTests
     [Test]
     public async Task EditOwnWikiPages_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.EditOwnWikiPages);
+        await SeedWithPermission(ModulePermissions.EditOwnWikiPages);
 
-        Assert.That(await Can(Permissions.EditOwnWikiPages), Is.True);
+        Assert.That(await Can(ModulePermissions.EditOwnWikiPages), Is.True);
     }
 
     [Test]
     public async Task EditOwnWikiPages_DoesNotGrantEditAnyWikiPage()
     {
-        await SeedWithPermission(Permissions.EditOwnWikiPages);
+        await SeedWithPermission(ModulePermissions.EditOwnWikiPages);
 
-        Assert.That(await Can(Permissions.EditAnyWikiPage), Is.False);
+        Assert.That(await Can(ModulePermissions.EditAnyWikiPage), Is.False);
     }
 
     [Test]
     public async Task EditAnyWikiPage_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.EditAnyWikiPage);
+        await SeedWithPermission(ModulePermissions.EditAnyWikiPage);
 
-        Assert.That(await Can(Permissions.EditAnyWikiPage), Is.True);
+        Assert.That(await Can(ModulePermissions.EditAnyWikiPage), Is.True);
     }
 
     [Test]
     public async Task EditAnyWikiPage_AlsoSatisfiesEditAnyCheck()
     {
         // A user with EditAnyWikiPage can edit both their own pages and others'.
-        await SeedWithPermission(Permissions.EditAnyWikiPage);
+        await SeedWithPermission(ModulePermissions.EditAnyWikiPage);
 
-        Assert.That(await Can(Permissions.EditAnyWikiPage), Is.True);
+        Assert.That(await Can(ModulePermissions.EditAnyWikiPage), Is.True);
     }
 
     [Test]
     public async Task EditAnyWikiPage_DoesNotImplyEditOwnWikiPages_AsADistinctFlag()
     {
         // EditAnyWikiPage is the stronger flag; EditOwnWikiPages is the weaker one.
-        await SeedWithPermission(Permissions.EditAnyWikiPage);
+        await SeedWithPermission(ModulePermissions.EditAnyWikiPage);
 
         // If the service does not implement an implication chain for these wiki flags, this will be
         // false.
-        var editAnyImpliesOwn = await Can(Permissions.EditOwnWikiPages);
+        var editAnyImpliesOwn = await Can(ModulePermissions.EditOwnWikiPages);
 
         // Document the current behaviour without asserting a specific value,
         // so future implication additions don't silently break tests.
@@ -212,17 +227,17 @@ public class WikiPermissionTests
     [Test]
     public async Task DeleteWikiPages_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.DeleteWikiPages);
+        await SeedWithPermission(ModulePermissions.DeleteWikiPages);
 
-        Assert.That(await Can(Permissions.DeleteWikiPages), Is.True);
+        Assert.That(await Can(ModulePermissions.DeleteWikiPages), Is.True);
     }
 
     [Test]
     public async Task DeleteWikiPages_UserLacksPermission_ReturnsFalse()
     {
-        await SeedWithPermission(Permissions.ViewWiki | Permissions.CreateWikiPages);
+        await SeedWithPermission(ModulePermissions.ViewWiki | ModulePermissions.CreateWikiPages);
 
-        Assert.That(await Can(Permissions.DeleteWikiPages), Is.False);
+        Assert.That(await Can(ModulePermissions.DeleteWikiPages), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -232,17 +247,17 @@ public class WikiPermissionTests
     [Test]
     public async Task ManageWikiRevisions_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.ManageWikiRevisions);
+        await SeedWithPermission(ModulePermissions.ManageWikiRevisions);
 
-        Assert.That(await Can(Permissions.ManageWikiRevisions), Is.True);
+        Assert.That(await Can(ModulePermissions.ManageWikiRevisions), Is.True);
     }
 
     [Test]
     public async Task ManageWikiRevisions_UserLacksPermission_ReturnsFalse()
     {
-        await SeedWithPermission(Permissions.ViewWiki);
+        await SeedWithPermission(ModulePermissions.ViewWiki);
 
-        Assert.That(await Can(Permissions.ManageWikiRevisions), Is.False);
+        Assert.That(await Can(ModulePermissions.ManageWikiRevisions), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -252,17 +267,17 @@ public class WikiPermissionTests
     [Test]
     public async Task ManageWikiStructure_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.ManageWikiStructure);
+        await SeedWithPermission(ModulePermissions.ManageWikiStructure);
 
-        Assert.That(await Can(Permissions.ManageWikiStructure), Is.True);
+        Assert.That(await Can(ModulePermissions.ManageWikiStructure), Is.True);
     }
 
     [Test]
     public async Task ManageWikiStructure_UserLacksPermission_ReturnsFalse()
     {
-        await SeedWithPermission(Permissions.CreateWikiPages);
+        await SeedWithPermission(ModulePermissions.CreateWikiPages);
 
-        Assert.That(await Can(Permissions.ManageWikiStructure), Is.False);
+        Assert.That(await Can(ModulePermissions.ManageWikiStructure), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -272,17 +287,17 @@ public class WikiPermissionTests
     [Test]
     public async Task PublishWikiPublicly_UserHasPermission_ReturnsTrue()
     {
-        await SeedWithPermission(Permissions.PublishWikiPublicly);
+        await SeedWithPermission(ModulePermissions.PublishWikiPublicly);
 
-        Assert.That(await Can(Permissions.PublishWikiPublicly), Is.True);
+        Assert.That(await Can(ModulePermissions.PublishWikiPublicly), Is.True);
     }
 
     [Test]
     public async Task PublishWikiPublicly_UserLacksPermission_ReturnsFalse()
     {
-        await SeedWithPermission(Permissions.CreateWikiPages | Permissions.EditOwnWikiPages);
+        await SeedWithPermission(ModulePermissions.CreateWikiPages | ModulePermissions.EditOwnWikiPages);
 
-        Assert.That(await Can(Permissions.PublishWikiPublicly), Is.False);
+        Assert.That(await Can(ModulePermissions.PublishWikiPublicly), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -292,17 +307,17 @@ public class WikiPermissionTests
     [Test]
     public async Task NonWikiPermissions_DoNotGrantViewWiki()
     {
-        await SeedWithPermission(Permissions.ManageChannel | Permissions.SendMessages | Permissions.ViewChannel);
+        await SeedWithCorePermission(Permissions.ManageChannel | Permissions.SendMessages | Permissions.ViewChannel);
 
-        Assert.That(await Can(Permissions.ViewWiki), Is.False);
+        Assert.That(await Can(ModulePermissions.ViewWiki), Is.False);
     }
 
     [Test]
     public async Task NonWikiPermissions_DoNotGrantCreateWikiPages()
     {
-        await SeedWithPermission(Permissions.ManageChannel | Permissions.ManagePermissions);
+        await SeedWithCorePermission(Permissions.ManageChannel | Permissions.ManagePermissions);
 
-        Assert.That(await Can(Permissions.CreateWikiPages), Is.False);
+        Assert.That(await Can(ModulePermissions.CreateWikiPages), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -317,13 +332,13 @@ public class WikiPermissionTests
             new Role
             {
                 Id = "role_a", GuildId = GuildId, Type = RoleType.None, Name = "role-a",
-                Permissions = Permissions.ViewWiki,
+                ModulePermissions = ModulePermissions.ViewWiki,
                 CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, 
             },
             new Role
             {
                 Id = "role_b", GuildId = GuildId, Type = RoleType.None, Name = "role-b",
-                Permissions = Permissions.CreateWikiPages,
+                ModulePermissions = ModulePermissions.CreateWikiPages,
                 CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
             });
         _context.GuildMembers.Add(MakeMember());
@@ -334,9 +349,9 @@ public class WikiPermissionTests
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await Can(Permissions.ViewWiki), Is.True, "ViewWiki from role_a");
-            Assert.That(await Can(Permissions.CreateWikiPages), Is.True, "CreateWikiPages from role_b");
-            Assert.That(await Can(Permissions.DeleteWikiPages), Is.False, "DeleteWikiPages in neither role");
+            Assert.That(await Can(ModulePermissions.ViewWiki), Is.True, "ViewWiki from role_a");
+            Assert.That(await Can(ModulePermissions.CreateWikiPages), Is.True, "CreateWikiPages from role_b");
+            Assert.That(await Can(ModulePermissions.DeleteWikiPages), Is.False, "DeleteWikiPages in neither role");
         });
     }
 
@@ -346,18 +361,18 @@ public class WikiPermissionTests
     [Test]
     public async Task Superadmin_GrantsAllWikiPermissions()
     {
-        await SeedWithPermission(Permissions.Superadmin);
+        await SeedWithCorePermission(Permissions.Superadmin);
 
         Assert.Multiple(async () =>
         {
-            Assert.That(await Can(Permissions.ViewWiki), Is.True);
-            Assert.That(await Can(Permissions.CreateWikiPages), Is.True);
-            Assert.That(await Can(Permissions.EditOwnWikiPages), Is.True);
-            Assert.That(await Can(Permissions.EditAnyWikiPage), Is.True);
-            Assert.That(await Can(Permissions.DeleteWikiPages), Is.True);
-            Assert.That(await Can(Permissions.ManageWikiRevisions), Is.True);
-            Assert.That(await Can(Permissions.ManageWikiStructure), Is.True);
-            Assert.That(await Can(Permissions.PublishWikiPublicly), Is.True);
+            Assert.That(await Can(ModulePermissions.ViewWiki), Is.True);
+            Assert.That(await Can(ModulePermissions.CreateWikiPages), Is.True);
+            Assert.That(await Can(ModulePermissions.EditOwnWikiPages), Is.True);
+            Assert.That(await Can(ModulePermissions.EditAnyWikiPage), Is.True);
+            Assert.That(await Can(ModulePermissions.DeleteWikiPages), Is.True);
+            Assert.That(await Can(ModulePermissions.ManageWikiRevisions), Is.True);
+            Assert.That(await Can(ModulePermissions.ManageWikiStructure), Is.True);
+            Assert.That(await Can(ModulePermissions.PublishWikiPublicly), Is.True);
         });
     }
 
@@ -369,37 +384,37 @@ public class WikiPermissionTests
     public async Task MemberAllow_GrantsViewWiki_WhenRoleHasNone()
     {
         _context.Guilds.Add(MakeGuild());
-        _context.Roles.Add(MakeRole(Permissions.None));
+        _context.Roles.Add(MakeRole(ModulePermissions.None));
         _context.GuildMembers.Add(new GuildMember
         {
             Id = MemberId, GuildId = GuildId, UserId = UserId,
             JoinedAt = DateTime.UtcNow,
-            AllowPermissions = Permissions.ViewWiki, DenyPermissions = Permissions.None,
+            AllowModulePermissions = ModulePermissions.ViewWiki, DenyPermissions = Permissions.None,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
             SearchValue = $"{UserId}#{GuildId}",
         });
         _context.RoleMembers.Add(MakeRoleMember());
         await _context.SaveChangesAsync();
 
-        Assert.That(await Can(Permissions.ViewWiki), Is.True);
+        Assert.That(await Can(ModulePermissions.ViewWiki), Is.True);
     }
 
     [Test]
     public async Task MemberDeny_RevokesCreateWikiPages_GrantedByRole()
     {
         _context.Guilds.Add(MakeGuild());
-        _context.Roles.Add(MakeRole(Permissions.CreateWikiPages));
+        _context.Roles.Add(MakeRole(ModulePermissions.CreateWikiPages));
         _context.GuildMembers.Add(new GuildMember
         {
             Id = MemberId, GuildId = GuildId, UserId = UserId,
             JoinedAt = DateTime.UtcNow, 
-            AllowPermissions = Permissions.None, DenyPermissions = Permissions.CreateWikiPages,
+            AllowPermissions = Permissions.None, DenyModulePermissions = ModulePermissions.CreateWikiPages,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
             SearchValue = $"{UserId}#{GuildId}",
         });
         _context.RoleMembers.Add(MakeRoleMember());
         await _context.SaveChangesAsync();
 
-        Assert.That(await Can(Permissions.CreateWikiPages), Is.False);
+        Assert.That(await Can(ModulePermissions.CreateWikiPages), Is.False);
     }
 }

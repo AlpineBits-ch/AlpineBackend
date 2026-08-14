@@ -56,12 +56,22 @@ public class DiscordPermissionMapperTests
         Assert.That(result, Is.EqualTo(EchoPermissions.DeleteAnyMessage | EchoPermissions.PinMessages));
     }
 
-    [TestCase(35)] // CREATE_PUBLIC_THREADS
-    [TestCase(36)] // CREATE_PRIVATE_THREADS
-    public void ToEchoPermissions_EitherCreateThreadsVariant_MapsToCreateThreads(int shift)
+    [TestCase(35, EchoPermissions.CreateThreads)]        // CREATE_PUBLIC_THREADS
+    [TestCase(36, EchoPermissions.CreatePrivateThreads)] // CREATE_PRIVATE_THREADS
+    public void ToEchoPermissions_EachCreateThreadsVariant_MapsToItsOwnBit(int shift, EchoPermissions expected)
     {
+        // These used to collapse into one bit, because Echo had one.
         var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(shift));
-        Assert.That(result, Is.EqualTo(EchoPermissions.CreateThreads));
+        Assert.That(result, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void ToEchoPermissions_ManageGuildExpressions_MapsToBothExpressionBits()
+    {
+        // Discord retired MANAGE_EMOJIS_AND_STICKERS in favour of MANAGE_GUILD_EXPRESSIONS on the
+        // same bit.
+        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(30));
+        Assert.That(result, Is.EqualTo(EchoPermissions.ManageExpressions | EchoPermissions.ManageEmojis));
     }
 
     [Test]
@@ -76,10 +86,30 @@ public class DiscordPermissionMapperTests
     [Test]
     public void ToEchoPermissions_UnmappedDiscordBits_ProduceNoEchoPermissions()
     {
-        // MANAGE_GUILD_EXPRESSIONS (30), PRIORITY_SPEAKER (8), USE_VAD (25),
-        // REQUEST_TO_SPEAK (32) - none have an Echo equivalent.
-        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(30, 8, 25, 32));
+        // VIEW_GUILD_INSIGHTS (19), USE_EMBEDDED_ACTIVITIES (39), USE_SOUNDBOARD (42) and
+        // VIEW_CREATOR_MONETIZATION_ANALYTICS (41) have no Echo equivalent, and must stay dropped
+        // rather than landing on a neighbouring bit.
+        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(19, 39, 41, 42));
         Assert.That(result, Is.EqualTo(EchoPermissions.None));
+    }
+
+    [TestCase(16, EchoPermissions.ReadMessageHistory)]     // READ_MESSAGE_HISTORY
+    [TestCase(18, EchoPermissions.UseExternalEmojis)]      // USE_EXTERNAL_EMOJIS
+    [TestCase(37, EchoPermissions.UseExternalStickers)]    // USE_EXTERNAL_STICKERS
+    [TestCase(31, EchoPermissions.UseApplicationCommands)] // USE_APPLICATION_COMMANDS
+    [TestCase(8, EchoPermissions.PrioritySpeaker)]         // PRIORITY_SPEAKER
+    [TestCase(32, EchoPermissions.RequestToSpeak)]         // REQUEST_TO_SPEAK
+    [TestCase(25, EchoPermissions.UseVoiceActivity)]       // USE_VAD
+    [TestCase(46, EchoPermissions.SendVoiceMessages)]      // SEND_VOICE_MESSAGES
+    [TestCase(49, EchoPermissions.SendPolls)]              // SEND_POLLS
+    [TestCase(43, EchoPermissions.CreateExpressions)]      // CREATE_EXPRESSIONS
+    [TestCase(33, EchoPermissions.ManageEvents)]           // MANAGE_EVENTS
+    public void ToEchoPermissions_ParityBits_MapOneToOne(int shift, EchoPermissions expected)
+    {
+        // Every one of these was silently dropped before the parity bits existed, so an imported
+        // role arrived quietly weaker than the one the admin was looking at on Discord.
+        var result = (EchoPermissions)DiscordPermissionMapper.ToEchoPermissions(Bits(shift));
+        Assert.That(result, Is.EqualTo(expected));
     }
 
     [Test]

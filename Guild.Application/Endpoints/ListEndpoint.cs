@@ -69,7 +69,7 @@ public class ListEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.List, userId, Permissions.AddListItems);
+        var access = await household.ResolveAsync(channelId, ChannelType.List, userId, ModulePermissions.AddListItems);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Text)) return Results.BadRequest("Text is required");
@@ -121,7 +121,7 @@ public class ListEndpoint
 
         // Editing your own item needs only AddListItems; editing someone else's is a moderator
         // action.
-        var required = item.AddedByUserId == userId ? Permissions.AddListItems : Permissions.ManageLists;
+        var required = item.AddedByUserId == userId ? ModulePermissions.AddListItems : ModulePermissions.ManageLists;
         var access = await household.ResolveAsync(item.ChannelId, ChannelType.List, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
@@ -169,7 +169,7 @@ public class ListEndpoint
         var item = await ctx.ListItems.FirstOrDefaultAsync(i => i.Id == itemId);
         if (item is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(item.ChannelId, ChannelType.List, userId, Permissions.CheckOffListItems);
+        var access = await household.ResolveAsync(item.ChannelId, ChannelType.List, userId, ModulePermissions.CheckOffListItems);
         if (access.ToFailure() is { } failure) return failure;
 
         // Idempotent: two phones ticking the same item shouldn't produce two events with
@@ -202,7 +202,7 @@ public class ListEndpoint
         var item = await ctx.ListItems.FirstOrDefaultAsync(i => i.Id == itemId);
         if (item is null) return Results.NotFound();
 
-        var required = item.AddedByUserId == userId ? Permissions.AddListItems : Permissions.ManageLists;
+        var required = item.AddedByUserId == userId ? ModulePermissions.AddListItems : ModulePermissions.ManageLists;
         var access = await household.ResolveAsync(item.ChannelId, ChannelType.List, userId, required);
         if (access.ToFailure() is { } failure) return failure;
 
@@ -231,7 +231,7 @@ public class ListEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.List, userId, Permissions.ManageLists);
+        var access = await household.ResolveAsync(channelId, ChannelType.List, userId, ModulePermissions.ManageLists);
         if (access.ToFailure() is { } failure) return failure;
 
         var checkedItems = await ctx.ListItems
@@ -270,7 +270,7 @@ public class ListEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.List, userId, Permissions.AddListItems);
+        var access = await household.ResolveAsync(channelId, ChannelType.List, userId, ModulePermissions.AddListItems);
         if (access.ToFailure() is { } failure) return failure;
 
         var items = await ctx.ListItems.Where(i => i.ChannelId == channelId).ToListAsync();

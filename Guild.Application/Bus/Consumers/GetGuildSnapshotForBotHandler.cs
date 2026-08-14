@@ -1,3 +1,4 @@
+using Guild.Application.Bus.Events.Role;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
@@ -38,17 +39,13 @@ public class GetGuildSnapshotForBotHandler
         // This snapshot is the bot's GUILD_CREATE hydration burst.
         channels = await FilterVisibleChannelsAsync(permissionService, request.BotUserId, channels);
 
+        // Projected through the same mapper the live GUILD_ROLE_* dispatches use, so the role a bot
+        // holds after a handshake and the role it holds after an update event cannot disagree about
+        // which fields exist.
         var roles = await ctx.Roles
             .AsNoTracking()
             .Where(r => r.GuildId == request.GuildId)
-            .Select(r => new RoleSnapshot
-            {
-                Id = r.Id,
-                Name = r.Name,
-                Color = r.Color,
-                Position = r.Position,
-                Permissions = (ulong)r.Permissions,
-            })
+            .Select(RoleSnapshotMapper.Projection)
             .ToListAsync();
 
         var self = await ctx.GuildMembers

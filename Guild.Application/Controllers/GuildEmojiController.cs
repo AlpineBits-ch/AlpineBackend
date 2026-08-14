@@ -28,6 +28,14 @@ public class GuildEmojiController(
     IHubContext<EchoRealtimeHub> hub,
     IMessageBus bus) : ControllerBase
 {
+    private Task<bool> HoldsAsync(string userId, string guildId, Permissions permission) =>
+        permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, permission);
+
+    /// <summary>Whether the caller may curate anyone's expressions in this guild.</summary>
+    private async Task<bool> CanCurateAsync(string userId, string guildId) =>
+        await HoldsAsync(userId, guildId, Permissions.ManageEmojis)
+        || await HoldsAsync(userId, guildId, Permissions.ManageExpressions);
+
     [HttpGet]
     public async Task<IActionResult> GetEmojis(string guildId)
     {
@@ -56,7 +64,7 @@ public class GuildEmojiController(
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageEmojis))
+        if (!await CanCurateAsync(userId, guildId) && !await HoldsAsync(userId, guildId, Permissions.CreateExpressions))
             return Forbid();
 
         if (string.IsNullOrWhiteSpace(name) || file is null || file.Length == 0) return BadRequest();
@@ -104,11 +112,15 @@ public class GuildEmojiController(
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageEmojis))
+        // Curators may delete anyone's; a contributor may delete their own.
+        var canCurate = await CanCurateAsync(userId, guildId);
+        if (!canCurate && !await HoldsAsync(userId, guildId, Permissions.CreateExpressions))
             return Forbid();
 
         var emoji = await ctx.GuildEmojis.FirstOrDefaultAsync(e => e.Id == emojiId && e.GuildId == guildId);
         if (emoji is null) return NotFound();
+
+        if (!canCurate && emoji.CreatedByUserId != userId) return Forbid();
 
         ctx.GuildEmojis.Remove(emoji);
         auditLog.Log(guildId, userId, AuditActionType.EmojiDeleted, emojiId, new { emoji.Name });

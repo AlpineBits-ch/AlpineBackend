@@ -52,10 +52,14 @@ public class WikiEndpointTests
         CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
     };
 
-    private async Task SeedMember(Permissions permissions)
+    private Task SeedMember(Permissions permissions) => SeedMember(permissions, ModulePermissions.None);
+
+    private Task SeedMember(ModulePermissions modulePermissions) => SeedMember(Permissions.None, modulePermissions);
+
+    private async Task SeedMember(Permissions permissions, ModulePermissions modulePermissions)
     {
         _context.Guilds.Add(MakeGuild());
-        _context.Roles.Add(new Role { Id = RoleId, GuildId = GuildId, Name = "role", Permissions = permissions, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Roles.Add(new Role { Id = RoleId, GuildId = GuildId, Name = "role", Permissions = permissions, ModulePermissions = modulePermissions, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         _context.RoleMembers.Add(new RoleMember { Id = "rm-1", RoleId = RoleId, MemberId = MemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
         await _context.SaveChangesAsync();
@@ -90,7 +94,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_FirstAccess_CreatesWikiRow()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
 
         var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
 
@@ -101,7 +105,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_Valid_IncludesRevisionCount()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         await SeedPage();
 
         var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -116,7 +120,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_ByDefault_OmitsPageContent()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         await SeedPage(content: "the body");
 
         var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -129,7 +133,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_IncludeContent_ReturnsPageContent()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         await SeedPage(content: "the body");
 
         var result = await _endpoint.GetWiki(GuildId, _permissionService, _context, TestPrincipal.Create(UserId), includeContent: true);
@@ -143,7 +147,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_CountsRevisionsWithoutLoadingThem()
     {
-        await SeedMember(Permissions.EditOwnWikiPages | Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.EditOwnWikiPages | ModulePermissions.ViewWiki);
         var page = await SeedPage(content: "v1");
         await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2" }, _permissionService, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
@@ -159,7 +163,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_PageWithNoRevisions_ReportsZero()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = WikiPage.Create(new CreateWikiPageParams { GuildId = GuildId, Title = "No revisions", Content = "x", AuthorId = UserId });
         page.Revisions.Clear();
         _context.WikiPages.Add(page);
@@ -192,7 +196,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPage_DoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.GetWikiPage(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -200,7 +204,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPage_Valid_ReturnsPageWithRevisionCount()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.GetWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -222,7 +226,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiPage_LacksCreateWikiPages_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.CreateWikiPage(GuildId, new CreateWikiPageDto { Title = "t" }, _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
@@ -230,7 +234,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiPage_Valid_PersistsPageWithInitialRevision()
     {
-        await SeedMember(Permissions.CreateWikiPages);
+        await SeedMember(ModulePermissions.CreateWikiPages);
 
         var result = await _endpoint.CreateWikiPage(GuildId, new CreateWikiPageDto { Title = "New Page", Content = "hello" }, _permissionService, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
@@ -256,7 +260,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_DoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var result = await _endpoint.UpdateWikiPage(GuildId, "nonexistent", new UpdateWikiPageDto(), _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -275,7 +279,7 @@ public class WikiEndpointTests
     public async Task UpdateWikiPage_OtherAuthorPage_RequiresEditAnyWikiPage_NotEditOwn()
     {
         // Holding only EditOwnWikiPages must not be enough to edit someone else's page.
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(authorId: "someone-else");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "new" }, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -285,7 +289,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_ContentChanged_AddsNewRevision()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(authorId: UserId, content: "v1");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2" }, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -301,7 +305,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_ContentUnchanged_DoesNotAddRevision()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(authorId: UserId, content: "v1");
 
         await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v1", Title = "renamed" }, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -318,7 +322,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_WithSummary_StoresItOnTheNewRevision()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(authorId: UserId, content: "v1");
 
         await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2", Summary = "Fixed the install steps" }, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -332,7 +336,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_WithoutSummary_LeavesItNull()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(authorId: UserId, content: "v1");
 
         await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = "v2" }, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -347,7 +351,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_SummaryWithoutContentChange_AddsNoRevision()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(authorId: UserId, content: "v1");
 
         await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Title = "renamed", Summary = "orphaned" }, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -365,7 +369,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiPage_DoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.DeleteWikiPages);
+        await SeedMember(ModulePermissions.DeleteWikiPages);
         var result = await _endpoint.DeleteWikiPage(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -373,7 +377,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiPage_LacksDeleteWikiPages_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.DeleteWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -383,7 +387,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiPage_Valid_RemovesPage()
     {
-        await SeedMember(Permissions.DeleteWikiPages);
+        await SeedMember(ModulePermissions.DeleteWikiPages);
         var page = await SeedPage();
 
         var result = await _endpoint.DeleteWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -399,7 +403,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPageRevisions_PageDoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.GetWikiPageRevisions(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -407,7 +411,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPageRevisions_Valid_ReturnsNewestFirst()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.ViewWiki | ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(content: "v1");
         page.Content = "v2";
         page.Revisions.Add(WikiRevision.Create(new CreateWikiRevisionParams { PageId = page.Id, Content = "v2", EditorId = UserId, RevisionNumber = 2 }));
@@ -427,7 +431,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RestoreWikiRevision_LacksManageWikiRevisions_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.RestoreWikiRevision(GuildId, "nonexistent", "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
@@ -435,7 +439,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RestoreWikiRevision_PageDoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ManageWikiRevisions);
+        await SeedMember(ModulePermissions.ManageWikiRevisions);
         var result = await _endpoint.RestoreWikiRevision(GuildId, "nonexistent", "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -443,7 +447,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RestoreWikiRevision_RevisionDoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ManageWikiRevisions);
+        await SeedMember(ModulePermissions.ManageWikiRevisions);
         var page = await SeedPage();
 
         var result = await _endpoint.RestoreWikiRevision(GuildId, page.Id, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
@@ -453,7 +457,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RestoreWikiRevision_Valid_RestoresContentAndAddsNewRevision()
     {
-        await SeedMember(Permissions.ManageWikiRevisions);
+        await SeedMember(ModulePermissions.ManageWikiRevisions);
         var page = await SeedPage(content: "v1");
         var firstRevisionId = page.Revisions.First().Id;
         page.Content = "v2";
@@ -474,7 +478,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiCategory_LacksManageWikiStructure_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.CreateWikiCategory(GuildId, new CreateWikiCategoryDto { Name = "c" }, _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
@@ -482,7 +486,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiCategory_Valid_DefaultsPositionToCount()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         _context.WikiCategories.Add(WikiCategory.Create(new CreateWikiCategoryParams { GuildId = GuildId, Name = "existing" }));
         await _context.SaveChangesAsync();
 
@@ -496,7 +500,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiCategory_DoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var result = await _endpoint.UpdateWikiCategory(GuildId, "nonexistent", new UpdateWikiCategoryDto(), _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -504,7 +508,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiCategory_Valid_UpdatesName()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var category = WikiCategory.Create(new CreateWikiCategoryParams { GuildId = GuildId, Name = "old" });
         _context.WikiCategories.Add(category);
         await _context.SaveChangesAsync();
@@ -520,7 +524,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiCategory_DoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var result = await _endpoint.DeleteWikiCategory(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -528,7 +532,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiCategory_Valid_RemovesCategory()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var category = WikiCategory.Create(new CreateWikiCategoryParams { GuildId = GuildId, Name = "cat" });
         _context.WikiCategories.Add(category);
         await _context.SaveChangesAsync();
@@ -546,7 +550,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiPage_WithIconAndCover_PersistsBoth()
     {
-        await SeedMember(Permissions.CreateWikiPages);
+        await SeedMember(ModulePermissions.CreateWikiPages);
 
         var result = await _endpoint.CreateWikiPage(GuildId,
             new CreateWikiPageDto { Title = "Runbook", Icon = "📘", CoverUrl = "https://cdn.example/c.png" },
@@ -564,7 +568,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiPage_IconIsNotAnEmoji_ReturnsBadRequest()
     {
-        await SeedMember(Permissions.CreateWikiPages);
+        await SeedMember(ModulePermissions.CreateWikiPages);
 
         var result = await _endpoint.CreateWikiPage(GuildId,
             new CreateWikiPageDto { Title = "t", Icon = "not an emoji" },
@@ -576,7 +580,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiPage_CoverUrlTooLong_ReturnsBadRequest()
     {
-        await SeedMember(Permissions.CreateWikiPages);
+        await SeedMember(ModulePermissions.CreateWikiPages);
 
         var result = await _endpoint.CreateWikiPage(GuildId,
             new CreateWikiPageDto { Title = "t", CoverUrl = new string('x', 2049) },
@@ -591,7 +595,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_OmittingIcon_LeavesItAlone()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(content: "v1");
         page.Icon = "📘";
         page.CoverUrl = "https://cdn.example/c.png";
@@ -609,7 +613,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_EmptyIcon_ClearsIt()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage();
         page.Icon = "📘";
         page.CoverUrl = "https://cdn.example/c.png";
@@ -627,7 +631,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_IconIsNotAnEmoji_ReturnsBadRequest()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage();
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Icon = Optional<string>.Of("ab") },
@@ -640,7 +644,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_SummaryCarriesIconAndCover()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         page.Icon = "📘";
         page.CoverUrl = "https://cdn.example/c.png";
@@ -669,7 +673,7 @@ public class WikiEndpointTests
     [Test]
     public async Task AddWikiPageReaction_LacksAddReactions_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var (result, _) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
@@ -681,7 +685,7 @@ public class WikiEndpointTests
     [Test]
     public async Task AddWikiPageReaction_PageDoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
 
         var (result, _) = await _endpoint.AddWikiPageReaction(GuildId, "nonexistent", new CreateWikiPageReactionDto { Emoji = "👍" },
             _permissionService, _context, TestPrincipal.Create(UserId));
@@ -692,7 +696,7 @@ public class WikiEndpointTests
     [Test]
     public async Task AddWikiPageReaction_Valid_PersistsAndReturnsAggregate()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var (result, evt) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
@@ -715,7 +719,7 @@ public class WikiEndpointTests
     [Test]
     public async Task AddWikiPageReaction_Twice_IsIdempotentAndEmitsNoSecondEvent()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "👍" },
@@ -736,7 +740,7 @@ public class WikiEndpointTests
     [Test]
     public async Task AddWikiPageReaction_NotAnEmoji_ReturnsBadRequest()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var (result, evt) = await _endpoint.AddWikiPageReaction(GuildId, page.Id, new CreateWikiPageReactionDto { Emoji = "lgtm" },
@@ -750,7 +754,7 @@ public class WikiEndpointTests
     [Test]
     public async Task AddWikiPageReaction_CountsOthersButMeIsCallerOnly()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageReactions.Add(WikiPageReaction.Create(new CreateWikiPageReactionParams
         {
@@ -772,7 +776,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RemoveWikiPageReaction_RemovesOnlyTheCallersOwn()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageReactions.AddRange(
             WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍" }),
@@ -793,7 +797,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RemoveWikiPageReaction_NeverReacted_IsOkWithNoEvent()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.AddReactions);
+        await SeedMember(Permissions.AddReactions, ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var (result, evt) = await _endpoint.RemoveWikiPageReaction(GuildId, page.Id, "👍",
@@ -808,7 +812,7 @@ public class WikiEndpointTests
     [Test]
     public async Task RemoveWikiPageReaction_WithoutAddReactions_IsStillAllowed()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageReactions.Add(WikiPageReaction.Create(new CreateWikiPageReactionParams
         {
@@ -828,7 +832,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPage_ReturnsAggregatedReactions()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageReactions.AddRange(
             WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍" }),
@@ -850,7 +854,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_SummaryCarriesTotalReactionCount()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageReactions.AddRange(
             WikiPageReaction.Create(new CreateWikiPageReactionParams { PageId = page.Id, GuildId = GuildId, UserId = UserId, Emoji = "👍" }),
@@ -877,7 +881,7 @@ public class WikiEndpointTests
     [Test]
     public async Task WatchWikiPage_PageDoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.WatchWikiPage(GuildId, "nonexistent", _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
@@ -885,7 +889,7 @@ public class WikiEndpointTests
     [Test]
     public async Task WatchWikiPage_Valid_PersistsAndReportsState()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -900,7 +904,7 @@ public class WikiEndpointTests
     [Test]
     public async Task WatchWikiPage_Twice_IsIdempotent()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -916,7 +920,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UnwatchWikiPage_Removes()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         await _endpoint.WatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
@@ -933,7 +937,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UnwatchWikiPage_NotWatching_IsIdempotent()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.UnwatchWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
@@ -947,7 +951,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPage_IsWatchingIsPerCaller()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageWatchers.Add(WikiPageWatcher.Create(new CreateWikiPageWatcherParams
         {
@@ -966,7 +970,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_MarksWatchedPagesInTheSummary()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         _context.WikiPageWatchers.Add(WikiPageWatcher.Create(new CreateWikiPageWatcherParams
         {
@@ -1005,7 +1009,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiComment_PageDoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var result = await _endpoint.CreateWikiComment(GuildId, "nonexistent", new CreateWikiCommentDto { Content = "hi" },
             _permissionService, _context, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
@@ -1014,7 +1018,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiComment_Valid_Persists()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.CreateWikiComment(GuildId, page.Id, new CreateWikiCommentDto { Content = "  looks good  " },
@@ -1032,7 +1036,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiComment_Blank_ReturnsBadRequest()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.CreateWikiComment(GuildId, page.Id, new CreateWikiCommentDto { Content = "   " },
@@ -1044,7 +1048,7 @@ public class WikiEndpointTests
     [Test]
     public async Task CreateWikiComment_TooLong_ReturnsBadRequest()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.CreateWikiComment(GuildId, page.Id, new CreateWikiCommentDto { Content = new string('x', 4001) },
@@ -1057,7 +1061,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPageComments_ReturnsOldestFirst()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         await SeedComment(page.Id, "first", UserId, DateTime.UtcNow.AddMinutes(-5));
         await SeedComment(page.Id, "second", UserId, DateTime.UtcNow);
@@ -1071,7 +1075,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPageComments_CanDelete_IsOwnCommentsOnlyWithoutModeration()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         await SeedComment(page.Id, "mine", UserId);
         await SeedComment(page.Id, "theirs", "someone-else");
@@ -1086,7 +1090,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPageComments_Moderator_CanDeleteEverything()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.ModerateWikiComments);
+        await SeedMember(ModulePermissions.ViewWiki | ModulePermissions.ModerateWikiComments);
         var page = await SeedPage();
         await SeedComment(page.Id, "theirs", "someone-else");
 
@@ -1099,7 +1103,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiComment_Author_SetsEditedAt()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         var comment = await SeedComment(page.Id, "typo", UserId);
 
@@ -1117,7 +1121,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiComment_ModeratorOnSomeoneElsesComment_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.ModerateWikiComments);
+        await SeedMember(ModulePermissions.ViewWiki | ModulePermissions.ModerateWikiComments);
         var page = await SeedPage();
         var comment = await SeedComment(page.Id, "theirs", "someone-else");
 
@@ -1130,7 +1134,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiComment_DoesNotExist_ReturnsNotFound()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
 
         var result = await _endpoint.UpdateWikiComment(GuildId, page.Id, "nonexistent", new UpdateWikiCommentDto { Content = "x" },
@@ -1142,7 +1146,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiComment_Own_Deletes()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         var comment = await SeedComment(page.Id, "mine", UserId);
 
@@ -1156,7 +1160,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiComment_SomeoneElsesWithoutModeration_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         var comment = await SeedComment(page.Id, "theirs", "someone-else");
 
@@ -1168,7 +1172,7 @@ public class WikiEndpointTests
     [Test]
     public async Task DeleteWikiComment_SomeoneElsesWithModeration_Deletes()
     {
-        await SeedMember(Permissions.ViewWiki | Permissions.ModerateWikiComments);
+        await SeedMember(ModulePermissions.ViewWiki | ModulePermissions.ModerateWikiComments);
         var page = await SeedPage();
         var comment = await SeedComment(page.Id, "theirs", "someone-else");
 
@@ -1182,7 +1186,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWikiPage_ReturnsCommentCount()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         await SeedComment(page.Id, "a", UserId);
         await SeedComment(page.Id, "b", "u2");
@@ -1196,7 +1200,7 @@ public class WikiEndpointTests
     [Test]
     public async Task GetWiki_SummaryCarriesCommentCount()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage();
         await SeedComment(page.Id, "a", UserId);
 
@@ -1215,7 +1219,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_OmittingCategoryAndParent_LeavesThemAlone()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage(content: "v1");
         page.CategoryId = "wkca_x";
         page.ParentPageId = "wkpg_parent";
@@ -1237,7 +1241,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_ExplicitNullCategoryAndParent_ClearsThem()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage();
         page.CategoryId = "wkca_x";
         page.ParentPageId = "wkpg_parent";
@@ -1258,7 +1262,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_ExplicitCategoryAndParent_SetsThem()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage();
 
         await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y","parentPageId":"wkpg_p"}"""),
@@ -1277,7 +1281,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_ExplicitNullIcon_ClearsIt()
     {
-        await SeedMember(Permissions.EditOwnWikiPages);
+        await SeedMember(ModulePermissions.EditOwnWikiPages);
         var page = await SeedPage();
         page.Icon = "📘";
         await _context.SaveChangesAsync();
@@ -1298,7 +1302,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_MoveOnly_IsAllowedByManageWikiStructureAlone()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var page = await SeedPage(authorId: "someone-else");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y"}"""),
@@ -1314,7 +1318,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_MovePlusContent_StillNeedsEditPermission()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var page = await SeedPage(authorId: "someone-else", content: "v1");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y","content":"v2"}"""),
@@ -1330,7 +1334,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_PinOnly_IsNotAllowedByManageWikiStructure()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var page = await SeedPage(authorId: "someone-else");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"isPinned":true}"""),
@@ -1343,7 +1347,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_EmptyBody_StillNeedsEditPermission()
     {
-        await SeedMember(Permissions.ManageWikiStructure);
+        await SeedMember(ModulePermissions.ManageWikiStructure);
         var page = await SeedPage(authorId: "someone-else");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("{}"),
@@ -1356,7 +1360,7 @@ public class WikiEndpointTests
     [Test]
     public async Task UpdateWikiPage_MoveOnly_WithoutEitherPermission_ReturnsForbid()
     {
-        await SeedMember(Permissions.ViewWiki);
+        await SeedMember(ModulePermissions.ViewWiki);
         var page = await SeedPage(authorId: "someone-else");
 
         var result = await _endpoint.UpdateWikiPage(GuildId, page.Id, Deserialize("""{"categoryId":"wkca_y"}"""),

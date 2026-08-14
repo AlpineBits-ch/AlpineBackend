@@ -26,6 +26,7 @@ public partial class ChannelPermissionDto
         nameof(ChannelPermission.ChannelId), nameof(ChannelPermission.CategoryId),
         nameof(ChannelPermission.RoleId), nameof(ChannelPermission.MemberId),
         nameof(ChannelPermission.AllowPermissions), nameof(ChannelPermission.DenyPermissions),
+        nameof(ChannelPermission.AllowModulePermissions), nameof(ChannelPermission.DenyModulePermissions),
     ])]
 public partial class FlatChannelPermissionDto
 {

@@ -1,8 +1,5 @@
 ﻿using System.Security.Claims;
 using Facet.Extensions;
-using Guild.Contracts;
-using Guild.Contracts.Bus.Request;
-using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
@@ -112,16 +109,10 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
         if(User.FindFirst(ClaimTypes.NameIdentifier) is null) return Unauthorized();
 
 
-        var permissionResponse = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
-            new HasUserPermissionToChannelRequest()
-            {
-                UserId = User.FindFirstValue(ClaimTypes.NameIdentifier)!,
-                ChannelId = channelId,
-                Permission = ExternalPermission.ViewChannel
-            });
-
-
-        if(!permissionResponse.IsAllowed) return Forbid();
+        // ViewChannel *and* ReadMessageHistory - this is the backlog, which is the whole thing the
+        // second bit exists to gate separately. See MessageHistoryAccess for why both are asked.
+        if (!await MessageHistoryAccess.MayReadAsync(channelId, User.FindFirstValue(ClaimTypes.NameIdentifier)!, bus))
+            return Forbid();
 
         try
         {

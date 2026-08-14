@@ -27,13 +27,20 @@ public class OnboardingValidationService(MicroserviceContext ctx, GuildPermissio
         Permissions.ManageChannel | Permissions.KickMembers | Permissions.BanMembers |
         Permissions.ModerateMembers | Permissions.ViewAuditLog | Permissions.ManageEmojis |
         Permissions.ManageEvents | Permissions.EditAnyMessage | Permissions.DeleteAnyMessage |
-        Permissions.ManageAnyThread | Permissions.EditAnyWikiPage | Permissions.DeleteWikiPages |
-        Permissions.ManageWikiStructure | Permissions.ManageWikiRevisions |
+        Permissions.ManageAnyThread | Permissions.ManageExpressions |
         // ManageRoles/ManageWebhooks/ManageNicknames are straightforward escalation;
         // MentionEveryone is here because self-service acquisition of "ping the whole guild" is a
         // spam vector even though it grants no moderation power.
         Permissions.ManageRoles | Permissions.ManageWebhooks | Permissions.ManageNicknames |
         Permissions.MentionEveryone;
+
+    /// <summary>
+    /// The <see cref="ModulePermissions"/> half of <see cref="PrivilegedPermissions"/>, checked
+    /// against the role's module mask alongside it.
+    /// </summary>
+    public const ModulePermissions PrivilegedModulePermissions =
+        ModulePermissions.EditAnyWikiPage | ModulePermissions.DeleteWikiPages |
+        ModulePermissions.ManageWikiStructure | ModulePermissions.ManageWikiRevisions;
 
     /// <summary>Returns null when the config is valid, otherwise a client-facing reason.</summary>
     public async Task<string?> ValidateAsync(string guildId, string actorUserId, UpdateOnboardingConfigDto dto)
@@ -136,7 +143,9 @@ public class OnboardingValidationService(MicroserviceContext ctx, GuildPermissio
         return null;
     }
 
-    public static bool IsPrivileged(Role role) => (role.Permissions & PrivilegedPermissions) != 0;
+    public static bool IsPrivileged(Role role) =>
+        (role.Permissions & PrivilegedPermissions) != 0 ||
+        (role.ModulePermissions & PrivilegedModulePermissions) != 0;
 
     /// <summary>
     /// Apply-time re-check: returns the subset of the requested roles that may still be granted.
@@ -150,11 +159,12 @@ public class OnboardingValidationService(MicroserviceContext ctx, GuildPermissio
         // SQL fails at runtime (42883).
         var candidates = await ctx.Roles.AsNoTracking()
             .Where(r => r.GuildId == guildId && roleIds.Contains(r.Id) && r.Type != RoleType.Everyone)
-            .Select(r => new { r.Id, r.Permissions })
+            .Select(r => new { r.Id, r.Permissions, r.ModulePermissions })
             .ToListAsync();
 
         return candidates
-            .Where(r => (r.Permissions & PrivilegedPermissions) == 0)
+            .Where(r => (r.Permissions & PrivilegedPermissions) == 0 &&
+                        (r.ModulePermissions & PrivilegedModulePermissions) == 0)
             .Select(r => r.Id)
             .ToList();
     }

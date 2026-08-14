@@ -1,8 +1,5 @@
 using System.Security.Claims;
 using Facet.Extensions;
-using Guild.Contracts;
-using Guild.Contracts.Bus.Request;
-using Guild.Contracts.Bus.Response;
 using Messaging.Application.Dtos.Response;
 using Messaging.Application.Services;
 using Messaging.Domain.Entities;
@@ -35,10 +32,10 @@ public class SearchEndpoint
         IQueryable<MessageSearchEntry> scoped;
         if (!string.IsNullOrWhiteSpace(channelId))
         {
-            var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
-                new HasUserPermissionToChannelRequest { ChannelId = channelId, UserId = userId, Permission = ExternalPermission.ViewChannel });
-
-            if (!response.IsAllowed) return Results.Forbid();
+            // Search is a history read wearing a query string: every hit it can return is a message
+            // that has already been sent, so withholding the backlog and then serving it back one
+            // keyword at a time would make ReadMessageHistory decorative.
+            if (!await MessageHistoryAccess.MayReadAsync(channelId, userId, bus)) return Results.Forbid();
             scoped = db.MessageSearchEntries.Where(e => e.ChannelId == channelId);
         }
         else

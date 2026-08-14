@@ -8,6 +8,7 @@ using Bots.Domain.Entity;
 using Bots.Tests.Helpers;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Response;
+using Messaging.Contracts.Bus.Request;
 using Messaging.Contracts.Bus.Response;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -128,6 +129,69 @@ public class ComponentInteractionEndpointTests
     }
 
     [Test]
+    public async Task Invoke_LacksUseApplicationCommands_ReturnsForbid()
+    {
+        await InstallBotAsync();
+        GivenMessageWithButton("confirm");
+        _bus.ChannelPermissionOverrides[ExternalPermission.SendMessages] = true;
+        _bus.ChannelPermissionOverrides[ExternalPermission.UseApplicationCommands] = false;
+
+        var result = await Invoke("confirm");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>(),
+                "a member denied the bot gate must not reach by button what they were refused by name");
+            Assert.That(_subscriber.Messages, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Invoke_HoldsBothPermissions_Dispatches()
+    {
+        await InstallBotAsync();
+        GivenMessageWithButton("confirm");
+        _bus.ChannelPermissionOverrides[ExternalPermission.SendMessages] = true;
+        _bus.ChannelPermissionOverrides[ExternalPermission.UseApplicationCommands] = true;
+
+        var result = await Invoke("confirm");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Accepted>());
+            Assert.That(_subscriber.Messages, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task SubmitModal_LacksUseApplicationCommands_ReturnsForbid()
+    {
+        await InstallBotAsync();
+        _bus.ChannelPermissionOverrides[ExternalPermission.SendMessages] = true;
+        _bus.ChannelPermissionOverrides[ExternalPermission.UseApplicationCommands] = false;
+
+        var result = await _endpoint.SubmitModalAsync(GuildId, ChannelId,
+            new SubmitModalDto { BotUserId = BotUserId, CustomId = "form" },
+            MakeUser(UserId), _context, _bus, _registry, _pendingStore);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task Autocomplete_LacksUseApplicationCommands_ReturnsForbid()
+    {
+        await InstallBotAsync();
+        _bus.ChannelPermissionOverrides[ExternalPermission.SendMessages] = true;
+        _bus.ChannelPermissionOverrides[ExternalPermission.UseApplicationCommands] = false;
+
+        var result = await _endpoint.AutocompleteAsync(GuildId, ChannelId,
+            new AutocompleteRequestDto { BotUserId = BotUserId, CommandName = "ping" },
+            MakeUser(UserId), _context, _bus, _registry, _pendingStore);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
     public async Task Invoke_UnknownMessage_ReturnsNotFound()
     {
         await InstallBotAsync();
@@ -136,6 +200,26 @@ public class ComponentInteractionEndpointTests
         var result = await Invoke("confirm");
 
         Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task Invoke_MessageLookupNamesThePressingUser()
+    {
+        // Bots has no message store, so this fetch is the only way it can see the components it is
+        // about to validate against.
+        await InstallBotAsync();
+        GivenMessageWithButton("confirm");
+
+        await Invoke("confirm");
+
+        var request = _bus.Invoked.OfType<GetMessageRequest>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(request.RequestingUserId, Is.EqualTo(UserId));
+            Assert.That(request.MessageId, Is.EqualTo(MessageId));
+            Assert.That(request.Scope, Is.EqualTo(MessageReadScope.Full),
+                "it reads the body and the components, so it asks the full-scope question");
+        });
     }
 
     [Test]

@@ -69,7 +69,7 @@ public class InboxService(
         page = await DropMutedAsync(page);
         page = await DropUnviewableAsync(userId, page);
 
-        var (previews, previewsUnavailable) = await LoadPreviewsAsync(page);
+        var (previews, previewsUnavailable) = await LoadPreviewsAsync(userId, page);
         var mentionCounts = await CountMentionsAsync(userId, page);
 
         var groups = page.Select(row =>
@@ -237,7 +237,7 @@ public class InboxService(
 
     /// <summary>Fetches the preview lines in one batched bus request.</summary>
     private async Task<(Dictionary<string, IReadOnlyList<InboxMessageDto>> Previews, bool Unavailable)>
-        LoadPreviewsAsync(List<UnreadRow> rows)
+        LoadPreviewsAsync(string userId, List<UnreadRow> rows)
     {
         var previews = new Dictionary<string, IReadOnlyList<InboxMessageDto>>(StringComparer.Ordinal);
         if (rows.Count == 0) return (previews, false);
@@ -246,6 +246,7 @@ public class InboxService(
         {
             var response = await bus.InvokeAsync<GetChannelMessagePagesResponse>(new GetChannelMessagePagesRequest
             {
+                RequestingUserId = userId,
                 Items = rows
                     .Select(r => new ChannelMessagePageQuery
                     {

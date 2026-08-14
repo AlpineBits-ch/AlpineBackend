@@ -108,12 +108,12 @@ public class MaintenanceServiceTests
             new Role
             {
                 Id = EveryoneRoleId, GuildId = GuildId, Type = RoleType.Everyone, Name = "Everyone",
-                Permissions = Role.DefaultEveryonePermissions, CreatedAt = now, UpdatedAt = now,
+                Permissions = Role.DefaultEveryonePermissions, ModulePermissions = Role.DefaultEveryoneModulePermissions, CreatedAt = now, UpdatedAt = now,
             },
             new Role
             {
                 Id = FlatmateRoleId, GuildId = GuildId, Type = RoleType.None, Name = "Flatmates",
-                Permissions = Role.FlatmatePermissions, CreatedAt = now, UpdatedAt = now,
+                ModulePermissions = Role.FlatmatePermissions, CreatedAt = now, UpdatedAt = now,
             });
 
         foreach (var id in new[] { UpkeepId, CellarId })
@@ -162,7 +162,7 @@ public class MaintenanceServiceTests
                 // re-grants ViewChannel from anything that implies it, so a deny of the one bit
                 // is silently undone.
                 Id = "chpr-cellar-deny", ChannelId = CellarId, RoleId = EveryoneRoleId,
-                DenyPermissions = Role.DefaultEveryonePermissions, CreatedAt = now, UpdatedAt = now,
+                DenyPermissions = Role.DefaultEveryonePermissions, DenyModulePermissions = Role.DefaultEveryoneModulePermissions, CreatedAt = now, UpdatedAt = now,
             },
             new ChannelPermission
             {

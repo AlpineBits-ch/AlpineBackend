@@ -22,7 +22,9 @@ namespace Guild.Tests.Services;
 ///   - Channel and category overwrites are applied after base (category first,
 ///     channel second so channel wins).
 ///   - User-specific overwrites are applied last and always take priority.
-///   - ExpandImpliedPermissions adds implied flags (e.g. Stream → Speak → Connect).
+///   - ExpandImpliedPermissions adds implied flags (e.g. Speak → Connect → ViewChannel), once,
+///     on the base mask, before any overwrite. The deny direction and the interaction between the
+///     two live in PermissionResolutionTests, which arranges the real @everyone mask.
 ///   - Results are cached with a 15-minute TTL; invalidation removes the entry.
 ///
 /// NOTE ON NAVIGATION PROPERTIES
@@ -470,14 +472,16 @@ public class GuildPermissionServiceTests
     [Test]
     public async Task CanUserPerformActionOnGuild_ImpliedPermissionsExpanded()
     {
-        // Granting Stream at the role level implies Speak and Connect at guild level too.
+        // Granting Stream at the role level implies Connect, and Connect implies ViewChannel, at
+        // guild level too. It does not imply Speak - video and voice are separate grants.
         await SeedWithRolePermission(Permissions.Stream);
 
         Assert.Multiple(async () =>
         {
             Assert.That(await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.Stream), Is.True);
-            Assert.That(await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.Speak), Is.True, "Stream → Speak");
-            Assert.That(await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.Connect), Is.True, "Stream → Speak → Connect");
+            Assert.That(await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.Connect), Is.True, "Stream → Connect");
+            Assert.That(await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.ViewChannel), Is.True, "Stream → Connect → ViewChannel");
+            Assert.That(await _service.CanUserPerformActionOnGuildAsync(UserId, GuildId, Permissions.Speak), Is.False, "Stream is not Speak");
         });
     }
 
@@ -834,21 +838,25 @@ public class GuildPermissionServiceTests
     }
 
     [Test]
-    public async Task Implied_Stream_GrantsSpeakAndConnect()
+    public async Task Implied_Stream_GrantsConnectButNotSpeak()
     {
         var perms = await ComputeImplied(Permissions.Stream);
         Assert.Multiple(() =>
         {
-            Assert.That(perms.HasFlag(Permissions.Speak), Is.True, "Stream → Speak");
-            Assert.That(perms.HasFlag(Permissions.Connect), Is.True, "Stream → Speak → Connect");
+            Assert.That(perms.HasFlag(Permissions.Connect), Is.True, "Stream → Connect");
+            Assert.That(perms.HasFlag(Permissions.Speak), Is.False, "video is independent of voice");
         });
     }
 
     [Test]
-    public async Task Implied_Speak_GrantsConnect()
+    public async Task Implied_Speak_GrantsConnectButNotStream()
     {
         var perms = await ComputeImplied(Permissions.Speak);
-        Assert.That(perms.HasFlag(Permissions.Connect), Is.True);
+        Assert.Multiple(() =>
+        {
+            Assert.That(perms.HasFlag(Permissions.Connect), Is.True);
+            Assert.That(perms.HasFlag(Permissions.Stream), Is.False, "voice is independent of video");
+        });
     }
 
     [Test]
@@ -984,13 +992,14 @@ public class GuildPermissionServiceTests
     }
 
     [Test]
-    public async Task Implied_ManageChannel_GrantsManagePermissionsAndViewChannel()
+    public async Task Implied_ManageChannel_GrantsViewChannelOnly()
     {
         var perms = await ComputeImplied(Permissions.ManageChannel);
         Assert.Multiple(() =>
         {
-            Assert.That(perms.HasFlag(Permissions.ManagePermissions), Is.True, "ManageChannel → ManagePermissions");
             Assert.That(perms.HasFlag(Permissions.ViewChannel), Is.True, "ManageChannel → ViewChannel");
+            Assert.That(perms.HasFlag(Permissions.ManagePermissions), Is.False,
+                "editing a channel is not the right to rewrite its overwrites - that is ManageRoles' half of the split");
         });
     }
 
@@ -1866,13 +1875,13 @@ public class GuildPermissionServiceTests
     [Test]
     public async Task ClampToGrantable_ActorsImpliedPermissionsCountTowardClamp()
     {
-        // Actor holds Stream, which implies Speak + Connect; requesting Speak should
-        // survive the clamp even though no role grants Speak directly.
+        // Actor holds Stream, which implies Connect; requesting Connect should survive the clamp
+        // even though no role grants Connect directly.
         await SeedWithRolePermission(Permissions.Stream);
 
-        var clamped = await _service.ClampToGrantableAsync(UserId, GuildId, Permissions.Speak);
+        var clamped = await _service.ClampToGrantableAsync(UserId, GuildId, Permissions.Connect);
 
-        Assert.That(clamped, Is.EqualTo(Permissions.Speak),
+        Assert.That(clamped, Is.EqualTo(Permissions.Connect),
             "Implied permissions from ExpandImpliedPermissions must count as grantable");
     }
 
@@ -1910,9 +1919,10 @@ public class GuildPermissionServiceTests
         await _context.SaveChangesAsync();
 
         var perms = await _service.GetGuildPermissionsAsync(UserId, GuildId);
+        var modulePerms = await _service.GetGuildModulePermissionsAsync(UserId, GuildId);
 
         Assert.That(perms.HasFlag(Permissions.Superadmin), Is.True);
-        Assert.That(perms.HasFlag(Permissions.EditAnyWikiPage), Is.True);
+        Assert.That(modulePerms.HasFlag(ModulePermissions.EditAnyWikiPage), Is.True);
     }
 
     [Test]
@@ -1944,10 +1954,11 @@ public class GuildPermissionServiceTests
         await _context.SaveChangesAsync();
 
         var perms = await _service.GetGuildPermissionsAsync(UserId, GuildId);
+        var modulePerms = await _service.GetGuildModulePermissionsAsync(UserId, GuildId);
 
         Assert.That(perms.HasFlag(Permissions.Superadmin), Is.True, "ownership itself is unaffected");
-        Assert.That(perms.HasFlag(Permissions.EditAnyWikiPage), Is.False, "Wiki is switched off");
-        Assert.That(perms.HasFlag(Permissions.ViewWiki), Is.False);
+        Assert.That(modulePerms.HasFlag(ModulePermissions.EditAnyWikiPage), Is.False, "Wiki is switched off");
+        Assert.That(modulePerms.HasFlag(ModulePermissions.ViewWiki), Is.False);
     }
 
     [Test]
@@ -1982,5 +1993,46 @@ public class GuildPermissionServiceTests
     {
         Assert.ThrowsAsync<ArgumentException>(() => _service.GetGuildPermissionsAsync("", GuildId));
         Assert.ThrowsAsync<ArgumentException>(() => _service.GetGuildPermissionsAsync(UserId, " "));
+    }
+
+    // The third of the three shapes SelfMemberDto.EffectiveModulePermissions has to get right -
+    // owner and disabled-module are covered above.
+    [Test]
+    public async Task GetGuildModulePermissions_PlainMember_IsTheUnionOfHeldRolesOnly()
+    {
+        _context.Guilds.Add(MakeGuild());
+        var role = MakeRole(permissions: Permissions.SendMessages);
+        role.ModulePermissions = ModulePermissions.ViewWiki | ModulePermissions.CreateWikiPages;
+        _context.Roles.Add(role);
+        _context.GuildMembers.Add(MakeGuildMember());
+        _context.RoleMembers.Add(MakeRoleMember("rm-1", RoleId, MemberId));
+        await _context.SaveChangesAsync();
+
+        var modulePerms = await _service.GetGuildModulePermissionsAsync(UserId, GuildId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(modulePerms.HasFlag(ModulePermissions.ViewWiki), Is.True);
+            Assert.That(modulePerms.HasFlag(ModulePermissions.CreateWikiPages), Is.True);
+            Assert.That(modulePerms.HasFlag(ModulePermissions.DeleteWikiPages), Is.False,
+                "a member is not the owner - nothing may widen the mask beyond the roles they hold");
+        });
+    }
+
+    [Test]
+    public async Task GetGuildModulePermissions_NonMember_IsNone()
+    {
+        _context.Guilds.Add(MakeGuild());
+        await _context.SaveChangesAsync();
+
+        Assert.That(await _service.GetGuildModulePermissionsAsync("stranger", GuildId),
+            Is.EqualTo(ModulePermissions.None));
+    }
+
+    [Test]
+    public void GetGuildModulePermissions_BlankArguments_Throw()
+    {
+        Assert.ThrowsAsync<ArgumentException>(() => _service.GetGuildModulePermissionsAsync("", GuildId));
+        Assert.ThrowsAsync<ArgumentException>(() => _service.GetGuildModulePermissionsAsync(UserId, " "));
     }
 }

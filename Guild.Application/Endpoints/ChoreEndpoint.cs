@@ -77,7 +77,7 @@ public class ChoreEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Chores, userId, Permissions.ManageChores);
+        var access = await household.ResolveAsync(channelId, ChannelType.Chores, userId, ModulePermissions.ManageChores);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Title)) return Results.BadRequest("Title is required");
@@ -135,7 +135,7 @@ public class ChoreEndpoint
         var chore = await ctx.Chores.FirstOrDefaultAsync(c => c.Id == choreId);
         if (chore is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(chore.ChannelId, ChannelType.Chores, userId, Permissions.ManageChores);
+        var access = await household.ResolveAsync(chore.ChannelId, ChannelType.Chores, userId, ModulePermissions.ManageChores);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.Title is not null)
@@ -195,7 +195,7 @@ public class ChoreEndpoint
         var chore = await ctx.Chores.FirstOrDefaultAsync(c => c.Id == choreId);
         if (chore is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(chore.ChannelId, ChannelType.Chores, userId, Permissions.ManageChores);
+        var access = await household.ResolveAsync(chore.ChannelId, ChannelType.Chores, userId, ModulePermissions.ManageChores);
         if (access.ToFailure() is { } failure) return failure;
 
         ctx.Chores.Remove(chore);   // occurrences cascade
@@ -260,7 +260,7 @@ public class ChoreEndpoint
         var occurrence = await ctx.ChoreOccurrences.FirstOrDefaultAsync(o => o.Id == occurrenceId);
         if (occurrence is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, Permissions.CompleteChores);
+        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, ModulePermissions.CompleteChores);
         if (access.ToFailure() is { } failure) return failure;
 
         if ((occurrence.CompletedAt is not null) == completed)
@@ -303,7 +303,7 @@ public class ChoreEndpoint
         var occurrence = await ctx.ChoreOccurrences.FirstOrDefaultAsync(o => o.Id == occurrenceId);
         if (occurrence is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, Permissions.CompleteChores);
+        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, ModulePermissions.CompleteChores);
         if (access.ToFailure() is { } failure) return failure;
 
         occurrence.SkippedAt = DateTimeOffset.UtcNow;
@@ -339,7 +339,7 @@ public class ChoreEndpoint
         var occurrence = await ctx.ChoreOccurrences.FirstOrDefaultAsync(o => o.Id == occurrenceId);
         if (occurrence is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, Permissions.CompleteChores);
+        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, ModulePermissions.CompleteChores);
         if (access.ToFailure() is { } failure) return failure;
 
         if (occurrence.CompletedAt is not null) return Results.BadRequest("That chore is already done");
@@ -380,7 +380,7 @@ public class ChoreEndpoint
         var occurrence = await ctx.ChoreOccurrences.FirstOrDefaultAsync(o => o.Id == occurrenceId);
         if (occurrence is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, Permissions.CompleteChores);
+        var access = await household.ResolveAsync(occurrence.ChannelId, ChannelType.Chores, userId, ModulePermissions.CompleteChores);
         if (access.ToFailure() is { } failure) return failure;
 
         // Nudging yourself is not a thing.

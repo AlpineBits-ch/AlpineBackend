@@ -30,11 +30,25 @@ public enum EchoPermissions : ulong
     ManageChannel = 1ul << 20,
     ManagePermissions = 1ul << 21,
     CreateInvite = 1ul << 22,
+    ReadMessageHistory = 1ul << 23,
+    SendVoiceMessages = 1ul << 24,
+    SendPolls = 1ul << 25,
+    UseExternalEmojis = 1ul << 26,
+    UseExternalStickers = 1ul << 27,
+    CreatePrivateThreads = 1ul << 28,
+    UseApplicationCommands = 1ul << 29,
+    CreateExpressions = 1ul << 30,
+    ManageExpressions = 1ul << 31,
     KickMembers = 1ul << 32,
     BanMembers = 1ul << 33,
     ModerateMembers = 1ul << 34,
     ManageGuild = 1ul << 35,
     ViewAuditLog = 1ul << 36,
+    ManageEmojis = 1ul << 37,
+    ManageEvents = 1ul << 38,
+    PrioritySpeaker = 1ul << 39,
+    RequestToSpeak = 1ul << 40,
+    UseVoiceActivity = 1ul << 41,
     MentionEveryone = 1ul << 50,
     ManageRoles = 1ul << 51,
     ManageWebhooks = 1ul << 52,
@@ -75,6 +89,18 @@ public static class DiscordPermissionMapper
     private const ulong CreatePrivateThreads = 1ul << 36;
     private const ulong SendMessagesInThreads = 1ul << 38;
     private const ulong ModerateMembers = 1ul << 40;
+    private const ulong PrioritySpeaker = 1ul << 8;
+    private const ulong ReadMessageHistory = 1ul << 16;
+    private const ulong UseExternalEmojis = 1ul << 18;
+    private const ulong UseVoiceActivity = 1ul << 25;
+    private const ulong UseApplicationCommands = 1ul << 31;
+    private const ulong RequestToSpeak = 1ul << 32;
+    private const ulong ManageEvents = 1ul << 33;
+    private const ulong UseExternalStickers = 1ul << 37;
+    private const ulong ManageGuildExpressions = 1ul << 30;
+    private const ulong CreateExpressions = 1ul << 43;
+    private const ulong SendVoiceMessages = 1ul << 46;
+    private const ulong SendPolls = 1ul << 49;
 
     /// <summary>
     /// Parses Discord's decimal-string permission bitmask (kept as a string in JSON to avoid JS
@@ -102,7 +128,9 @@ public static class DiscordPermissionMapper
         if ((discord & MuteMembers) != 0) echo |= EchoPermissions.MuteMembers;
         if ((discord & DeafenMembers) != 0) echo |= EchoPermissions.DeafenMembers;
         if ((discord & MoveMembers) != 0) echo |= EchoPermissions.MoveMembers;
-        if ((discord & (CreatePublicThreads | CreatePrivateThreads)) != 0) echo |= EchoPermissions.CreateThreads;
+        // Mapped separately now that Echo has a bit for each.
+        if ((discord & CreatePublicThreads) != 0) echo |= EchoPermissions.CreateThreads;
+        if ((discord & CreatePrivateThreads) != 0) echo |= EchoPermissions.CreatePrivateThreads;
         if ((discord & SendMessagesInThreads) != 0) echo |= EchoPermissions.SendMessagesInThreads;
         if ((discord & ManageThreads) != 0) echo |= EchoPermissions.ManageAnyThread;
         if ((discord & ManageChannels) != 0) echo |= EchoPermissions.ManageChannel;
@@ -119,6 +147,21 @@ public static class DiscordPermissionMapper
         if ((discord & ModerateMembers) != 0) echo |= EchoPermissions.ModerateMembers;
         if ((discord & ManageGuild) != 0) echo |= EchoPermissions.ManageGuild;
         if ((discord & ViewAuditLog) != 0) echo |= EchoPermissions.ViewAuditLog;
+        if ((discord & ReadMessageHistory) != 0) echo |= EchoPermissions.ReadMessageHistory;
+        if ((discord & UseApplicationCommands) != 0) echo |= EchoPermissions.UseApplicationCommands;
+        if ((discord & UseExternalEmojis) != 0) echo |= EchoPermissions.UseExternalEmojis;
+        if ((discord & UseExternalStickers) != 0) echo |= EchoPermissions.UseExternalStickers;
+        if ((discord & PrioritySpeaker) != 0) echo |= EchoPermissions.PrioritySpeaker;
+        if ((discord & RequestToSpeak) != 0) echo |= EchoPermissions.RequestToSpeak;
+        if ((discord & UseVoiceActivity) != 0) echo |= EchoPermissions.UseVoiceActivity;
+        if ((discord & SendVoiceMessages) != 0) echo |= EchoPermissions.SendVoiceMessages;
+        if ((discord & SendPolls) != 0) echo |= EchoPermissions.SendPolls;
+        if ((discord & ManageEvents) != 0) echo |= EchoPermissions.ManageEvents;
+        if ((discord & CreateExpressions) != 0) echo |= EchoPermissions.CreateExpressions;
+        // Discord retired MANAGE_EMOJIS_AND_STICKERS in favour of MANAGE_GUILD_EXPRESSIONS on the
+        // same bit.
+        if ((discord & ManageGuildExpressions) != 0)
+            echo |= EchoPermissions.ManageExpressions | EchoPermissions.ManageEmojis;
 
         return (ulong)echo;
     }

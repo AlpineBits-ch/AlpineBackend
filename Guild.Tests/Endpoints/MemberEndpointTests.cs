@@ -35,6 +35,7 @@ public class MemberEndpointTests
     private FakeDistributedCache _cache = null!;
     private GuildPermissionService _permissionService = null!;
     private AuditLogService _auditLog = null!;
+    private MfaElevationService _mfa = null!;
     private FakeMessageBus _bus = null!;
     private FakeHubContext _hub = null!;
     private GuildHydrateService _hydrateService = null!;
@@ -47,6 +48,7 @@ public class MemberEndpointTests
         _cache = new FakeDistributedCache();
         _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _auditLog = new AuditLogService(_context);
+        _mfa = new MfaElevationService(_context);
         _bus = new FakeMessageBus();
         _hub = new FakeHubContext();
         _hydrateService = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
@@ -86,7 +88,7 @@ public class MemberEndpointTests
     [Test]
     public async Task BanMember_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -97,7 +99,7 @@ public class MemberEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = ModMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -114,7 +116,7 @@ public class MemberEndpointTests
         _context.RoleMembers.Add(new RoleMember { Id = "rm-target", RoleId = TargetRoleId, MemberId = TargetMemberId, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -125,7 +127,7 @@ public class MemberEndpointTests
         _context.Set<GuildBan>().Add(GuildBan.Create(new CreateGuildBanParams { GuildId = GuildId, BannedUserId = TargetUserId, BannedByUserId = UserId }));
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<Conflict<string>>());
     }
 
@@ -134,7 +136,7 @@ public class MemberEndpointTests
     {
         await SeedModeratorAndTarget(Permissions.BanMembers);
 
-        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId, Reason = "spam" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId, Reason = "spam" }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.GuildBanDto>>());
@@ -148,7 +150,7 @@ public class MemberEndpointTests
     {
         await SeedModeratorAndTarget(Permissions.BanMembers);
 
-        await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         await _context.SaveChangesAsync();
 
         var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.ActionType == AuditActionType.MemberBanned).ToList();
@@ -161,7 +163,7 @@ public class MemberEndpointTests
     [Test]
     public async Task UnbanMember_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.UnbanMemberAsync(GuildId, TargetUserId, _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog);
+        var result = await _endpoint.UnbanMemberAsync(GuildId, TargetUserId, _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _mfa);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -169,7 +171,7 @@ public class MemberEndpointTests
     public async Task UnbanMember_NotBanned_ReturnsNotFound()
     {
         await SeedModeratorAndTarget(Permissions.BanMembers);
-        var result = await _endpoint.UnbanMemberAsync(GuildId, TargetUserId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        var result = await _endpoint.UnbanMemberAsync(GuildId, TargetUserId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -180,7 +182,7 @@ public class MemberEndpointTests
         _context.Set<GuildBan>().Add(GuildBan.Create(new CreateGuildBanParams { GuildId = GuildId, BannedUserId = TargetUserId, BannedByUserId = UserId }));
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.UnbanMemberAsync(GuildId, TargetUserId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog);
+        var result = await _endpoint.UnbanMemberAsync(GuildId, TargetUserId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
@@ -219,7 +221,7 @@ public class MemberEndpointTests
     [Test]
     public async Task KickMember_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.KickMemberAsync(GuildId, "nonexistent", _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.KickMemberAsync(GuildId, "nonexistent", _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -227,7 +229,7 @@ public class MemberEndpointTests
     public async Task KickMember_DoesNotExist_ReturnsNotFound()
     {
         await SeedModeratorAndTarget(Permissions.KickMembers);
-        var result = await _endpoint.KickMemberAsync(GuildId, "nonexistent", _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.KickMemberAsync(GuildId, "nonexistent", _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -236,7 +238,7 @@ public class MemberEndpointTests
     {
         await SeedModeratorAndTarget(Permissions.KickMembers);
 
-        var result = await _endpoint.KickMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.KickMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
@@ -251,7 +253,7 @@ public class MemberEndpointTests
     public async Task MuteMember_NonPositiveDuration_ReturnsBadRequest()
     {
         await SeedModeratorAndTarget(Permissions.ModerateMembers);
-        var result = await _endpoint.MuteMemberAsync(GuildId, TargetMemberId, new MuteMemberDto { DurationMinutes = 0 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.MuteMemberAsync(GuildId, TargetMemberId, new MuteMemberDto { DurationMinutes = 0 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
@@ -262,7 +264,7 @@ public class MemberEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = ModMemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.MuteMemberAsync(GuildId, "nonexistent", new MuteMemberDto { DurationMinutes = 10 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.MuteMemberAsync(GuildId, "nonexistent", new MuteMemberDto { DurationMinutes = 10 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -270,7 +272,7 @@ public class MemberEndpointTests
     public async Task MuteMember_DoesNotExist_ReturnsNotFound()
     {
         await SeedModeratorAndTarget(Permissions.ModerateMembers);
-        var result = await _endpoint.MuteMemberAsync(GuildId, "nonexistent", new MuteMemberDto { DurationMinutes = 10 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.MuteMemberAsync(GuildId, "nonexistent", new MuteMemberDto { DurationMinutes = 10 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -281,7 +283,7 @@ public class MemberEndpointTests
         var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, TargetUserId);
         _cache.SetEntry(cacheKey, "stale");
 
-        var result = await _endpoint.MuteMemberAsync(GuildId, TargetMemberId, new MuteMemberDto { DurationMinutes = 15 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.MuteMemberAsync(GuildId, TargetMemberId, new MuteMemberDto { DurationMinutes = 15 }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
@@ -298,7 +300,7 @@ public class MemberEndpointTests
         target.MutedUntil = DateTimeOffset.UtcNow.AddMinutes(30);
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.UnmuteMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.UnmuteMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
@@ -310,7 +312,7 @@ public class MemberEndpointTests
     public async Task UnmuteMember_DoesNotExist_ReturnsNotFound()
     {
         await SeedModeratorAndTarget(Permissions.ModerateMembers);
-        var result = await _endpoint.UnmuteMemberAsync(GuildId, "nonexistent", _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        var result = await _endpoint.UnmuteMemberAsync(GuildId, "nonexistent", _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -390,7 +392,7 @@ public class MemberEndpointTests
         var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, TargetUserId);
         _cache.SetEntry(cacheKey, "stale");
 
-        await _endpoint.KickMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _endpoint.KickMemberAsync(GuildId, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
 
         Assert.That(_cache.HasEntry(cacheKey), Is.False);
     }
@@ -402,7 +404,7 @@ public class MemberEndpointTests
         var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, TargetUserId);
         _cache.SetEntry(cacheKey, "stale");
 
-        await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus);
+        await _endpoint.BanMemberAsync(GuildId, new CreateBanDto { UserId = TargetUserId }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _bus, _mfa);
 
         Assert.That(_cache.HasEntry(cacheKey), Is.False);
     }

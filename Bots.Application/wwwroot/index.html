@@ -424,14 +424,21 @@
     { label: "Threads", items: [
       ["CreateThreads", 16], ["SendMessagesInThreads", 17],
       ["ManageOwnThreads", 18], ["ManageAnyThread", 19],
+      ["CreatePrivateThreads", 28],
     ] },
     { label: "Channel management", items: [
       ["ManageChannel", 20], ["ManagePermissions", 21], ["CreateInvite", 22],
     ] },
-    { label: "Wiki", items: [
-      ["ViewWiki", 23], ["CreateWikiPages", 24], ["EditOwnWikiPages", 25],
-      ["EditAnyWikiPage", 26], ["DeleteWikiPages", 27], ["ManageWikiRevisions", 28],
-      ["ManageWikiStructure", 29], ["ModerateWikiComments", 30], ["PublishWikiPublicly", 31],
+    // Bits 23-31 and 39-41 used to be the wiki block. Those permissions now live in a separate
+    // ModulePermissions mask that an install link cannot request at all - the install protocol
+    // carries one 64-bit core mask - so they are gone from the picker rather than renumbered.
+    { label: "Reading and posting", items: [
+      ["ReadMessageHistory", 23], ["SendVoiceMessages", 24], ["SendPolls", 25],
+      ["UseExternalEmojis", 26], ["UseExternalStickers", 27],
+      ["UseApplicationCommands", 29],
+    ] },
+    { label: "Expressions", items: [
+      ["CreateExpressions", 30], ["ManageExpressions", 31], ["ManageEmojis", 37],
     ] },
     { label: "Guild moderation", items: [
       ["KickMembers", 32], ["BanMembers", 33], ["ModerateMembers", 34],

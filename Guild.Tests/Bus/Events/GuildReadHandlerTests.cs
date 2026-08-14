@@ -185,6 +185,42 @@ public class GuildReadHandlerTests
         Assert.That(Stored()!.LastReadAt, Is.EqualTo(HeadCreatedAt));
     }
 
+    /// <summary>The id in the ack comes from whoever sent it, so an ack for a message in a channel
+    /// the acker cannot see is a probe. Messaging answers it the same way it answers a deleted
+    /// message, and this handler takes the same fallback - the point being that it does not get a
+    /// timestamp out of it either way.</summary>
+    [Test]
+    public async Task AckingAMessageTheUserMayNotSee_IsRefusedAndFallsBackTheSameWay()
+    {
+        await SeedAsync();
+
+        await AckAsync("mesg-in-a-private-channel", MessageBus(found: false));
+
+        Assert.That(Stored()!.LastReadAt, Is.EqualTo(HeadCreatedAt));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ What the ack asks
+    // Messaging for ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task TheLookupNamesTheAckingUserAndAsksForMetadataOnly()
+    {
+        // The two halves of the decision recorded in ResolveReadTimeAsync: the principal is the
+        // acking user rather than an exemption, and the scope is the narrow one so that a channel
+        // withholding its backlog still keeps working read cursors.
+        await SeedAsync();
+        var bus = MessageBus();
+
+        await AckAsync("mesg-older", bus);
+
+        var request = bus.Invoked.OfType<GetMessageRequest>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(request.RequestingUserId, Is.EqualTo(UserId));
+            Assert.That(request.Scope, Is.EqualTo(MessageReadScope.MetadataOnly));
+        });
+    }
+
     /// <summary>Over-marking beats under-marking here: the member loses an unread badge they might
     /// have wanted, rather than being left with a channel that will not stop shouting at them.</summary>
     [Test]

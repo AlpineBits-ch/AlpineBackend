@@ -112,4 +112,20 @@ public class MemberProjectionShapeTests
             "SelfMemberDto no longer projects Role.Permissions - clients can't resolve their own "
             + "permissions without it.");
     }
+
+    /// <summary>Both halves of both masks, on both the role and the overwrite.</summary>
+    [TestCase(typeof(Role), nameof(Role.Permissions))]
+    [TestCase(typeof(Role), nameof(Role.ModulePermissions))]
+    [TestCase(typeof(ChannelPermission), nameof(ChannelPermission.AllowPermissions))]
+    [TestCase(typeof(ChannelPermission), nameof(ChannelPermission.DenyPermissions))]
+    [TestCase(typeof(ChannelPermission), nameof(ChannelPermission.AllowModulePermissions))]
+    [TestCase(typeof(ChannelPermission), nameof(ChannelPermission.DenyModulePermissions))]
+    public void SelfMemberProjection_CarriesEveryPermissionMask(Type declaringType, string member)
+    {
+        var reached = AccessedMembers(SelfMemberDto.Projection)
+            .Any(m => m.DeclaringType == declaringType && m.Name == member);
+
+        Assert.That(reached, Is.True,
+            $"SelfMemberDto's projection no longer reaches {declaringType.Name}.{member}.");
+    }
 }

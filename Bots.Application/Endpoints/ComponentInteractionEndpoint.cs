@@ -34,15 +34,10 @@ public class ComponentInteractionEndpoint
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
         if (string.IsNullOrWhiteSpace(dto.CustomId)) return Results.BadRequest("customId is required");
 
-        // Pressing a button is participation in the channel, so it takes the same permission as
-        // speaking there - otherwise a muted or read-only member could still drive a bot's flow.
-        var permission = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(new HasUserPermissionToChannelRequest
-        {
-            ChannelId = channelId,
-            UserId = userId,
-            Permission = ExternalPermission.SendMessages,
-        });
-        if (!permission.IsAllowed) return Results.Forbid();
+        // Pressing a button is participation in the channel, so it takes the same permissions as
+        // invoking a command there - otherwise a muted or read-only member, or one whose role is
+        // denied UseApplicationCommands, could still drive a bot's flow.
+        if (await InteractionPermissions.CheckAsync(bus, channelId, userId) is { } denied) return denied;
 
         // An ephemeral message exists only in Redis, so it is resolved separately - and only ever
         // for the user it was sent to.
@@ -56,7 +51,11 @@ public class ComponentInteractionEndpoint
                 originalContent: string.Empty, originalComponents: [], ctx, bus, registry, pendingStore);
         }
 
-        var message = await bus.InvokeAsync<GetMessageResponse>(new GetMessageRequest { MessageId = messageId });
+        // The channel check below stays even though Messaging now resolves the same question from
+        // the message's own channel: this one pins the message to the channel in the route, which
+        // is what stops a valid custom_id from one channel being replayed against another.
+        var message = await bus.InvokeAsync<GetMessageResponse>(
+            new GetMessageRequest { MessageId = messageId, RequestingUserId = userId });
         if (message.Message is null || message.Message.ChannelId != channelId) return Results.NotFound();
 
         var components = string.IsNullOrWhiteSpace(message.Message.ComponentsJson)
@@ -81,13 +80,7 @@ public class ComponentInteractionEndpoint
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
         if (string.IsNullOrWhiteSpace(dto.CustomId)) return Results.BadRequest("customId is required");
 
-        var permission = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(new HasUserPermissionToChannelRequest
-        {
-            ChannelId = channelId,
-            UserId = userId,
-            Permission = ExternalPermission.SendMessages,
-        });
-        if (!permission.IsAllowed) return Results.Forbid();
+        if (await InteractionPermissions.CheckAsync(bus, channelId, userId) is { } denied) return denied;
 
         var app = await ctx.BotApplications.FirstOrDefaultAsync(a => a.BotUserId == dto.BotUserId && a.IsEnabled);
         if (app is null) return Results.NotFound("Bot not found.");
@@ -164,13 +157,7 @@ public class ComponentInteractionEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var permission = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(new HasUserPermissionToChannelRequest
-        {
-            ChannelId = channelId,
-            UserId = userId,
-            Permission = ExternalPermission.SendMessages,
-        });
-        if (!permission.IsAllowed) return Results.Forbid();
+        if (await InteractionPermissions.CheckAsync(bus, channelId, userId) is { } denied) return denied;
 
         var app = await ctx.BotApplications.FirstOrDefaultAsync(a => a.BotUserId == dto.BotUserId && a.IsEnabled);
         if (app is null) return Results.NotFound("Bot not found.");

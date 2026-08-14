@@ -55,6 +55,32 @@ public class ImportedRoleDto
     /// <summary>Already remapped to Guild.Domain.Enums.Permissions bits by the caller.</summary>
     public ulong Permissions { get; set; }
 
+    /// <summary>Discord's <c>hoist</c>: show this role's members grouped in the member list.</summary>
+    public bool Hoist { get; set; }
+
+    /// <summary>Discord's <c>mentionable</c>.</summary>
+    public bool Mentionable { get; set; } = true;
+
+    /// <summary>Discord's <c>icon</c>, already resolved from its role-icon hash to a fully qualified
+    /// CDN URL by the caller - Guild has no way to turn a hash back into a URL.</summary>
+    public string? IconUrl { get; set; }
+
+    /// <summary>Discord's <c>unicode_emoji</c>.</summary>
+    public string? UnicodeEmoji { get; set; }
+
+    /// <summary>Discord's <c>managed</c>: the role belongs to an integration (a bot install, a
+    /// subscription, a linked role) rather than to a person. Carried across so the imported guild's
+    /// admins see the same non-editable roles they saw on Discord, instead of a set of ordinary
+    /// roles they can rename and delete while the integration that owns them keeps existing.</summary>
+    public bool IsManaged { get; set; }
+
+    /// <summary>Discord's <c>tags.bot_id</c>, when the role is managed because of a bot.</summary>
+    public string? BotUserId { get; set; }
+
+    /// <summary>Discord's <c>tags.integration_id</c>, when something other than a bot user owns
+    /// it.</summary>
+    public string? IntegrationId { get; set; }
+
     /// <summary>True for Discord's @everyone role - Guild.Create already made one, so the
     /// handler updates its Permissions instead of creating a duplicate.</summary>
     public bool IsEveryoneRole { get; set; }

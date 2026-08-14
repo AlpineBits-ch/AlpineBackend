@@ -20,57 +20,65 @@ public class PermissionOverwriteEndpoint
     public Task<(IResult, ChannelPermissionChanged?)> SetChannelRoleOverwriteAsync(
         string channelId, string roleId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => UpsertAsync(ctx, user, permissionService, auditLog, dto, channelId: channelId, roleId: roleId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, channelId: channelId, roleId: roleId);
 
     [WolverinePut("/api/v1/channels/{channelId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> SetChannelMemberOverwriteAsync(
         string channelId, string memberId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => UpsertAsync(ctx, user, permissionService, auditLog, dto, channelId: channelId, memberId: memberId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, channelId: channelId, memberId: memberId);
 
     [WolverinePut("/api/v1/categories/{categoryId}/permissions/roles/{roleId}")]
     public Task<(IResult, ChannelPermissionChanged?)> SetCategoryRoleOverwriteAsync(
         string categoryId, string roleId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => UpsertAsync(ctx, user, permissionService, auditLog, dto, categoryId: categoryId, roleId: roleId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, categoryId: categoryId, roleId: roleId);
 
     [WolverinePut("/api/v1/categories/{categoryId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> SetCategoryMemberOverwriteAsync(
         string categoryId, string memberId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => UpsertAsync(ctx, user, permissionService, auditLog, dto, categoryId: categoryId, memberId: memberId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, categoryId: categoryId, memberId: memberId);
 
     [WolverineDelete("/api/v1/channels/{channelId}/permissions/roles/{roleId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteChannelRoleOverwriteAsync(
         string channelId, string roleId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => RemoveAsync(ctx, user, permissionService, auditLog, channelId: channelId, roleId: roleId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelId: channelId, roleId: roleId);
 
     [WolverineDelete("/api/v1/channels/{channelId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteChannelMemberOverwriteAsync(
         string channelId, string memberId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => RemoveAsync(ctx, user, permissionService, auditLog, channelId: channelId, memberId: memberId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelId: channelId, memberId: memberId);
 
     [WolverineDelete("/api/v1/categories/{categoryId}/permissions/roles/{roleId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteCategoryRoleOverwriteAsync(
         string categoryId, string roleId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => RemoveAsync(ctx, user, permissionService, auditLog, categoryId: categoryId, roleId: roleId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, categoryId: categoryId, roleId: roleId);
 
     [WolverineDelete("/api/v1/categories/{categoryId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteCategoryMemberOverwriteAsync(
         string categoryId, string memberId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
-        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog)
-        => RemoveAsync(ctx, user, permissionService, auditLog, categoryId: categoryId, memberId: memberId);
+        [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
+        [NotBody] MfaElevationService mfa)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, categoryId: categoryId, memberId: memberId);
 
     /// <summary>Validates the overwrite's target.</summary>
     private static async Task<IResult?> EnsureTargetIsInGuildAndOutrankedAsync(
@@ -110,7 +118,7 @@ public class PermissionOverwriteEndpoint
 
     private static async Task<(IResult, ChannelPermissionChanged?)> UpsertAsync(
         MicroserviceContext ctx, ClaimsPrincipal user, GuildPermissionService permissionService, AuditLogService auditLog,
-        SetPermissionOverwriteDto dto, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
+        MfaElevationService mfa, SetPermissionOverwriteDto dto, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
@@ -121,6 +129,8 @@ public class PermissionOverwriteEndpoint
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions);
         if (!isAuthorized) return (Results.Forbid(), null);
 
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return (mfaRejection, null);
+
         // Clamped in BOTH directions.
         var canGrant = await permissionService.CanGrantPermissionsAsync(userId, guildId, dto.AllowPermissions);
         if (!canGrant) return (Results.Forbid(), null);
@@ -128,12 +138,29 @@ public class PermissionOverwriteEndpoint
         var canDeny = await permissionService.CanGrantPermissionsAsync(userId, guildId, dto.DenyPermissions);
         if (!canDeny) return (Results.Forbid(), null);
 
+        // The module masks get the identical treatment, in both directions, against the module
+        // overload of the same guard - which already clamps to the guild's enabled GuildFeatures,
+        // so a bit belonging to a switched-off module is never grantable by anyone including the
+        // owner.
+        if (dto.AllowModulePermissions is { } requestedModuleAllow &&
+            !await permissionService.CanGrantPermissionsAsync(userId, guildId, requestedModuleAllow))
+            return (Results.Forbid(), null);
+
+        if (dto.DenyModulePermissions is { } requestedModuleDeny &&
+            !await permissionService.CanGrantPermissionsAsync(userId, guildId, requestedModuleDeny))
+            return (Results.Forbid(), null);
+
         var targetCheck = await EnsureTargetIsInGuildAndOutrankedAsync(ctx, permissionService, userId, guildId, roleId, memberId);
         if (targetCheck is not null) return (targetCheck, null);
 
         var existing = await ctx.Set<ChannelPermission>()
             .Where(p => p.ChannelId == channelId && p.CategoryId == categoryId && p.RoleId == roleId && p.MemberId == memberId)
             .FirstOrDefaultAsync();
+
+        // Omitted module masks carry over from the row being replaced - see
+        // SetPermissionOverwriteDto for why this half of the body is not PUT-replace.
+        var allowModulePermissions = dto.AllowModulePermissions ?? existing?.AllowModulePermissions ?? ModulePermissions.None;
+        var denyModulePermissions = dto.DenyModulePermissions ?? existing?.DenyModulePermissions ?? ModulePermissions.None;
 
         // AllowPermissions/DenyPermissions are init-only, so an update is a remove + re-add
         // rather than a mutation of the existing row.
@@ -150,6 +177,8 @@ public class PermissionOverwriteEndpoint
             MemberId = memberId,
             AllowPermissions = dto.AllowPermissions,
             DenyPermissions = dto.DenyPermissions,
+            AllowModulePermissions = allowModulePermissions,
+            DenyModulePermissions = denyModulePermissions,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -171,6 +200,8 @@ public class PermissionOverwriteEndpoint
             MemberId = overwrite.MemberId,
             AllowPermissions = overwrite.AllowPermissions,
             DenyPermissions = overwrite.DenyPermissions,
+            AllowModulePermissions = overwrite.AllowModulePermissions,
+            DenyModulePermissions = overwrite.DenyModulePermissions,
             CreatedAt = overwrite.CreatedAt,
             UpdatedAt = overwrite.UpdatedAt,
         };
@@ -185,7 +216,7 @@ public class PermissionOverwriteEndpoint
 
     private static async Task<(IResult, ChannelPermissionChanged?)> RemoveAsync(
         MicroserviceContext ctx, ClaimsPrincipal user, GuildPermissionService permissionService, AuditLogService auditLog,
-        string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
+        MfaElevationService mfa, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
@@ -195,6 +226,8 @@ public class PermissionOverwriteEndpoint
 
         var isAuthorized = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions);
         if (!isAuthorized) return (Results.Forbid(), null);
+
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return (mfaRejection, null);
 
         // Deleting an overwrite changes the effective permissions of whoever it targets - removing
         // a deny is a grant - so it needs the same hierarchy gate as writing one.

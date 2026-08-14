@@ -97,6 +97,49 @@ public class SearchEndpointTests
         Assert.That(request.Permission, Is.EqualTo(ExternalPermission.ViewChannel));
     }
 
+    /// <summary>A bus that answers each channel-permission question from <paramref name="granted"/>,
+    /// so a test can grant ViewChannel and withhold ReadMessageHistory (or the reverse) rather than
+    /// answering every permission the same way.</summary>
+    private static FakeMessageBus BusGranting(params ExternalPermission[] granted) =>
+        new(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = granted.Contains(r.Permission), Permission = r.Permission,
+            },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+    [Test]
+    public async Task Search_ChannelScope_CanViewButNotReadHistory_ReturnsForbid()
+    {
+        // Search is a history read wearing a query string.
+        var endpoint = new SearchEndpoint();
+        var bus = BusGranting(ExternalPermission.ViewChannel);
+
+        var result = await endpoint.SearchMessages("hello", "chan-1", null, 25, _context, _repo, _permissionService, TestPrincipal.ForUser("user-1"), bus);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>().Select(r => r.Permission),
+                Is.EqualTo(new[] { ExternalPermission.ViewChannel, ExternalPermission.ReadMessageHistory }));
+        });
+    }
+
+    [Test]
+    public async Task Search_ChannelScope_ViewDenied_DoesNotAskAboutHistory()
+    {
+        var endpoint = new SearchEndpoint();
+        var bus = BusGranting();
+
+        await endpoint.SearchMessages("hello", "chan-1", null, 25, _context, _repo, _permissionService, TestPrincipal.ForUser("user-1"), bus);
+
+        Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>().Select(r => r.Permission),
+            Is.EqualTo(new[] { ExternalPermission.ViewChannel }),
+            "an invisible channel is already answered - the second question buys nothing");
+    }
+
     [Test]
     public async Task Search_ConversationScope_UserLacksPermission_ReturnsForbid()
     {

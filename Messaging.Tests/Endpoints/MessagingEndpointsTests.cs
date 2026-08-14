@@ -201,11 +201,13 @@ public class MessagingEndpointsTests
 
     // ══════════════════════════════════════════════════════════════════════════ Mention caps
 
-    /// <summary>Allowed to send and to ping the room, so nothing else interferes with the cap.</summary>
+    /// <summary>Allowed to send and to ping the room, and every named role reported as a
+    /// mentionable role of this channel's guild, so nothing else interferes with the cap.</summary>
     private FakeMessageBus MentionBus() => new(msg => msg switch
     {
         HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
         GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+        ResolveRoleMentionsRequest r => TestRoleMentions.AllMentionable(r),
         CreateMessageCommand cmd => FakeHandlerReturnFor(cmd),
         _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
     });
@@ -1270,6 +1272,51 @@ public class MessagingEndpointsTests
         var result = await endpoint.GetPinnedMessages("chan-1", null, _repo, TestPrincipal.ForUser("user-1"), _permissionService, bus);
 
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task GetPinnedMessages_ChannelScope_CanViewButNotReadHistory_ReturnsForbid()
+    {
+        // A pin is backlog by definition - the list exists to reach messages that have scrolled
+        // away - so it needs ReadMessageHistory too, which is also what Discord requires.
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse
+            {
+                IsAllowed = r.Permission == ExternalPermission.ViewChannel, Permission = r.Permission,
+            },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        var result = await endpoint.GetPinnedMessages("chan-1", null, _repo, TestPrincipal.ForUser("user-1"), _permissionService, bus);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(bus.Invoked.OfType<HasUserPermissionToChannelRequest>().Select(r => r.Permission),
+                Is.EqualTo(new[] { ExternalPermission.ViewChannel, ExternalPermission.ReadMessageHistory }));
+        });
+    }
+
+    [Test]
+    public async Task GetPinnedMessages_ChannelScope_HoldsBothBits_ReturnsPinnedMessages()
+    {
+        var pinned = Message.Create(new CreateMessageParams { Content = "hi"u8.ToArray(), ChannelId = "chan-1", AuthorId = "author-1" });
+        pinned.IsPinned = true;
+        await _repo.CreateMessageAsync(pinned);
+        await _context.SaveChangesAsync();
+
+        var endpoint = new MessagingEndpoints();
+        var bus = new FakeMessageBus(msg => msg switch
+        {
+            HasUserPermissionToChannelRequest r => new HasUserPermissionToChannelResponse { IsAllowed = true, Permission = r.Permission },
+            _ => throw new InvalidOperationException("unexpected"),
+        });
+
+        var result = await endpoint.GetPinnedMessages("chan-1", null, _repo, TestPrincipal.ForUser("user-1"), _permissionService, bus);
+
+        Assert.That(result, Is.InstanceOf<Ok<IEnumerable<MessageDto>>>());
     }
 
     [Test]

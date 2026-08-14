@@ -34,6 +34,10 @@ public class GuildCreatePayload
     public List<GatewayMemberPayload> Members { get; set; } = new();
 }
 
+/// <summary>
+/// Discord's role object, as it appears in GUILD_CREATE's role list and in the standalone
+/// GUILD_ROLE_CREATE / GUILD_ROLE_UPDATE dispatches.
+/// </summary>
 public class GatewayRolePayload
 {
     [JsonPropertyName("id")]
@@ -48,6 +52,8 @@ public class GatewayRolePayload
     [JsonPropertyName("position")]
     public int Position { get; set; }
 
+    /// <summary>Discord serializes the permission bitfield as a decimal string, not a number, so
+    /// that a mask wider than 53 bits survives a JavaScript client's JSON parser intact.</summary>
     [JsonPropertyName("permissions")]
     public string Permissions { get; set; } = "0";
 
@@ -59,6 +65,35 @@ public class GatewayRolePayload
 
     [JsonPropertyName("hoist")]
     public bool Hoist { get; set; }
+
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
+    [JsonPropertyName("unicode_emoji")]
+    public string? UnicodeEmoji { get; set; }
+
+    [JsonPropertyName("flags")]
+    public int Flags { get; set; }
+
+    /// <summary>Omitted entirely for an ordinary role, which is what Discord does - the field's
+    /// presence is itself the signal that something owns the role.</summary>
+    [JsonPropertyName("tags")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GatewayRoleTagsPayload? Tags { get; set; }
+}
+
+/// <summary>
+/// Discord's role <c>tags</c> object, narrowed to the two tags Echo can populate.
+/// </summary>
+public class GatewayRoleTagsPayload
+{
+    [JsonPropertyName("bot_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BotId { get; set; }
+
+    [JsonPropertyName("integration_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? IntegrationId { get; set; }
 }
 
 /// <summary>Shared by GUILD_CREATE's channel list and standalone CHANNEL_CREATE/UPDATE/DELETE dispatches.</summary>

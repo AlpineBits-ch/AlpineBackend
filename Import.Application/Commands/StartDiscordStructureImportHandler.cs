@@ -212,6 +212,13 @@ public class StartDiscordStructureImportHandler
             Color = $"#{r.Color:X6}",
             Position = r.Position,
             Permissions = DiscordPermissionMapper.ToEchoPermissions(r.Permissions),
+            Hoist = r.Hoist,
+            Mentionable = r.Mentionable,
+            IconUrl = DiscordRoleMapper.IconUrl(r),
+            UnicodeEmoji = DiscordRoleMapper.UnicodeEmoji(r),
+            IsManaged = r.Managed,
+            BotUserId = r.Tags?.BotId,
+            IntegrationId = r.Tags?.IntegrationId,
             IsEveryoneRole = r.Id == guild.Id,
         }).ToList();
 

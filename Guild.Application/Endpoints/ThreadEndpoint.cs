@@ -23,6 +23,7 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class ThreadEndpoint
 {
+    /// <summary>Creates a thread, or a forum post - the same entity either way.</summary>
     [WolverinePost("/api/v1/channels/{channelId}/threads")]
     public async Task<IResult> CreateThreadAsync(string channelId, CreateThreadDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] MicroserviceContext ctx,

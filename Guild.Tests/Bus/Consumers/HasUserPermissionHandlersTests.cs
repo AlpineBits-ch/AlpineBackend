@@ -275,15 +275,8 @@ public class HasUserPermissionHandlersTests
 
     private static IEnumerable<ExternalPermission> AllExternalPermissions() => Enum.GetValues<ExternalPermission>();
 
-    /// <summary>Whether a Community guild (what SeedOwner creates) offers this permission at all.
-    /// Household-module permissions are gated off there for everyone, owner included.</summary>
-    private static bool IsAvailableToCommunityGuild(ExternalPermission permission) =>
-        permission is not (ExternalPermission.ManageLists or ExternalPermission.AddListItems
-            or ExternalPermission.CheckOffListItems or ExternalPermission.ManageChores
-            or ExternalPermission.CompleteChores or ExternalPermission.ManageLedger
-            or ExternalPermission.AddExpenses or ExternalPermission.ManagePantry
-            or ExternalPermission.CreateDecisions or ExternalPermission.VoteDecisions
-            or ExternalPermission.ManageGuests
-            or ExternalPermission.PlanMeals or ExternalPermission.ManageMeals
-            or ExternalPermission.LogMaintenance or ExternalPermission.ManageMaintenance);
+    /// <summary>
+    /// Whether a Community guild (what SeedOwner creates) offers this permission at all.
+    /// </summary>
+    private static bool IsAvailableToCommunityGuild(ExternalPermission permission) => true;
 }

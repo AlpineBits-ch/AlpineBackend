@@ -53,6 +53,7 @@ public class HouseholdDigestServiceTests
         {
             Id = EveryoneRoleId, GuildId = GuildId, Type = RoleType.Everyone, Name = "Everyone",
             Permissions = Role.DefaultEveryonePermissions,
+            ModulePermissions = Role.DefaultEveryoneModulePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 
@@ -77,6 +78,7 @@ public class HouseholdDigestServiceTests
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>Adds a member.</summary>
     private async Task AddMemberAsync(string userId, bool canSee = true)
     {
         var memberId = $"member-{userId}";
@@ -85,17 +87,15 @@ public class HouseholdDigestServiceTests
         {
             Id = memberId, GuildId = GuildId, UserId = userId, JoinedAt = DateTime.UtcNow,
             SearchValue = userId.ToUpperInvariant(),
+            DenyPermissions = canSee ? Permissions.None : Permissions.ViewChannel,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 
-        if (canSee)
+        _context.RoleMembers.Add(new RoleMember
         {
-            _context.RoleMembers.Add(new RoleMember
-            {
-                Id = $"rm-{userId}", RoleId = EveryoneRoleId, MemberId = memberId,
-                CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
-            });
-        }
+            Id = $"rm-{userId}", RoleId = EveryoneRoleId, MemberId = memberId,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
 
         await _context.SaveChangesAsync();
     }

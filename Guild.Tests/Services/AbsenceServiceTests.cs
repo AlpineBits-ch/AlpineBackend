@@ -88,6 +88,7 @@ public class AbsenceServiceTests
         {
             Id = EveryoneRoleId, GuildId = GuildId, Type = RoleType.Everyone, Name = "Everyone",
             Permissions = Role.DefaultEveryonePermissions,
+            ModulePermissions = Role.DefaultEveryoneModulePermissions,
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
 

@@ -116,7 +116,7 @@ public class GuildEndpoint
     public async Task<IResult> UpdateGuild(string id, UpdateGuildDto dto, [NotBody] MicroserviceContext context,
         [NotBody] ClaimsPrincipal user, [NotBody] GuildPermissionService permissionService,
         [NotBody] AuditLogService auditLog, [NotBody] IHubContext<EchoRealtimeHub> hub,
-        [NotBody] GuildHydrateService guildHydrateService)
+        [NotBody] GuildHydrateService guildHydrateService, [NotBody] MfaElevationService mfa)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -129,6 +129,8 @@ public class GuildEndpoint
 
         var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, id, Permissions.ManageGuild);
         if (!canManage) return Results.Forbid();
+
+        if (await mfa.RequireAsync(id, user) is { } mfaRejection) return mfaRejection;
 
         guild.Name = dto.Name;
         guild.Description = dto.Description;
@@ -174,4 +176,33 @@ public class GuildEndpoint
         return Results.Ok(guild.ToFacet<Domain.Aggregates.Guild, GuildDto>());
     }
 
+    /// <summary>Turns the guild's two-factor requirement on or off.</summary>
+    [WolverinePost("/api/v1/guilds/{id}/mfa")]
+    public async Task<IResult> SetMfaRequirement(string id, SetMfaRequirementDto dto,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        [NotBody] AuditLogService auditLog, [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] GuildHydrateService guildHydrateService)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var guild = await ctx.Guilds.FirstOrDefaultAsync(g => g.Id == id);
+        if (guild is null) return Results.NotFound();
+
+        if (guild.OwnerId != userId) return Results.Forbid();
+
+        if (dto.Required && !MfaElevationService.HasMfa(user))
+            return MfaElevationService.Rejection();
+
+        if (guild.MfaRequired == dto.Required) return Results.NoContent();
+
+        guild.MfaRequired = dto.Required;
+
+        auditLog.Log(id, userId, AuditActionType.GuildUpdated, id, new { MfaRequired = dto.Required });
+
+        var presence = await guildHydrateService.GetGuildPresenceAsync(id);
+        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.GuildUpdated", new { GuildId = id });
+
+        return Results.NoContent();
+    }
 }

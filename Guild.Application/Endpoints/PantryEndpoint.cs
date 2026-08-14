@@ -106,7 +106,7 @@ public class PantryEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Name)) return Results.BadRequest("Name is required");
@@ -154,7 +154,7 @@ public class PantryEndpoint
         var item = await ctx.PantryItems.FirstOrDefaultAsync(i => i.Id == itemId);
         if (item is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.Name is not null)
@@ -225,7 +225,7 @@ public class PantryEndpoint
         var item = await ctx.PantryItems.FirstOrDefaultAsync(i => i.Id == itemId);
         if (item is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         ctx.PantryItems.Remove(item);
@@ -267,7 +267,7 @@ public class PantryEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.ExpiryWarningDays is < 1 or > 90)

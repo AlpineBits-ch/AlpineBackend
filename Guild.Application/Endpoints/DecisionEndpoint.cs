@@ -92,7 +92,7 @@ public class DecisionEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Decisions, userId, Permissions.CreateDecisions);
+        var access = await household.ResolveAsync(channelId, ChannelType.Decisions, userId, ModulePermissions.CreateDecisions);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Title)) return Results.BadRequest("Title is required");
@@ -151,7 +151,7 @@ public class DecisionEndpoint
         var decision = await WithGraph(ctx).FirstOrDefaultAsync(d => d.Id == decisionId);
         if (decision is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(decision.ChannelId, ChannelType.Decisions, userId, Permissions.VoteDecisions);
+        var access = await household.ResolveAsync(decision.ChannelId, ChannelType.Decisions, userId, ModulePermissions.VoteDecisions);
         if (access.ToFailure() is { } failure) return failure;
 
         if (decision.Status != DecisionStatus.Open) return Results.BadRequest("That decision is already closed");
@@ -203,7 +203,7 @@ public class DecisionEndpoint
         var decision = await WithGraph(ctx).FirstOrDefaultAsync(d => d.Id == decisionId);
         if (decision is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(decision.ChannelId, ChannelType.Decisions, userId, Permissions.CreateDecisions);
+        var access = await household.ResolveAsync(decision.ChannelId, ChannelType.Decisions, userId, ModulePermissions.CreateDecisions);
         if (access.ToFailure() is { } failure) return failure;
 
         if (decision.Status != DecisionStatus.Open) return Results.BadRequest("That decision is already closed");
@@ -230,7 +230,7 @@ public class DecisionEndpoint
         var decision = await ctx.Decisions.FirstOrDefaultAsync(d => d.Id == decisionId);
         if (decision is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(decision.ChannelId, ChannelType.Decisions, userId, Permissions.CreateDecisions);
+        var access = await household.ResolveAsync(decision.ChannelId, ChannelType.Decisions, userId, ModulePermissions.CreateDecisions);
         if (access.ToFailure() is { } failure) return failure;
 
         // Soft-cancel rather than delete, matching how ScheduledEventEndpoint handles this: people

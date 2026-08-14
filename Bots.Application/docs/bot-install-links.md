@@ -85,22 +85,33 @@ Bit positions (value = `2^bit`), grouped as shown in the bot dev portal's picker
 if you need to render human-readable permission names anywhere in the modal:
 
 ```
-0  ViewChannel            10 Connect              20 ManageChannel        32 KickMembers
-1  SendMessages           11 Speak                21 ManagePermissions    33 BanMembers
-2  EditOwnMessages        12 Stream               22 CreateInvite         34 ModerateMembers
-3  EditAnyMessage         13 MuteMembers           23 ViewWiki             35 ManageGuild
-4  DeleteOwnMessages      14 DeafenMembers          24 CreateWikiPages     36 ViewAuditLog
-5  DeleteAnyMessage       15 MoveMembers            25 EditOwnWikiPages
-6  PinMessages            16 CreateThreads          26 EditAnyWikiPage
-7  AttachFiles            17 SendMessagesInThreads  27 DeleteWikiPages
-8  EmbedLinks             18 ManageOwnThreads       28 ManageWikiRevisions
-9  AddReactions           19 ManageAnyThread        29 ManageWikiStructure
-                                                     30 ModerateWikiComments
-                                                     31 PublishWikiPublicly
+0  ViewChannel            16 CreateThreads          32 KickMembers
+1  SendMessages           17 SendMessagesInThreads  33 BanMembers
+2  EditOwnMessages        18 ManageOwnThreads       34 ModerateMembers
+3  EditAnyMessage         19 ManageAnyThread        35 ManageGuild
+4  DeleteOwnMessages      20 ManageChannel          36 ViewAuditLog
+5  DeleteAnyMessage       21 ManagePermissions      37 ManageEmojis
+6  PinMessages            22 CreateInvite           38 ManageEvents
+7  AttachFiles            23 ReadMessageHistory     39 PrioritySpeaker
+8  EmbedLinks             24 SendVoiceMessages      40 RequestToSpeak
+9  AddReactions           25 SendPolls              41 UseVoiceActivity
+10 Connect                26 UseExternalEmojis      50 MentionEveryone
+11 Speak                  27 UseExternalStickers    51 ManageRoles
+12 Stream                 28 CreatePrivateThreads   52 ManageWebhooks
+13 MuteMembers            29 UseApplicationCommands 53 ChangeNickname
+14 DeafenMembers          30 CreateExpressions      54 ManageNicknames
+15 MoveMembers            31 ManageExpressions
 ```
 
 (Bit 63 is a guild-owner-only superadmin flag - never offer it in an install picker; the server
 clamps it away for anyone but the owner anyway.)
+
+**Bits 23-31 and 39-41 changed meaning.** They used to be the wiki permission block. Those
+permissions, along with every household-module one, moved to a separate `ModulePermissions` mask
+when the core mask ran out of room, and the migration that moved them cleared the old bits from
+every stored value in the same transaction. An install link carries a single 64-bit core mask and
+cannot request a module permission at all, so any link minted before that change which set one of
+these bits will now request a different permission than it did - re-mint any stored install URLs.
 
 ## Testing without a real provider site
 

@@ -37,7 +37,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var wiki = await ctx.Wikis.FirstOrDefaultAsync(w => w.GuildId == guildId);
@@ -125,7 +125,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var page = await ctx.WikiPages
@@ -152,7 +152,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canCreate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.CreateWikiPages);
+        var canCreate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.CreateWikiPages);
         if (!canCreate) return Results.Forbid();
 
         if (!string.IsNullOrEmpty(dto.Icon) && !EmojiText.IsSingleEmoji(dto.Icon))
@@ -208,13 +208,13 @@ public class WikiEndpoint
                              || dto.Icon.HasValue || dto.CoverUrl.HasValue;
 
         var isOwn = page.AuthorId == userId;
-        var requiredPermission = isOwn ? Permissions.EditOwnWikiPages : Permissions.EditAnyWikiPage;
+        var requiredPermission = isOwn ? ModulePermissions.EditOwnWikiPages : ModulePermissions.EditAnyWikiPage;
         var canEdit = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
         if (!canEdit)
         {
             if (changesContent || !movesPage) return Results.Forbid();
 
-            var canManageStructure = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+            var canManageStructure = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageWikiStructure);
             if (!canManageStructure) return Results.Forbid();
         }
 
@@ -285,7 +285,7 @@ public class WikiEndpoint
         var page = await ctx.WikiPages.FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
         if (page is null) return Results.NotFound();
 
-        var canDelete = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.DeleteWikiPages);
+        var canDelete = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.DeleteWikiPages);
         if (!canDelete) return Results.Forbid();
 
         page.RaiseDeleted();
@@ -305,7 +305,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
@@ -331,7 +331,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiRevisions);
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageWikiRevisions);
         if (!canManage) return Results.Forbid();
 
         var page = await ctx.WikiPages
@@ -378,7 +378,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageWikiStructure);
         if (!canManage) return Results.Forbid();
 
         var position = dto.Position ?? await ctx.WikiCategories
@@ -413,7 +413,7 @@ public class WikiEndpoint
         var category = await ctx.WikiCategories.FirstOrDefaultAsync(c => c.Id == categoryId && c.GuildId == guildId);
         if (category is null) return Results.NotFound();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageWikiStructure);
         if (!canManage) return Results.Forbid();
 
         if (dto.Name is not null) category.Name = dto.Name;
@@ -439,7 +439,7 @@ public class WikiEndpoint
         var category = await ctx.WikiCategories.FirstOrDefaultAsync(c => c.Id == categoryId && c.GuildId == guildId);
         if (category is null) return Results.NotFound();
 
-        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageWikiStructure);
+        var canManage = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageWikiStructure);
         if (!canManage) return Results.Forbid();
 
         category.RaiseDeleted();
@@ -467,8 +467,11 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
 
-        var canReact = await permissionService.CanUserPerformActionOnGuildAsync(
-            userId, guildId, Permissions.ViewWiki | Permissions.AddReactions);
+        // Two checks rather than one mask: the bits now live in two different enums, and both must
+        // hold.
+        var canReact =
+            await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki) &&
+            await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.AddReactions);
         if (!canReact) return (Results.Forbid(), null);
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
@@ -525,7 +528,7 @@ public class WikiEndpoint
 
         // Only ViewWiki: taking your own reaction back is not an act of reacting, so someone whose
         // AddReactions was revoked after the fact can still undo what they did.
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return (Results.Forbid(), null);
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
@@ -563,7 +566,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
@@ -594,7 +597,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
@@ -621,13 +624,13 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
         if (!pageExists) return Results.NotFound();
 
-        var canModerate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ModerateWikiComments);
+        var canModerate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ModerateWikiComments);
 
         var comments = await ctx.WikiComments
             .Where(c => c.PageId == pageId)
@@ -649,7 +652,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
@@ -693,7 +696,7 @@ public class WikiEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ViewWiki);
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
         var comment = await ctx.WikiComments
@@ -737,7 +740,7 @@ public class WikiEndpoint
         if (comment is null) return Results.NotFound();
 
         var isOwn = comment.AuthorId == userId;
-        var requiredPermission = isOwn ? Permissions.ViewWiki : Permissions.ModerateWikiComments;
+        var requiredPermission = isOwn ? ModulePermissions.ViewWiki : ModulePermissions.ModerateWikiComments;
         var canDelete = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, requiredPermission);
         if (!canDelete) return Results.Forbid();
 

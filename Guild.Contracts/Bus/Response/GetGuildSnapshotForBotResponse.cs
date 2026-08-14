@@ -41,11 +41,39 @@ public class ChannelSnapshot
     public string? CategoryId { get; set; }
 }
 
+/// <summary>
+/// A role as the bot gateway sees it: the handshake's GUILD_CREATE role list and the standalone
+/// GUILD_ROLE_CREATE/UPDATE dispatches share this one shape, so a bot cannot observe a role
+/// differently depending on whether it arrived at connect time or as a live event.
+/// </summary>
 public class RoleSnapshot
 {
     public string Id { get; set; }
     public string Name { get; set; }
     public string Color { get; set; }
     public int Position { get; set; }
+
+    /// <summary>The core mask.</summary>
     public ulong Permissions { get; set; }
+
+    /// <summary>Display this role's members in their own member-list group.</summary>
+    public bool Hoist { get; set; }
+
+    /// <summary>Whether members without MentionEveryone may @mention this role.</summary>
+    public bool Mentionable { get; set; }
+
+    /// <summary>True when an integration owns the role - a bot install today.</summary>
+    public bool Managed { get; set; }
+
+    /// <summary>The role badge image, or null.</summary>
+    public string? IconUrl { get; set; }
+
+    /// <summary>The single-emoji alternative to <see cref="IconUrl"/>, or null.</summary>
+    public string? UnicodeEmoji { get; set; }
+
+    /// <summary>The bot user this role was created for, when an install owns it.</summary>
+    public string? BotUserId { get; set; }
+
+    /// <summary>The non-bot integration that owns this role.</summary>
+    public string? IntegrationId { get; set; }
 }

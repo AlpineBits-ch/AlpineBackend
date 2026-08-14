@@ -1,10 +1,12 @@
 using Guild.Application.Services;
+using Guild.Domain.Enums;
 using Guild.Domain.Events.Permission;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Guild.Application.Bus.Events.Permission;
 
+/// <summary>Drops the cached permission set of everybody an overwrite change can reach.</summary>
 public class ChannelPermissionChangedHandler
 {
     public static async Task Handle(ChannelPermissionChanged @event, MicroserviceContext ctx, GuildPermissionService guildPermissionService)
@@ -25,11 +27,25 @@ public class ChannelPermissionChangedHandler
 
         if (@event.RoleId != null)
         {
-            var userIds = await ctx.RoleMembers
+            var targetsEveryone = await ctx.Roles
                 .AsNoTracking()
-                .Where(rm => rm.RoleId == @event.RoleId)
-                .Join(ctx.GuildMembers.AsNoTracking(), rm => rm.MemberId, m => m.Id, (rm, m) => m.UserId)
-                .ToListAsync();
+                .AnyAsync(r => r.Id == @event.RoleId &&
+                               r.GuildId == @event.GuildId &&
+                               r.Type == RoleType.Everyone);
+
+            var userIds = targetsEveryone
+                ? await ctx.GuildMembers
+                    .AsNoTracking()
+                    .Where(m => m.GuildId == @event.GuildId)
+                    .Select(m => m.UserId)
+                    .Distinct()
+                    .ToListAsync()
+                : await ctx.RoleMembers
+                    .AsNoTracking()
+                    .Where(rm => rm.RoleId == @event.RoleId)
+                    .Join(ctx.GuildMembers.AsNoTracking(), rm => rm.MemberId, m => m.Id, (rm, m) => m.UserId)
+                    .Distinct()
+                    .ToListAsync();
 
             foreach (var userId in userIds)
                 await guildPermissionService.InvalidateUserPermissionsCacheAsync(@event.GuildId, userId);

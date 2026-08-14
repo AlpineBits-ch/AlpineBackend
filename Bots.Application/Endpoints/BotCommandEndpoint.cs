@@ -82,13 +82,7 @@ public class BotCommandEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var permission = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(new HasUserPermissionToChannelRequest
-        {
-            ChannelId = channelId,
-            UserId = userId,
-            Permission = ExternalPermission.SendMessages,
-        });
-        if (!permission.IsAllowed) return Results.Forbid();
+        if (await InteractionPermissions.CheckAsync(bus, channelId, userId) is { } denied) return denied;
 
         var app = await ctx.BotApplications.FirstOrDefaultAsync(a => a.BotUserId == dto.BotUserId && a.IsEnabled);
         if (app is null) return Results.NotFound("Bot not found.");

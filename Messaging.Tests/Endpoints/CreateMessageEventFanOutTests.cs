@@ -51,6 +51,7 @@ public class CreateMessageEventFanOutTests
         HasUserPermissionToChannelRequest r =>
             new HasUserPermissionToChannelResponse { IsAllowed = permissionAllowed, Permission = r.Permission },
         GetGuildAutoModConfigRequest => new GetGuildAutoModConfigResponse { Enabled = false },
+        ResolveRoleMentionsRequest r => TestRoleMentions.AllMentionable(r),
         CreateMessageCommand cmd => RunRealHandler(cmd),
         _ => throw new InvalidOperationException("unexpected: " + msg.GetType().Name),
     });

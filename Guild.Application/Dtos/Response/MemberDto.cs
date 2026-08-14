@@ -43,12 +43,21 @@ public partial class SelfMemberDto
     /// their own allow/deny, implied bits, and the clamp to enabled modules.
     /// </summary>
     public Permissions? EffectivePermissions { get; set; }
+
+    /// <summary>
+    /// The module-mask half of <see cref="EffectivePermissions"/>, resolved by
+    /// <c>GuildPermissionService.GetGuildModulePermissionsAsync</c> - same ownership handling, plus
+    /// the clamp to the guild's enabled <c>GuildFeatures</c>, so a bit for a module this guild has
+    /// switched off never appears here.
+    /// </summary>
+    public ModulePermissions? EffectiveModulePermissions { get; set; }
 }
 
-[Facet(typeof(Role), Include = ["Id", "CreatedAt", "UpdatedAt", nameof(Role.Permissions)])]
+/// <summary>The role shape reached through <see cref="SelfMemberDto.RoleMembers"/>.</summary>
+[Facet(typeof(Role), Include = ["Id", "CreatedAt", "UpdatedAt", nameof(Role.Permissions), nameof(Role.ModulePermissions)])]
 public partial class FlatRoleDto
 {
-    
+
 }
 
 

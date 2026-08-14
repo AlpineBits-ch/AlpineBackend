@@ -38,6 +38,47 @@ public class DiscordRolePayload
     /// JSON number.</summary>
     [JsonPropertyName("permissions")]
     public string Permissions { get; set; } = "0";
+
+    /// <summary>"if this role is pinned in the user listing" - Echo's Role.Hoist.</summary>
+    [JsonPropertyName("hoist")]
+    public bool Hoist { get; set; }
+
+    /// <summary>Discord's default is true and it always sends the field, so the initializer only
+    /// matters for a payload that omits it - in which case the permissive value is the one that
+    /// matches every other role in the guild.</summary>
+    [JsonPropertyName("mentionable")]
+    public bool Mentionable { get; set; } = true;
+
+    /// <summary>A role icon <b>hash</b>, not a URL: the CDN address has to be assembled from the
+    /// role id and this hash (see StartDiscordStructureImportHandler.RoleIconUrl). Null on guilds
+    /// below the boost tier that unlocks role icons, which is most of them.</summary>
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
+    /// <summary>The emoji-badge alternative to <see cref="Icon"/>; Discord allows one or the
+    /// other.</summary>
+    [JsonPropertyName("unicode_emoji")]
+    public string? UnicodeEmoji { get; set; }
+
+    /// <summary>"whether this role is managed by an integration" - a bot install, a server
+    /// subscription, or a linked role.</summary>
+    [JsonPropertyName("managed")]
+    public bool Managed { get; set; }
+
+    /// <summary>Present only when the role carries tags at all, which is roughly the same set of
+    /// roles as <see cref="Managed"/> plus the Booster role.</summary>
+    [JsonPropertyName("tags")]
+    public DiscordRoleTagsPayload? Tags { get; set; }
+}
+
+/// <summary>Discord's role tags object.</summary>
+public class DiscordRoleTagsPayload
+{
+    [JsonPropertyName("bot_id")]
+    public string? BotId { get; set; }
+
+    [JsonPropertyName("integration_id")]
+    public string? IntegrationId { get; set; }
 }
 
 public class DiscordChannelPayload

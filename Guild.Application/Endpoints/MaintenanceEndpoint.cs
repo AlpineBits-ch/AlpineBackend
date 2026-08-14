@@ -122,7 +122,7 @@ public class MaintenanceEndpoint
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
         var access = await household.ResolveAsync(
-            channelId, ChannelType.Maintenance, userId, Permissions.ManageMaintenance);
+            channelId, ChannelType.Maintenance, userId, ModulePermissions.ManageMaintenance);
         if (access.ToFailure() is { } failure) return failure;
 
         if (ValidateAssetText(dto.Name, dto.Location, dto.Brand, dto.Model, dto.SerialNumber,
@@ -179,7 +179,7 @@ public class MaintenanceEndpoint
         if (asset is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            asset.ChannelId, ChannelType.Maintenance, userId, Permissions.ManageMaintenance);
+            asset.ChannelId, ChannelType.Maintenance, userId, ModulePermissions.ManageMaintenance);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.Name is not null && string.IsNullOrWhiteSpace(dto.Name))
@@ -269,7 +269,7 @@ public class MaintenanceEndpoint
         if (asset is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            asset.ChannelId, ChannelType.Maintenance, userId, Permissions.ManageMaintenance);
+            asset.ChannelId, ChannelType.Maintenance, userId, ModulePermissions.ManageMaintenance);
         if (access.ToFailure() is { } failure) return failure;
 
         // Logged before the remove, so the entry still carries what was deleted rather than the id
@@ -302,7 +302,7 @@ public class MaintenanceEndpoint
         if (asset is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            asset.ChannelId, ChannelType.Maintenance, userId, Permissions.LogMaintenance);
+            asset.ChannelId, ChannelType.Maintenance, userId, ModulePermissions.LogMaintenance);
         if (access.ToFailure() is { } failure) return failure;
 
         if (!Enum.IsDefined(dto.Status)) return Results.BadRequest("Unknown status");
@@ -344,7 +344,7 @@ public class MaintenanceEndpoint
         if (asset is null) return Results.NotFound();
 
         var access = await household.ResolveAsync(
-            asset.ChannelId, ChannelType.Maintenance, userId, Permissions.LogMaintenance);
+            asset.ChannelId, ChannelType.Maintenance, userId, ModulePermissions.LogMaintenance);
         if (access.ToFailure() is { } failure) return failure;
 
         var title = string.IsNullOrWhiteSpace(dto.Title) ? "Serviced" : dto.Title.Trim();
@@ -470,7 +470,7 @@ public class MaintenanceEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Maintenance, userId, Permissions.LogMaintenance);
+        var access = await household.ResolveAsync(channelId, ChannelType.Maintenance, userId, ModulePermissions.LogMaintenance);
         if (access.ToFailure() is { } failure) return failure;
 
         if (string.IsNullOrWhiteSpace(dto.Title)) return Results.BadRequest("Title is required");
@@ -535,8 +535,8 @@ public class MaintenanceEndpoint
         // they said happened to the house, so that is a moderator action - the same split
         // LedgerEndpoint makes over an expense.
         var required = record.PerformedByUserId == userId
-            ? Permissions.LogMaintenance
-            : Permissions.ManageMaintenance;
+            ? ModulePermissions.LogMaintenance
+            : ModulePermissions.ManageMaintenance;
 
         var access = await household.ResolveAsync(record.ChannelId, ChannelType.Maintenance, userId, required);
         if (access.ToFailure() is { } failure) return failure;
@@ -590,8 +590,8 @@ public class MaintenanceEndpoint
         if (record is null) return Results.NotFound();
 
         var required = record.PerformedByUserId == userId
-            ? Permissions.LogMaintenance
-            : Permissions.ManageMaintenance;
+            ? ModulePermissions.LogMaintenance
+            : ModulePermissions.ManageMaintenance;
 
         var access = await household.ResolveAsync(record.ChannelId, ChannelType.Maintenance, userId, required);
         if (access.ToFailure() is { } failure) return failure;

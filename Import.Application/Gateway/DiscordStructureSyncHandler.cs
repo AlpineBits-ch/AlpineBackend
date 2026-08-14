@@ -105,6 +105,13 @@ public class DiscordStructureSyncHandler(MicroserviceContext ctx, IMessageBus bu
             Color = $"#{role.Color:X6}",
             Position = role.Position,
             Permissions = DiscordPermissionMapper.ToEchoPermissions(role.Permissions),
+            Hoist = role.Hoist,
+            Mentionable = role.Mentionable,
+            IconUrl = DiscordRoleMapper.IconUrl(role),
+            UnicodeEmoji = DiscordRoleMapper.UnicodeEmoji(role),
+            IsManaged = role.Managed,
+            BotUserId = role.Tags?.BotId,
+            IntegrationId = role.Tags?.IntegrationId,
             IsEveryoneRole = isEveryone,
         }, ct);
 

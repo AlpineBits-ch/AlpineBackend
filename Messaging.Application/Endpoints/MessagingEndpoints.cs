@@ -72,9 +72,15 @@ public class MessagingEndpoints
 
             if(!response.IsAllowed) return Results.Forbid();
 
-            // @everyone/@here is a permission, not a client decision.
-            if (mentionsEveryone || mentionsHere)
+            // MentionEveryone answers two questions on this path - the @everyone/@here flags and
+            // whether a non-mentionable role may be pinged - and the answer is the same for both,
+            // so it is resolved at most once per send however many of the two apply.
+            bool? mayMentionEveryone = null;
+
+            async Task<bool> MayMentionEveryoneAsync()
             {
+                if (mayMentionEveryone is { } known) return known;
+
                 var mentionResponse = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
                     new HasUserPermissionToChannelRequest()
                     {
@@ -83,12 +89,19 @@ public class MessagingEndpoints
                         Permission = ExternalPermission.MentionEveryone
                     });
 
-                if (!mentionResponse.IsAllowed)
-                {
-                    mentionsEveryone = false;
-                    mentionsHere = false;
-                }
+                mayMentionEveryone = mentionResponse.IsAllowed;
+                return mentionResponse.IsAllowed;
             }
+
+            // @everyone/@here is a permission, not a client decision.
+            if ((mentionsEveryone || mentionsHere) && !await MayMentionEveryoneAsync())
+            {
+                mentionsEveryone = false;
+                mentionsHere = false;
+            }
+
+            roleMentions = await GateRoleMentionsAsync(
+                roleMentions, dto.ChannelId, bus, MayMentionEveryoneAsync);
 
             // Bots/webhooks intentionally bypass auto-mod - a guild that installs a bot has
             // already made an explicit trust decision about what it posts.
@@ -132,6 +145,9 @@ public class MessagingEndpoints
             {
                 return Results.Forbid();
             }
+
+            // A DM or group has no roles, so every id here is meaningless.
+            roleMentions = [];
 
             var otherMemberIds = conversation.Members
                 .Select(m => m.UserId)
@@ -256,6 +272,31 @@ public class MessagingEndpoints
         // No cascaded event here - CreateMessageCommandHandler already raised the MessageCreated
         // for this message (see the remarks on this method).
         return Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>());
+    }
+
+    /// <summary>
+    /// Strips the role ids this author is not entitled to ping (R5/R19 in
+    /// docs/specs/guild-role-system-parity.md).
+    /// </summary>
+    private static async Task<List<string>> GateRoleMentionsAsync(
+        List<string> requested, string channelId, IMessageBus bus, Func<Task<bool>> mayMentionEveryone)
+    {
+        if (requested.Count == 0) return requested;
+
+        var resolved = await bus.InvokeAsync<ResolveRoleMentionsResponse>(new ResolveRoleMentionsRequest
+        {
+            ChannelId = channelId,
+            RoleIds = requested,
+        });
+
+        var permitted = resolved.MentionableRoleIds.ToHashSet(StringComparer.Ordinal);
+
+        if (resolved.RestrictedRoleIds.Count > 0 && await mayMentionEveryone())
+            permitted.UnionWith(resolved.RestrictedRoleIds);
+
+        // Filtered rather than rebuilt from the response so the client's own order survives, which
+        // is what the stored RoleMentions array is rendered from.
+        return requested.Where(permitted.Contains).ToList();
     }
 
     /// <summary>Hard cap on how many users or roles one message may mention, matching the limit
@@ -557,15 +598,10 @@ public class MessagingEndpoints
         string contextId;
         if (!string.IsNullOrWhiteSpace(channelId))
         {
-            var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
-                new HasUserPermissionToChannelRequest()
-                {
-                    ChannelId = channelId,
-                    UserId = userId,
-                    Permission = ExternalPermission.ViewChannel
-                });
-
-            if (!response.IsAllowed) return Results.Forbid();
+            // A pin is backlog by definition - the whole point of the list is to reach messages
+            // that have scrolled away - so it needs ReadMessageHistory as well as ViewChannel,
+            // which is also what Discord requires of GET /channels/{id}/pins.
+            if (!await MessageHistoryAccess.MayReadAsync(channelId, userId, bus)) return Results.Forbid();
             contextId = channelId;
         }
         else

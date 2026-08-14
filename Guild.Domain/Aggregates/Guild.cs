@@ -67,6 +67,13 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     /// <summary>The modules this guild actually has.</summary>
     public GuildFeatures Features { get; set; } = GuildFeaturePresets.Community;
 
+    /// <summary>
+    /// When set, every action that moderates a member or changes who may do what requires the
+    /// caller's access token to carry <c>mfa</c> in its <c>amr</c> claim - Discord's "require 2FA
+    /// for moderator actions".
+    /// </summary>
+    public bool MfaRequired { get; set; }
+
     public static Guild Create(CreateGuildParams parameters)
     {
         var id = Guild.GenerateId();

@@ -30,7 +30,7 @@ public class PantryCaptureEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(channelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         var languages = ProductCatalogService.ParseLanguages(http.Request.Headers.AcceptLanguage);
@@ -71,7 +71,7 @@ public class PantryCaptureEndpoint
         var item = await ctx.PantryItems.FirstOrDefaultAsync(i => i.Id == itemId);
         if (item is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         // Rejected rather than treated as a no-op: a zero or negative "amount used" is a client
@@ -100,7 +100,7 @@ public class PantryCaptureEndpoint
         var item = await ctx.PantryItems.FirstOrDefaultAsync(i => i.Id == itemId);
         if (item is null) return Results.NotFound();
 
-        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, Permissions.ManagePantry);
+        var access = await household.ResolveAsync(item.ChannelId, ChannelType.Pantry, userId, ModulePermissions.ManagePantry);
         if (access.ToFailure() is { } failure) return failure;
 
         if (dto.Amount is <= 0) return Results.BadRequest("Amount must be greater than zero");
@@ -165,7 +165,7 @@ public class PantryCaptureEndpoint
         // One call rather than a feature check and a permission check: this gates on the Pantry
         // feature before it resolves a single role, so nothing a member holds can outrank a module
         // the guild has switched off.
-        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePantry))
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManagePantry))
             return Results.Forbid();
 
         // Membership on top of the permission, because @everyone in a guild this account is not in

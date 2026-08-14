@@ -134,11 +134,11 @@ public class GuildFeatureGateTests
         Assert.Multiple(async () =>
         {
             Assert.That(await _service.CanUserPerformActionOnGuildAsync(
-                UserId, GuildId, Permissions.CreateWikiPages), Is.False,
+                UserId, GuildId, ModulePermissions.CreateWikiPages), Is.False,
                 "owner is not above a module the guild does not have");
 
             Assert.That(await _service.CanUserPerformActionAsync(
-                UserId, ChannelId, Permissions.CreateWikiPages), Is.False);
+                UserId, ChannelId, ModulePermissions.CreateWikiPages), Is.False);
 
             Assert.That(await _service.CanUserPerformActionOnGuildAsync(
                 UserId, GuildId, Permissions.ManageGuild), Is.True,
@@ -242,35 +242,35 @@ public class GuildFeatureGateTests
     public void CommunityPreset_StripsNoPreExistingPermission()
     {
         var householdOnly =
-            Permissions.ManageLists | Permissions.AddListItems | Permissions.CheckOffListItems |
-            Permissions.ManageChores | Permissions.CompleteChores |
-            Permissions.ManageLedger | Permissions.AddExpenses |
-            Permissions.ManagePantry |
-            Permissions.CreateDecisions | Permissions.VoteDecisions |
-            Permissions.ManageGuests |
-            Permissions.PlanMeals | Permissions.ManageMeals |
-            Permissions.LogMaintenance | Permissions.ManageMaintenance;
+            ModulePermissions.ManageLists | ModulePermissions.AddListItems | ModulePermissions.CheckOffListItems |
+            ModulePermissions.ManageChores | ModulePermissions.CompleteChores |
+            ModulePermissions.ManageLedger | ModulePermissions.AddExpenses |
+            ModulePermissions.ManagePantry |
+            ModulePermissions.CreateDecisions | ModulePermissions.VoteDecisions |
+            ModulePermissions.ManageGuests |
+            ModulePermissions.PlanMeals | ModulePermissions.ManageMeals |
+            ModulePermissions.LogMaintenance | ModulePermissions.ManageMaintenance;
 
-        var stripped = GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Community);
+        var stripped = GuildFeatureMap.DisabledModulePermissions(GuildFeaturePresets.Community);
 
-        Assert.That(stripped & ~householdOnly, Is.EqualTo(Permissions.None),
+        Assert.That(stripped & ~householdOnly, Is.EqualTo(ModulePermissions.None),
             "every guild that existed before gating must keep every permission it had");
     }
 
     [Test]
     public void HouseholdPreset_EnablesEveryHouseholdPermission()
     {
-        var stripped = GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Household);
+        var stripped = GuildFeatureMap.DisabledModulePermissions(GuildFeaturePresets.Household);
 
         Assert.Multiple(() =>
         {
-            Assert.That(stripped.HasFlag(Permissions.AddListItems), Is.False);
-            Assert.That(stripped.HasFlag(Permissions.CompleteChores), Is.False);
-            Assert.That(stripped.HasFlag(Permissions.AddExpenses), Is.False);
-            Assert.That(stripped.HasFlag(Permissions.ManagePantry), Is.False);
-            Assert.That(stripped.HasFlag(Permissions.VoteDecisions), Is.False);
-            Assert.That(stripped.HasFlag(Permissions.ManageGuests), Is.False);
-            Assert.That(stripped.HasFlag(Permissions.BanMembers), Is.True,
+            Assert.That(stripped.HasFlag(ModulePermissions.AddListItems), Is.False);
+            Assert.That(stripped.HasFlag(ModulePermissions.CompleteChores), Is.False);
+            Assert.That(stripped.HasFlag(ModulePermissions.AddExpenses), Is.False);
+            Assert.That(stripped.HasFlag(ModulePermissions.ManagePantry), Is.False);
+            Assert.That(stripped.HasFlag(ModulePermissions.VoteDecisions), Is.False);
+            Assert.That(stripped.HasFlag(ModulePermissions.ManageGuests), Is.False);
+            Assert.That(GuildFeatureMap.DisabledPermissions(GuildFeaturePresets.Household).HasFlag(Permissions.BanMembers), Is.True,
                 "households don't ban each other");
         });
     }
@@ -309,7 +309,7 @@ public class GuildFeatureGateTests
         Assert.Multiple(() =>
         {
             Assert.That(flatmates, Is.Not.Null);
-            Assert.That(flatmates!.Permissions, Is.EqualTo(Role.FlatmatePermissions));
+            Assert.That(flatmates!.ModulePermissions, Is.EqualTo(Role.FlatmatePermissions));
             Assert.That(flatmates.Position, Is.GreaterThan(everyone.Position),
                 "a flatmate hands out guest access; a guest never manages a flatmate");
             Assert.That(flatmates.Members, Has.Count.EqualTo(1),

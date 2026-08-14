@@ -180,7 +180,7 @@ public class HouseholdGuildEndpoint
         if (!await permissionService.IsFeatureEnabledAsync(guildId, GuildFeatures.GuestAccess))
             return Results.Forbid();
 
-        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageGuests))
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageGuests))
             return Results.Forbid();
 
         if (dto.ExpiresAt <= DateTimeOffset.UtcNow) return Results.BadRequest("ExpiresAt must be in the future");
@@ -331,7 +331,7 @@ public class HouseholdGuildEndpoint
         if (!await permissionService.IsFeatureEnabledAsync(guildId, GuildFeatures.GuestAccess))
             return Results.Forbid();
 
-        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManageGuests))
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageGuests))
             return Results.Forbid();
 
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.GuildId == guildId && m.UserId == targetUserId);

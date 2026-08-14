@@ -66,6 +66,10 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     public Permissions AllowPermissions { get; set; } = Permissions.None;
     public Permissions DenyPermissions { get; set; } = Permissions.None;
 
+    // The ModulePermissions siblings of the two above, applied at the same point in resolution.
+    public ModulePermissions AllowModulePermissions { get; set; } = ModulePermissions.None;
+    public ModulePermissions DenyModulePermissions { get; set; } = ModulePermissions.None;
+
     /// <summary>Text-chat timeout: while in the future, message/reaction/thread/voice-connect
     /// permissions are stripped regardless of role/overwrite grants (see
     /// GuildPermissionService.ComputePermissionsForUserAsync).</summary>

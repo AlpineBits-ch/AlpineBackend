@@ -1,4 +1,4 @@
-﻿using Guild.Application.Services;
+using Guild.Application.Services;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
@@ -71,6 +71,26 @@ public  class HasUserPermissionsHandler
         };
     }
 
+    /// <summary>
+    /// The one-user-many-channels sibling, used by batched reads on other services so that
+    /// authorizing a page of channels costs one round-trip rather than one per channel.
+    /// </summary>
+    public static async Task<FilterChannelsWithUserPermissionResponse> Handle(
+        FilterChannelsWithUserPermissionRequest request,
+        GuildPermissionService guildPermissionService)
+    {
+        var allowed = await guildPermissionService.FilterChannelsWithPermissionAsync(
+            request.UserId,
+            request.ChannelIds,
+            MapToInternal(request.Permission));
+
+        return new FilterChannelsWithUserPermissionResponse
+        {
+            UserId = request.UserId,
+            AllowedChannelIds = allowed,
+        };
+    }
+
     internal static Permissions MapToInternal(ExternalPermission permission) =>
         permission switch
         {
@@ -106,29 +126,24 @@ public  class HasUserPermissionsHandler
             ExternalPermission.ManageEmojis           => Permissions.ManageEmojis,
             ExternalPermission.ManageEvents           => Permissions.ManageEvents,
 
-            ExternalPermission.ManageLists            => Permissions.ManageLists,
-            ExternalPermission.AddListItems           => Permissions.AddListItems,
-            ExternalPermission.CheckOffListItems      => Permissions.CheckOffListItems,
-            ExternalPermission.ManageChores           => Permissions.ManageChores,
-            ExternalPermission.CompleteChores         => Permissions.CompleteChores,
-            ExternalPermission.ManageLedger           => Permissions.ManageLedger,
-            ExternalPermission.AddExpenses            => Permissions.AddExpenses,
-            ExternalPermission.ManagePantry           => Permissions.ManagePantry,
-            ExternalPermission.CreateDecisions        => Permissions.CreateDecisions,
-            ExternalPermission.VoteDecisions          => Permissions.VoteDecisions,
-            ExternalPermission.ManageGuests           => Permissions.ManageGuests,
-
             ExternalPermission.MentionEveryone        => Permissions.MentionEveryone,
             ExternalPermission.ManageRoles            => Permissions.ManageRoles,
             ExternalPermission.ManageWebhooks         => Permissions.ManageWebhooks,
             ExternalPermission.ChangeNickname         => Permissions.ChangeNickname,
             ExternalPermission.ManageNicknames        => Permissions.ManageNicknames,
 
-            ExternalPermission.PlanMeals              => Permissions.PlanMeals,
-            ExternalPermission.ManageMeals            => Permissions.ManageMeals,
-            ExternalPermission.LogMaintenance         => Permissions.LogMaintenance,
-            ExternalPermission.ManageMaintenance      => Permissions.ManageMaintenance,
-
+            ExternalPermission.ReadMessageHistory     => Permissions.ReadMessageHistory,
+            ExternalPermission.UseApplicationCommands => Permissions.UseApplicationCommands,
+            ExternalPermission.UseExternalEmojis      => Permissions.UseExternalEmojis,
+            ExternalPermission.UseExternalStickers    => Permissions.UseExternalStickers,
+            ExternalPermission.PrioritySpeaker        => Permissions.PrioritySpeaker,
+            ExternalPermission.RequestToSpeak         => Permissions.RequestToSpeak,
+            ExternalPermission.UseVoiceActivity       => Permissions.UseVoiceActivity,
+            ExternalPermission.SendVoiceMessages      => Permissions.SendVoiceMessages,
+            ExternalPermission.SendPolls              => Permissions.SendPolls,
+            ExternalPermission.CreateExpressions      => Permissions.CreateExpressions,
+            ExternalPermission.ManageExpressions      => Permissions.ManageExpressions,
+            ExternalPermission.CreatePrivateThreads   => Permissions.CreatePrivateThreads,
 
             // Throws on unknown values rather than silently defaulting to None,
             // which would incorrectly deny every permission check for new enum

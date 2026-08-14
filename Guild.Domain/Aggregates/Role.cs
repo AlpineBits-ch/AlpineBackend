@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations.Schema;
+using System.ComponentModel.DataAnnotations.Schema;
 using Domain;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
@@ -15,23 +15,104 @@ public class CreateRoleParams
     public string GuildId { get; set; }
     public RoleType Type { get; set; } = RoleType.None;
     public Permissions Permissions { get; set; } = Permissions.None;
+    public ModulePermissions ModulePermissions { get; set; } = ModulePermissions.None;
+    public bool Hoist { get; set; }
+    public bool Mentionable { get; set; } = true;
+    public string? IconUrl { get; set; }
+    public string? UnicodeEmoji { get; set; }
 }
 
 public class Role : Aggregate<Role>, IPrefixedEntity
 {
-    public string Name { get; set; }
+    private string _name;
+
+    /// <summary>The role's display name.</summary>
+    public string Name
+    {
+        get => _name;
+        init => _name = value;
+    }
+
     public string? Description { get; set; }
     public string Color { get; set; } = "#000000";
     public string GuildId { get; init; }
     public virtual Aggregates.Guild Guild { get; init; }
     public Permissions Permissions { get; set; } = Permissions.None;
+
+    /// <summary>The <see cref="Enums.ModulePermissions"/> sibling of <see cref="Permissions"/>,
+    /// carried separately because the two are separate 64-bit masks. See the remarks on
+    /// <see cref="Enums.ModulePermissions"/> for why the split exists.</summary>
+    public ModulePermissions ModulePermissions { get; set; } = ModulePermissions.None;
+
     [NotMapped] public static string Prefix { get; } = "role";
 
     public int Position { get; set; } = 0;
-    
+
+    /// <summary>
+    /// Display this role's members in their own group in the member list, above the ungrouped
+    /// members.
+    /// </summary>
+    public bool Hoist { get; set; }
+
+    /// <summary>
+    /// Whether members without <see cref="Permissions.MentionEveryone"/> may @mention this role.
+    /// </summary>
+    public bool Mentionable { get; set; } = true;
+
+    /// <summary>An uploaded image shown beside the role's members, or null.</summary>
+    public string? IconUrl { get; private set; }
+
+    /// <summary>A single unicode emoji used as the role badge, or null.</summary>
+    public string? UnicodeEmoji { get; private set; }
+
+    /// <summary>True when an integration owns this role rather than a person: a bot install, or a
+    /// future subscription/connection integration. Managed roles are not editable or deletable by
+    /// humans - the integration would simply recreate or contradict the change - which
+    /// <see cref="IsEditableByHumans"/> expresses and the role endpoints enforce.</summary>
+    public bool IsManaged { get; set; }
+
+    /// <summary>The bot user this role was created for, when <see cref="IsManaged"/> is set because
+    /// of a bot install. Discord calls this the role's <c>bot_id</c> tag.</summary>
+    public string? BotUserId { get; set; }
+
+    /// <summary>The integration this role belongs to, when it is owned by something other than a
+    /// bot user. Discord's <c>integration_id</c> tag.</summary>
+    public string? IntegrationId { get; set; }
+
     public ICollection<RoleMember> Members { get; set; } = new List<RoleMember>();
-    
+
     public RoleType Type { get; init; } = RoleType.None;
+
+    /// <summary>The name Discord pins on its own @everyone role, and the one this aggregate
+    /// refuses to let anybody change.</summary>
+    public const string EveryoneRoleName = "Everyone";
+
+    /// <summary>Renames the role, refusing for <see cref="RoleType.Everyone"/>.</summary>
+    public void Rename(string name)
+    {
+        if (Type == RoleType.Everyone)
+            throw new InvalidOperationException(
+                $"Role {Id} is the @everyone role, whose name is fixed at \"{EveryoneRoleName}\".");
+
+        _name = name;
+    }
+
+    /// <summary>Sets the role badge to an uploaded icon, a unicode emoji, or neither.</summary>
+    public void SetBadge(string? iconUrl, string? unicodeEmoji)
+    {
+        var hasIcon = !string.IsNullOrWhiteSpace(iconUrl);
+        var hasEmoji = !string.IsNullOrWhiteSpace(unicodeEmoji);
+
+        if (hasIcon && hasEmoji)
+            throw new InvalidOperationException(
+                $"Role {Id} cannot carry both an icon and a unicode emoji; pass one or neither.");
+
+        IconUrl = hasIcon ? iconUrl : null;
+        UnicodeEmoji = hasEmoji ? unicodeEmoji : null;
+    }
+
+    /// <summary>False for a role an integration owns.</summary>
+    public bool IsEditableByHumans => !IsManaged;
 
     /// <summary>
     /// The permission set every newly created guild grants its @everyone role, and the single
@@ -53,35 +134,45 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         Permissions.Stream |
         Permissions.CreateInvite |
         Permissions.ChangeNickname |
-        Permissions.ViewWiki |
+        Permissions.ReadMessageHistory |
+        Permissions.UseApplicationCommands |
+        Permissions.UseExternalEmojis |
+        Permissions.UseExternalStickers |
+        Permissions.UseVoiceActivity |
+        Permissions.SendPolls |
+        Permissions.SendVoiceMessages;
+
+    /// <summary>The <see cref="ModulePermissions"/> half of the @everyone grant.</summary>
+    public const ModulePermissions DefaultEveryoneModulePermissions =
+        ModulePermissions.ViewWiki |
         HouseholdEveryonePermissions;
 
     /// <summary>
     /// What an ordinary member of a shared household can do: participate in every module, moderate
     /// none of it.
     /// </summary>
-    public const Permissions HouseholdEveryonePermissions =
-        Permissions.AddListItems |
-        Permissions.CheckOffListItems |
-        Permissions.CompleteChores |
-        Permissions.AddExpenses |
-        Permissions.ManagePantry |
-        Permissions.CreateDecisions |
-        Permissions.VoteDecisions |
-        Permissions.PlanMeals |
-        Permissions.LogMaintenance;
+    public const ModulePermissions HouseholdEveryonePermissions =
+        ModulePermissions.AddListItems |
+        ModulePermissions.CheckOffListItems |
+        ModulePermissions.CompleteChores |
+        ModulePermissions.AddExpenses |
+        ModulePermissions.ManagePantry |
+        ModulePermissions.CreateDecisions |
+        ModulePermissions.VoteDecisions |
+        ModulePermissions.PlanMeals |
+        ModulePermissions.LogMaintenance;
 
     /// <summary>
     /// What the seeded "Flatmates" role adds on top of <see cref="HouseholdEveryonePermissions"/>:
     /// the asymmetric bits, the ones that let you change something that is somebody else's.
     /// </summary>
-    public const Permissions FlatmatePermissions =
-        Permissions.ManageLists |
-        Permissions.ManageChores |
-        Permissions.ManageLedger |
-        Permissions.ManageGuests |
-        Permissions.ManageMeals |
-        Permissions.ManageMaintenance;
+    public const ModulePermissions FlatmatePermissions =
+        ModulePermissions.ManageLists |
+        ModulePermissions.ManageChores |
+        ModulePermissions.ManageLedger |
+        ModulePermissions.ManageGuests |
+        ModulePermissions.ManageMeals |
+        ModulePermissions.ManageMaintenance;
 
     /// <summary>
     /// The part of <see cref="DefaultEveryonePermissions"/> that an @everyone mask arriving from
@@ -91,21 +182,29 @@ public class Role : Aggregate<Role>, IPrefixedEntity
     public const Permissions ExternalEveryoneBaseline =
         Permissions.EditOwnMessages |
         Permissions.DeleteOwnMessages |
-        Permissions.ManageOwnThreads |
-        Permissions.ViewWiki |
+        Permissions.ManageOwnThreads;
+
+    /// <summary>
+    /// The <see cref="ModulePermissions"/> half of <see cref="ExternalEveryoneBaseline"/>.
+    /// </summary>
+    public const ModulePermissions ExternalEveryoneModuleBaseline =
+        ModulePermissions.ViewWiki |
         HouseholdEveryonePermissions;
 
     /// <summary>
     /// Replaces this @everyone role's permissions with a mask captured somewhere else - a Discord
     /// import or a guild template - keeping <see cref="ExternalEveryoneBaseline"/> intact.
     /// </summary>
-    public void ApplyExternalEveryonePermissions(Permissions external)
+    public void ApplyExternalEveryonePermissions(
+        Permissions external,
+        ModulePermissions externalModule = ModulePermissions.None)
     {
         if (Type != RoleType.Everyone)
             throw new InvalidOperationException(
                 $"Role {Id} is not the @everyone role; use Permissions directly for ordinary roles.");
 
         Permissions = external | ExternalEveryoneBaseline;
+        ModulePermissions = externalModule | ExternalEveryoneModuleBaseline;
     }
 
     public static Role CreateEveryoneRole(string guildId, string memberId)
@@ -121,7 +220,7 @@ public class Role : Aggregate<Role>, IPrefixedEntity
             Type = RoleType.Everyone,
             GuildId = guildId,
             Position = 0,
-            Name = "Everyone",
+            Name = EveryoneRoleName,
             Members = [new RoleMember()
             {
                 Id = RoleMember.GenerateId(),
@@ -131,6 +230,7 @@ public class Role : Aggregate<Role>, IPrefixedEntity
                 MemberId = memberId
             }],
             Permissions = DefaultEveryonePermissions,
+            ModulePermissions = DefaultEveryoneModulePermissions,
         };
 
         return role;
@@ -163,7 +263,7 @@ public class Role : Aggregate<Role>, IPrefixedEntity
                 RoleId = roleId,
                 MemberId = memberId,
             }],
-            Permissions = FlatmatePermissions,
+            ModulePermissions = FlatmatePermissions,
         };
     }
 
@@ -183,7 +283,12 @@ public class Role : Aggregate<Role>, IPrefixedEntity
             GuildId = parameters.GuildId,
             Type = parameters.Type,
             Permissions = parameters.Permissions,
+            ModulePermissions = parameters.ModulePermissions,
+            Hoist = parameters.Hoist,
+            Mentionable = parameters.Mentionable,
         };
+
+        role.SetBadge(parameters.IconUrl, parameters.UnicodeEmoji);
 
         role.AddDomainEvent(new RoleCreated()
         {

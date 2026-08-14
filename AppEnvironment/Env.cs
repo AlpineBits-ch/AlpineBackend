@@ -93,22 +93,92 @@ public class LicenseConfiguration
 
     public bool IsHosted => string.Equals(Mode, Hosted, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Where Billing lives, and the Stripe key it charges with.</summary>
+    /// <summary>Where Billing lives.</summary>
     public string BillingServiceUrl { get; set; } = GetEnvironmentVariable("BILLING_SERVICE_URL") ?? string.Empty;
 
-    public string StripeSecretKey { get; set; } = GetEnvironmentVariable("STRIPE_SECRET_KEY") ?? string.Empty;
+    // ── Stripe ───────────────────────────────────────────────────────────────
+    //
+    // None of the three has a compiled-in default. All of them come from the environment, and an
+    // unset one means the corresponding surface is off rather than quietly working against somebody
+    // else's account. See docs/specs/monetization-stripe-architecture.md section 10.
+    //
+    // An earlier revision shipped sandbox fallbacks for the secret key and the publishable key, to
+    // save an operator a line of configuration. Two things killed it, and both are worth recording so
+    // it does not come back as a convenience:
+    //
+    //   * GitHub push protection rejected the secret key outright, which is the correct behaviour and
+    //     was the cheapest possible way to find out. A test-mode key cannot move money, but it is
+    //     still full API access to that account for anybody reading the source.
+    //   * More seriously, a default is a value that is used when somebody forgets. Once live keys
+    //     exist, a missing variable would no longer fail: checkout would complete, cards would
+    //     tokenise, and no money would ever arrive. That failure is invisible from inside the running
+    //     system, which makes it exactly the wrong thing to make convenient.
+    //
+    // The webhook signing secret was never given one, for a third and sharper reason that still
+    // stands: the webhook endpoint is anonymous, so the signature is the only thing between it and
+    // the internet. A published default would let anybody who had read this file send a forged but
+    // correctly signed customer.subscription.created, and re-reading the live object (architecture
+    // section 5) would not save it, because a published secret key lets the same person create a real
+    // sandbox subscription for us to go and read. That is an authentication bypass of billing rather
+    // than a no-money-moves inconvenience.
+    //
+    // TestModeStripeCredentials below still exists and still matters: it names anything that is
+    // test-mode or absent on a hosted instance, which is now the only way an operator learns that
+    // half of this is unconfigured.
+
+    public string StripeSecretKey { get; set; } =
+        GetEnvironmentVariable("STRIPE_SECRET_KEY")?.Trim() ?? string.Empty;
 
     /// <summary>
     /// The half of the Stripe pair that is safe to hand a client, and is meant to be handed to one.
     /// </summary>
     public string StripePublishableKey { get; set; } =
-        GetEnvironmentVariable("STRIPE_PUBLISHABLE_KEY") ?? string.Empty;
+        GetEnvironmentVariable("STRIPE_PUBLISHABLE_KEY")?.Trim() ?? string.Empty;
+
+    /// <summary>The shared secret Stripe signs webhook deliveries with.</summary>
+    public string StripeWebhookSecret { get; set; } =
+        GetEnvironmentVariable("STRIPE_WEBHOOK_SECRET")?.Trim() ?? string.Empty;
+
+    /// <summary>Whether webhook deliveries can be authenticated at all.</summary>
+    public bool IsStripeWebhookConfigured => !string.IsNullOrWhiteSpace(StripeWebhookSecret);
 
     /// <summary>
     /// Whether anything in <see cref="Hosted"/> can actually answer "what has this guild paid for".
     /// </summary>
     public bool IsBillingConfigured =>
         !string.IsNullOrWhiteSpace(BillingServiceUrl) || !string.IsNullOrWhiteSpace(StripeSecretKey);
+
+    /// <summary>Whether this instance can talk to Stripe at all.</summary>
+    public bool IsStripeConfigured => !string.IsNullOrWhiteSpace(StripeSecretKey);
+
+    /// <summary>Stripe's own marker for a test-mode key, in both halves of the pair.</summary>
+    private const string TestKeyMarker = "_test_";
+
+    /// <summary>
+    /// Which Stripe credentials still need an operator's attention, by environment variable name -
+    /// the keys when they are still test-mode, the webhook secret when it is absent.
+    /// </summary>
+    public IReadOnlyList<string> TestModeStripeCredentials
+    {
+        get
+        {
+            var names = new List<string>(3);
+
+            if (StripeSecretKey.Contains(TestKeyMarker, StringComparison.Ordinal))
+                names.Add("STRIPE_SECRET_KEY");
+
+            if (StripePublishableKey.Contains(TestKeyMarker, StringComparison.Ordinal))
+                names.Add("STRIPE_PUBLISHABLE_KEY");
+
+            // Reported when absent rather than when test-mode, because there is no such thing as a
+            // test-mode signing secret to detect - a live one and a sandbox one are both whsec_ and
+            // both unguessable.
+            if (!IsStripeWebhookConfigured)
+                names.Add("STRIPE_WEBHOOK_SECRET");
+
+            return names;
+        }
+    }
 
     // ── Operator ceilings ────────────────────────────────────────────────────
 

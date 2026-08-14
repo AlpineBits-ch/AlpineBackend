@@ -24,6 +24,12 @@
         <!-- The hub itself is hosted by the gateway; Billing only sends. The Redis backplane is what
              makes that work across processes, so it is not optional here. -->
         <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
+        <!-- Pinned rather than floated, because the SDK version pins the Stripe API version with it:
+             52.3.0 speaks 2026-07-29.dahlia, and which field carries a subscription's client secret
+             and where a billing period's end lives both moved across recent API versions. A silent
+             minor bump is therefore a wire-format change, and its failure mode is a null reference on
+             the happy path of checkout. -->
+        <PackageReference Include="Stripe.net" Version="52.3.0" />
         <PackageReference Include="WolverineFx" Version="6.24.6" />
         <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.24.6" />
         <PackageReference Include="WolverineFx.Http" Version="6.24.6" />

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Billing.Application.Stripe;
 using Billing.Contracts.Bus.Events;
 using Billing.Domain.Aggregates;
 using Billing.Infrastructure.Persistence;
@@ -34,10 +35,14 @@ public static class PlanErrorCodes
     public const string VersionInUse = "version_in_use";
     public const string AlreadyArchived = "already_archived";
     public const string SubjectRequired = "subject_required";
+
+    /// <summary>The plan was fine and Stripe was not.</summary>
+    public const string StripeSyncFailed = "stripe_sync_failed";
 }
 
 /// <summary>A plan change was refused.</summary>
-public sealed class PlanRefusedException(string code, string message) : Exception(message)
+public sealed class PlanRefusedException(string code, string message, Exception? inner = null)
+    : Exception(message, inner)
 {
     public string Code { get; } = code;
 }
@@ -81,6 +86,7 @@ public sealed class PlanService(
     EntitlementVersionService versions,
     EntitlementPlanOptions options,
     TimeProvider clock,
+    StripeCatalogueSync? stripe = null,
     ILogger<PlanService>? logger = null)
 {
     /// <summary>
@@ -159,6 +165,9 @@ public sealed class PlanService(
 
         db.Plans.Add(plan);
         db.PlanVersions.Add(version);
+
+        await MirrorToStripeAsync(plan, version, cancellationToken);
+
         Record(plan, 1, PlanChangeAction.PlanCreated, actor, request.Reason, now, affected: 0);
 
         catalogue.Invalidate();
@@ -190,6 +199,10 @@ public sealed class PlanService(
 
         if (!string.IsNullOrWhiteSpace(request.DisplayName)) plan.DisplayName = request.DisplayName.Trim();
         if (!string.IsNullOrWhiteSpace(request.Description)) plan.Description = request.Description.Trim();
+
+        // Before the announcements rather than after, so a Stripe failure throws while the only
+        // thing that has happened is a change tracker nothing will commit.
+        await MirrorToStripeAsync(plan, version, cancellationToken);
 
         var announcements = await AnnounceAsync(
             plan, values.Keys.Select(key => key.Name).ToList(), now, cancellationToken);
@@ -551,6 +564,35 @@ public sealed class PlanService(
         }
 
         return announcements;
+    }
+
+    /// <summary>
+    /// Mirrors a newly written version into Stripe, on the publish path, before anything commits.
+    /// </summary>
+    private async Task MirrorToStripeAsync(
+        Plan plan, PlanVersion version, CancellationToken cancellationToken)
+    {
+        if (stripe is null) return;
+
+        try
+        {
+            var outcome = await stripe.SyncAsync(plan, version, cancellationToken);
+
+            if (outcome is StripeSyncOutcome.NotConfigured)
+            {
+                logger?.LogDebug(
+                    "Plan '{Plan}' version {Version} was not mirrored into Stripe: no secret key is "
+                    + "configured on this instance.", plan.Name, version.VersionNumber);
+            }
+        }
+        catch (StripeGatewayException failure)
+        {
+            throw new PlanRefusedException(PlanErrorCodes.StripeSyncFailed,
+                $"'{plan.Name}' version {version.VersionNumber} was not published, because Stripe "
+                + $"would not create the price for it: {failure.Message} Nothing was written, so "
+                + "retrying is safe - the same request presents the same idempotency key and will "
+                + "reuse whatever Stripe already made.", failure);
+        }
     }
 
     // ── Validation ───────────────────────────────────────────────────────────

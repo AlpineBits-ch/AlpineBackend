@@ -11,6 +11,18 @@ public static class ProxyConfig
     // the same condition and a typo in either string would leave half a service wired up.
     private const string BillingRouteId = "billing-route";
 
+    /// <summary>The Stripe webhook, which is the same cluster and the same path prefix as
+    /// <see cref="BillingRouteId"/> but must not be rate limited. Named separately because it is
+    /// filtered out on the same <c>IsHosted</c> condition and a typo would leave a route pointing at
+    /// a cluster that is not there, which YARP refuses to start with.</summary>
+    private const string BillingWebhookRouteId = "billing-stripe-webhook-route";
+
+    /// <summary>Public path of the Stripe webhook, and the one string in this file that a third party
+    /// has already been configured with (monetization-stripe-architecture.md section 10 records the
+    /// destination). The service maps <c>/api/v1/stripe/webhook</c>, so the same segment rewrite as
+    /// the billing route applies.</summary>
+    private const string BillingWebhookPath = "/api/v1/billing/stripe/webhook";
+
     private const string BillingClusterId = "billing-cluster";
 
     public static IReadOnlyList<RouteConfig> GetRoutes() => new[]
@@ -189,9 +201,19 @@ public static class ProxyConfig
             ClusterId = BillingClusterId,
             Match = new RouteMatch { Path = "/api/v1/billing/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+
+        // The Stripe webhook, split out of the route above for one reason: it must not be rate
+        // limited.
+        new RouteConfig
+        {
+            RouteId = BillingWebhookRouteId,
+            ClusterId = BillingClusterId,
+            Match = new RouteMatch { Path = BillingWebhookPath },
+            Metadata = new Dictionary<string, string> { [RateLimitConfigFilter.ExemptMetadataKey] = "true" },
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/stripe/webhook")),
     }
     // Dropped entirely in selfhost, which is the default and is what nearly every deployment is.
-    .Where(route => route.RouteId != BillingRouteId || Env.License.IsHosted)
+    .Where(route => route.RouteId is not (BillingRouteId or BillingWebhookRouteId) || Env.License.IsHosted)
     .ToArray();
 
     public static IReadOnlyList<ClusterConfig> GetClusters()

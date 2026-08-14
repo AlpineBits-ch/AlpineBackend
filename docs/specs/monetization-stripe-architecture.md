@@ -280,21 +280,38 @@ plan panel exactly as a self-hosted one does rather than showing a buy button th
 Nothing in this wave changes what a self-hosted instance resolves. `SelfHostEverythingSource` still
 short-circuits above all of it.
 
-### Sandbox credentials as compiled-in fallbacks
+### Sandbox credentials as compiled-in fallbacks - the two keys only
 
-The three Stripe values fall back to the **AlpineBits KLG sandbox** test credentials when their
-environment variables are unset, so that a deployment works without a Helm change and production
-values are a pure override.
+The publishable key and the secret key fall back to the **AlpineBits KLG sandbox** test credentials
+when their environment variables are unset, so a deployment works without a chart change and
+production values are a pure override.
 
-This is a deliberate trade and it has a sharp edge: if a live key is ever meant to be set and the
-variable is missing, the service does not fail, it quietly transacts against the sandbox. A missing
-publishable key would mean cards tokenised against a sandbox and payments that appear to do nothing.
-So the fallback is paired with a **startup warning that fires whenever a test-mode credential is in
-use on a `hosted` instance**, naming which one. The warning is the whole reason the fallback is
-acceptable; do not remove it and leave the defaults.
+This is a deliberate trade with a sharp edge: if a live key is ever meant to be set and the variable
+is missing, the service does not fail, it quietly transacts against the sandbox - cards tokenise,
+checkout completes, and no money moves. So the fallback is paired with a **startup warning naming
+every Stripe credential that still needs attention on a `hosted` instance**. The warning is the whole
+reason the fallback is acceptable; do not keep the defaults and drop the warning. Test-mode is
+detected from the value itself (`_test_`), never from a separate flag, so it cannot disagree with
+reality.
 
-Test-mode is detected from the value itself (`pk_test_` / `sk_test_` prefixes), not from a separate
-flag, so the warning cannot disagree with reality.
+### The webhook signing secret has no fallback, deliberately
+
+This asymmetry is the important part, and it was nearly got wrong: the first implementation gave all
+three a fallback, on the reasoning that the risk was "quietly transacts against the sandbox".
+
+That is the wrong risk for this one. A signing secret's entire job is to be unguessable, and the
+webhook endpoint is anonymous by necessity - the signature is the only thing between it and the
+internet. A default compiled into a source-available repository is a **published password**: anybody
+who has read the file can send any instance still running that default a forged, correctly signed
+`customer.subscription.created`. Re-reading the live object (§5) does not save it either, because the
+compiled-in secret key lets that same person create a real sandbox subscription for us to go and
+read and believe.
+
+That is a complete authentication bypass of billing rather than a no-money-moves inconvenience, and
+it would be armed by precisely the state the fallback exists to make convenient.
+
+So: unset means **refuse deliveries**. The cost to an operator is one line in the secret they already
+maintain, which was never a chart change in the first place.
 
 ### Operator setup already done in the sandbox
 

@@ -26,6 +26,11 @@ public class Plan : BaseEntity<Plan>, IPrefixedEntity
     /// <summary>The staff account that created it, or <c>system</c> for a seeded plan.</summary>
     public string CreatedBy { get; set; } = null!;
 
+    /// <summary>
+    /// The Stripe <c>Product</c> this plan is mirrored into, or null for one that was never synced.
+    /// </summary>
+    public string? StripeProductId { get; set; }
+
     public DateTimeOffset? ArchivedAt { get; set; }
 
     public string? ArchivedBy { get; set; }
@@ -78,6 +83,13 @@ public class PlanVersion : BaseEntity<PlanVersion>, IPrefixedEntity
     public string Reason { get; set; } = null!;
 
     public string CreatedBy { get; set; } = null!;
+
+    /// <summary>
+    /// The Stripe <c>Price</c> this exact version is mirrored into, or null for one that was never
+    /// synced - a version with no <see cref="PriceMinorUnits"/>, or any version at all on an
+    /// instance with no Stripe key.
+    /// </summary>
+    public string? StripePriceId { get; set; }
 
     public DateTimeOffset? ArchivedAt { get; set; }
 

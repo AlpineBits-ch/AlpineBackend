@@ -20,6 +20,12 @@ public class MicroserviceContext : DbContext
 
     public DbSet<PlanAuditEntry> PlanAuditEntries { get; set; }
 
+    public DbSet<StripeCustomer> StripeCustomers { get; set; }
+
+    public DbSet<Subscription> Subscriptions { get; set; }
+
+    public DbSet<ProcessedStripeEvent> ProcessedStripeEvents { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (optionsBuilder.IsConfigured)
@@ -122,6 +128,50 @@ public class MicroserviceContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.PlanId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StripeCustomer>(customerBuilder =>
+        {
+            customerBuilder.Property(x => x.UserId).IsRequired();
+            customerBuilder.Property(x => x.StripeCustomerId).IsRequired();
+
+            // Unique in both directions.
+            customerBuilder.HasIndex(x => x.UserId).IsUnique();
+            customerBuilder.HasIndex(x => x.StripeCustomerId).IsUnique();
+        });
+
+        modelBuilder.Entity<Subscription>(subscriptionBuilder =>
+        {
+            subscriptionBuilder.Property(x => x.SubjectKind).HasConversion<string>();
+            subscriptionBuilder.Property(x => x.Status).HasConversion<string>();
+
+            subscriptionBuilder.Property(x => x.StripeSubscriptionId).IsRequired();
+            subscriptionBuilder.Property(x => x.PayerUserId).IsRequired();
+            subscriptionBuilder.Property(x => x.SubjectId).IsRequired();
+
+            subscriptionBuilder.HasIndex(x => x.StripeSubscriptionId).IsUnique();
+
+            // The one that stops a double charge.
+            subscriptionBuilder.HasIndex(x => new { x.SubjectKind, x.SubjectId })
+                .IsUnique()
+                .HasFilter("status IN ('Trialing', 'Active', 'PastDue')");
+
+            // The webhook's other entry point: given a price, which plan version was bought.
+            subscriptionBuilder.HasOne<Plan>()
+                .WithMany()
+                .HasForeignKey(x => x.PlanId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ProcessedStripeEvent>(eventBuilder =>
+        {
+            // Stripe's own event id, and the reason this table exists: the insert is the duplicate
+            // check, so the constraint has to be the primary key rather than a unique index beside a
+            // generated one. See the class comment.
+            eventBuilder.HasKey(x => x.EventId);
+
+            eventBuilder.Property(x => x.EventId).IsRequired();
+            eventBuilder.Property(x => x.Type).IsRequired();
         });
     }
 

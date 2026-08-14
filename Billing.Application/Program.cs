@@ -1,6 +1,7 @@
 using AppEnvironment;
 using Billing.Application.Security;
 using Billing.Application.Services;
+using Billing.Application.Stripe;
 using Billing.Infrastructure;
 using Billing.Infrastructure.Persistence;
 using Echo.Auth;
@@ -65,6 +66,21 @@ builder.Services.AddScoped<GrantService>();
 builder.Services.AddScoped<PlanCatalogueService>();
 builder.Services.AddScoped<PlanService>();
 
+// The Stripe seam, registered whether or not there is a key.
+builder.Services.Configure<StripeOptions>(builder.Configuration.GetSection(StripeOptions.SectionName));
+builder.Services.AddSingleton(provider => provider.GetRequiredService<IOptions<StripeOptions>>().Value);
+builder.Services.AddSingleton<IStripeGateway, StripeGateway>();
+builder.Services.AddScoped<StripeCatalogueSync>();
+
+// The customer-facing checkout surface.
+builder.Services.AddScoped<CheckoutCatalogueService>();
+builder.Services.AddScoped<StripeCustomerRegistry>();
+builder.Services.AddScoped<SubscriptionCheckoutService>();
+builder.Services.AddScoped<PaymentMethodService>();
+
+// The webhook half of wave 6, registered by the package that owns it.
+builder.Services.AddStripeWebhooks();
+
 // Billing is the write side, so it registers the grant provider rather than the entitlement source
 // built on it.
 builder.Services.AddScoped<IGrantProvider>(provider => provider.GetRequiredService<GrantService>());
@@ -117,6 +133,18 @@ if (Env.License.IsSelfHost)
 
 var app = builder.Build();
 
+// The other half of the compiled-in sandbox fallbacks in AppEnvironment.LicenseConfiguration, and
+// the reason those fallbacks are acceptable at all.
+if (Env.License.TestModeStripeCredentials is { Count: > 0 } testCredentials)
+{
+    app.Logger.LogWarning(
+        "LICENSE_MODE is 'hosted' and {Count} Stripe credential(s) are still test-mode or still the "
+        + "compiled-in sandbox default: {Credentials}. This instance cannot take a real payment, and "
+        + "an unchanged STRIPE_WEBHOOK_SECRET means its webhook endpoint can be forged by anybody "
+        + "with the source. Set them in the environment before selling anything.",
+        testCredentials.Count, string.Join(", ", testCredentials));
+}
+
 app.MapWolverineEndpoints();
 app.UseGracefulShutdownHealthCheck();
 
@@ -137,6 +165,15 @@ using (var seedScope = app.Services.CreateScope())
         seedScope.ServiceProvider.GetRequiredService<PlanCatalogue>(),
         seedScope.ServiceProvider.GetRequiredService<IOptions<PlanSeedOptions>>().Value,
         seedScope.ServiceProvider.GetRequiredService<TimeProvider>(),
+        seedScope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+
+    // Immediately after the seeder, and for a defect the seeder caused: it writes plans straight to
+    // the DbContext rather than through PlanService, so it bypasses the mirror into Stripe and
+    // every database seeded before checkout existed holds priced plans with no Stripe price - a
+    // catalogue that renders and cannot be bought from.
+    await StripePriceBackfill.RunAsync(
+        seedScope.ServiceProvider.GetRequiredService<MicroserviceContext>(),
+        seedScope.ServiceProvider.GetRequiredService<StripeCatalogueSync>(),
         seedScope.ServiceProvider.GetRequiredService<ILogger<Program>>());
 }
 

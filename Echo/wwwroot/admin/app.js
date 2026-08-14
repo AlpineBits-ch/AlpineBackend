@@ -457,7 +457,7 @@
     function closeDetail() {
         $('#detail').classList.add('hidden');
         $('#detail-body').replaceChildren();
-        $$('.rw').forEach(row => row.setAttribute('aria-selected', 'false'));
+        $$('.rw, .plan-row').forEach(row => row.setAttribute('aria-selected', 'false'));
     }
 
     $('#detail-close').addEventListener('click', () => { selectedId = null; closeDetail(); });
@@ -3026,7 +3026,7 @@
     // ── Billing: the subject pane ───────────────────────────────────────────
 
     async function renderBillingSubject() {
-        const wrap = el('div', 'pane');
+        const wrap = el('div', 'pane billing');
         wrap.append(billingLookup());
 
         if (!billingCatalogue.billingDeployed) {
@@ -3104,28 +3104,29 @@
             + 'it. This is what answers "it says I have Pro but it does not work", and it reads from '
             + 'the same resolver the platform enforces with, cache and all.'));
 
-        const form = el('form');
-        form.style.cssText = 'display:flex;gap:8px;align-items:flex-end;margin-top:12px;';
+        const form = el('form', 'lookup');
 
         const kind = select([['Guild', 'Guild'], ['User', 'User']], billingSubject.kind);
+        kind.id = 'billing-kind';
 
-        const id = el('input');
+        // Monospace because the value is an identifier that gets compared against one pasted from a
+        // ticket, and a proportional font is where a transposed character hides.
+        const id = el('input', 'mono');
+        id.id = 'billing-id';
         id.value = billingSubject.id;
         id.spellcheck = false;
+        id.autocomplete = 'off';
         id.placeholder = billingSubject.kind === 'Guild' ? 'guild_...' : 'user_...';
 
         kind.addEventListener('change', () => {
             id.placeholder = kind.value === 'Guild' ? 'guild_...' : 'user_...';
         });
 
-        const wide = el('div', 'grow');
-        wide.append(id);
-
-        const submit = el('button', 'btn sm primary');
+        const submit = el('button', 'btn primary');
         submit.type = 'submit';
         submit.append(icon('search'), document.createTextNode(' Look up'));
 
-        form.append(kind, wide, submit);
+        form.append(lookupField('Subject', kind), lookupField('Id', id), submit);
 
         form.addEventListener('submit', event => {
             event.preventDefault();
@@ -3138,8 +3139,22 @@
         return box;
     }
 
+    /** A labelled cell of the lookup grid. Not `field()`: that stacks with a 16px gap underneath for
+     *  a form read top to bottom, and this row is read left to right. */
+    function lookupField(text, control) {
+        const cell = el('div');
+        const label = el('label', null, text);
+        label.htmlFor = control.id;
+        cell.append(label, control);
+        return cell;
+    }
+
     function provenanceTable(entries) {
         const table = el('div', 'prov');
+
+        const head = el('div', 'prov-head');
+        head.append(el('div', null, 'Key'), el('div', null, 'Resolved to'), el('div', null, 'Credited to'));
+        table.append(head);
 
         entries.forEach(entry => {
             // A key nobody set is dimmed rather than dropped. The row missing is what makes somebody
@@ -3261,7 +3276,6 @@
 
         if (canEditBilling() && !grant.revokedAt) {
             const actions = el('div', 'btn-row');
-            actions.style.marginTop = '8px';
             actions.append(button('Revoke', 'times-circle', () => revokeGrant(grant), 'danger'));
             actions.append(button('Change expiry', 'clock', () => amendGrantExpiry(grant)));
             body.append(actions);
@@ -3583,29 +3597,66 @@
             return empty('No plans yet. The catalogue seeds from configuration on the billing service\'s first start.', 'key');
         }
 
-        const list = el('div', 'rows');
+        const wrap = el('div', 'billing');
 
-        plans.forEach(plan => {
-            const title = [el('span', null, plan.displayName || plan.name)];
-            title.push(el('span', 'mono faint', plan.name));
-            title.push(tag(`v${plan.currentVersionNumber}`, 'info'));
-            if (plan.archivedAt) title.push(tag('Archived', 'danger'));
-            if (plan.seededFromConfiguration) title.push(tag('Seeded'));
+        wrap.append(el('p', 'hint plans-intro',
+            'Every plan on this instance, archived ones included. A plan is a stack of versions: an '
+            + 'edit writes a new version and leaves every subject on the one it was already on.'));
 
-            const current = plan.versions.find(version => version.isCurrent);
+        const list = el('div', 'plans');
 
-            list.append(row({
-                title,
-                sub: plan.description || money(current),
-                side: [el('span', 'rw-time', `${plan.versions.length} version${plan.versions.length === 1 ? '' : 's'}`)],
-                selected: plan.name === selectedId,
-                onOpen: () => openPlan(plan.name),
-            }));
-        });
+        const head = el('div', 'plans-head');
+        head.append(
+            el('div', null, 'Plan'),
+            el('div', 'end', 'Price'),
+            el('div', 'end', 'Versions'),
+            el('div', 'end', 'Status'));
+        list.append(head);
 
-        const wrap = el('div');
+        plans.forEach(plan => list.append(planRow(plan)));
+
         wrap.append(list, listFoot(plans.length, plans.length));
         return wrap;
+    }
+
+    function planRow(plan) {
+        const current = plan.versions.find(version => version.isCurrent);
+
+        const line = el('button', 'plan-row');
+        line.setAttribute('aria-selected', String(plan.name === selectedId));
+
+        const identity = el('div', 'plan-id');
+        const title = el('div', 'plan-title');
+        title.append(el('span', null, plan.displayName || plan.name));
+        // Only worth a line of its own when it is not already the title: most plans are named after
+        // their slug and repeating "Pro pro" reads as a rendering fault.
+        if (plan.displayName && plan.displayName !== plan.name) {
+            title.append(el('span', 'mono faint', plan.name));
+        }
+        identity.append(title);
+        if (plan.description) identity.append(el('div', 'plan-desc', plan.description));
+        line.append(identity);
+
+        const sold = current?.priceMinorUnits !== null && current?.priceMinorUnits !== undefined;
+        line.append(el('div', sold ? 'plan-price' : 'plan-price unsold', money(current)));
+
+        const versions = el('div', 'plan-versions');
+        versions.append(el('b', null, String(plan.versions.length)));
+        versions.append(el('span', null, `current v${plan.currentVersionNumber}`));
+        line.append(versions);
+
+        const status = el('div', 'plan-status');
+        status.append(plan.archivedAt ? tag('Archived', 'danger') : tag('Live', 'ok'));
+        if (plan.seededFromConfiguration) status.append(tag('Seeded'));
+        line.append(status);
+
+        line.addEventListener('click', () => {
+            $$('.plan-row').forEach(other => other.setAttribute('aria-selected', 'false'));
+            line.setAttribute('aria-selected', 'true');
+            openPlan(plan.name);
+        });
+
+        return line;
     }
 
     function money(version) {
@@ -3628,7 +3679,7 @@
             call('GET', `${BILLING}/plans/${encoded}/audit`).catch(() => []),
         ]);
 
-        const pane = el('div', 'pane');
+        const pane = el('div', 'pane billing');
         const current = plan.versions.find(version => version.isCurrent);
 
         pane.append(block(null, kv([
@@ -3739,7 +3790,6 @@
 
             if (canEditBilling() && !plan.archivedAt && !version.isCurrent && !version.archivedAt) {
                 const actions = el('div', 'btn-row');
-                actions.style.marginTop = '8px';
                 actions.append(button('Make current', 'refresh', () => activateVersion(plan, version)));
                 actions.append(button('Archive', 'trash', () => archiveVersion(plan, version), 'danger'));
                 body.append(actions);

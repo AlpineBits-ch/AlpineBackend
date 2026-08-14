@@ -432,33 +432,209 @@ body { overflow: hidden; }
 
 /* ── Billing ────────────────────────────────────────────────────────────── */
 /*
+ * The one section read as a document rather than scanned as a queue, and the only one whose prose
+ * carries the answer, so it is the only one that needs a measure. Uncapped it inherits the width of
+ * whatever monitor it is opened on: the intro sets as a single 200-character line and the version
+ * count in the plan list ends up a metre from the plan it counts.
+ */
+.billing { max-width: 1080px; }
+
+.billing .hint {
+    max-width: 72ch;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--muted);
+}
+
+.billing .lede { max-width: 72ch; font-size: 14px; line-height: 1.55; }
+
+/* Revoke, Make current, Archive: the buttons a timeline entry carries need clearing from the chips
+   above them, which otherwise sit hard against the button row. */
+.billing .event .btn-row { margin-top: 8px; }
+
+/*
+ * The lookup row, and the reason it is a grid.
+ *
+ * Every field on the site is `width: 100%`, which as a flex item means a flex basis of the whole
+ * row. Three of those overflow the container, flex switches from growing to shrinking, and shrinking
+ * is weighted by basis - so the `flex: 1` cell holding the id input, basis zero, shrinks to zero and
+ * stays there. Grid tracks give each control a width to be 100% of instead.
+ */
+.lookup {
+    display: grid;
+    grid-template-columns: 148px minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+    margin-top: 14px;
+    max-width: 640px;
+}
+
+.lookup > * { min-width: 0; }
+.lookup label { margin-bottom: 5px; }
+
+@media (max-width: 720px) {
+    .lookup { grid-template-columns: minmax(0, 1fr); }
+}
+
+/*
  * The provenance table. Three columns because the screen answers three things at once - what the key
  * is, what it came out as, and who is credited with it - and reading it as prose is what makes a
  * billing ticket answerable.
  */
 .prov { display: flex; flex-direction: column; }
 
-.prov-row {
+/* The negative margin lets the hover band bleed into the card's own padding, so the row an operator
+   is tracking across three columns reaches both ends of the table rather than stopping short. */
+.prov-head, .prov-row {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.1fr);
-    gap: 3px 12px;
+    grid-template-columns: minmax(150px, 1.2fr) minmax(96px, .7fr) minmax(170px, 1.1fr);
+    gap: 3px 16px;
     align-items: baseline;
-    padding: 9px 0;
-    border-bottom: 1px solid var(--border-soft);
+    padding: 9px 10px;
+    margin: 0 -10px;
     font-size: 12.5px;
 }
-.prov-row:last-child { border-bottom: 0; }
 
-/* A key nobody set is dimmed, never dropped. The row missing is what makes an operator conclude the
-   screen is broken; the row present and quiet says "this is a floor, not a decision". */
-.prov-row.faint { opacity: .58; }
+.prov-head {
+    padding-top: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--faint);
+}
+
+.prov-row { border-bottom: 1px solid var(--border-soft); }
+.prov-row:last-child { border-bottom: 0; }
+.prov-row:hover { background: var(--raised); }
 
 .prov-key { overflow-wrap: anywhere; }
 .prov-val { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.prov-val strong { font-size: 13px; font-weight: 640; }
 .prov-src { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
+/* A key nobody set is dimmed, never dropped. The row missing is what makes an operator conclude the
+   screen is broken; the row present and quiet says "this is a floor, not a decision".
+   Dimmed by colour rather than by opacity, so the rows that did come from somewhere keep the full
+   strength of their source colour instead of the whole table sitting under a haze. */
+.prov-row.faint { color: var(--faint); }
+.prov-row.faint .prov-val strong { font-weight: 500; }
+
+/* Nobody supplied this, so the source reads as an outline rather than as a filled band. */
+.prov-row.faint .tag {
+    background: none;
+    color: var(--faint);
+    box-shadow: inset 0 0 0 1px var(--border);
+}
+
 @media (max-width: 900px) {
+    .prov-head { display: none; }
     .prov-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+/*
+ * The plan catalogue, as the table it is.
+ *
+ * Fixed tracks rather than the queue's title-and-far-right-meta shape: a version count that has
+ * drifted a thousand pixels from the plan it counts is not a column, and the price - the thing
+ * actually being compared down the list - was set in body text on a second line.
+ */
+.plans { display: flex; flex-direction: column; }
+
+.plans-intro { padding: 16px 18px 0; margin-bottom: 4px; }
+
+.plans-head, .plan-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 120px 96px minmax(0, 176px);
+    gap: 0 18px;
+    align-items: center;
+    text-align: left;
+}
+
+.plans-head {
+    padding: 14px 18px 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--faint);
+    border-bottom: 1px solid var(--border);
+}
+
+.plans-head .end { text-align: right; }
+
+.plan-row {
+    padding: 12px 18px;
+    border: 0;
+    border-bottom: 1px solid var(--border-soft);
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    width: 100%;
+    transition: background .1s;
+}
+
+.plan-row:hover { background: var(--raised); }
+.plan-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.plan-row[aria-selected="true"] { background: color-mix(in srgb, var(--brand) 9%, transparent); }
+
+.plan-id { min-width: 0; }
+
+.plan-title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    font-size: 14px;
+    font-weight: 550;
+    letter-spacing: -.008em;
+}
+
+.plan-desc {
+    font-size: 12.5px;
+    color: var(--faint);
+    line-height: 1.45;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Right-aligned and tabular so a column of prices lines up on the decimal point, which is what makes
+   it comparable at a glance rather than readable one row at a time. */
+.plan-price {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+}
+.plan-price.unsold { font-weight: 450; color: var(--faint); }
+
+.plan-versions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-variant-numeric: tabular-nums;
+}
+.plan-versions b { font-size: 14px; font-weight: 600; line-height: 1.35; }
+.plan-versions span { font-size: 11.5px; color: var(--faint); }
+
+.plan-status { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+
+/* Same 900px the provenance table folds at, and for the same reason: the rail is still 216px wide
+   here, so four fixed tracks have already eaten the plan name's column before the shell reflows. */
+@media (max-width: 900px) {
+    .plans-head { display: none; }
+
+    .plan-row { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; align-items: start; }
+    .plan-id { grid-area: 1 / 1; }
+    .plan-price { grid-area: 1 / 2; }
+    .plan-versions { grid-area: 2 / 1 / auto / -1; flex-direction: row; align-items: baseline; gap: 6px; }
+    .plan-status { grid-area: 3 / 1 / auto / -1; justify-content: flex-start; }
 }
 
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }

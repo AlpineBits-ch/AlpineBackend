@@ -13,7 +13,10 @@ All paths are the **public** paths as seen by the client. The gateway proxies
 Money is always **minor units** (`2900` is $29.00) plus a lowercase ISO 4217 `currency`. There is no
 float anywhere in this contract, in either direction.
 
-Timestamps are ISO 8601 UTC with a `Z`.
+Timestamps are ISO 8601 UTC, serialised as `+00:00` rather than `Z`. Both are valid and mean the same
+thing; `+00:00` is what `DateTimeOffset` renders on the entitlement snapshot and every other Echo
+endpoint, and making billing the one surface that differs would defeat the same one-screen-one-
+representation argument that forces the lowercase `subjectKind` below.
 
 ---
 
@@ -176,7 +179,14 @@ the cost of being wrong is an error that renders as "something went wrong".
 | `not_the_payer` | 403 | Specifically: they manage the guild but somebody else's card is behind it. |
 | `subscription_lapsed` | 409 | Resume was called on a subscription that has already ended. |
 | `last_payment_method` | 409 | Detaching the only card under a live subscription. |
+| `unknown_plan` | 400 | No such plan. Same spelling the staff surface already uses. |
+| `unknown_subscription` | 404 | No such subscription **or not yours**. |
+| `unknown_payment_method` | 404 | No such payment method **or not yours**. |
 | `stripe_error` | 502 | Show the message; it is safe to display and already customer-worded. |
+
+The last two deliberately answer identically for "does not exist" and "exists but is not yours".
+Distinguishing them would let either endpoint be walked to enumerate other people's ids, and there is
+no legitimate caller who needs to tell the two apart.
 
 This table is global on purpose. The first draft documented codes only for subscription creation and
 payment-method detach, which left cancel, resume, change and preview with no named failures despite
@@ -223,6 +233,15 @@ needs a plain sentence with a date, not a status chip.
 
 `isPayer` false means the caller manages the guild but somebody else's card is behind it. They may
 look, they may not cancel.
+
+**`interval` is missing from this DTO and should be added.** Without it the card cannot say "$29.00
+per month" without a second catalogue fetch keyed on `planName`, so the client renders the amount plus
+a renewal date and conveys the cadence only indirectly. One field fixes it properly.
+
+The list returns subscriptions the caller pays for **plus** those on guilds where they hold
+`ManageGuild`, and it **includes ended ones** - a subject can legitimately have both an ended
+subscription and a live one, so a client picking "the" subscription for a subject must prefer the
+non-ended one rather than the first.
 
 ---
 
@@ -294,6 +313,19 @@ point of Elements.
 ```
 
 The two URLs are opened externally. We do not render invoices.
+
+**Caller-scoped, like payment methods**: these are the invoices raised against the caller's own Stripe
+customer, not against a guild. A guild plan page therefore shows no invoice history, which is correct
+as long as invoices follow the payer - and they do, because the payer is always a person and never a
+guild. If a guild-scoped view is ever wanted, this endpoint needs a subject filter and the payer's
+other invoices must not leak through it.
+
+`number` is **absent on a draft invoice** - Stripe does not assign one until the invoice is issued -
+so a client must render "not issued yet" rather than an empty cell. Ordering and paging are
+unspecified; the server returns Stripe's order.
+
+In a Tauri webview these URLs must be opened through the platform's external-link mechanism.
+`window.open` navigates the webview itself and replaces the running application.
 
 ---
 

@@ -130,6 +130,36 @@ public class VoiceHeartbeatCleanupServiceTests
         });
     }
 
+    /// <summary>
+    /// A room emptied by the sweep has nobody left to run the leave path that closes it, so before
+    /// this it survived on the four hour sliding TTL - carrying a roster, an instance id, an
+    /// attention blob and a viewer table that every later sweep re-read, and handing the next session
+    /// a version counter belonging to a conversation that had ended.
+    /// </summary>
+    [Test]
+    public async Task Sweep_ClosesARoomItJustEmptied()
+    {
+        SeedRoom(Ghost);
+
+        await SweepAsync();
+
+        Assert.That(
+            await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId)), Is.Null);
+    }
+
+    [Test]
+    public async Task Sweep_LeavesARoomItOnlyPartlyEmptied()
+    {
+        SeedRoom(Ghost, Live);
+        SeedHeartbeat(Live);
+
+        await SweepAsync();
+
+        Assert.That(
+            await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId)), Is.Not.Null,
+            "somebody is still in it, and reaping a live room drops a call");
+    }
+
     [Test]
     public async Task Sweep_WithNoRoomsAtAll_DoesNothing()
     {
@@ -168,6 +198,7 @@ public class VoiceHeartbeatCleanupServiceTests
             _cache,
             VoiceTestHarness.StoreFor(_cache, locks),
             new VoiceAnnouncer(new FakeHubContext()),
+            VoiceTestHarness.ReconcilerFor(_cache, locks, new FakeHubContext()),
             new GuildVoiceActivityStore(locks, _cache),
             new StreamViewerStore(locks, _cache),
             new FakeHubContext(),

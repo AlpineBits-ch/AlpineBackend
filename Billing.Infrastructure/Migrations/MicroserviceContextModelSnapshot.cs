@@ -140,6 +140,285 @@ namespace Billing.Infrastructure.Migrations
 
                     b.ToTable("grants", (string)null);
                 });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.Plan", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ArchiveReason")
+                        .HasColumnType("text")
+                        .HasColumnName("archive_reason");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
+                    b.Property<string>("ArchivedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("archived_by");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("CurrentVersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("current_version_number");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("DisplayName")
+                        .HasColumnType("text")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("SeededFromConfiguration")
+                        .HasColumnType("boolean")
+                        .HasColumnName("seeded_from_configuration");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_plans");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_plans_name");
+
+                    b.ToTable("plans", (string)null);
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PlanAssignment", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("AssignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assigned_at");
+
+                    b.Property<string>("AssignedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("assigned_by");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("PlanId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("plan_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("SubjectId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject_id");
+
+                    b.Property<string>("SubjectKind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject_kind");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_plan_assignments");
+
+                    b.HasIndex("PlanId", "VersionNumber")
+                        .HasDatabaseName("ix_plan_assignments_plan_id_version_number");
+
+                    b.HasIndex("SubjectKind", "SubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_plan_assignments_subject_kind_subject_id");
+
+                    b.ToTable("plan_assignments", (string)null);
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PlanAuditEntry", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("actor");
+
+                    b.Property<int?>("AffectedSubjects")
+                        .HasColumnType("integer")
+                        .HasColumnName("affected_subjects");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<string>("PlanId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("plan_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("Subject")
+                        .HasColumnType("text")
+                        .HasColumnName("subject");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int?>("VersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_plan_audit_entries");
+
+                    b.HasIndex("PlanId", "OccurredAt")
+                        .HasDatabaseName("ix_plan_audit_entries_plan_id_occurred_at");
+
+                    b.ToTable("plan_audit_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PlanVersion", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ArchiveReason")
+                        .HasColumnType("text")
+                        .HasColumnName("archive_reason");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_at");
+
+                    b.Property<string>("ArchivedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("archived_by");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Currency")
+                        .HasColumnType("text")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("PlanId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("plan_id");
+
+                    b.Property<long?>("PriceMinorUnits")
+                        .HasColumnType("bigint")
+                        .HasColumnName("price_minor_units");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("ValuesJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("values_json");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_number");
+
+                    b.HasKey("Id")
+                        .HasName("pk_plan_versions");
+
+                    b.HasIndex("PlanId", "VersionNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_plan_versions_plan_id_version_number");
+
+                    b.ToTable("plan_versions", (string)null);
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PlanAssignment", b =>
+                {
+                    b.HasOne("Billing.Domain.Aggregates.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_assignments_plans_plan_id");
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PlanAuditEntry", b =>
+                {
+                    b.HasOne("Billing.Domain.Aggregates.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_audit_entries_plans_plan_id");
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PlanVersion", b =>
+                {
+                    b.HasOne("Billing.Domain.Aggregates.Plan", null)
+                        .WithMany()
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_plan_versions_plans_plan_id");
+                });
 #pragma warning restore 612, 618
         }
     }

@@ -99,6 +99,12 @@ public class LicenseConfiguration
     public string StripeSecretKey { get; set; } = GetEnvironmentVariable("STRIPE_SECRET_KEY") ?? string.Empty;
 
     /// <summary>
+    /// The half of the Stripe pair that is safe to hand a client, and is meant to be handed to one.
+    /// </summary>
+    public string StripePublishableKey { get; set; } =
+        GetEnvironmentVariable("STRIPE_PUBLISHABLE_KEY") ?? string.Empty;
+
+    /// <summary>
     /// Whether anything in <see cref="Hosted"/> can actually answer "what has this guild paid for".
     /// </summary>
     public bool IsBillingConfigured =>

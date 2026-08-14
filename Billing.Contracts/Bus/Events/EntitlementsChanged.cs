@@ -14,6 +14,14 @@ public enum EntitlementsChangedReason
 
     /// <summary>Nobody wrote anything; a date simply passed.</summary>
     GrantExpired,
+
+    /// <summary>
+    /// A plan version became the plan's current one, whether by an edit or by a rollback.
+    /// </summary>
+    PlanVersionActivated,
+
+    /// <summary>A subject was put on a plan version, or moved between versions.</summary>
+    PlanAssignmentChanged,
 }
 
 /// <summary>

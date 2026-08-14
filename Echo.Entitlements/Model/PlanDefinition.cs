@@ -7,7 +7,10 @@ namespace Echo.Entitlements.Model;
 /// </summary>
 public sealed class PlanDefinition
 {
-    public PlanDefinition(string name, IReadOnlyDictionary<EntitlementKey, EntitlementValue> values)
+    public PlanDefinition(
+        string name,
+        IReadOnlyDictionary<EntitlementKey, EntitlementValue> values,
+        string? displayName = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(values);
@@ -24,14 +27,19 @@ public sealed class PlanDefinition
 
         Name = name;
         Values = values;
+        DisplayName = string.IsNullOrWhiteSpace(displayName) ? name : displayName;
     }
 
     public string Name { get; }
 
+    /// <summary>What a settings screen calls this plan.</summary>
+    public string DisplayName { get; }
+
     public IReadOnlyDictionary<EntitlementKey, EntitlementValue> Values { get; }
 
     /// <summary>Builds a plan from the string form configuration arrives in.</summary>
-    public static PlanDefinition Parse(string name, IReadOnlyDictionary<string, string> values)
+    public static PlanDefinition Parse(
+        string name, IReadOnlyDictionary<string, string> values, string? displayName = null)
     {
         ArgumentNullException.ThrowIfNull(values);
 
@@ -42,7 +50,7 @@ public sealed class PlanDefinition
             parsed[key] = key.Parse(text);
         }
 
-        return new PlanDefinition(name, parsed);
+        return new PlanDefinition(name, parsed, displayName);
     }
 
     public EntitlementSet ToSet(EntitlementPrecedence precedence = EntitlementPrecedence.PlanDefault)
@@ -71,11 +79,60 @@ public sealed class PlanCatalogue
     public PlanDefinition? Find(string? name) =>
         name is not null && _byName.TryGetValue(name, out var plan) ? plan : null;
 
+    /// <summary>
+    /// The version of <paramref name="name"/> this catalogue publishes as current, or null when it
+    /// publishes no versioned entries for it.
+    /// </summary>
+    public int? CurrentVersionOf(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        int? highest = null;
+
+        foreach (var plan in _byName.Values)
+        {
+            var (planName, version) = PlanReference.Split(plan.Name);
+            if (version is null) continue;
+            if (!string.Equals(planName, name, StringComparison.OrdinalIgnoreCase)) continue;
+
+            if (highest is null || version > highest) highest = version;
+        }
+
+        return highest;
+    }
+
     public static PlanCatalogue FromOptions(EntitlementPlanOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         return new PlanCatalogue(
-            options.Plans.Select(entry => PlanDefinition.Parse(entry.Key, entry.Value)).ToList());
+            options.Plans
+                .Select(entry => PlanDefinition.Parse(
+                    entry.Key, entry.Value, options.PlanDisplayNames.GetValueOrDefault(entry.Key)))
+                .ToList());
+    }
+}
+
+/// <summary>The <c>name@number</c> form a pinned subject's plan is addressed by.</summary>
+public static class PlanReference
+{
+    /// <summary>Refused inside a plan name, or a plan called <c>pro@2</c> would shadow version 2 of
+    /// <c>pro</c>.</summary>
+    public const char VersionSeparator = '@';
+
+    public static string Of(string planName, int versionNumber) =>
+        $"{planName}{VersionSeparator}{versionNumber}";
+
+    /// <summary>Splits <c>pro@2</c> into its parts.</summary>
+    public static (string Name, int? Version) Split(string reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+
+        var at = reference.LastIndexOf(VersionSeparator);
+        if (at <= 0 || at == reference.Length - 1) return (reference, null);
+
+        return int.TryParse(reference.AsSpan(at + 1), out var version)
+            ? (reference[..at], version)
+            : (reference, null);
     }
 }
 
@@ -91,4 +148,7 @@ public sealed class EntitlementPlanOptions
     public string? DefaultUserPlan { get; set; }
 
     public Dictionary<string, Dictionary<string, string>> Plans { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What each plan is called on a settings screen, by plan name.</summary>
+    public Dictionary<string, string> PlanDisplayNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

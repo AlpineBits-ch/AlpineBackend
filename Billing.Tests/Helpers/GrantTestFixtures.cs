@@ -13,8 +13,13 @@ internal static class Plans
     public const string Plus = "plus";
     public const string Pro = "pro";
 
-    public static PlanCatalogue Catalogue() => PlanCatalogue.FromOptions(new EntitlementPlanOptions
+    public static PlanCatalogue Catalogue() => PlanCatalogue.FromOptions(Options());
+
+    /// <summary>The same plans as bindable configuration, for the tests that need to know which plan
+    /// an instance treats as its default rather than only what the plans contain.</summary>
+    public static EntitlementPlanOptions Options() => new()
     {
+        DefaultGuildPlan = Free,
         Plans = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase)
         {
             [Free] = new()
@@ -39,7 +44,7 @@ internal static class Plans
                 ["guild.vanity_url"] = "true",
             },
         },
-    });
+    };
 }
 
 /// <summary>Grants held in memory, so the source can be exercised without a database.</summary>

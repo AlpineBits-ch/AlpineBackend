@@ -148,6 +148,11 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
     public Task GuildVoiceCameraChanged(GuildVoiceCameraCommand cmd) =>
         bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
 
+    /// <summary>Mirrors <c>call.SpeakingChanged</c>.</summary>
+    [HubMethodName("guild.voice.SpeakingChanged")]
+    public Task GuildVoiceSpeakingChanged(GuildVoiceSpeakingCommand cmd) =>
+        bus.SendAsync(cmd with { UserId = Uid() }).AsTask();
+
     [HubMethodName("guild.voice.ScreenShareStarted")]
     public Task GuildVoiceScreenShareStarted(GuildVoiceScreenShareStartCommand cmd) =>
         bus.SendAsync(cmd with { UserId = Uid() }).AsTask();

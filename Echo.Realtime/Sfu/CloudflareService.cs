@@ -33,11 +33,25 @@ public class CloudflareCallsException(
 
 public record CfSessionDescription(string Type, string Sdp);
 
+/// <summary>Which simulcast layer a pulled track should be served at.</summary>
+public record CfSimulcast(
+    string PreferredRid,
+    string RidNotAvailable = CfSimulcast.NextAvailable,
+    string PriorityOrdering = CfSimulcast.NoOrdering
+)
+{
+    public const string NoOrdering = "none";
+
+    /// <summary>Serve the next rid the publisher actually has, rather than nothing.</summary>
+    public const string NextAvailable = "desc";
+}
+
 public record CfTrackNew(
     string Location,          // "local" | "remote"
     string? Mid = null,       // local tracks: transceiver MID after setLocalDescription
     string? TrackName = null, // local: name to publish; remote: name to subscribe to
-    string? SessionId = null  // remote tracks: the peer's CF session ID
+    string? SessionId = null, // remote tracks: the peer's CF session ID
+    CfSimulcast? Simulcast = null // remote tracks: which layer to serve
 );
 
 public record CfTracksNewRequest(

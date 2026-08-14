@@ -61,6 +61,18 @@ public static class ModerationAuditActions
     public const string StatusComponentCreated = "status.component-created";
     public const string StatusComponentUpdated = "status.component-updated";
 
+    // Billing.
+    public const string BillingGrantIssued = "billing.grant-issued";
+    public const string BillingGrantRevoked = "billing.grant-revoked";
+    public const string BillingGrantAmended = "billing.grant-amended";
+    public const string BillingPlanCreated = "billing.plan-created";
+    public const string BillingPlanEdited = "billing.plan-edited";
+    public const string BillingPlanVersionActivated = "billing.plan-version-activated";
+    public const string BillingPlanVersionArchived = "billing.plan-version-archived";
+    public const string BillingPlanArchived = "billing.plan-archived";
+    public const string BillingPlanAssigned = "billing.plan-assigned";
+    public const string BillingCacheInvalidated = "billing.cache-invalidated";
+
     /// <summary>An account's staff tier changed.</summary>
     public const string RoleChanged = "user.role-changed";
 }

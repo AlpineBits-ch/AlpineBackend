@@ -32,7 +32,9 @@ public class GrantServiceTests
 
         _clock = new TestClock(Now);
         _versions = new EntitlementVersionService(_db);
-        _grants = new GrantService(_db, Plans.Catalogue(), _versions, _clock);
+        // No plan rows, so the catalogue service answers entirely from the configured plans.
+        _grants = new GrantService(
+            _db, new PlanCatalogueService(_db, Plans.Catalogue()), _versions, _clock);
     }
 
     [TearDown]

@@ -123,9 +123,20 @@ x-app-env: &app-env
   # The three ceilings below are a different question and are the ones a self-hoster may actually
   # want: they cap what THIS SERVER will do regardless of what anyone is entitled to, because a
   # voice room's bandwidth is billed to whoever runs the SFU. Empty means no cap, which is how the
-  # stack ships. VOICE_VIDEO_CEILING takes a quality name (none, 480p30, 720p30, 1080p30, 1080p60);
-  # the other two take a plain number, bytes for the upload one. VOICE_MAX_PARTICIPANTS=12 with
-  # VOICE_VIDEO_CEILING=720p30 is a sensible pair for a small server on a metered connection.
+  # stack ships, except for the video ceiling - see below. VOICE_VIDEO_CEILING takes a quality name
+  # (none, 480p30, 720p30, 1080p30, 1080p60, 1440p60, 2160p60); the other two take a plain number,
+  # bytes for the upload one. VOICE_MAX_PARTICIPANTS=12 with VOICE_VIDEO_CEILING=720p30 is a
+  # sensible pair for a small server on a metered connection.
+  #
+  # VOICE_VIDEO_CEILING ships at 1080p60 rather than empty, and that is deliberate. The entitlement
+  # catalogue's default for a paired ladder key has to be its TOP rung, because a member with no
+  # user-side source would otherwise clamp every guild that paid for more - so adding the 4K rungs
+  # made "unconfigured" mean 4K. That is only affordable once the SFU is actually serving a lower
+  # simulcast layer to the small tiles, which needs publishers sending simulcast encodings and
+  # clients reporting their rendered tile height. Neither is true of the released clients yet, so
+  # until they are, every viewer would pull the top layer and one 4K share to fourteen people costs
+  # 50 GB/hour instead of 18. Raise it when the clients report tile sizes; see
+  # docs/specs/monetization-pricing-model.md section 1.
   LICENSE_MODE: "${LICENSE_MODE:-selfhost}"
   # Where the billing service answers. Empty is the shipped state and is correct in selfhost, where
   # the service is not deployed at all (it sits behind the `hosted` profile below). A hosted instance
@@ -134,7 +145,7 @@ x-app-env: &app-env
   # entitlement to unlimited and look perfectly healthy giving the product away.
   BILLING_SERVICE_URL: "${BILLING_SERVICE_URL:-}"
   VOICE_MAX_PARTICIPANTS: "${VOICE_MAX_PARTICIPANTS:-}"
-  VOICE_VIDEO_CEILING: "${VOICE_VIDEO_CEILING:-}"
+  VOICE_VIDEO_CEILING: "${VOICE_VIDEO_CEILING:-1080p60}"
   STORAGE_UPLOAD_MAX_BYTES: "${STORAGE_UPLOAD_MAX_BYTES:-}"
 
   # --- Optional third-party integrations ----------------------------------------------

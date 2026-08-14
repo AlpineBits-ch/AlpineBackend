@@ -85,6 +85,13 @@
       <button data-view="status" class="rail-item">
         <i data-icon="activity"></i> <span>Status page</span> <em class="badge" id="badge-status"></em>
       </button>
+      <!-- Not admin-only on the rail, deliberately. Every write in this section is administrator-only
+           and the buttons are not drawn for a moderator, but the provenance screen is what makes a
+           billing ticket answerable at all, and a support agent who has to escalate to see the
+           answer escalates every ticket. -->
+      <button data-view="billing" class="rail-item">
+        <i data-icon="key"></i> <span>Billing</span>
+      </button>
       <button data-view="federation" class="rail-item admin-only hidden">
         <i data-icon="external-link"></i> <span>Federation</span>
       </button>

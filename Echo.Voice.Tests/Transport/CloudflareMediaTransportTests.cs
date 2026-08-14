@@ -66,6 +66,74 @@ public class CloudflareMediaTransportTests
         });
     }
 
+    /// <summary>The line the entire simulcast argument rests on.</summary>
+    [Test]
+    public async Task A_subscribe_carries_the_chosen_layer_as_a_preferred_rid()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"sessionDescription":{"type":"answer","sdp":"v=0"},"tracks":[{"trackName":"camera","mid":"0","location":"remote"}],"requiresImmediateRenegotiation":false}""");
+
+        await TransportFor(handler).SubscribeAsync("cf-1", new VoiceNegotiateRequest(
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "camera", Layer: "q")]));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(handler.LastBody, Does.Contain("\"preferredRid\":\"q\""));
+            Assert.That(handler.LastBody, Does.Not.Contain("\"layer\""),
+                "the neutral vocabulary must not leak to Cloudflare, which would reject it");
+        });
+    }
+
+    /// <summary>
+    /// A publisher that sent a single encoding has no rids at all, and an SFU asked for one it does
+    /// not have sends nothing.
+    /// </summary>
+    [Test]
+    public async Task An_unavailable_rid_falls_back_rather_than_sending_nothing()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"sessionDescription":{"type":"answer","sdp":"v=0"},"tracks":[{"trackName":"camera","mid":"0","location":"remote"}],"requiresImmediateRenegotiation":false}""");
+
+        await TransportFor(handler).SubscribeAsync("cf-1", new VoiceNegotiateRequest(
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "camera", Layer: "h")]));
+
+        Assert.That(handler.LastBody, Does.Contain("\"ridNotAvailable\":\"desc\""));
+    }
+
+    [Test]
+    public async Task A_subscribe_with_no_chosen_layer_asks_for_no_simulcast_at_all()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"sessionDescription":{"type":"answer","sdp":"v=0"},"tracks":[{"trackName":"audio","mid":"0","location":"remote"}],"requiresImmediateRenegotiation":false}""");
+
+        await TransportFor(handler).SubscribeAsync("cf-1", new VoiceNegotiateRequest(
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "audio")]));
+
+        Assert.That(handler.LastBody, Does.Not.Contain("simulcast"),
+            "audio is not simulcast, and a deployment with layer selection switched off has to send "
+            + "exactly the body it sent before this existed");
+    }
+
+    [Test]
+    public async Task A_publish_never_carries_a_simulcast_block()
+    {
+        using var handler = new RecordingHandler(SessionBody,
+            """{"sessionDescription":{"type":"answer","sdp":"v=0"},"tracks":[{"trackName":"camera","mid":"0","location":"local"}],"requiresImmediateRenegotiation":false}""");
+
+        await TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
+            new VoiceSessionDescription("offer", "v=0"),
+            [new VoiceTrackRef(
+                VoiceTrackDirection.Publish, Mid: "0", TrackName: "camera", Layer: "q")]));
+
+        Assert.That(handler.LastBody, Does.Not.Contain("simulcast"),
+            "which layer to serve is a question about pulling somebody else's video");
+    }
+
     [Test]
     public async Task Results_come_back_in_neutral_vocabulary()
     {

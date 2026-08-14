@@ -1,8 +1,10 @@
 using Echo.Auth;
 using System.Net.Http.Headers;
+using Billing.Contracts.Clients;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Entitlements;
+using Echo.Entitlements.Caching;
 using Echo.Entitlements.Sources;
 using Echo.Realtime.Sfu;
 using Echo.Voice;
@@ -40,6 +42,16 @@ builder.Services.AddScoped<FileService>();
 builder.Services.AddEntitlements(builder.Configuration);
 builder.Services.AddLicenseMode(
     LicenseModes.Parse(Env.License.Mode), OperatorCeilings.Parse(Env.License.OperatorCeilings));
+
+// Grants, from the service that owns them.
+if (Env.License.IsHosted && Env.License.IsBillingConfigured)
+{
+    builder.Services.AddBillingGrantSource();
+}
+
+// And the cache in front of all of it, because the alternative is a broker hop per upload.
+builder.Services.AddEntitlementCache();
+
 builder.Services.AddSingleton<IGuildStorageLedger, RedisGuildStorageLedger>();
 
 builder.Logging.SetMinimumLevel(LogLevel.Warning);

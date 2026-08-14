@@ -1,9 +1,12 @@
 using Echo.Auth;
 using AppEnvironment;
+using Billing.Contracts.Clients;
+using Echo.Billing;
 using Echo.Cors;
 using Echo.Docs;
 using Echo.Dtos.Entitlements;
 using Echo.Entitlements;
+using Echo.Entitlements.Caching;
 using Echo.Entitlements.Sources;
 using Echo.Entitlements.Wire;
 using Echo.Moderation;
@@ -133,11 +136,53 @@ builder.Services.AddLicenseMode(
     OperatorCeilings.Parse(Env.License.OperatorCeilings));
 builder.Services.AddSingleton(new EntitlementInstanceInfo(
     Env.License.Mode.Trim().ToLowerInvariant(),
-    Env.License.IsHosted && Env.License.IsBillingConfigured));
-builder.Services.AddSingleton(new EntitlementReadOptions());
-builder.Services.AddSingleton<IEntitlementVersionProvider, StaticEntitlementVersionProvider>();
+    Env.License.IsHosted && Env.License.IsBillingConfigured,
+    // Handed to the client rather than bundled into it: Alpine points at arbitrary instances at
+    // runtime, so a key compiled into the build would aim a self-hoster's checkout at ours.
+    string.IsNullOrWhiteSpace(Env.License.StripePublishableKey)
+        ? null
+        : Env.License.StripePublishableKey.Trim()));
+
+// The resolved-set cache backs onto the same Redis everything else here uses.
+builder.Services.AddStackExchangeRedisCache(config =>
+{
+    config.Configuration = $"{redis.Host}:{redis.Port},password={redis.Password}";
+});
+
+// Only when Billing is actually deployed.
+if (Env.License.IsHosted && Env.License.IsBillingConfigured)
+{
+    builder.Services.AddBillingGrantSource();
+    builder.Services.AddBillingEntitlementVersions();
+}
+else
+{
+    builder.Services.AddSingleton<IEntitlementVersionProvider, StaticEntitlementVersionProvider>();
+}
+
+// After the sources, because the cache fingerprints its Redis keys from them so that two services
+// resolving different answers cannot read each other's entries.
+var entitlementCache = new EntitlementCacheOptions();
+builder.Services.AddEntitlementCache(entitlementCache);
+builder.Services.AddEntitlementVersionCache();
+builder.Services.AddSingleton(new EntitlementReadOptions { TtlSeconds = entitlementCache.ClientTtlSeconds });
 builder.Services.AddSingleton<EntitlementSnapshotBuilder>();
 builder.Services.AddSingleton<EntitlementsChangeNotifier>();
+
+// The console's billing section talks to Billing over HTTP rather than over the bus, because what
+// it needs is the staff surface - grants, plans, blast radius, the audit trail - and that surface
+// is HTTP with its own authorization on it.
+builder.Services.AddHttpClient<BillingServiceClient>(client =>
+{
+    // Parsed rather than constructed: BILLING_SERVICE_URL is operator-supplied, and a typo in it on
+    // a selfhost instance - where nothing here is ever called - should not stop the gateway booting.
+    // An unset base address surfaces as the same 503 an unreachable service does.
+    client.BaseAddress = Uri.TryCreate(BillingServiceClient.BaseAddress, UriKind.Absolute, out var billingBase)
+        ? billingBase
+        : null;
+
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
 
 builder.Services.AddScoped<IGitHubClient>(s =>
 {

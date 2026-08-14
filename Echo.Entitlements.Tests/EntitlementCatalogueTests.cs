@@ -167,6 +167,8 @@ public class EntitlementCatalogueTests
             Assert.That(ladder.RankOf("480p30"), Is.LessThan(ladder.RankOf("720p30")));
             Assert.That(ladder.RankOf("720p30"), Is.LessThan(ladder.RankOf("1080p30")));
             Assert.That(ladder.RankOf("1080p30"), Is.LessThan(ladder.RankOf("1080p60")));
+            Assert.That(ladder.RankOf("1080p60"), Is.LessThan(ladder.RankOf("1440p60")));
+            Assert.That(ladder.RankOf("1440p60"), Is.LessThan(ladder.RankOf("2160p60")));
             Assert.That(() => ladder.RankOf("4k120"), Throws.InstanceOf<ArgumentException>());
         });
     }

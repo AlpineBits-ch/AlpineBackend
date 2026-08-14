@@ -83,13 +83,23 @@ public sealed class CloudflareMediaTransport(CloudflareService cloudflare) : IVo
         }
     }
 
-    /// <summary>Cloudflare calls a published track "local" and a pulled one "remote", which
-    /// describes where the media sits rather than what the caller is doing with it.</summary>
-    private static CfTrackNew ToCloudflare(VoiceTrackRef track) => new(
-        Location: track.Direction == VoiceTrackDirection.Subscribe ? "remote" : "local",
-        Mid: track.Mid,
-        TrackName: track.TrackName,
-        SessionId: track.MediaSessionId);
+    /// <summary>
+    /// Cloudflare calls a published track "local" and a pulled one "remote", which describes where
+    /// the media sits rather than what the caller is doing with it.
+    /// </summary>
+    private static CfTrackNew ToCloudflare(VoiceTrackRef track)
+    {
+        var subscribe = track.Direction == VoiceTrackDirection.Subscribe;
+
+        return new CfTrackNew(
+            Location: subscribe ? "remote" : "local",
+            Mid: track.Mid,
+            TrackName: track.TrackName,
+            SessionId: track.MediaSessionId,
+            Simulcast: subscribe && !string.IsNullOrWhiteSpace(track.Layer)
+                ? new CfSimulcast(track.Layer!)
+                : null);
+    }
 
     private static VoiceTrackResult FromCloudflare(CfTrackResult track) => new(
         track.Mid,

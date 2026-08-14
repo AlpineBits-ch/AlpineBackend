@@ -12,6 +12,14 @@ public class MicroserviceContext : DbContext
 
     public DbSet<EntitlementVersion> EntitlementVersions { get; set; }
 
+    public DbSet<Plan> Plans { get; set; }
+
+    public DbSet<PlanVersion> PlanVersions { get; set; }
+
+    public DbSet<PlanAssignment> PlanAssignments { get; set; }
+
+    public DbSet<PlanAuditEntry> PlanAuditEntries { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (optionsBuilder.IsConfigured)
@@ -51,6 +59,69 @@ public class MicroserviceContext : DbContext
             // Unique, and load-bearing rather than merely tidy: EntitlementVersionService advances
             // the counter with INSERT ...
             versionBuilder.HasIndex(x => new { x.SubjectKind, x.SubjectId }).IsUnique();
+        });
+
+        modelBuilder.Entity<Plan>(planBuilder =>
+        {
+            planBuilder.Property(x => x.Name).IsRequired();
+            planBuilder.Property(x => x.CreatedBy).IsRequired();
+
+            // The name is the key everything else refers to - a grant names it, an assignment
+            // resolves through it, and the configured catalogue is merged onto it by name - so two
+            // plans sharing one would make "which numbers does this guild have" ambiguous in the
+            // one place there is no way to ask.
+            planBuilder.HasIndex(x => x.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<PlanVersion>(versionBuilder =>
+        {
+            versionBuilder.Property(x => x.ValuesJson).IsRequired();
+            versionBuilder.Property(x => x.Reason).IsRequired();
+            versionBuilder.Property(x => x.CreatedBy).IsRequired();
+
+            versionBuilder.HasIndex(x => new { x.PlanId, x.VersionNumber }).IsUnique();
+
+            // No navigation property in either direction, matching the rest of this context: the
+            // constraint is what is wanted, and a collection on Plan would invite a query that loads
+            // every version of every plan to answer a question about one.
+            versionBuilder.HasOne<Plan>()
+                .WithMany()
+                .HasForeignKey(x => x.PlanId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PlanAssignment>(assignmentBuilder =>
+        {
+            assignmentBuilder.Property(x => x.SubjectKind).HasConversion<string>();
+            assignmentBuilder.Property(x => x.SubjectId).IsRequired();
+            assignmentBuilder.Property(x => x.AssignedBy).IsRequired();
+            assignmentBuilder.Property(x => x.Reason).IsRequired();
+
+            // One plan per subject, enforced rather than assumed: two rows would make a guild's
+            // effective numbers depend on which one a query happened to read first.
+            assignmentBuilder.HasIndex(x => new { x.SubjectKind, x.SubjectId }).IsUnique();
+
+            // The blast radius query: how many subjects sit on each version of this plan.
+            assignmentBuilder.HasIndex(x => new { x.PlanId, x.VersionNumber });
+
+            assignmentBuilder.HasOne<Plan>()
+                .WithMany()
+                .HasForeignKey(x => x.PlanId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PlanAuditEntry>(auditBuilder =>
+        {
+            auditBuilder.Property(x => x.Action).HasConversion<string>();
+            auditBuilder.Property(x => x.Actor).IsRequired();
+            auditBuilder.Property(x => x.Reason).IsRequired();
+
+            auditBuilder.HasIndex(x => new { x.PlanId, x.OccurredAt });
+
+            auditBuilder.HasOne<Plan>()
+                .WithMany()
+                .HasForeignKey(x => x.PlanId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 

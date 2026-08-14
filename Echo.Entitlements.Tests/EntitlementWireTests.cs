@@ -396,11 +396,116 @@ public class EntitlementWireTests
         Assert.Multiple(() =>
         {
             Assert.That(rungs.Select(rung => rung.Rung),
-                Is.EqualTo(new[] { "none", "480p30", "720p30", "1080p30", "1080p60" }));
+                Is.EqualTo(new[] { "none", "480p30", "720p30", "1080p30", "1080p60", "1440p60", "2160p60" }));
             Assert.That(rungs.Select(rung => rung.Rank), Is.Ordered);
             Assert.That(rungs, Is.All.Matches<EntitlementRungDto>(rung => rung.MaxHeight is not null),
                 "every rung of the video ladder has to publish what it permits, or the client guesses");
             Assert.That(rungs.Last().MaxFramerate, Is.EqualTo(60));
+        });
+    }
+
+    // ── The plan the numbers came from ───────────────────────────────────────
+
+    /// <summary>The absence that has to stay an absence.</summary>
+    [Test]
+    public void A_snapshot_with_no_plan_names_none()
+    {
+        var snapshot = Snapshot(Guild);
+        var json = JsonNode.Parse(JsonSerializer.Serialize(snapshot, Web))!.AsObject();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(snapshot.Plan, Is.Null);
+            Assert.That(json.Select(field => field.Key), Has.None.EqualTo("plan"));
+            Assert.That(json.Select(field => field.Key), Has.None.EqualTo("stripePublishableKey"),
+                "absent, not null - both fields are additions and a v1 client must see what it saw");
+        });
+    }
+
+    /// <summary>
+    /// <b>A pinned subject reports their pin, never the current version.</b> Grandfathering exists
+    /// so a plan's numbers can move without moving anybody already on it; naming the current version
+    /// to somebody held at an older one describes limits they do not have, on the screen where they
+    /// would act on it.
+    /// </summary>
+    [Test]
+    public void A_pinned_subject_reports_the_version_it_is_actually_on()
+    {
+        var plan = EntitlementPlanDto.Resolve("pro@1", Versioned());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan!.Name, Is.EqualTo("pro"));
+            Assert.That(plan.Version, Is.EqualTo(1));
+            Assert.That(plan.DisplayName, Is.EqualTo("Pro"),
+                "a version is addressed as pro@1 and is never rendered as one");
+        });
+    }
+
+    [Test]
+    public void An_unpinned_subject_reports_the_current_version()
+    {
+        Assert.That(EntitlementPlanDto.Resolve("pro", Versioned())!.Version, Is.EqualTo(2));
+    }
+
+    /// <summary>Configuration-only instances have never heard of a plan version, and null there is
+    /// the truth rather than a gap - there is exactly one version of a plan somebody wrote into a
+    /// config file.</summary>
+    [Test]
+    public void An_unversioned_catalogue_reports_no_version()
+    {
+        var plan = EntitlementPlanDto.Resolve("plus", Configured());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan!.Name, Is.EqualTo("plus"));
+            Assert.That(plan.Version, Is.Null);
+            Assert.That(JsonSerializer.Serialize(plan, Web),
+                Is.EqualTo("""{"name":"plus","displayName":"Venta Plus"}"""));
+        });
+    }
+
+    /// <summary>The display name is never null, so no client has to decide which of two fields to
+    /// render. An operator who configured none gets the plan's own name, which is what they typed.
+    /// </summary>
+    [Test]
+    public void A_plan_with_no_display_name_shows_its_own_name()
+    {
+        Assert.That(EntitlementPlanDto.Resolve("free", Configured())!.DisplayName, Is.EqualTo("free"));
+    }
+
+    /// <summary>The negative case.</summary>
+    [Test]
+    public void A_plan_the_catalogue_does_not_know_is_not_named()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(EntitlementPlanDto.Resolve("ghost", Configured()), Is.Null);
+            Assert.That(EntitlementPlanDto.Resolve(null, Configured()), Is.Null);
+            Assert.That(EntitlementPlanDto.Resolve("  ", Configured()), Is.Null);
+            Assert.That(EntitlementPlanDto.Resolve("plus", null), Is.Null);
+        });
+    }
+
+    // ── The publishable key ──────────────────────────────────────────────────
+
+    /// <summary>Server-supplied because the clients point at arbitrary instances at runtime: a key
+    /// compiled into a build aims every self-hoster's checkout at whoever produced the build. Blank
+    /// configuration is an absence rather than an empty string, so a client falling back to its
+    /// bundled value has one thing to check.</summary>
+    [Test]
+    public void The_publishable_key_is_present_when_set_and_absent_when_blank()
+    {
+        var withKey = JsonNode.Parse(JsonSerializer.Serialize(
+            Snapshot(Guild, stripePublishableKey: "pk_live_1"), Web))!.AsObject();
+        var blank = JsonNode.Parse(JsonSerializer.Serialize(
+            Snapshot(Guild, stripePublishableKey: "   "), Web))!.AsObject();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(withKey["stripePublishableKey"]!.GetValue<string>(), Is.EqualTo("pk_live_1"));
+            Assert.That(blank.Select(field => field.Key), Has.None.EqualTo("stripePublishableKey"),
+                "a blank key is no key, and no key is not an error");
         });
     }
 
@@ -411,7 +516,11 @@ public class EntitlementWireTests
     {
         Assert.Multiple(() =>
         {
-            Assert.That(VideoRungs.RungFor(EntitlementLadders.VideoQuality, 1440, 60), Is.EqualTo("1080p60"));
+            Assert.That(VideoRungs.RungFor(EntitlementLadders.VideoQuality, 1440, 60), Is.EqualTo("1440p60"),
+                "the client's picker has offered 1440p and 'source' since before the ladder had a rung "
+                + "for either, so the mapping only stopped being a guess when the rungs landed");
+            Assert.That(VideoRungs.RungFor(EntitlementLadders.VideoQuality, 4320, 120), Is.EqualTo("2160p60"),
+                "a request above the whole ladder is still answered by the top rung plus a degradation");
             Assert.That(VideoRungs.RungFor(EntitlementLadders.VideoQuality, 720, 15), Is.EqualTo("720p30"),
                 "a framerate below a rung's own is covered by it, which is what makes every 15 fps "
                 + "option in the client's picker legal without a rung of its own");
@@ -441,7 +550,8 @@ public class EntitlementWireTests
 
     // ── Fixtures ─────────────────────────────────────────────────────────────
 
-    private static EntitlementSnapshotDto Snapshot(EntitlementSubject subject) =>
+    private static EntitlementSnapshotDto Snapshot(
+        EntitlementSubject subject, EntitlementPlanDto? plan = null, string? stripePublishableKey = null) =>
         EntitlementSnapshotDto.From(
             EntitlementSet.Empty,
             subject,
@@ -450,7 +560,36 @@ public class EntitlementWireTests
             version: 3,
             ttlSeconds: 60,
             resolvedAt: DateTimeOffset.UnixEpoch,
-            remedy: new EntitlementRemedyDecision(EntitlementRemedyCodes.UpgradeGuild, true));
+            remedy: new EntitlementRemedyDecision(EntitlementRemedyCodes.UpgradeGuild, true),
+            plan: plan,
+            stripePublishableKey: stripePublishableKey);
+
+    /// <summary>A configuration-shaped catalogue: names, no versions, and a display name on only one
+    /// of them. What every instance running today has.</summary>
+    private static PlanCatalogue Configured() =>
+        PlanCatalogue.FromOptions(new EntitlementPlanOptions
+        {
+            Plans =
+            {
+                ["free"] = new Dictionary<string, string>(),
+                ["plus"] = new Dictionary<string, string>(),
+            },
+            PlanDisplayNames = { ["plus"] = "Venta Plus" },
+        });
+
+    /// <summary>A Billing-shaped catalogue: the current version under the bare name and every live
+    /// version under its <c>name@number</c> form, which is what grandfathering pins to.</summary>
+    private static PlanCatalogue Versioned() =>
+        new([
+            Plan("pro", "Pro"),
+            // No display name of their own, exactly as Billing writes them: pro@1 is a lookup key
+            // and never something to show a member.
+            Plan("pro@1"),
+            Plan("pro@2"),
+        ]);
+
+    private static PlanDefinition Plan(string name, string? displayName = null) =>
+        new(name, new Dictionary<EntitlementKey, EntitlementValue>(), displayName);
 
     private static EntitlementDegradationDto FromReason(EntitlementDegradationReason reason)
     {

@@ -68,6 +68,10 @@ public class GuildVoiceStateHandler
             await bus.PublishAsync(ToVoiceStateForBots(room, me, selfVideo: message.IsCameraOn));
     }
 
+    /// <summary>Speech, relayed to peers and fed to active-speaker ranking.</summary>
+    public Task Handle(GuildVoiceSpeakingCommand message, VoiceRoomService voice) =>
+        voice.SetSpeakingAsync(Room(message.ChannelId), message.UserId, message.IsSpeaking);
+
     public async Task Handle(GuildVoiceScreenShareStartCommand message, VoiceRoomService voice,
         GuildPermissionService permissionService, GuildVoiceActivityStore activity, IMessageBus bus)
     {

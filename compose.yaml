@@ -41,6 +41,12 @@ x-app-env: &app-env
   # nothing configured refuses to start (deliberately, see AppEnvironment.LicenseConfiguration), and
   # the billing service refuses to start in selfhost, where nothing would route to it.
   LICENSE_MODE: "${LICENSE_MODE:-selfhost}"
+  # Held at 1080p60 for the same reason as deploy/compose.yaml: a paired ladder key defaults to its
+  # top rung (else a member with no user-side source clamps every guild that paid for more), so
+  # adding the 4K rungs made "unconfigured" mean 4K. Serving 4K is only affordable once the SFU is
+  # handing small tiles a lower simulcast layer, which needs publishers sending simulcast encodings
+  # and clients reporting their tile height. Neither is true of the released clients yet.
+  VOICE_VIDEO_CEILING: "${VOICE_VIDEO_CEILING:-1080p60}"
   BILLING_SERVICE_URL: "${BILLING_SERVICE_URL:-}"
 
   BUCKET_NAME: "echo-chat"

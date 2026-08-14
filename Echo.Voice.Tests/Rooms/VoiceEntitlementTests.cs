@@ -216,7 +216,9 @@ public class VoiceEntitlementTests
         {
             Assert.That(admission.OverCapacity, Is.Null,
                 "there is no guild plan for a two-person call to be charged against");
-            Assert.That(decision.Rung, Is.EqualTo("1080p60"));
+            // The top of the ladder, because an absent ceiling is no ceiling.
+            Assert.That(decision.Rung, Is.EqualTo(
+                EntitlementLadders.VideoQuality.RungAt(EntitlementLadders.VideoQuality.HighestRank)));
         });
     }
 

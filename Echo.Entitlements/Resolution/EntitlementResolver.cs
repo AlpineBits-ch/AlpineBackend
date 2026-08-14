@@ -6,7 +6,7 @@ namespace Echo.Entitlements.Resolution;
 /// <summary>
 /// Merges every source into one answer, by the rules in spec sections 4.1 and 4.2.
 /// </summary>
-public sealed class EntitlementResolver
+public class EntitlementResolver
 {
     private readonly IReadOnlyList<IEntitlementSource> _sources;
     private readonly IReadOnlyList<EntitlementKey> _catalogue;
@@ -27,7 +27,7 @@ public sealed class EntitlementResolver
     /// <summary>
     /// One subject's own entitlements: every key of its scope, plus its side of every paired key.
     /// </summary>
-    public async Task<EntitlementSet> ResolveAsync(
+    public virtual async Task<EntitlementSet> ResolveAsync(
         EntitlementSubject subject, CancellationToken cancellationToken = default)
     {
         var accumulated = new Dictionary<EntitlementKey, EntitlementEntry>();

@@ -1455,6 +1455,9 @@
 
         const controls = el('div', 'btn-row');
         controls.append(button('Act on this account', 'ban', () => issueAction(id), 'danger'));
+        // "What is this account entitled to, and why" is a support question somebody already has the
+        // id in hand for, so it is one click rather than a copy-paste into another screen.
+        controls.append(button('Entitlements', 'key', () => openBillingFor('User', id)));
         pane.append(block('Actions', controls));
 
         // Administrators only, and hidden rather than disabled for everyone else: a moderator who
@@ -2884,7 +2887,1332 @@
         openDetail(component.name, pane);
     }
 
+    // ── View: billing ───────────────────────────────────────────────────────
+    //
+    // Two panes behind one rail item: a subject - what it resolves to, which source won each key, its
+    // grants and its plan - and the plan catalogue.
+    //
+    // Reads admit moderators, every write is administrator-only. Money is not a moderation power: a
+    // moderator who can grant Pro can grant it to themselves, and the moderator tier is handed out far
+    // more freely than the admin one precisely because it was never meant to reach anything with a
+    // cost attached. Answering "why does this guild have Pro" is support work though, so the screen
+    // that answers it is open to them. The write controls are not drawn for a moderator, the gateway
+    // refuses them, and the billing service refuses them again with the same token against the same
+    // authority - none of the three is load-bearing alone.
+
+    const BILLING = `${API}/billing`;
+
+    let billingTab = 'subject';
+
+    /** The key table, the enums and whether this instance sells anything. Fetched once: it changes
+     *  only when the image does. */
+    let billingCatalogue = null;
+
+    /** What the subject pane is pointed at. Kept across tab switches and re-renders, because an
+     *  operator working one ticket looks at one guild from several angles. */
+    const billingSubject = { kind: 'Guild', id: '' };
+
+    /**
+     * Whether to draw the write controls.
+     *
+     * Read from the catalogue rather than from the console-wide admin flag, so the console asks the
+     * same question the gateway answers for itself on every write. The session flag is the fallback
+     * for the moment before the catalogue lands, and the two say the same thing today - but a control
+     * drawn from a different source than the one that refuses it is how a button that 403s appears.
+     *
+     * It is not a permission either way. Every write re-resolves the tier from Identity, twice.
+     */
+    function canEditBilling() {
+        return billingCatalogue?.canWrite ?? Boolean(session?.canViewAudit);
+    }
+
+    /** The six precedence bands, in the words the spec uses for them. `CatalogueDefault` is not a
+     *  source and says so - it is what the resolver credits when nobody supplied a key, and leaving
+     *  it blank would read as a bug rather than as an answer. */
+    const SOURCE_TEXT = {
+        LicenseMode: 'Self-host license',
+        AdminGrant: 'Admin grant',
+        PromotionalGrant: 'Promotion',
+        Subscription: 'Subscription',
+        Boost: 'Boost',
+        PlanDefault: 'Plan default',
+        CatalogueDefault: 'Nobody - catalogue default',
+    };
+
+    const SOURCE_KIND = {
+        LicenseMode: 'info',
+        AdminGrant: 'warn',
+        PromotionalGrant: 'warn',
+        Subscription: 'ok',
+        Boost: 'ok',
+        PlanDefault: 'info',
+        CatalogueDefault: '',
+    };
+
+    /**
+     * A refusal's code as a heading.
+     *
+     * The service's own sentence is always shown underneath and is the useful half - it names the
+     * offending key and lists the ones it accepts. The heading exists so the shape of the problem is
+     * readable before the sentence is.
+     */
+    const BILLING_REFUSALS = {
+        unknown_entitlement_key: 'That key does not exist here',
+        invalid_entitlement_value: 'That value does not fit its key',
+        withholds_plan_independent_module: 'No plan may withhold that',
+        reason_required: 'A reason is required',
+        expiry_in_the_past: 'That expiry has already passed',
+        already_revoked: 'That grant was already revoked',
+        unknown_plan: 'No such plan',
+        plan_exists: 'That plan already exists',
+        plan_in_use: 'Somebody is still on that plan',
+        version_in_use: 'Somebody is still on that version',
+        version_archived: 'That version is archived',
+        invalid_price: 'That price cannot be stored',
+        admin_required: 'This needs an administrator account',
+        billing_not_deployed: 'This instance has no billing service',
+        billing_unreachable: 'The billing service did not answer',
+    };
+
+    views.billing = {
+        title: 'Billing',
+
+        tools() {
+            const tabs = [['subject', 'Subject'], ['plans', 'Plans']].map(([key, text]) => {
+                const button = el('button', `btn sm ${billingTab === key ? 'primary' : 'ghost'}`, text);
+                button.addEventListener('click', () => billingGo(key));
+                return button;
+            });
+
+            if (billingTab === 'plans' && canEditBilling() && billingCatalogue?.billingDeployed) {
+                const add = el('button', 'btn sm primary');
+                add.append(icon('plus'), document.createTextNode(' New plan'));
+                add.addEventListener('click', createPlan);
+                tabs.push(add);
+            }
+
+            return tabs;
+        },
+
+        async render() {
+            if (!billingCatalogue) {
+                billingCatalogue = await call('GET', `${BILLING}/catalogue`);
+
+                // The tools were drawn before the catalogue was known, so the New plan button could
+                // not be. Redrawn once here rather than making every caller of go() await a fetch.
+                $('#view-tools').replaceChildren(...views.billing.tools());
+            }
+
+            return billingTab === 'plans' ? renderPlans() : renderBillingSubject();
+        },
+    };
+
+    function billingGo(tab) {
+        billingTab = tab;
+        $('#view-tools').replaceChildren(...(views.billing.tools() || []));
+        render();
+    }
+
+    /** Point the section at a subject from somewhere else in the console - the accounts view does
+     *  this, because "what is this account entitled to" is a question a support agent already has an
+     *  id in hand for. */
+    function openBillingFor(kind, id) {
+        billingSubject.kind = kind;
+        billingSubject.id = id;
+        billingTab = 'subject';
+        go('billing');
+    }
+
+    // ── Billing: the subject pane ───────────────────────────────────────────
+
+    async function renderBillingSubject() {
+        const wrap = el('div', 'pane');
+        wrap.append(billingLookup());
+
+        if (!billingCatalogue.billingDeployed) {
+            // Not an error. Selfhost is the default and resolves everything from the license mode
+            // above every other source, so there is genuinely nothing to grant - and the provenance
+            // below is still the whole of the picture, which is worth saying rather than implying.
+            wrap.append(banner('info',
+                'This instance has no billing service, so there is nothing here to grant and no plan '
+                + 'to edit. Entitlements resolve from the license mode and the configured plan table, '
+                + 'and what you see below is the whole of the picture.'));
+        }
+
+        if (!billingSubject.id) {
+            wrap.append(empty('Enter a user or guild id to see what it resolves to, and why.', 'search'));
+            return wrap;
+        }
+
+        const path = `${billingSubject.kind}/${encodeURIComponent(billingSubject.id)}`;
+        const deployed = billingCatalogue.billingDeployed;
+
+        const [provenance, grants, assignment] = await Promise.all([
+            call('GET', `${BILLING}/provenance/${path}`),
+            deployed
+                ? call('GET', `${BILLING}/grants/${path}`).catch(error => ({ error }))
+                : null,
+            // A subject that has never been assigned anything is a 404 and is most of them, so that
+            // one status is an answer rather than a failure.
+            deployed
+                ? call('GET', `${BILLING}/plans/subjects/${path}`)
+                    .catch(error => (error.status === 404 ? null : { error }))
+                : null,
+        ]);
+
+        wrap.append(block(null, kv([
+            ['Subject', provenance.subjectKind],
+            ['Id', copyable(provenance.subjectId)],
+            ['Version', provenance.versionAvailable
+                ? String(provenance.version)
+                : 'unknown - billing did not answer'],
+            ['Plan', planLine(assignment, deployed)],
+            ['Pinned', assignment && !assignment.error ? stamp(assignment.assignedAt) : null],
+            ['Pinned by', assignment && !assignment.error ? assignment.assignedBy : null],
+            ['Instance', provenance.licenseMode],
+            ['Resolved', stamp(provenance.resolvedAt)],
+        ])));
+
+        if (canEditBilling()) wrap.append(subjectActions(deployed));
+
+        const provenanceBox = block('Effective entitlements');
+        provenanceBox.append(el('p', 'hint',
+            'Every key this subject can hold, what it resolved to, and which source is credited with '
+            + 'it. Sources are additive - a lower band never takes away what a higher one gave - so '
+            + 'the credit goes to the highest-standing source that supplied the winning value.'));
+        provenanceBox.append(provenanceTable(provenance.entries));
+        wrap.append(provenanceBox);
+
+        if (deployed) wrap.append(grantsBlock(grants));
+
+        return wrap;
+    }
+
+    function planLine(assignment, deployed) {
+        if (!deployed) return 'The configured default for this scope';
+        if (assignment?.error) return 'could not be read just now';
+        if (!assignment) return 'Not pinned - resolves through the instance default';
+
+        return `${assignment.plan}, version ${assignment.versionNumber}`;
+    }
+
+    function billingLookup() {
+        const box = block('Look up a subject');
+
+        box.append(el('p', 'hint',
+            'Every effective entitlement key for a user or a guild, its value, and which source won '
+            + 'it. This is what answers "it says I have Pro but it does not work", and it reads from '
+            + 'the same resolver the platform enforces with, cache and all.'));
+
+        const form = el('form');
+        form.style.cssText = 'display:flex;gap:8px;align-items:flex-end;margin-top:12px;';
+
+        const kind = select([['Guild', 'Guild'], ['User', 'User']], billingSubject.kind);
+
+        const id = el('input');
+        id.value = billingSubject.id;
+        id.spellcheck = false;
+        id.placeholder = billingSubject.kind === 'Guild' ? 'guild_...' : 'user_...';
+
+        kind.addEventListener('change', () => {
+            id.placeholder = kind.value === 'Guild' ? 'guild_...' : 'user_...';
+        });
+
+        const wide = el('div', 'grow');
+        wide.append(id);
+
+        const submit = el('button', 'btn sm primary');
+        submit.type = 'submit';
+        submit.append(icon('search'), document.createTextNode(' Look up'));
+
+        form.append(kind, wide, submit);
+
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            billingSubject.kind = kind.value;
+            billingSubject.id = id.value.trim();
+            render();
+        });
+
+        box.append(form);
+        return box;
+    }
+
+    function provenanceTable(entries) {
+        const table = el('div', 'prov');
+
+        entries.forEach(entry => {
+            // A key nobody set is dimmed rather than dropped. The row missing is what makes somebody
+            // conclude the screen is broken; the row present and quiet says "this is a floor, not a
+            // decision anybody made".
+            const line = el('div', `prov-row ${entry.isCatalogueDefault ? 'faint' : ''}`);
+
+            const key = el('div', 'prov-key');
+            key.append(el('span', 'mono', entry.key));
+            key.append(el('span', 'faint', ` ${entry.scope.toLowerCase()}`));
+            line.append(key);
+
+            const value = el('div', 'prov-val');
+            value.append(el('strong', null, entry.value));
+            if (entry.value !== entry.default) {
+                value.append(el('span', 'faint', ` (default ${entry.default})`));
+            }
+            line.append(value);
+
+            const source = el('div', 'prov-src');
+            source.append(tag(SOURCE_TEXT[entry.source] || entry.source, SOURCE_KIND[entry.source] ?? ''));
+            if (entry.detail) source.append(el('span', 'mono faint', entry.detail));
+            line.append(source);
+
+            table.append(line);
+        });
+
+        return table;
+    }
+
+    function subjectActions(deployed) {
+        const box = block('Actions');
+        const actions = el('div', 'btn-row');
+
+        if (deployed) {
+            actions.append(button('Issue a grant', 'plus', issueGrant, 'primary'));
+            actions.append(button('Move to a plan version', 'refresh', assignPlan));
+        }
+
+        actions.append(button('Force a re-resolve', 'refresh', forceInvalidate));
+        box.append(actions);
+
+        box.append(el('p', 'hint',
+            'Forcing a re-resolve expires this subject\'s cached answer rather than deleting it, so '
+            + 'the next request goes back to the sources while a billing outage still has something '
+            + 'to fall back on. The cache key names the configuration that produced the answer, so '
+            + 'this reaches every service configured like this gateway - which is all of them in a '
+            + 'normal deployment - and leaves a differently configured one to its own TTL.'));
+
+        return box;
+    }
+
+    async function forceInvalidate() {
+        await call('POST', `${BILLING}/cache/${billingSubject.kind}/${encodeURIComponent(billingSubject.id)}/invalidate`);
+        toast('ok', 'Re-resolved from the sources');
+        render();
+    }
+
+    // ── Billing: grants ─────────────────────────────────────────────────────
+
+    function grantsBlock(payload) {
+        const box = block('Grants');
+
+        if (payload?.error) {
+            box.append(banner('warn', `The grant list could not be read: ${payload.error.message}`));
+            return box;
+        }
+
+        box.append(el('p', 'hint',
+            'Every grant ever attached to this subject, revoked and expired ones included. Nothing '
+            + 'here is ever deleted: revoking sets fields and the row stays, because "who gave this '
+            + 'guild Pro and why" has to be answerable a year later.'));
+
+        if (!payload.grants.length) {
+            box.append(el('p', 'hint', 'Nothing has ever been granted to this subject.'));
+            return box;
+        }
+
+        const list = el('div', 'timeline');
+        payload.grants.forEach(grant => list.append(grantEntry(grant)));
+        box.append(list);
+
+        return box;
+    }
+
+    function grantEntry(grant) {
+        const item = el('div', `event ${grant.revokedAt ? 'struck' : ''}`);
+        item.append(icon(grant.isActive ? 'check-circle' : grant.revokedAt ? 'times-circle' : 'clock'));
+
+        const body = el('div');
+
+        const line = el('div', 'what');
+        line.append(document.createTextNode(grant.plan ? `Plan ${grant.plan}` : 'Specific entitlements'));
+        line.append(document.createTextNode(' '));
+        line.append(tag(grant.source));
+
+        if (grant.isActive) line.append(tag('In force', 'ok'));
+        else if (grant.revokedAt) line.append(tag('Revoked', 'danger'));
+        else line.append(tag('Expired'));
+
+        body.append(line);
+
+        const meta = [`issued ${stamp(grant.createdAt)} by ${grant.createdBy}`];
+        meta.push(grant.expiresAt ? `expires ${stamp(grant.expiresAt)}` : 'permanent');
+        if (grant.revokedAt) meta.push(`revoked ${stamp(grant.revokedAt)} by ${grant.revokedBy}`);
+        body.append(el('span', 'when', meta.join(' · ')));
+
+        body.append(el('div', 'hint', grant.reason));
+        if (grant.revokeReason) body.append(el('div', 'hint', `Revoked because: ${grant.revokeReason}`));
+
+        const values = Object.entries(grant.entitlements || {});
+        if (values.length) {
+            const chips = el('div', 'chips');
+            values.forEach(([key, value]) => chips.append(el('span', 'chip mono', `${key} = ${value}`)));
+            body.append(chips);
+        }
+
+        body.append(el('div', 'hint mono', grant.id));
+
+        if (canEditBilling() && !grant.revokedAt) {
+            const actions = el('div', 'btn-row');
+            actions.style.marginTop = '8px';
+            actions.append(button('Revoke', 'times-circle', () => revokeGrant(grant), 'danger'));
+            actions.append(button('Change expiry', 'clock', () => amendGrantExpiry(grant)));
+            body.append(actions);
+        }
+
+        item.append(body);
+        return item;
+    }
+
+    function issueGrant() {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Issue a grant'));
+            form.append(el('p', 'lede',
+                'A grant is additive: it raises what this subject resolves and can never lower it. '
+                + 'Layering one over a paid subscription is safe, and letting it expire leaves the '
+                + 'paid state intact because nothing ever overwrote it.'));
+
+            const kind = select(
+                billingCatalogue.grantKinds.map(name => [name, name === 'Plan'
+                    ? 'A plan, by name'
+                    : 'Specific entitlement keys']),
+                'Plan');
+
+            form.append(field('What to grant', kind));
+
+            const plan = el('input');
+            plan.spellcheck = false;
+            plan.placeholder = 'pro';
+            const planField = field('Plan', plan,
+                'The plan name. Pin a version with name@number to grant a specific set of numbers.');
+            form.append(planField);
+
+            const editor = entitlementEditor({}, billingSubject.kind);
+            const keysField = field('Entitlement values', editor.node,
+                'Leave a key blank to say nothing about it. A grant that sets nothing grants nothing.');
+            keysField.classList.add('hidden');
+            form.append(keysField);
+
+            const source = select(billingCatalogue.grantSources.map(name => [name, name]), 'Staff');
+            form.append(field('Source', source,
+                'Which band this grant sits in. Staff is a hand-issued one; the rest are for the '
+                + 'systems that will issue their own.'));
+
+            const expires = el('input');
+            expires.type = 'datetime-local';
+            form.append(field('Expires', expires, 'Leave empty for a permanent grant.'));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            reason.placeholder = 'e.g. Compensation for the 3 August voice outage, agreed with support.';
+            form.append(field('Reason', reason,
+                'Required. It is the whole value of keeping revoked grants forever.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            function sync() {
+                planField.classList.toggle('hidden', kind.value !== 'Plan');
+                keysField.classList.toggle('hidden', kind.value !== 'Entitlements');
+            }
+
+            kind.addEventListener('change', sync);
+            sync();
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Issue');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${BILLING}/grants`, {
+                        body: {
+                            subjectKind: billingSubject.kind,
+                            subjectId: billingSubject.id,
+                            grantKind: kind.value,
+                            plan: kind.value === 'Plan' ? plan.value.trim() : null,
+                            entitlements: kind.value === 'Entitlements' ? editor.read() : null,
+                            expiresAt: expires.value ? new Date(expires.value).toISOString() : null,
+                            reason: reason.value.trim(),
+                            source: source.value,
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Granted');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors, editor);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function revokeGrant(grant) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Revoke this grant'));
+            form.append(el('p', 'lede',
+                'The row stays, with your name and your reason on it. Anything this subject holds from '
+                + 'another source - a subscription, another grant - is untouched, because a grant only '
+                + 'ever added to what was already there.'));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            reason.placeholder = 'Why it is being taken back.';
+            form.append(field('Reason', reason));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary danger', 'Revoke');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${BILLING}/grants/${encodeURIComponent(grant.id)}/revoke`, {
+                        body: { reason: reason.value.trim() },
+                    });
+
+                    close();
+                    toast('ok', 'Revoked');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function amendGrantExpiry(grant) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Change when this grant ends'));
+            form.append(el('p', 'lede',
+                'Extend it, shorten it, or make it permanent. Making it permanent is the same '
+                + 'operation with no date on it.'));
+
+            const expires = el('input');
+            expires.type = 'datetime-local';
+            if (grant.expiresAt) expires.value = localInput(grant.expiresAt);
+            const expiresField = field('Expires', expires);
+            form.append(expiresField);
+
+            const permanent = el('input');
+            permanent.type = 'checkbox';
+            permanent.checked = !grant.expiresAt;
+
+            const permanentLabel = el('label', 'check');
+            permanentLabel.append(permanent, el('span', null, 'Permanent - no end date'));
+            const permanentField = el('div', 'field');
+            permanentField.append(permanentLabel);
+            form.append(permanentField);
+
+            permanent.addEventListener('change', () => {
+                expiresField.classList.toggle('hidden', permanent.checked);
+            });
+            expiresField.classList.toggle('hidden', permanent.checked);
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Save');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('PATCH', `${BILLING}/grants/${encodeURIComponent(grant.id)}/expiry`, {
+                        body: {
+                            expiresAt: permanent.checked || !expires.value
+                                ? null
+                                : new Date(expires.value).toISOString(),
+                        },
+                    });
+
+                    close();
+                    toast('ok', permanent.checked ? 'Now permanent' : 'Expiry moved');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    /** A UTC instant as a datetime-local control wants it, which is local wall-clock with no zone.
+     *  Feeding it the ISO string directly puts the prefill an offset out, and an operator extending a
+     *  grant by an hour would silently move it by their timezone as well. */
+    function localInput(iso) {
+        const at = new Date(iso);
+        return new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    }
+
+    async function assignPlan() {
+        const plans = await call('GET', `${BILLING}/plans`);
+
+        if (!plans.length) {
+            toast('danger', 'There are no plans to move anybody onto.');
+            return;
+        }
+
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Move to a plan version'));
+            form.append(el('p', 'lede',
+                'The one operation that deliberately changes what an existing subscriber resolves. '
+                + 'Everything else leaves people on the version they bought.'));
+
+            const picker = select(
+                plans.map(plan => [plan.name, `${plan.displayName || plan.name} - current version ${plan.currentVersionNumber}`]),
+                plans[0]?.name);
+
+            form.append(field('Plan', picker));
+
+            const version = el('input');
+            version.type = 'number';
+            version.min = '1';
+            form.append(field('Version', version,
+                'Leave empty for the plan\'s current version, which is what a new customer gets. '
+                + 'Naming one is how somebody is moved onto - or back onto - a specific set of numbers.'));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            reason.placeholder = 'e.g. Moved onto v4 after they agreed to the new storage numbers.';
+            form.append(field('Reason', reason));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Move');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('PUT', `${BILLING}/plans/subjects/${billingSubject.kind}/${encodeURIComponent(billingSubject.id)}`, {
+                        body: {
+                            plan: picker.value,
+                            versionNumber: version.value ? Number(version.value) : null,
+                            reason: reason.value.trim(),
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Moved');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    // ── Billing: the plan editor ────────────────────────────────────────────
+
+    async function renderPlans() {
+        if (!billingCatalogue.billingDeployed) {
+            return empty(
+                'No billing service on this instance, so there is no plan table. Plans come from '
+                + 'configuration and are read-only here.', 'key');
+        }
+
+        const plans = await call('GET', `${BILLING}/plans`, { query: { includeArchived: true } });
+
+        if (!plans.length) {
+            return empty('No plans yet. The catalogue seeds from configuration on the billing service\'s first start.', 'key');
+        }
+
+        const list = el('div', 'rows');
+
+        plans.forEach(plan => {
+            const title = [el('span', null, plan.displayName || plan.name)];
+            title.push(el('span', 'mono faint', plan.name));
+            title.push(tag(`v${plan.currentVersionNumber}`, 'info'));
+            if (plan.archivedAt) title.push(tag('Archived', 'danger'));
+            if (plan.seededFromConfiguration) title.push(tag('Seeded'));
+
+            const current = plan.versions.find(version => version.isCurrent);
+
+            list.append(row({
+                title,
+                sub: plan.description || money(current),
+                side: [el('span', 'rw-time', `${plan.versions.length} version${plan.versions.length === 1 ? '' : 's'}`)],
+                selected: plan.name === selectedId,
+                onOpen: () => openPlan(plan.name),
+            }));
+        });
+
+        const wrap = el('div');
+        wrap.append(list, listFoot(plans.length, plans.length));
+        return wrap;
+    }
+
+    function money(version) {
+        if (!version || version.priceMinorUnits === null || version.priceMinorUnits === undefined) {
+            return 'Not sold';
+        }
+
+        return `${(version.priceMinorUnits / 100).toFixed(2)} ${(version.currency || '').toUpperCase()}`.trim();
+    }
+
+    async function openPlan(name) {
+        selectedId = name;
+        openDetail(name, loading());
+
+        const encoded = encodeURIComponent(name);
+
+        const [plan, blast, audit] = await Promise.all([
+            call('GET', `${BILLING}/plans/${encoded}`),
+            call('GET', `${BILLING}/plans/${encoded}/blast-radius`).catch(() => null),
+            call('GET', `${BILLING}/plans/${encoded}/audit`).catch(() => []),
+        ]);
+
+        const pane = el('div', 'pane');
+        const current = plan.versions.find(version => version.isCurrent);
+
+        pane.append(block(null, kv([
+            ['Name', copyable(plan.name)],
+            ['Shown as', plan.displayName || '-'],
+            ['Current', `Version ${plan.currentVersionNumber}`],
+            ['Price', money(current)],
+            ['Origin', plan.seededFromConfiguration ? 'Seeded from configuration' : 'Created here'],
+            ['Created', `${stamp(plan.createdAt)} by ${plan.createdBy}`],
+            ['Archived', plan.archivedAt ? `${stamp(plan.archivedAt)} by ${plan.archivedBy}` : null],
+        ])));
+
+        if (plan.description) pane.append(block('Description', el('p', 'hint', plan.description)));
+
+        pane.append(blastBlock(blast));
+
+        if (canEditBilling() && !plan.archivedAt) {
+            const actions = el('div', 'btn-row');
+            actions.append(button('Edit - writes a new version', 'pencil', () => editPlan(plan), 'primary'));
+            actions.append(button('Archive the plan', 'trash', () => archivePlan(plan), 'danger'));
+            pane.append(block('Actions', actions));
+        }
+
+        pane.append(versionsBlock(plan));
+        pane.append(planAuditBlock(audit));
+
+        openDetail(plan.displayName || plan.name, pane);
+    }
+
+    /**
+     * "This affects 1,240 guilds", before anybody presses save.
+     *
+     * Split by version because the two populations behave differently: a pinned subject is not moved
+     * by an edit, while one reached through a bare plan grant resolves through whatever is current
+     * and therefore does change.
+     */
+    function blastBlock(blast) {
+        const box = block('Blast radius');
+
+        if (!blast) {
+            box.append(el('p', 'hint', 'The blast radius could not be read just now.'));
+            return box;
+        }
+
+        box.append(el('p', 'lede', blast.totalSubjects === 1
+            ? 'One subject is on this plan.'
+            : `${blast.totalSubjects.toLocaleString()} subjects are on this plan.`));
+
+        if (blast.appliesToEveryUnassignedSubject) {
+            box.append(banner('warn',
+                'This is the instance default for its scope, so every subject that has never been '
+                + 'assigned anything is on it as well. Billing holds no guild table and will not '
+                + 'invent a number for them, so the count above is only what it can see.'));
+        }
+
+        const list = el('dl', 'kv');
+
+        blast.byVersion.forEach(entry => {
+            list.append(el('dt', null,
+                `Version ${entry.versionNumber}${entry.versionNumber === blast.currentVersion ? ' (current)' : ''}`));
+            list.append(el('dd', null,
+                `${entry.subjects.toLocaleString()} subject${entry.subjects === 1 ? '' : 's'}`));
+        });
+
+        if (!blast.byVersion.length) {
+            list.append(el('dt', null, 'Nobody'));
+            list.append(el('dd', null, 'No subject is on this plan yet.'));
+        }
+
+        box.append(list);
+
+        box.append(el('p', 'hint',
+            'An edit writes a new version and leaves every one of them where they are. Only moving '
+            + 'somebody between versions changes what they resolve.'));
+
+        return box;
+    }
+
+    function versionsBlock(plan) {
+        const box = block('Versions');
+        const list = el('div', 'timeline');
+
+        // Newest first: the interesting version is nearly always the one somebody just wrote.
+        [...plan.versions].reverse().forEach(version => {
+            const item = el('div', `event ${version.archivedAt ? 'struck' : ''}`);
+            item.append(icon(version.isCurrent ? 'check-circle' : 'history'));
+
+            const body = el('div');
+
+            const line = el('div', 'what');
+            line.append(document.createTextNode(`Version ${version.versionNumber}`));
+            if (version.isCurrent) line.append(tag('Current', 'ok'));
+            if (version.archivedAt) line.append(tag('Archived'));
+            line.append(tag(money(version)));
+            body.append(line);
+
+            body.append(el('span', 'when', `${stamp(version.createdAt)} by ${version.createdBy}`));
+            body.append(el('div', 'hint', version.reason));
+            if (version.archiveReason) {
+                body.append(el('div', 'hint', `Archived because: ${version.archiveReason}`));
+            }
+
+            const chips = el('div', 'chips');
+            Object.entries(version.values).forEach(([key, value]) => {
+                chips.append(el('span', 'chip mono', `${key} = ${value}`));
+            });
+            body.append(chips);
+
+            if (canEditBilling() && !plan.archivedAt && !version.isCurrent && !version.archivedAt) {
+                const actions = el('div', 'btn-row');
+                actions.style.marginTop = '8px';
+                actions.append(button('Make current', 'refresh', () => activateVersion(plan, version)));
+                actions.append(button('Archive', 'trash', () => archiveVersion(plan, version), 'danger'));
+                body.append(actions);
+            }
+
+            item.append(body);
+            list.append(item);
+        });
+
+        box.append(list);
+        return box;
+    }
+
+    const PLAN_ACTIONS = {
+        PlanCreated: 'created the plan',
+        VersionCreated: 'wrote a new version',
+        VersionActivated: 'made a version current',
+        VersionArchived: 'archived a version',
+        PlanArchived: 'archived the plan',
+        SubjectAssigned: 'moved a subject onto a version',
+    };
+
+    function planAuditBlock(entries) {
+        const box = block('Change history');
+
+        box.append(el('p', 'hint',
+            'Append-only. This surface is more dangerous than the grant surface - a grant affects one '
+            + 'subject, a plan edit affects every guild on the plan at once - so every change carries '
+            + 'who made it and why.'));
+
+        if (!entries.length) {
+            box.append(el('p', 'hint', 'Nothing recorded.'));
+            return box;
+        }
+
+        const list = el('div', 'timeline');
+
+        entries.forEach(entry => {
+            const item = el('div', 'event');
+            item.append(icon('history'));
+
+            const body = el('div');
+
+            const line = el('div', 'what');
+            line.append(document.createTextNode(
+                `${entry.actor} ${PLAN_ACTIONS[entry.action] || entry.action}`));
+            if (entry.versionNumber !== null && entry.versionNumber !== undefined) {
+                line.append(document.createTextNode(' '), tag(`v${entry.versionNumber}`, 'info'));
+            }
+            body.append(line);
+
+            const meta = [stamp(entry.occurredAt)];
+            if (entry.affectedSubjects !== null && entry.affectedSubjects !== undefined) {
+                meta.push(`${entry.affectedSubjects.toLocaleString()} subject${entry.affectedSubjects === 1 ? '' : 's'} announced`);
+            }
+            if (entry.subject) meta.push(entry.subject);
+            body.append(el('span', 'when', meta.join(' · ')));
+
+            body.append(el('div', 'hint', entry.reason));
+
+            item.append(body);
+            list.append(item);
+        });
+
+        box.append(list);
+        return box;
+    }
+
+    /**
+     * One control per entitlement key, prefilled from a plan version or a grant.
+     *
+     * The rows come from the server's catalogue rather than from a list written here, so the editor
+     * cannot normally offer a key the validator does not know. It can still be refused for one: this
+     * console ships in the gateway image and the billing service ships in its own, so during a rolling
+     * deploy one of the two is briefly holding the newer key table. That refusal is what
+     * `billingRefusal` renders, and why it lists the keys this build knows.
+     */
+    function entitlementEditor(values = {}, subjectKind = null) {
+        const host = el('div', 'prov-edit');
+        const controls = new Map();
+
+        billingCatalogue.keys
+            // A grant on a user cannot usefully carry a guild key: the resolver drops a value whose
+            // scope does not match its subject, so offering one would be offering a control that
+            // does nothing.
+            .filter(key => !subjectKind || key.scope === 'Paired' || key.scope === subjectKind)
+            .forEach(key => {
+                const line = el('div', 'prov-edit-row');
+                line.dataset.key = key.name;
+
+                const label = el('div', 'prov-edit-label');
+                label.append(el('span', 'mono', key.name));
+                label.append(el('span', 'faint',
+                    `${key.valueKind.toLowerCase()} · ${key.scope.toLowerCase()} · default ${key.default}`));
+                line.append(label);
+
+                const held = values[key.name] ?? '';
+                let control;
+
+                if (key.valueKind === 'Ladder') {
+                    control = select([['', 'not set'], ...key.rungs.map(rung => [rung, rung])], held);
+                } else if (key.valueKind === 'Flag') {
+                    control = select([['', 'not set'], ['true', 'granted'], ['false', 'withheld']], held);
+                } else {
+                    control = el('input');
+                    control.value = held;
+                    control.spellcheck = false;
+                    control.placeholder = 'a number, or unlimited';
+                }
+
+                controls.set(key.name, control);
+                line.append(control);
+                host.append(line);
+            });
+
+        return {
+            node: host,
+
+            read() {
+                const set = {};
+                controls.forEach((control, name) => {
+                    const value = control.value.trim();
+                    if (value) set[name] = value;
+                });
+                return set;
+            },
+
+            /** Points at the field a refusal named. Returns whether it was one of these. */
+            mark(name) {
+                let found = false;
+
+                $$('.prov-edit-row', host).forEach(line => {
+                    const hit = line.dataset.key === name;
+                    line.classList.toggle('bad', hit);
+                    found ||= hit;
+                });
+
+                $('.prov-edit-row.bad', host)?.scrollIntoView({ block: 'nearest' });
+                return found;
+            },
+        };
+    }
+
+    /**
+     * A billing refusal, rendered as the thing it is.
+     *
+     * The service answers a 400 with a machine-readable code and a sentence that names the offending
+     * key and lists the ones it accepts. Showing that as "the server answered 400" throws all of it
+     * away, so: the code picks a heading, the quoted key is pulled out of the sentence and its field
+     * is marked, and for an unknown key the known set is drawn from the catalogue this editor was
+     * built from rather than parsed back out of prose.
+     */
+    function billingRefusal(error, host, editor = null) {
+        host.replaceChildren();
+
+        const heading = BILLING_REFUSALS[error.code];
+        host.append(banner('danger', heading ? `${heading}. ${error.message}` : error.message));
+
+        // Quoted because the same sentence is what a curl user reads, and quoting the offending
+        // value is how it names one there. Failing to find it costs the highlight and nothing else.
+        const named = /'([^']+)'/.exec(error.message || '')?.[1];
+        if (named && editor) editor.mark(named);
+
+        if (error.code === 'unknown_entitlement_key') {
+            host.append(el('p', 'hint', 'Keys this console knows about:'));
+
+            const chips = el('div', 'chips');
+            billingCatalogue.keys.forEach(key => chips.append(el('span', 'chip mono', key.name)));
+            host.append(chips);
+        }
+    }
+
+    function createPlan() {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Create a plan'));
+            form.append(el('p', 'lede',
+                'A new plan starts at version 1 with nobody on it, so there is nothing to affect. '
+                + 'Names are keys: lowercase, no spaces, and no @ - that is how a pinned version is '
+                + 'addressed.'));
+
+            const name = el('input');
+            name.required = true;
+            name.spellcheck = false;
+            name.placeholder = 'pro';
+            form.append(field('Name', name));
+
+            const display = el('input');
+            display.placeholder = 'Venta Pro';
+            form.append(field('Shown as', display, 'Where capitalisation belongs.'));
+
+            const description = el('input');
+            form.append(field('Description', description));
+
+            const editor = entitlementEditor();
+            form.append(field('Entitlement values', editor.node,
+                'At least one. A plan that sets nothing resolves to the catalogue defaults, which is '
+                + 'what having no plan already does.'));
+
+            const price = el('input');
+            price.type = 'number';
+            price.min = '0';
+            form.append(field('Price in minor units', price, 'Cents, rappen, pence. Empty for a plan that is not sold.'));
+
+            const currency = el('input');
+            currency.maxLength = 3;
+            currency.placeholder = 'chf';
+            form.append(field('Currency', currency));
+
+            const reason = el('textarea');
+            reason.rows = 2;
+            reason.required = true;
+            form.append(field('Reason', reason));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Create');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${BILLING}/plans`, {
+                        body: {
+                            name: name.value.trim(),
+                            displayName: display.value.trim() || null,
+                            description: description.value.trim() || null,
+                            values: editor.read(),
+                            priceMinorUnits: price.value === '' ? null : Number(price.value),
+                            currency: currency.value.trim() || null,
+                            reason: reason.value.trim(),
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Plan created');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors, editor);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    /**
+     * The edit, in two deliberate steps.
+     *
+     * Step one writes the numbers; step two shows how many subjects the plan reaches, fetched at the
+     * moment of asking rather than reused from the pane behind this dialog. "This affects 1,240
+     * guilds" is the difference between a considered price change and a typo that pages somebody, and
+     * a number read ten minutes ago is not that sentence.
+     */
+    function editPlan(plan) {
+        const current = plan.versions.find(version => version.isCurrent);
+        const next = plan.currentVersionNumber + 1;
+
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Edit ${plan.displayName || plan.name}`));
+            form.append(el('p', 'lede',
+                `This writes version ${next} and makes it current. Everybody already on this plan `
+                + 'stays on the version they bought until somebody moves them deliberately, which is '
+                + 'what stops an edit taking away capacity people paid for.'));
+
+            const editor = entitlementEditor(current?.values || {});
+            form.append(field('Entitlement values', editor.node,
+                'The whole plan, not a patch. A key left blank is one this plan says nothing about.'));
+
+            const price = el('input');
+            price.type = 'number';
+            price.min = '0';
+            price.value = current?.priceMinorUnits ?? '';
+            form.append(field('Price in minor units', price, 'Cents, rappen, pence. Empty for a plan that is not sold.'));
+
+            const currency = el('input');
+            currency.maxLength = 3;
+            currency.value = current?.currency || '';
+            currency.placeholder = 'chf';
+            form.append(field('Currency', currency));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            reason.placeholder = 'e.g. Raising the Pro storage quota to 500 GB after the July usage review.';
+            form.append(field('Reason', reason, 'Required, and recorded in the plan\'s change history.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const review = el('div');
+            form.append(review);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Show what this affects');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            let reviewed = false;
+
+            // Any change to what is being written after the radius was shown invalidates the
+            // agreement, so the second click becomes a first click again. Otherwise somebody reads
+            // "12 guilds", edits the values, and saves against a number they were never shown. The
+            // reason is deliberately not one of these: rewording it changes nothing about the reach.
+            function unreview() {
+                if (!reviewed) return;
+                reviewed = false;
+                review.replaceChildren();
+                confirm.replaceChildren(document.createTextNode('Show what this affects'));
+            }
+
+            [editor.node, price, currency].forEach(node => {
+                node.addEventListener('input', unreview);
+                node.addEventListener('change', unreview);
+            });
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+
+                if (!reason.value.trim()) {
+                    toast('danger', 'A reason is required.');
+                    return;
+                }
+
+                confirm.disabled = true;
+
+                try {
+                    if (!reviewed) {
+                        const blast = await call(
+                            'GET', `${BILLING}/plans/${encodeURIComponent(plan.name)}/blast-radius`);
+
+                        review.replaceChildren(blastBlock(blast));
+                        reviewed = true;
+                        confirm.replaceChildren(document.createTextNode(`Write version ${next}`));
+                        return;
+                    }
+
+                    await call('POST', `${BILLING}/plans/${encodeURIComponent(plan.name)}/versions`, {
+                        body: {
+                            values: editor.read(),
+                            priceMinorUnits: price.value === '' ? null : Number(price.value),
+                            currency: currency.value.trim() || null,
+                            reason: reason.value.trim(),
+                        },
+                    });
+
+                    close();
+                    toast('ok', `Version ${next} is now current`);
+                    openPlan(plan.name);
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors, editor);
+                } finally {
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function activateVersion(plan, version) {
+        planReason({
+            title: `Make version ${version.versionNumber} current again`,
+            lede: 'The rollback path. Every subject on this plan is told to re-resolve, including the '
+                + 'ones pinned to an older version whose numbers did not move - this is an '
+                + 'invalidation, so telling somebody about a change that turns out to be nothing is '
+                + 'cheap and not telling them is not.',
+            confirm: 'Make current',
+            path: `${BILLING}/plans/${encodeURIComponent(plan.name)}/versions/${version.versionNumber}/activate`,
+            done: () => { toast('ok', `Version ${version.versionNumber} is current`); openPlan(plan.name); },
+        });
+    }
+
+    function archiveVersion(plan, version) {
+        planReason({
+            title: `Archive version ${version.versionNumber}`,
+            lede: 'Takes a set of numbers out of circulation. Refused while anybody is still pinned '
+                + 'to it, because the catalogue stops publishing an archived version and whoever was '
+                + 'on it would resolve to nothing.',
+            confirm: 'Archive',
+            danger: true,
+            path: `${BILLING}/plans/${encodeURIComponent(plan.name)}/versions/${version.versionNumber}/archive`,
+            done: () => { toast('ok', 'Version archived'); openPlan(plan.name); },
+        });
+    }
+
+    function archivePlan(plan) {
+        planReason({
+            title: `Archive ${plan.displayName || plan.name}`,
+            lede: 'Stops the plan being sold. It is never deleted, and it is refused while anybody is '
+                + 'still on it - archiving takes the numbers out of the catalogue, so anyone left '
+                + 'would silently lose what they pay for.',
+            confirm: 'Archive',
+            danger: true,
+            path: `${BILLING}/plans/${encodeURIComponent(plan.name)}/archive`,
+            done: () => { toast('ok', 'Plan archived'); closeDetail(); },
+        });
+    }
+
+    /** The four plan operations whose entire body is a required reason. One dialog rather than four
+     *  near-identical ones. */
+    function planReason({ title, lede, confirm: label, danger, path, done }) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, title));
+            form.append(el('p', 'lede', lede));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            form.append(field('Reason', reason, 'Required, and recorded in the plan\'s change history.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', `btn primary ${danger ? 'danger' : ''}`, label);
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', path, { body: { reason: reason.value.trim() } });
+                    close();
+                    done();
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
     // ── View: audit ─────────────────────────────────────────────────────────
+
+    /** Entries that reach further than the subject named on them. A grant affects one subject; a
+     *  plan version affects every guild on the plan at once. */
+    const WIDE_AUDIT_ACTIONS = new Set([
+        'billing.plan-created',
+        'billing.plan-edited',
+        'billing.plan-version-activated',
+        'billing.plan-version-archived',
+        'billing.plan-archived',
+    ]);
 
     views.audit = {
         title: 'Audit log',
@@ -2940,10 +4268,16 @@
                 }
 
                 if (entry.action === 'user.role-changed') line.append(tag('Privilege', 'danger'));
+                // A plan change is the other entry here that is not about one account: it moves what
+                // every guild on the plan gets at once.
+                else if (WIDE_AUDIT_ACTIONS.has(entry.action)) line.append(tag('Whole plan', 'danger'));
 
                 list.append(row({
-                    // The one entry type that decides who can act on everyone else gets the stripe.
-                    mark: entry.action === 'user.role-changed' ? 'critical' : '',
+                    // The entries that reach past one account get the stripe: who can act on everyone
+                    // else, and what everyone on a plan gets.
+                    mark: entry.action === 'user.role-changed' || WIDE_AUDIT_ACTIONS.has(entry.action)
+                        ? 'critical'
+                        : '',
                     title: [line],
                     sub: auditSubtitle(entry),
                     side: [el('span', 'rw-time', ago(entry.createdAt))],
@@ -2984,6 +4318,16 @@
         'status.incident-retracted': 'retracted a status incident',
         'status.component-created': 'added a status component',
         'status.component-updated': 'edited a status component',
+        'billing.grant-issued': 'granted entitlements to',
+        'billing.grant-revoked': 'revoked a grant',
+        'billing.grant-amended': 'moved the expiry of a grant',
+        'billing.plan-created': 'created a plan',
+        'billing.plan-edited': 'wrote a new version of a plan',
+        'billing.plan-version-activated': 'made a plan version current',
+        'billing.plan-version-archived': 'archived a plan version',
+        'billing.plan-archived': 'archived a plan',
+        'billing.plan-assigned': 'moved onto a plan version',
+        'billing.cache-invalidated': 'forced an entitlement re-resolve for',
     };
 
     const auditVerb = action => AUDIT_VERBS[action] || action.replace(/[.-]/g, ' ');

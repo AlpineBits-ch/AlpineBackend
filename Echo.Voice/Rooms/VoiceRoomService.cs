@@ -533,31 +533,69 @@ public sealed class VoiceRoomService(
     /// </summary>
     public async Task<IReadOnlyList<string>> FindUnplannedSubscriptionsAsync(
         VoiceRoomKey key, string subscriberUserId, IEnumerable<VoiceTrackRef> tracks,
+        CancellationToken ct = default) =>
+        (await PrepareSubscribeAsync(key, subscriberUserId, tracks.ToList(), ct)).Unplanned;
+
+    /// <summary>
+    /// Everything the plan has to say about one subscribe request: which of its tracks the
+    /// subscriber is not supposed to be pulling, and which simulcast layer each of the rest should
+    /// be served at.
+    /// </summary>
+    public async Task<VoiceSubscribeDecision> PrepareSubscribeAsync(
+        VoiceRoomKey key, string subscriberUserId, IReadOnlyList<VoiceTrackRef> tracks,
         CancellationToken ct = default)
     {
+        var unchanged = new VoiceSubscribeDecision([], tracks);
+
         var subscribes = tracks
             .Where(t => t.Direction == VoiceTrackDirection.Subscribe && t.TrackName is not null)
             .ToList();
-        if (subscribes.Count == 0 || subscriptions is null) return [];
-        if (!subscriptions.Options.Enforce) return [];
+        if (subscribes.Count == 0 || subscriptions is null) return unchanged;
 
         var room = await rooms.LoadAsync(key, ct);
-        if (room is null) return [];
+        if (room is null) return unchanged;
 
         var plan = await subscriptions.PlanAsync(room, ct);
-        if (!plan.IsSelective) return [];
 
-        var permitted = plan.For(subscriberUserId).Tracks
-            .Select(t => t.MatchKey())
-            .ToHashSet(StringComparer.Ordinal);
+        var planned = new Dictionary<string, VoiceSubscription>(StringComparer.Ordinal);
+        foreach (var subscription in plan.For(subscriberUserId).Tracks)
+            planned[subscription.MatchKey()] = subscription;
 
-        return subscribes
-            .Where(t => !permitted.Contains(
-                VoiceSubscription.MatchKey(t.MediaSessionId, t.TrackName!)))
-            .Select(t => t.TrackName!)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        // Only a selective plan can refuse anything, and only while the plan is binding.
+        var unplanned = subscriptions.Options.Enforce && plan.IsSelective
+            ? subscribes
+                .Where(t => !planned.ContainsKey(
+                    VoiceSubscription.MatchKey(t.MediaSessionId, t.TrackName!)))
+                .Select(t => t.TrackName!)
+                .Distinct(StringComparer.Ordinal)
+                .ToList()
+            : [];
+
+        if (!subscriptions.Options.SendPreferredRid || planned.Count == 0)
+            return new VoiceSubscribeDecision(unplanned, tracks);
+
+        var layered = tracks.Select(track =>
+        {
+            if (track.Direction != VoiceTrackDirection.Subscribe || track.TrackName is null)
+                return track;
+
+            var match = VoiceSubscription.MatchKey(track.MediaSessionId, track.TrackName);
+            if (!planned.TryGetValue(match, out var subscription) || subscription.Layer is null)
+                return track;
+
+            return track with { Layer = Lower(track.Layer, subscription.Layer) };
+        }).ToList();
+
+        return new VoiceSubscribeDecision(unplanned, layered);
     }
+
+    /// <summary>The cheaper of what the client asked for and what the plan decided.</summary>
+    private static string Lower(string? requested, string planned) =>
+        VoiceVideoLayers.Parse(requested) is { } asked
+        && VoiceVideoLayers.Parse(planned) is { } decided
+        && asked < decided
+            ? requested!
+            : planned;
 
     /// <summary>Starts or stops a screen share.</summary>
     public async Task<VoiceRoom?> SetStreamingAsync(
@@ -928,6 +966,19 @@ public sealed record VoiceAdmission(
         bool instanceSellsUpgrades, bool actorCanManageGuild) =>
         OverCapacity is null ? [] : [OverCapacity.Describe(instanceSellsUpgrades, actorCanManageGuild)];
 }
+
+/// <summary>What the plan says about one subscribe request.</summary>
+/// <param name="Unplanned">
+/// Track names this subscriber's set does not include, empty unless the plan is both selective and
+/// binding.
+/// </param>
+/// <param name="Tracks">
+/// The request's tracks with the simulcast layer filled in, or the caller's own list unchanged when
+/// there is nothing to say.
+/// </param>
+public sealed record VoiceSubscribeDecision(
+    IReadOnlyList<string> Unplanned,
+    IReadOnlyList<VoiceTrackRef> Tracks);
 
 /// <summary>What a publisher intends to send.</summary>
 public readonly record struct VoiceVideoRequest(int Height, int Framerate)

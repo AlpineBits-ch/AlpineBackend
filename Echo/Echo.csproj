@@ -16,6 +16,9 @@
         <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+        <!-- The IDistributedCache the entitlement cache backs onto. Every other service already
+             carries this; the gateway did not, because until now it had nothing to cache. -->
+        <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Dns" Version="10.8.0" />
         <PackageReference Include="Microsoft.Extensions.ServiceDiscovery.Yarp" Version="10.8.0" />
         <PackageReference Include="Octokit" Version="14.0.0" />
@@ -32,6 +35,10 @@
     </ItemGroup>
 
     <ItemGroup>
+      <!-- The bus-backed grant provider and entitlement version provider, plus the change event the
+           cache listens for. Contracts only, like Guild.Contracts below: the gateway asks Billing
+           over the bus and holds none of its state. -->
+      <ProjectReference Include="..\Billing.Contracts\Billing.Contracts.csproj" />
       <ProjectReference Include="..\Echo.Domain\Echo.Domain.csproj" />
       <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
       <ProjectReference Include="..\Echo.Infrastructure\Echo.Infrastructure.csproj" />

@@ -115,7 +115,28 @@ public class GuildVoiceMediaController(
             return Conflict(new { error = "staleSubscription", tracks = stale, action = "refetchSnapshot" });
         }
 
-        var request = new VoiceNegotiateRequest(body.SessionDescription, body.Tracks);
+        // The plan, consulted once for both of the things it decides: whether this caller is
+        // pulling something its subscription set does not include, and which simulcast layer each
+        // track it may pull should be served at.
+        var decision = await voice.PrepareSubscribeAsync(Room(channelId), UserId, body.Tracks, ct);
+        if (decision.Unplanned.Count > 0)
+        {
+            // Answered exactly like a stale subscription, down to the error code: the client is
+            // acting on a subscription set it has not caught up with, the recovery is the same
+            // refetch, and a second code would be the same sentence written twice in every client.
+            logger.LogInformation(
+                "Refusing unplanned subscribe for user {UserId}: {Tracks} are not in their set",
+                UserId, string.Join(", ", decision.Unplanned));
+            return Conflict(new
+            {
+                error = "staleSubscription",
+                reason = "unplannedSubscription",
+                tracks = decision.Unplanned,
+                action = "refetchSnapshot",
+            });
+        }
+
+        var request = new VoiceNegotiateRequest(body.SessionDescription, decision.Tracks);
         VoiceNegotiateResponse result;
         try
         {
@@ -165,6 +186,30 @@ public class GuildVoiceMediaController(
                 otherPublishes.Select(t => t.TrackName!).ToList(), ct);
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// What this client can actually see: what it has pinned, what it has collapsed, how large it
+    /// draws each tile, and whether it wants a share's audio.
+    /// </summary>
+    [HttpPost("subscriptions")]
+    public async Task<IActionResult> UpdateSubscriber(
+        string guildId, string channelId,
+        [FromBody] VoiceSubscriberUpdate body,
+        CancellationToken ct)
+    {
+        if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect))
+            return Forbid();
+
+        var plan = await voice.SetSubscriberAsync(Room(channelId), UserId, body, ct);
+
+        return Ok(new
+        {
+            mode = plan.Mode,
+            revision = plan.Revision,
+            activeSpeakers = plan.ActiveSpeakers,
+            tracks = plan.For(UserId).Tracks,
+        });
     }
 
     [HttpPut("negotiate")]

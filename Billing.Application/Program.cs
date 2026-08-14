@@ -5,7 +5,9 @@ using Billing.Infrastructure;
 using Billing.Infrastructure.Persistence;
 using Echo.Auth;
 using Echo.Entitlements;
+using Echo.Entitlements.Model;
 using Echo.Entitlements.Sources;
+using Microsoft.Extensions.Options;
 using JasperFx;
 using JasperFx.RuntimeCompiler;
 using Messaging;
@@ -48,9 +50,20 @@ builder.Services.AddSignalR(config => config.EnableDetailedErrors = true)
 // The plan table, from configuration.
 builder.Services.AddEntitlements(builder.Configuration);
 
+// The names and prices that go with the configured plans, which the entitlement section has no room
+// for and no business holding: it is bound by every service that resolves entitlements, and a price
+// is Billing's alone. Read only by the seeder.
+builder.Services.Configure<PlanSeedOptions>(
+    builder.Configuration.GetSection(PlanSeedOptions.SectionName));
+
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddScoped<EntitlementVersionService>();
 builder.Services.AddScoped<GrantService>();
+
+// Scoped, because it reads the plan rows: plans are edited from the console, so a catalogue bound
+// once at startup would refuse a plan created ten minutes ago.
+builder.Services.AddScoped<PlanCatalogueService>();
+builder.Services.AddScoped<PlanService>();
 
 // Billing is the write side, so it registers the grant provider rather than the entitlement source
 // built on it.
@@ -115,5 +128,16 @@ app.MapOpenApi("/internal/openapi/{documentName}.json");
 app.UseHttpsRedirection();
 app.UseInfrastructure();
 app.MapControllers();
+
+// After the migration, and only on an empty catalogue.
+using (var seedScope = app.Services.CreateScope())
+{
+    await PlanSeeder.SeedAsync(
+        seedScope.ServiceProvider.GetRequiredService<MicroserviceContext>(),
+        seedScope.ServiceProvider.GetRequiredService<PlanCatalogue>(),
+        seedScope.ServiceProvider.GetRequiredService<IOptions<PlanSeedOptions>>().Value,
+        seedScope.ServiceProvider.GetRequiredService<TimeProvider>(),
+        seedScope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+}
 
 await app.RunAsync();

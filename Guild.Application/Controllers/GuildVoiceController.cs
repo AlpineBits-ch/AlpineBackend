@@ -1,5 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
+using AppEnvironment;
+using Echo.Entitlements.Wire;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
@@ -84,7 +86,8 @@ public class GuildVoiceController(
         }
 
         // Roster first, media later.
-        var room = await voice.JoinAsync(Room(channelId), UserId, deviceId, guildId, ct);
+        var admission = await voice.AdmitAsync(Room(channelId), UserId, deviceId, guildId, ct);
+        var room = admission.Room;
 
         // Guild-level index, so the server list can answer "is anyone in voice here" without
         // reading every channel of every guild. Derived from the roster, never the source of truth.
@@ -106,7 +109,32 @@ public class GuildVoiceController(
 
         await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = UserId, ChannelId = channelId });
 
-        return Ok(VoiceRoomSnapshot.From(room));
+        var snapshot = VoiceRoomSnapshot.From(room);
+        var degradations = await DescribeAsync(admission, guildId);
+
+        // Byte-identical to what a v1 client already receives whenever nothing was reduced, which
+        // is every join in every guild that is inside its plan.
+        return degradations.Count == 0
+            ? Ok(snapshot)
+            : Ok(EntitlementResponses.WithDegradations(snapshot, degradations));
+    }
+
+    /// <summary>The join's degradation as the client reads it.</summary>
+    private async Task<IReadOnlyList<EntitlementDegradationDto>> DescribeAsync(
+        VoiceAdmission admission, string guildId)
+    {
+        if (admission.OverCapacity is null) return [];
+
+        var sellsUpgrades = Env.License.IsHosted && Env.License.IsBillingConfigured;
+
+        var needsGuildRemedy = sellsUpgrades
+                               && admission.OverCapacity.Cause.BoundBy == EntitlementBoundBy.Guild;
+
+        var canManageGuild = needsGuildRemedy
+                             && await permissions.CanUserPerformActionOnGuildAsync(
+                                 UserId, guildId, Permissions.ManageGuild);
+
+        return admission.Describe(sellsUpgrades, canManageGuild);
     }
 
     /// <summary>Same user, same channel, a different device just joined - transfer the connection

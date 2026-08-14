@@ -435,6 +435,7 @@ voice.Heartbeat(roomKind, roomId, state)
 guild.voice.MuteChanged({ channelId, isMuted })
 guild.voice.DeafenChanged({ channelId, isDeafened })
 guild.voice.CameraChanged({ channelId, isCameraOn })
+guild.voice.SpeakingChanged({ channelId, isSpeaking })
 guild.voice.ScreenShareStarted({ channelId, shareId })
 guild.voice.ScreenShareStopped({ channelId, shareId })
 guild.voice.ServerMute({ channelId, targetUserId, isMuted })      // needs MuteMembers
@@ -520,7 +521,7 @@ so one parser handles both. The event additionally carries the usual room-id, `i
 | `revision` | Increases whenever the ranked set changes. **Ignore a payload whose `revision` is lower than one you have already applied** - two server instances can interleave. It is unrelated to `version`. |
 | `activeSpeakers` | The ranked set, for rendering. Not the same as your track list, which also carries your pins. |
 | `tracks` | Everything to pull, complete. Not a delta. |
-| `layer` | Simulcast layer for a video track: `"q"` low, `"h"` medium, `"f"` full. `null` for audio. Pull that layer when your transport can ask for one; ignoring it is safe and simply costs full resolution. |
+| `layer` | Simulcast layer for a video track: `"q"` low, `"h"` medium, `"f"` full. `null` for audio. **The server sends this to the SFU on your behalf** (§6.7), so it describes what you will actually be served, not a request you have to make. |
 | `mediaSessionId` | May be `null` for a share published before the server recorded its session. Use the handle you already have from `TrackPublished`. Never `null` for audio. |
 
 ### 6.3 What to do with it
@@ -549,10 +550,26 @@ speaking for yourself. All fields are optional, and an omitted field is left alo
 Report a tile size when it changes materially, not on every animation frame. Report `paused` on
 `visibilitychange`.
 
-> **Not routed yet.** The server implements this, but no HTTP or hub endpoint is exposed for it in
-> this release, so there is nothing to call today. The set you receive is computed from speech, room
-> size and defaults only. This table is here so client work can be planned against the shape it will
-> have; the endpoint lands with the enforcement change below.
+```http
+POST .../voice/subscriptions              # or /voice/calls/{callId}/subscriptions
+```
+
+```jsonc
+{
+  "paused": false,
+  "pinned": ["user-1"],
+  "pausedPublishers": ["user-7"],
+  "tileHeights": { "user-4": 180 },
+  "screenAudioShares": ["abc123"]
+}
+```
+
+Every field is optional and an omitted one is left alone, so a tile resize is a body with
+`tileHeights` in it and nothing else. The reply is your own subscription set in the same shape as
+§6.2, so you do not have to wait for the push to act on what you just reported.
+
+It is `POST` rather than a hub invocation deliberately: it carries a body with maps in it, it needs a
+reply, and it is not high frequency if you debounce it as described above.
 
 ### 6.5 Speaking reports are the input
 
@@ -565,16 +582,55 @@ told, deliberately, because gating entry on duration means the first person to t
 is inaudible for seconds. The consequence is that an un-hysteresised cough costs every subscriber in
 the room a renegotiation. Debounce on your side; that is where it belongs.
 
-Speaking is currently reported for calls (`call.SpeakingChanged`) and not for guild voice channels.
-Until a guild equivalent exists, guild channels stay `mode: "all"` regardless of size.
+Both room kinds report it: `call.SpeakingChanged` and `guild.voice.SpeakingChanged`. **A guild
+channel whose clients do not send the guild one stays `mode: "all"` at any size**, which is what
+every guild room did until the command existed - nothing looks broken, and nothing is saved.
 
 ### 6.6 Enforcement
 
-Today the set is **advisory**: a client that ignores it and subscribes to everybody is not refused,
-and nothing about voice behaves differently for it. When enforcement is switched on, a subscribe for
-a track your set does not include is answered with the same **409** shape as a stale subscription -
-`refetchSnapshot` - and the recovery is the same: refetch, reconcile, subscribe from the new set.
-Implement §6.3 before that happens.
+**Enforcement is on.** A subscribe for a track your set does not include is answered with a **409**
+in the same shape as a stale subscription, and the recovery is the same: refetch the snapshot,
+reconcile, subscribe from the new set.
+
+```jsonc
+{
+  "error": "staleSubscription",
+  "reason": "unplannedSubscription",
+  "tracks": ["audio"],
+  "action": "refetchSnapshot"
+}
+```
+
+The error code is deliberately the one you already handle - the situation is identical from your side
+(you are acting on a view of the room that has moved) and so is the fix. `reason` is additive and
+tells the two apart in a log.
+
+What can actually be refused is narrow: only a room above the ranking threshold that has heard
+somebody speak has a selective set at all, so every small room and every room whose clients report no
+speech is unaffected. But **implement §6.3 before you ship against a server with this on**, because a
+client that ignores its set in a large room will be refused rather than served.
+
+`VOICE_ENFORCE=false` turns it off for an instance, and it turns off the metering side with it. The
+two are one switch on purpose: while a client can pull whatever it likes, counting the plan would
+report a saving nobody made.
+
+### 6.7 Layers are chosen by the server and sent to the SFU
+
+`layer` on a track is no longer advice you may act on. The server puts the chosen simulcast layer on
+the subscribe it makes to the SFU, so a tile you reported as 120 pixels tall is **served** the low
+layer whether or not your transport asked for one.
+
+Two things follow:
+
+1. **Report `tileHeights`.** It is the only measurement the server has. Without it a ranked room
+   falls back to the middle layer for cameras and full quality for screen shares, which is a
+   deliberate guess and a worse one than yours.
+2. **You may still ask for a layer,** and asking for a *lower* one than the server chose is honoured.
+   Asking for a higher one is not: the party paying for the egress picks the layer.
+
+A publisher that sends a single encoding has no layers to choose between, and the SFU is asked to
+fall back to whatever it does have rather than to send nothing. Publish simulcast encodings named
+`q`/`h`/`f` if you want the saving to be real for your own video.
 
 ---
 
@@ -602,6 +658,7 @@ Stop heartbeating and you are evicted from the room after 90 seconds, in both ro
 | Status | Meaning | What to do |
 |---|---|---|
 | **409** | `{ error: "staleSubscription", tracks?, action: "refetchSnapshot" }`. You subscribed to media nobody is publishing - the share stopped, or the publisher never started. | Refetch the snapshot and reconcile. **Do not retry the same body** - the track is gone, not late. Roll back your subscribe guard. |
+| **409** | The same body with `reason: "unplannedSubscription"`. The track exists, but your subscription set does not include it - see §6.6. | Identical: refetch, reconcile, subscribe from the new set. **Do not retry the same body**; it will be refused the same way until your set moves. |
 | **409** | `{ error: "sessionGone", action: "recreateSession" }`. Your *own* media session has no live PeerConnection - it was closed, or never reached `connected`. | `POST .../voice/session` for a fresh `mediaSessionId`, then republish and re-subscribe. **Do not retry the same body**: that session is spent and every call on it fails identically. |
 | **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and back off before retrying. **Do not** treat as success. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
@@ -666,6 +723,7 @@ POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/session?primary=
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
 PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/negotiate
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks/close
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/subscriptions
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/{shareId}/watch
 DELETE /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/{shareId}/watch
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/viewers
@@ -683,6 +741,7 @@ POST   /api/v1/voice/calls/{callId}/session?primary=
 POST   /api/v1/voice/calls/{callId}/tracks
 PUT    /api/v1/voice/calls/{callId}/negotiate
 POST   /api/v1/voice/calls/{callId}/tracks/close
+POST   /api/v1/voice/calls/{callId}/subscriptions
 POST   /api/v1/voice/call/{callId}/shares/{shareId}/watch
 DELETE /api/v1/voice/call/{callId}/shares/{shareId}/watch
 GET    /api/v1/voice/call/{callId}/shares/viewers

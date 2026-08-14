@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using AppEnvironment;
+using Echo.Entitlements.Wire;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Voice.Rooms;
@@ -103,7 +105,7 @@ public class CallVoiceMediaController(
         }
 
         // Roster first, media later - and the joiner is handed a full snapshot in the same step.
-        await voice.JoinAsync(Room(callId), UserId, device.DeviceId, guildId: null, ct);
+        var admission = await voice.AdmitAsync(Room(callId), UserId, device.DeviceId, guildId: null, ct);
 
         // Liveness is claimed here, not left to the first heartbeat.
         await cache.SetStringAsync(
@@ -113,7 +115,17 @@ public class CallVoiceMediaController(
 
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);
 
-        return Ok(new { mediaSessionId, backend = media.Backend });
+        var session = new { mediaSessionId, backend = media.Backend };
+
+        // No ManageGuild lookup, and not because it was forgotten: a call has no guild, so the only
+        // cause a capacity limit can carry here is an operator ceiling, which no amount of money
+        // moves and which therefore has no remedy to be permitted or refused.
+        var degradations = admission.Describe(
+            Env.License.IsHosted && Env.License.IsBillingConfigured, actorCanManageGuild: false);
+
+        return degradations.Count == 0
+            ? Ok(session)
+            : Ok(EntitlementResponses.WithDegradations(session, degradations));
     }
 
     /// <summary>Publishes and/or subscribes tracks.</summary>
@@ -134,7 +146,25 @@ public class CallVoiceMediaController(
             return Conflict(new { error = "staleSubscription", tracks = stale, action = "refetchSnapshot" });
         }
 
-        var request = new VoiceNegotiateRequest(body.SessionDescription, body.Tracks);
+        // The plan, consulted once for both of the things it decides: whether this caller is
+        // pulling something its subscription set does not include, and which simulcast layer each
+        // track it may pull should be served at.
+        var decision = await voice.PrepareSubscribeAsync(Room(callId), UserId, body.Tracks, ct);
+        if (decision.Unplanned.Count > 0)
+        {
+            logger.LogInformation(
+                "Refusing unplanned subscribe for user {UserId}: {Tracks} are not in their set",
+                UserId, string.Join(", ", decision.Unplanned));
+            return Conflict(new
+            {
+                error = "staleSubscription",
+                reason = "unplannedSubscription",
+                tracks = decision.Unplanned,
+                action = "refetchSnapshot",
+            });
+        }
+
+        var request = new VoiceNegotiateRequest(body.SessionDescription, decision.Tracks);
         VoiceNegotiateResponse result;
         try
         {
@@ -184,6 +214,27 @@ public class CallVoiceMediaController(
                 otherPublishes.Select(t => t.TrackName!).ToList(), ct);
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// What this client can actually see - pins, collapsed tiles, rendered tile sizes, and whether
+    /// it wants a share's audio.
+    /// </summary>
+    [HttpPost("subscriptions")]
+    public async Task<IActionResult> UpdateSubscriber(
+        string callId, [FromBody] VoiceSubscriberUpdate body, CancellationToken ct)
+    {
+        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
+
+        var plan = await voice.SetSubscriberAsync(Room(callId), UserId, body, ct);
+
+        return Ok(new
+        {
+            mode = plan.Mode,
+            revision = plan.Revision,
+            activeSpeakers = plan.ActiveSpeakers,
+            tracks = plan.For(UserId).Tracks,
+        });
     }
 
     [HttpPut("negotiate")]

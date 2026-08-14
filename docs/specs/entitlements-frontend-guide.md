@@ -27,8 +27,10 @@ treat the "planned" rows as absent-until-present rather than as a reason to desi
 | §7 `entitlements.Changed` | Shape and routing shipped; nothing changes entitlements until Billing exists, so it does not fire yet |
 | `version` on the snapshot | Always `0` until Billing owns a per-subject counter. Compare it anyway |
 | §6 usage endpoints | Planned. Owned by the services that do the counting |
-| §8 voice `limits` block | Planned, with voice enforcement |
-| §10 guild feature resolution | Shipped on the Guild side; wire it as described |
+| §8 voice `limits` block | Shipped. It rides every voice snapshot, and `degradations[]` rides the join reply in both room kinds |
+| §10 guild feature resolution | Shipped, on `GET /guilds/{guildId}` as `featureResolution` and on `GET /guilds/{guildId}/features`. **Not** on the guild list, and not on a nested guild - see §10 |
+| §5.5 `plan` on the snapshot | Shipped. Absent on `selfhost` and on any instance with no plans configured, which is every instance today |
+| §5.6 `stripePublishableKey` | Shipped. Absent unless the instance was configured with one |
 
 ---
 
@@ -247,6 +249,9 @@ Both return the same shape. Both are authenticated. The guild one is **members o
   "version": 7,
   "ttlSeconds": 60,
 
+  "plan": { "name": "plus", "displayName": "Venta Plus", "version": 2 },   // §5.5, may be absent
+  "stripePublishableKey": "pk_live_...",                                   // §5.6, may be absent
+
   "entitlements": {
     "user.upload_max_bytes": { "kind": "numeric", "value": 26214400, "unlimited": false },
     "user.max_devices":      { "kind": "numeric", "value": 5,        "unlimited": false },
@@ -327,6 +332,47 @@ runtime, so anything less shows one account's limits to another.
 
 Refetch on: the `entitlements.Changed` push, hub reconnect, account or instance switch, app resume
 past the TTL, and when a guild settings screen opens.
+
+### 5.5 `plan`: which plan these numbers came from
+
+```jsonc
+{ "name": "plus", "displayName": "Venta Plus", "version": 2 }
+```
+
+This is the only thing on the payload that answers "what am I on", and it is the sentence a settings
+screen leads with. Everything else here is a ceiling.
+
+- **`name` is the key, `displayName` is the copy.** Branch on `name`; render `displayName`. The
+  display name is never null - a plan an operator gave no display name shows its own name - so you
+  never have to pick between two fields.
+- **`version` is the version this subject is actually on, not the current one.** Plans are
+  grandfathered: a subject who joined on version 1 keeps version 1's numbers when the plan's numbers
+  move. Render it only where a version is meaningful (a plan-change screen, a support form); it is
+  not a thing to put next to the plan name on a settings row.
+- **`version` is absent when the subject is on whatever is current**, which is every subject on an
+  instance whose plans are configuration rather than rows. Absent is not "version 0".
+- **The whole object is absent when there is no plan**, and that is a real state rather than a gap:
+  an instance with no plans configured resolves every key to its catalogue default, and a `selfhost`
+  instance resolves everything to maximum with no billing service deployed at all. **Do not
+  substitute a "Free"**. Nobody configured one, and inventing it puts a tier boundary on the screen
+  of a self-hoster who is not being charged for anything. Render the limits, and no plan row.
+
+This is not provenance (§15). Which *source* won a particular key - a subscription id, a grant, the
+staff member who issued it - remains staff-facing and will never appear here. The plan a subject is
+on is the one commercial fact they own.
+
+### 5.6 `stripePublishableKey`
+
+The publishable half of the instance's Stripe pair, when it has one.
+
+Prefer it over anything bundled into your build, with the bundled value as the fallback. The clients
+point at arbitrary instances at runtime, so a key compiled into a release aims every self-hoster's
+checkout at whoever produced the release - which is the same class of mistake as showing them an
+upgrade button (§5.3), with money attached.
+
+**Absent is the normal case and is not an error.** It is absent on `selfhost`, absent on a hosted
+instance whose billing is not configured, and absent on any instance whose operator has not set one.
+Where `upgradesAvailable` is false there is no checkout to point anywhere, so nothing needs a key.
 
 ---
 
@@ -437,6 +483,16 @@ The join and publish responses carry `degradations[]` (§1) when the limit actua
 banner from those; use `limits` to pre-empt, to draw denominators, and to disable a share button that
 would only be refused.
 
+**Both room kinds carry it, and the two joins are different requests.** For a guild channel it is
+`POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/join`, whose body is the room snapshot. For
+a direct call it is `POST /api/v1/voice/calls/{callId}/session`, whose body is
+`{ mediaSessionId, backend }`. In both cases the array is a sibling of the body you already parse and
+is absent whenever nothing was reduced, which is every join on an instance that sells nothing.
+
+A call has no guild plan behind it, so the only thing that can reduce a call is an operator ceiling -
+a self-hoster who has capped what their own box will carry. Those carry no `remedy`, because no
+amount of money moves one. Render the sentence, not a button.
+
 ---
 
 ## 9. Video quality: the rungs are the server's
@@ -467,7 +523,7 @@ A module can now be unusable for **three** different reasons, and the client cur
 owner turned it off, or you lack the permission. The third is that the plan does not include it, and
 it is neither of the others: the owner wants it on and has every permission.
 
-Guild feature state therefore travels as three lists, not one:
+Guild feature state therefore travels as four lists, not one:
 
 ```jsonc
 {
@@ -477,6 +533,28 @@ Guild feature state therefore travels as three lists, not one:
   "effective":      ["Events", "Wiki"]              // what is actually on
 }
 ```
+
+### Where it arrives
+
+Two places, and neither of them is the entitlement snapshot (§5) - a feature bitmask is not a
+numeric, flag or ladder value, so it is Guild's shape and travels on Guild's payloads.
+
+```http
+GET https://api.venta.gg/api/v1/guilds/{guildId}            -> `featureResolution` on the guild body
+GET https://api.venta.gg/api/v1/guilds/{guildId}/features   -> the object on its own
+```
+
+Both are members-only, the same bar as the rest of the guild's structure.
+
+- **On the single-guild read it is a field called `featureResolution`**, alongside the existing
+  `features` string. That string is unchanged, still comma-separated, and still says what is
+  *effective* - so nothing a v1 client parses has moved.
+- **The dedicated route is what you refetch**, on an `entitlements.Changed` push or when a module
+  screen opens. Re-pulling a guild's entire channel, category and role tree to learn that Forums went
+  out of plan is a payload proportional to the guild's structure for four short lists.
+- **It is absent from `GET /guilds`** and from every guild nested inside another payload. A member of
+  two hundred guilds would pay two hundred plan lookups to draw a sidebar. Treat absent as "not
+  loaded", never as "no modules".
 
 - **`withheldByPlan` is the upgrade prompt.** It is exactly "the owner asked for this and is not
   getting it", and it is the only list that distinguishes an out-of-plan module from an owner-disabled
@@ -617,6 +695,8 @@ translation key, which is the cheapest proof the field is needed.
 | `GET` | `/api/v1/entitlements/guilds/{guildId}` | Bearer, members only | §5 snapshot, guild subject |
 | `GET` | `/api/v1/entitlements/me/usage` | Bearer | §6, planned |
 | `GET` | `/api/v1/entitlements/guilds/{guildId}/usage` | Bearer, members only | §6, planned |
+| `GET` | `/api/v1/guilds/{guildId}` | Bearer, members only | The guild, with §10's `featureResolution` |
+| `GET` | `/api/v1/guilds/{guildId}/features` | Bearer, members only | §10 on its own |
 
 ### Events
 
@@ -665,6 +745,7 @@ Voice limits are not an event. They are a field on the voice snapshot (§8).
 - **A per-member effective set on a guild screen.** A guild snapshot is the guild's ceiling. What one
   member effectively gets is `min` of the two sides and is computed per operation, which is what the
   `degradations` array reports.
-- **Prices, plan names or a plan catalogue.** Not in this contract. Those belong to the billing
-  surface and arrive with it.
+- **Prices, or a plan catalogue.** The plan a subject is *on* is §5.5; what the other plans are, what
+  they cost and what they include belongs to the billing surface and arrives with it. One plan is an
+  answer about you; the catalogue is a shop.
 - **A push carrying values.** §7 is an envelope by design.

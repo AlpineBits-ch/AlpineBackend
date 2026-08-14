@@ -47,10 +47,17 @@ public sealed record IssueGrant(
 /// </summary>
 public sealed class GrantService(
     MicroserviceContext db,
-    PlanCatalogue plans,
+    PlanCatalogueService plans,
     EntitlementVersionService versions,
     TimeProvider clock) : IGrantProvider
 {
+    /// <summary>
+    /// The plan table as it is now: the rows in this database, with the configured plans
+    /// underneath.
+    /// </summary>
+    public Task<PlanCatalogue> CatalogueAsync(CancellationToken cancellationToken) =>
+        plans.CurrentAsync(cancellationToken);
+
     /// <summary>Issues a grant, and returns it alongside the event that announces it.</summary>
     public async Task<(Grant Grant, EntitlementsChanged Event)> IssueAsync(
         IssueGrant request, string createdBy, CancellationToken cancellationToken)
@@ -89,7 +96,7 @@ public sealed class GrantService(
                 + "Leave it null for a permanent grant.");
         }
 
-        var changedKeys = Validate(request);
+        var changedKeys = await ValidateAsync(request, cancellationToken);
 
         var grant = new Grant
         {
@@ -143,7 +150,8 @@ public sealed class GrantService(
         grant.Revoke(revokedBy, reason.Trim(), now);
 
         return (grant, await AnnounceAsync(
-            grant, EntitlementsChangedReason.GrantRevoked, KeysOf(grant), now, cancellationToken));
+            grant, EntitlementsChangedReason.GrantRevoked,
+            await KeysOfAsync(grant, cancellationToken), now, cancellationToken));
     }
 
     /// <summary>Moves a grant's expiry, in either direction, or removes it entirely.</summary>
@@ -172,7 +180,8 @@ public sealed class GrantService(
         grant.ExpiresAt = expiresAt;
 
         return (grant, await AnnounceAsync(
-            grant, EntitlementsChangedReason.GrantAmended, KeysOf(grant), now, cancellationToken));
+            grant, EntitlementsChangedReason.GrantAmended,
+            await KeysOfAsync(grant, cancellationToken), now, cancellationToken));
     }
 
     public Task<Grant?> FindAsync(string grantId, CancellationToken cancellationToken) =>
@@ -220,17 +229,21 @@ public sealed class GrantService(
     /// <summary>The key names a grant touches, for the advisory <c>changedKeys</c> on the event. Best
     /// effort by design: a consumer that ignores it has to be correct anyway, so a plan that is no
     /// longer configured yielding an empty list is not a failure.</summary>
-    public IReadOnlyList<string> KeysOf(Grant grant)
+    public static IReadOnlyList<string> KeysOf(Grant grant, PlanCatalogue catalogue)
     {
         ArgumentNullException.ThrowIfNull(grant);
+        ArgumentNullException.ThrowIfNull(catalogue);
 
         if (grant.GrantKind == GrantKind.Plan)
         {
-            return plans.Find(grant.Plan)?.Values.Keys.Select(key => key.Name).ToList() ?? [];
+            return catalogue.Find(grant.Plan)?.Values.Keys.Select(key => key.Name).ToList() ?? [];
         }
 
         return ReadEntitlements(grant.EntitlementsJson)?.Keys.ToList() ?? [];
     }
+
+    private async Task<IReadOnlyList<string>> KeysOfAsync(Grant grant, CancellationToken cancellationToken) =>
+        KeysOf(grant, await CatalogueAsync(cancellationToken));
 
     private async Task<EntitlementsChanged> AnnounceAsync(
         Grant grant,
@@ -259,7 +272,8 @@ public sealed class GrantService(
     /// <summary>
     /// Checks that the grant will actually grant something, and returns the keys it touches.
     /// </summary>
-    private IReadOnlyList<string> Validate(IssueGrant request)
+    private async Task<IReadOnlyList<string>> ValidateAsync(
+        IssueGrant request, CancellationToken cancellationToken)
     {
         if (request.GrantKind == GrantKind.Plan)
         {
@@ -269,16 +283,20 @@ public sealed class GrantService(
                     "A plan grant needs a plan name.");
             }
 
-            var plan = plans.Find(request.Plan);
+            var catalogue = await CatalogueAsync(cancellationToken);
+
+            var plan = catalogue.Find(request.Plan);
             if (plan is null)
             {
-                var known = plans.Plans.Select(p => p.Name).ToList();
+                var known = catalogue.Plans.Select(p => p.Name).ToList();
 
                 throw new GrantRefusedException(GrantErrorCodes.UnknownPlan, known.Count == 0
-                    ? $"'{request.Plan}' cannot be granted because this instance has no plans configured. "
-                      + "Define them under the Entitlements:Plans configuration section first; until then "
+                    ? $"'{request.Plan}' cannot be granted because this instance has no plans at all. "
+                      + "Create one from the admin console, or define them under the Entitlements:Plans "
+                      + "configuration section, which is what the catalogue is seeded from; until then "
                       + "a plan grant would be a row that grants nothing."
-                    : $"'{request.Plan}' is not a configured plan. Known plans: {string.Join(", ", known)}.");
+                    : $"'{request.Plan}' is not a plan this instance has. Known plans: "
+                      + $"{string.Join(", ", known)}.");
             }
 
             return plan.Values.Keys.Select(key => key.Name).ToList();

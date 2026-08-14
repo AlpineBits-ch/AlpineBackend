@@ -59,6 +59,12 @@ public record GuildVoiceDeafenCommand(string UserId, string ChannelId, bool IsDe
 
 public record GuildVoiceCameraCommand(string UserId, string ChannelId, bool IsCameraOn);
 
+/// <summary>
+/// The guild counterpart of <see cref="CallSpeakingCommand"/>, and the only input active-speaker
+/// subscription has.
+/// </summary>
+public record GuildVoiceSpeakingCommand(string UserId, string ChannelId, bool IsSpeaking);
+
 public record GuildVoiceScreenShareStartCommand(string UserId, string ChannelId, string ShareId);
 
 public record GuildVoiceScreenShareStopCommand(string UserId, string ChannelId, string ShareId);

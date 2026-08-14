@@ -7,7 +7,7 @@ public static class EntitlementLadders
 {
     /// <summary>What a publisher may send and what the SFU will therefore fan out.</summary>
     public static readonly EntitlementLadder VideoQuality =
-        new("video_quality", "none", "480p30", "720p30", "1080p30", "1080p60");
+        new("video_quality", "none", "480p30", "720p30", "1080p30", "1080p60", "1440p60", "2160p60");
 }
 
 /// <summary>
@@ -23,7 +23,8 @@ public static class EntitlementKeys
     /// <summary>The publish ceiling for camera and screenshare.</summary>
     public static readonly EntitlementKey VoiceVideoCeiling =
         EntitlementKey.OnLadder("voice.video_ceiling", EntitlementScope.Paired,
-            EntitlementLadders.VideoQuality, "1080p60");
+            EntitlementLadders.VideoQuality,
+            EntitlementLadders.VideoQuality.RungAt(EntitlementLadders.VideoQuality.HighestRank));
 
     /// <summary>Concurrent video publishers in one room.</summary>
     public static readonly EntitlementKey VoiceMaxPublishers =

@@ -15,6 +15,10 @@ namespace Echo.Entitlements.Wire;
 /// Every ladder referenced by the keys above, lowest rung first, with the metrics each rung stands
 /// for.
 /// </param>
+/// <param name="Plan">Which plan resolved these numbers, when one did.</param>
+/// <param name="StripePublishableKey">
+/// The Stripe key this instance's checkout should use, when it has one.
+/// </param>
 public sealed record EntitlementSnapshotDto(
     string LicenseMode,
     bool UpgradesAvailable,
@@ -26,12 +30,20 @@ public sealed record EntitlementSnapshotDto(
     IReadOnlyDictionary<string, EntitlementValueDto> Entitlements,
     IReadOnlyDictionary<string, IReadOnlyList<EntitlementRungDto>> Ladders,
     string Remedy,
-    bool ActorCanRemedy)
+    bool ActorCanRemedy,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    EntitlementPlanDto? Plan = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? StripePublishableKey = null)
 {
     /// <summary>The snapshot for a resolved set.</summary>
     /// <param name="set">Resolved for this subject.</param>
     /// <param name="remedy">
     /// What an upgrade would be here and whether this caller could buy it.
+    /// </param>
+    /// <param name="plan">Which plan resolved these numbers, or null when none did.</param>
+    /// <param name="stripePublishableKey">
+    /// This instance's publishable key, or null when it has none.
     /// </param>
     public static EntitlementSnapshotDto From(
         EntitlementSet set,
@@ -42,7 +54,9 @@ public sealed record EntitlementSnapshotDto(
         int ttlSeconds,
         DateTimeOffset resolvedAt,
         EntitlementRemedyDecision remedy,
-        IReadOnlyList<EntitlementKey>? catalogue = null)
+        IReadOnlyList<EntitlementKey>? catalogue = null,
+        EntitlementPlanDto? plan = null,
+        string? stripePublishableKey = null)
     {
         ArgumentNullException.ThrowIfNull(set);
 
@@ -72,7 +86,44 @@ public sealed record EntitlementSnapshotDto(
             values,
             ladders,
             remedy.Remedy,
-            remedy.ActorCanRemedy);
+            remedy.ActorCanRemedy,
+            plan,
+            string.IsNullOrWhiteSpace(stripePublishableKey) ? null : stripePublishableKey);
+    }
+}
+
+/// <summary>Which plan a subject is on, by the name a settings screen can say out loud.</summary>
+/// <param name="Name">
+/// The plan's key - what a grant, an assignment and the configuration all call it.
+/// </param>
+/// <param name="DisplayName">What to render.</param>
+/// <param name="Version">The version of the plan this subject is actually on.</param>
+public sealed record EntitlementPlanDto(
+    string Name,
+    string DisplayName,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Version)
+{
+    /// <summary>
+    /// The plan a reference names, or null when it names nothing this instance knows.
+    /// </summary>
+    public static EntitlementPlanDto? Resolve(string? reference, PlanCatalogue? plans)
+    {
+        if (string.IsNullOrWhiteSpace(reference) || plans is null) return null;
+
+        var definition = plans.Find(reference);
+        if (definition is null) return null;
+
+        var (name, version) = PlanReference.Split(reference);
+
+        // A versioned entry that carries no display name of its own would otherwise render as
+        // "pro@2", which is a lookup key rather than something to show a member.
+        var display = definition.DisplayName;
+        if (version is not null && string.Equals(display, reference, StringComparison.Ordinal))
+        {
+            display = plans.Find(name)?.DisplayName ?? name;
+        }
+
+        return new EntitlementPlanDto(name, display, version ?? plans.CurrentVersionOf(name));
     }
 }
 

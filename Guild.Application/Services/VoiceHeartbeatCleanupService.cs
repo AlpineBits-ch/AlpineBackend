@@ -14,11 +14,16 @@ using Wolverine;
 
 namespace Guild.Application.Services;
 
+/// <param name="reconciler">
+/// Only <see cref="VoiceReconciler.ReapAsync"/> is used, and only for the rooms this sweep itself
+/// empties.
+/// </param>
 public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
     VoiceRoomStore rooms,
     VoiceAnnouncer announcer,
+    VoiceReconciler reconciler,
     GuildVoiceActivityStore activityStore,
     StreamViewerStore viewers,
     IHubContext<EchoRealtimeHub> hub,
@@ -86,6 +91,10 @@ public class VoiceHeartbeatCleanupService(
             if (stale.Count == 0)
             {
                 if (isChannel) Record(rebuilt, loaded);
+
+                // A room that was already empty before this pass - the last leave raced a previous
+                // sweep, or a reap failed - is closed here rather than left to expire.
+                if (loaded.Participants.Count == 0) await reconciler.ReapAsync(roomKey, ct);
                 continue;
             }
 
@@ -124,6 +133,10 @@ public class VoiceHeartbeatCleanupService(
             }
             await announcer.ToAllAsync(voiceState, VoiceEvents.Resync,
                 new { reason = "participantsEvicted" }, ct);
+
+            // The eviction above is the one path that can empty a roster without anybody running
+            // the leave path, so it is the one path that leaves a room behind.
+            if (voiceState.Participants.Count == 0) await reconciler.ReapAsync(roomKey, ct);
 
             // Everything below is the guild-only fan-out: a channel is visible to members who are
             // not in it, which a call has no equivalent of.

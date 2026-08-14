@@ -517,6 +517,66 @@ public class VoiceSubscriptionTests
         });
     }
 
+    /// <summary>
+    /// The before-and-after as the meter itself records it, with the enforcement switch in each
+    /// position and nothing else changed: same roster, same talkers, same elapsed time, same
+    /// heartbeat path, same Redis counters.
+    /// </summary>
+    [Test]
+    public async Task The_switch_moves_what_the_meter_records_for_the_same_room()
+    {
+        var advisory = await MeterOneRoomAsync("advisory", enforce: false);
+        var binding = await MeterOneRoomAsync("binding", enforce: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(advisory, Is.EqualTo(20L * 19 * (long)VoiceUsageMeter.SampleInterval.TotalSeconds),
+                "off means the meter reports all-to-all, because that is what a client is still "
+                + "permitted to pull");
+            // Seventeen listeners pulling three speakers, and three speakers pulling each other.
+            Assert.That(binding, Is.EqualTo((17L * 3 + 3 * 2) * (long)VoiceUsageMeter.SampleInterval.TotalSeconds),
+                "on means it reports the plan, which is what the subscribe path will now hold "
+                + "clients to");
+            Assert.That((double)advisory / binding, Is.GreaterThan(6d));
+        });
+    }
+
+    /// <summary>Twenty people, three of them talking, sampled across exactly one interval. Returns
+    /// the audio subscriber-seconds the meter recorded.</summary>
+    private async Task<long> MeterOneRoomAsync(string name, bool enforce)
+    {
+        var clock = new FakeClock(Start);
+        var backend = new FakeVoiceUsageBackend(clock);
+        var meter = new VoiceUsageMeter(backend, clock, NullLogger<VoiceUsageMeter>.Instance);
+        var subscriptions = new VoiceSubscriptions(
+            new VoiceAttentionStore(_locks, _h.Cache, Options with { Enforce = enforce }),
+            Options with { Enforce = enforce }, clock, NullLogger<VoiceSubscriptions>.Instance);
+        var service = new VoiceRoomService(_h.Rooms, _h.Announcer, subscriptions);
+        var reconciler = new VoiceReconciler(
+            _h.Rooms, _h.Announcer, _h.Cache, NullLogger<VoiceReconciler>.Instance, meter, subscriptions);
+
+        var key = VoiceRoomKey.Channel($"channel-{name}");
+        var scope = $"guild-{name}";
+
+        for (var i = 0; i < 20; i++)
+        {
+            await service.JoinAsync(key, $"p{i:D2}", $"device-{i}", scope);
+            await service.RecordPublishAsync(key, $"p{i:D2}", $"cf-p{i:D2}");
+        }
+
+        foreach (var talker in new[] { "p03", "p11", "p17" })
+            await service.SetSpeakingAsync(key, talker, true);
+
+        var room = (await _h.Rooms.LoadAsync(key))!;
+        await reconciler.HeartbeatAsync("p00", key, room.InstanceId, room.Version, "cf-p00", TrackNaming.Audio);
+        clock.Advance(VoiceUsageMeter.SampleInterval);
+        room = (await _h.Rooms.LoadAsync(key))!;
+        await reconciler.HeartbeatAsync("p00", key, room.InstanceId, room.Version, "cf-p00", TrackNaming.Audio);
+
+        var totals = await meter.GetDayAsync(scope, DateOnly.FromDateTime(clock.Now.UtcDateTime));
+        return totals.SubscriberSeconds.GetValueOrDefault(VoiceUsageTrackKind.Audio);
+    }
+
     [Test]
     public void Metering_without_a_plan_is_unchanged()
     {

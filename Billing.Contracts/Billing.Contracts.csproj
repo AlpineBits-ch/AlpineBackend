@@ -13,4 +13,13 @@
         <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
     </ItemGroup>
 
+    <ItemGroup>
+        <!-- For Clients/, which is the caller's half of the request contracts here: a bus-backed
+             IGrantProvider and IEntitlementVersionProvider, so Guild, Messaging and the gateway do not
+             each write their own. Wolverine and the DI abstractions are already carried by every one
+             of them, so this adds nothing to what a consumer pulls in. -->
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+        <PackageReference Include="WolverineFx" Version="6.24.6" />
+    </ItemGroup>
+
 </Project>

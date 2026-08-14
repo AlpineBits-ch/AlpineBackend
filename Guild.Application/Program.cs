@@ -1,5 +1,7 @@
+using Billing.Contracts.Clients;
 using Echo.Auth;
 using Echo.Entitlements;
+using Echo.Entitlements.Caching;
 using Echo.Entitlements.Sources;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
@@ -58,6 +60,16 @@ builder.Services.AddVoiceRooms();
 builder.Services.AddEntitlements(builder.Configuration);
 builder.Services.AddLicenseMode(
     LicenseModes.Parse(Env.License.Mode), OperatorCeilings.Parse(Env.License.OperatorCeilings));
+
+// Grants, from the service that owns them.
+if (Env.License.IsHosted && Env.License.IsBillingConfigured)
+{
+    builder.Services.AddBillingGrantSource();
+}
+
+// And the cache in front of all of it, because the alternative is a broker hop per permission
+// check.
+builder.Services.AddEntitlementCache();
 
 builder.Services.AddSingleton<GuildVoiceActivityStore>();
 // Scoped: it takes IMessageBus, which Wolverine registers per scope.

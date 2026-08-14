@@ -49,9 +49,14 @@ against **25.2 GB/hour** for the same 14 viewers all pulling 1080p60 with no lay
 4K with simulcast is cheaper than offering 1080p60 without it.**
 
 **The condition:** this is only true once `preferredRid` is actually sent on the Cloudflare subscribe.
-That is item 4 of WP-03b and is **not wired today**. Until it is, every viewer pulls the top layer and
-the naive number is the real one. **Do not enable a 4K rung before that lands** - it is the single
-change that separates 4K from financially reckless.
+That is item 4 of WP-03b and is **now wired**: the server puts the layer it chose from the
+subscriber's reported tile height on the subscribe itself, so the SFU serves it rather than the top
+layer. Two caveats survive, and both are about publishers rather than about this server. A publisher
+that sends a single encoding has no layers to choose between - the subscribe falls back to what
+exists rather than to nothing, but it also saves nothing - and a client that never reports a tile
+height gets a deliberate guess (the middle layer for a camera in a ranked room, full quality for a
+screen share) rather than a measurement. **The mix in the arithmetic above is therefore an upper
+bound on the saving until clients report tile sizes and publish simulcast encodings.**
 
 ---
 
@@ -245,9 +250,11 @@ allowance bites.
    allowances are generous or stingy.
 2. **Verify Cloudflare's rate and free allowance against an invoice.** A move from $0.05 to $0.08/GB
    changes Pro from thin to underwater.
-3. **Land WP-03b.** Until `VOICE_ENFORCE` is on, active-speaker planning is advisory and audio still
-   costs `n^2`. Every audio figure in §2 is roughly **16x higher** in a 50-person room today than
-   what is written above.
+3. ~~**Land WP-03b.**~~ Landed. `VOICE_ENFORCE` defaults on, guild channels report speech so they
+   rank at all, and unplanned pulls are refused - so the audio figures in §2 are now what a room
+   costs rather than what it would cost if clients cooperated. **The reduction has not been measured
+   on a live call**, only modelled through WP-02's own arithmetic against modelled rosters; the meter
+   now believes the plan, so the first real deployment produces the first honest number.
 4. **Add the video allowance as an entitlement key.** The catalogue has no time or volume based
    lever - every existing key is an instantaneous ceiling. `voice.video_allowance_bytes` plus a
    monthly-reset consumption counter is new work, and §3 says it is not optional.
@@ -257,9 +264,11 @@ allowance bites.
    a server rung, so the client is ahead of the server today and the mapping is undefined. Adding the
    rungs also settles that - the (resolution, framerate) to rung mapping is the server's, and a
    client guessing it is making a pricing decision in a `.ts` file.
-6. **Wire `preferredRid` (WP-03b item 4) before enabling any rung above 1080p.** Without server-side
-   layer selection every viewer pulls the top layer, and a 4K rung costs 2.8x what the model says.
-   This is a hard prerequisite, not a sequencing preference.
+6. ~~**Wire `preferredRid` (WP-03b item 4) before enabling any rung above 1080p.**~~ Wired. What is
+   left of this prerequisite is on the client side: a rung above 1080p is only affordable for viewers
+   who are served a lower layer, and that needs publishers sending simulcast encodings and
+   subscribers reporting `tileHeights`. **Confirm both in a real client before enabling a 4K rung**,
+   because the server asking for a layer that nobody published saves nothing.
 7. **Populate `Entitlements:Plans` in Billing's configuration.** `GrantService` refuses a plan name
    the instance has not configured, so none of the plan-shaped paths work until these numbers exist
    in a config file.

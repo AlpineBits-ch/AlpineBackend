@@ -98,6 +98,9 @@ public class GrantExpirySweeper(
 
         var announcements = new List<EntitlementsChanged>();
 
+        // Read once for the whole pass rather than per grant.
+        var catalogue = await grants.CatalogueAsync(cancellationToken);
+
         // One event per subject rather than per grant: a subject whose two grants expired in the same
         // window changed once, and two events would advance the version twice for one change.
         foreach (var group in lapsed.GroupBy(g => new EntitlementSubject(g.SubjectKind, g.SubjectId)))
@@ -112,7 +115,7 @@ public class GrantExpirySweeper(
                 Reason = EntitlementsChangedReason.GrantExpired,
                 GrantId = newest.Id,
                 Version = await versions.AdvanceAsync(subject, cancellationToken),
-                ChangedKeys = [.. group.SelectMany(grants.KeysOf).Distinct()],
+                ChangedKeys = [.. group.SelectMany(grant => GrantService.KeysOf(grant, catalogue)).Distinct()],
                 OccurredAt = now,
             });
         }

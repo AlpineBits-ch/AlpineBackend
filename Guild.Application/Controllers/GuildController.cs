@@ -73,7 +73,30 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         {
             return NotFound();
         }
-        return Ok(guild.ToFacet<Domain.Aggregates.Guild, GuildDto>());
+        var dto = guild.ToFacet<Domain.Aggregates.Guild, GuildDto>();
+        dto.FeatureResolution = GuildFeatureResolutionDto.From(
+            await permissionService.GetGuildFeatureResolutionAsync(id));
+
+        return Ok(dto);
+    }
+
+    /// <summary>
+    /// Just the module resolution, for a client refetching after an entitlement change.
+    /// </summary>
+    [HttpGet("{id}/features")]
+    public async Task<IActionResult> GetGuildFeatures(string id)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId == null) return Unauthorized();
+
+        // Same membership bar as GetGuild.
+        if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, id, Permissions.ViewChannel))
+        {
+            return Forbid();
+        }
+
+        return Ok(GuildFeatureResolutionDto.From(
+            await permissionService.GetGuildFeatureResolutionAsync(id)));
     }
 
 

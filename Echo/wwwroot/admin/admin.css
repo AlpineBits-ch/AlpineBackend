@@ -430,6 +430,70 @@ body { overflow: hidden; }
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* ── Billing ────────────────────────────────────────────────────────────── */
+/*
+ * The provenance table. Three columns because the screen answers three things at once - what the key
+ * is, what it came out as, and who is credited with it - and reading it as prose is what makes a
+ * billing ticket answerable.
+ */
+.prov { display: flex; flex-direction: column; }
+
+.prov-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.1fr);
+    gap: 3px 12px;
+    align-items: baseline;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 12.5px;
+}
+.prov-row:last-child { border-bottom: 0; }
+
+/* A key nobody set is dimmed, never dropped. The row missing is what makes an operator conclude the
+   screen is broken; the row present and quiet says "this is a floor, not a decision". */
+.prov-row.faint { opacity: .58; }
+
+.prov-key { overflow-wrap: anywhere; }
+.prov-val { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.prov-src { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+@media (max-width: 900px) {
+    .prov-row { grid-template-columns: minmax(0, 1fr); }
+}
+
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.chip {
+    font-size: 11.5px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--raised);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+}
+
+/* The plan and grant value editor: one row per key in the catalogue, so the editor cannot normally
+   offer a key the validator does not know. */
+.prov-edit { display: flex; flex-direction: column; gap: 9px; }
+
+.prov-edit-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 148px;
+    gap: 4px 12px;
+    align-items: center;
+}
+.prov-edit-row input, .prov-edit-row select { font-size: 12.5px; padding: 6px 8px; }
+
+.prov-edit-label { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
+.prov-edit-label .faint { font-size: 11px; }
+
+/* The field a refusal named. The service's 400 says which key it rejected and lists the ones it
+   accepts; pointing at the row beats making somebody re-read eleven of them looking for it. */
+.prov-edit-row.bad {
+    outline: 1px solid var(--danger);
+    outline-offset: 4px;
+    border-radius: 6px;
+}
+
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 .modal-host { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(9, 12, 18, .58); }

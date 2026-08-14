@@ -129,6 +129,20 @@ public static class GuildFeatureMap
     public static GuildFeatureResolution ResolveWithPlan(
         GuildFeatures enabled, GuildFeatures includedByPlan) => new(enabled, includedByPlan);
 
+    /// <summary>The modules a mask carries, by name, lowest bit first.</summary>
+    public static IReadOnlyList<string> Names(GuildFeatures mask)
+    {
+        var names = new List<string>();
+
+        foreach (var feature in Enum.GetValues<GuildFeatures>())
+        {
+            if (feature == GuildFeatures.None) continue;
+            if ((mask & feature) == feature) names.Add(feature.ToString());
+        }
+
+        return names;
+    }
+
     /// <summary>The module a channel of this type belongs to, or null when the type is part of
     /// the always-on core. Text has no feature flag on purpose - a guild with no text channels
     /// is not a guild.</summary>

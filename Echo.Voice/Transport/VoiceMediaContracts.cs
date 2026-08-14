@@ -18,11 +18,16 @@ public static class VoiceTrackDirection
 /// <param name="Mid">Publish only: the transceiver MID after <c>setLocalDescription</c>.</param>
 /// <param name="TrackName">Publish: the name to publish under.</param>
 /// <param name="MediaSessionId">Subscribe only: the media session of the peer being pulled.</param>
+/// <param name="Layer">
+/// Subscribe only: which simulcast layer to serve, in the spelling of
+/// <c>Echo.Voice.Rooms.VoiceVideoLayers</c>.
+/// </param>
 public record VoiceTrackRef(
     string Direction,
     string? Mid = null,
     string? TrackName = null,
-    string? MediaSessionId = null);
+    string? MediaSessionId = null,
+    string? Layer = null);
 
 public record VoiceNegotiateRequest(
     VoiceSessionDescription SessionDescription,

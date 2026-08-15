@@ -273,7 +273,9 @@ public class SiteAssetPathTests
     {
         var script = File.ReadAllText(Path.Combine(WebRoot, "admin", "app.js"));
 
-        var labelled = Regex.Matches(script, @"'([a-z]+\.[a-z-]+)':\s*'")
+        // A verb is written either as one phrase or as a [phrase, preposition] pair, so the value
+        // side is a quote or an opening bracket.
+        var labelled = Regex.Matches(script, @"'([a-z]+\.[a-z-]+)':\s*['\[]")
             .Select(m => m.Groups[1].Value)
             .ToHashSet();
 

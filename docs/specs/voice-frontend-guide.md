@@ -506,7 +506,7 @@ You receive it two ways, and they are the same object:
     { "userId": "user-1", "mediaSessionId": "cf-abc", "trackName": "audio",
       "kind": "audio", "shareId": null, "layer": null },
     { "userId": "user-4", "mediaSessionId": "cf-xyz", "trackName": "screen-abc123",
-      "kind": "screen", "shareId": "abc123", "layer": "h" }
+      "kind": "screen", "shareId": "abc123", "layer": "b" }
   ]
 }
 ```

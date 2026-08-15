@@ -148,15 +148,20 @@ x-app-env: &app-env
   # bytes for the upload one. VOICE_MAX_PARTICIPANTS=12 with VOICE_VIDEO_CEILING=720p30 is a
   # sensible pair for a small server on a metered connection.
   #
-  # VOICE_VIDEO_CEILING ships at 1080p60 rather than empty, and that is deliberate. The entitlement
-  # catalogue's default for a paired ladder key has to be its TOP rung, because a member with no
-  # user-side source would otherwise clamp every guild that paid for more - so adding the 4K rungs
-  # made "unconfigured" mean 4K. That is only affordable once the SFU is actually serving a lower
-  # simulcast layer to the small tiles, which needs publishers sending simulcast encodings and
-  # clients reporting their rendered tile height. Neither is true of the released clients yet, so
-  # until they are, every viewer would pull the top layer and one 4K share to fourteen people costs
-  # 50 GB/hour instead of 18. Raise it when the clients report tile sizes; see
-  # docs/specs/monetization-pricing-model.md section 1.
+  # VOICE_VIDEO_CEILING ships at 2160p60, the top of the ladder, so that a guild on Pro actually
+  # receives the 4K its plan grants. It is pinned to a rung rather than left empty because the
+  # entitlement catalogue's default for a paired ladder key has to be its TOP rung - a member with
+  # no user-side source would otherwise clamp every guild that paid for more - so "unconfigured"
+  # already means "whatever the ladder's top is today". A rung added above 2160p60 later should be
+  # a deliberate edit here, not an automatic raise.
+  #
+  # THE COST, STATED PLAINLY. 4K is only cheap once the SFU hands small tiles a lower simulcast
+  # layer, and that needs two things of which only one is done: the server sends preferredRid on the
+  # subscribe (wired), and publishers send simulcast encodings (NOT wired - the desktop publisher
+  # sends a single encoding). Until the second lands, every viewer pulls the top layer and one 4K
+  # share to fourteen people costs 50 GB/hour against the 18 the pricing model assumes. Set this
+  # back to 1080p60 if that is not a bill you want to carry - a self-hoster on a metered connection
+  # almost certainly should. See docs/specs/monetization-pricing-model.md section 1.
   LICENSE_MODE: "${LICENSE_MODE:-selfhost}"
   # Where the billing service answers. Empty is the shipped state and is correct in selfhost, where
   # the service is not deployed at all (it sits behind the `hosted` profile below). A hosted instance
@@ -165,7 +170,7 @@ x-app-env: &app-env
   # entitlement to unlimited and look perfectly healthy giving the product away.
   BILLING_SERVICE_URL: "${BILLING_SERVICE_URL:-}"
   VOICE_MAX_PARTICIPANTS: "${VOICE_MAX_PARTICIPANTS:-}"
-  VOICE_VIDEO_CEILING: "${VOICE_VIDEO_CEILING:-1080p60}"
+  VOICE_VIDEO_CEILING: "${VOICE_VIDEO_CEILING:-2160p60}"
   STORAGE_UPLOAD_MAX_BYTES: "${STORAGE_UPLOAD_MAX_BYTES:-}"
 
   # --- Optional third-party integrations ----------------------------------------------

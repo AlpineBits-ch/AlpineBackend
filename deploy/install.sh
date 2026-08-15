@@ -702,7 +702,10 @@ LICENSE_MODE="${LICENSE_MODE:-selfhost}"
 # Empty means no limit, which is how it ships. Set them and they apply on top of everything
 # else, so nobody can exceed them however they joined.
 #   VOICE_MAX_PARTICIPANTS   people in one voice room, e.g. 12
-#   VOICE_VIDEO_CEILING      best video anyone may send: none, 480p30, 720p30, 1080p30, 1080p60
+#   VOICE_VIDEO_CEILING      best video anyone may send: none, 480p30, 720p30, 1080p30,
+#                            1080p60, 1440p60, 2160p60. Empty takes the stack's default of
+#                            2160p60, and 4K is expensive until publishers send simulcast -
+#                            1080p60 is the safe setting on a metered connection.
 #                            ("none" leaves voice working and turns off camera and screenshare)
 #   STORAGE_UPLOAD_MAX_BYTES largest single file anyone may upload, in bytes, e.g. 26214400
 VOICE_MAX_PARTICIPANTS="${VOICE_MAX_PARTICIPANTS:-}"

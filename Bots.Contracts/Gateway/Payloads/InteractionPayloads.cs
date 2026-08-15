@@ -450,8 +450,9 @@ public class EmbedMediaPayload
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ContentType { get; set; }
 
-    /// <summary>Base64 thumbhash - a handful of bytes that decode to a blurred preview, shown while
-    /// the real image loads. Same field and purpose as Discord's.</summary>
+    /// <summary>
+    /// A compact string that decodes to a blurred preview, shown while the real image loads.
+    /// </summary>
     [JsonPropertyName("placeholder")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Placeholder { get; set; }

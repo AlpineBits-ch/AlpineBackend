@@ -44,16 +44,51 @@ fails you are not in the channel, but the invitation is still correctly closed -
 
 ## Endpoints
 
-### Send a ring
+### Send an invitation - quietly, loudly, or both
 
 ```
 POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/rings
-{ "targetUserId": "user_..." }
+{ "targetUserId": "user_...", "delivery": "Message" | "Ring" | "Both" }
 ```
 
 Send `X-Device-Id` if you have one. It is optional here and never fatal.
 
-**200** with a `VoiceRing`:
+`delivery` decides what actually happens. It defaults to **`Both`**, which is what this route did
+before the field existed - so a client that omits it is unchanged. **Send it explicitly anyway**: a
+request that says what it wants does not change meaning if the default ever moves.
+
+| | `Message` | `Ring` | `Both` |
+|---|---|---|---|
+| Realtime card + push | no | yes | yes |
+| Card in the DM | yes | no | yes |
+| Creates a ring to accept/decline | no | yes | yes |
+| Expires | never | 60s | 60s (the card stays) |
+| Counts against the ring rate limits | no | yes | yes |
+| Caller must be sitting in the channel | no | yes | yes |
+| Can be refused by the recipient's DM policy | **yes** | no | no |
+
+**`Message` is the one to reach for by default.** Ringing interrupts: it buzzes a phone, and a
+decline locks the sender out for 15 minutes, then 2 hours, then 24. Most of the time "invite them"
+means the quiet thing. Alpine puts `Message` on the row and `Ring` behind a separate bell.
+
+Three things about `Message` are different enough to plan for:
+
+- **It needs no presence.** The sender only has to be able to see and connect to the channel
+  themselves. A ring refuses with `403` unless they are *in* it, because the ring's whole claim is
+  "I am in here".
+- **It can be refused outright, and often is.** `403 RecipientPolicy` means the recipient does not
+  accept direct messages from this sender - the product default is friends-only, and two people
+  sharing a server are frequently not friends. A ring never has this failure, because a ring needs
+  no conversation. Surface it per person, not as a channel-wide error.
+- **It answers a conversation, not a ring.** There is no id to accept and no instant to count down:
+
+```json
+{ "conversationId": "conv_3H66JNBG6BTA8FINHJVTTE2H846" }
+```
+
+That conversation may not have existed a second ago. It is useful for an "open the DM" affordance.
+
+**200** for `Ring` and `Both`, with a `VoiceRing`:
 
 ```json
 {
@@ -84,8 +119,9 @@ Everything that can go wrong:
 | Status | Body | What happened | What to show |
 |---|---|---|---|
 | `200` | the existing ring | You already have a live ring out to this person **into this channel**. Nothing was re-sent. | Nothing new. Keep showing the pending state. |
-| `400` | text | You rang yourself, or the channel is not a voice channel. | A bug in your client; do not surface it. |
-| `403` | *(empty)* | You are not in that voice channel. | Hide the invite affordance unless the user is in the channel. |
+| `400` | text | You rang yourself, the channel is not a voice channel, or `delivery` was not one of the three values. | A bug in your client; do not surface it. |
+| `403` | *(empty)* | Ringing: you are not in that voice channel. `Message`: you cannot see or connect to it yourself. | Hide the ring affordance unless the user is in the channel; hide both if they cannot see it. |
+| `403` | `{"reason":"RecipientPolicy","retryAfterSeconds":0}` | **`Message` only.** They do not accept direct messages from you - or one of you has blocked the other, deliberately undistinguished. | "They do not accept messages from you." Offer the ring instead: it does not need a conversation. |
 | `403` | `{"reason":"TargetCannotJoinChannel","retryAfterSeconds":0}` | They cannot see or cannot connect to it. | "They do not have access to this channel." |
 | `403` | `{"reason":"Unavailable","retryAfterSeconds":0}` | A block exists, in one direction or the other. | "You cannot invite this person." Do **not** say "blocked" - the server deliberately does not tell you which. |
 | `404` | *(empty)* | No such channel, or that user is not a member of this guild. | Refresh the member list. |
@@ -425,31 +461,46 @@ Everything above disappears within the minute. A phone that was face-down for th
 with a notification that has already been swiped away and nothing else, which is why the ring also
 writes a message into the two people's direct conversation.
 
-You do not call anything for this and there is no flag to opt into. Sending a ring produces, in
-addition to the realtime event and the push:
+You write no message yourself - doing so would produce two. Sending an invitation with
+`delivery: "Both"` (the default) or `delivery: "Message"` produces, in addition to the realtime
+event and the push where those apply:
 
 - a message of `type: "VoiceChannelInvite"`, authored by the inviter,
 - in the 1:1 conversation between the inviter and the target,
 - carrying exactly one embed, of type `venta.voice_invite`, with `flags & 65536` set.
 
 The full card shape and the rendering rules are in the **embeds frontend guide**, section
-`venta.voice_invite`. The short version: `ring_id` is live only until `expires_at` (about a minute),
-after which the card is history and any affordance you offer should be the ordinary "join this
-channel" one against `channel_id`. Nothing rewrites the message when the ring resolves.
+`venta.voice_invite`. The short version, and it has **three** states rather than two:
 
-Three consequences worth planning for:
+| `ring_id` | `expires_at` | State | Affordance |
+|---|---|---|---|
+| set | in the future | a live ring | accept it through the ring endpoints |
+| set | in the past | a ring that lapsed | the ordinary join against `channel_id` |
+| absent | **absent** | a standing invitation (`delivery: "Message"`) | the ordinary join against `channel_id` |
+
+**Do not read a missing `expires_at` as "expired".** That is the standing case, and it was valid the
+second it arrived and stays valid. The lapsed case is one that *had* an expiry and is past it.
+
+Nothing rewrites the message when a ring resolves - compare `expires_at` to your own clock instead.
+
+Four consequences worth planning for:
 
 - **The conversation may not exist yet.** If the two people already have a 1:1 conversation the
   message goes into the most recently used one. If they have none, the server starts one - so
   `conversation.MessageCreated` can be your first notice of a conversation id you have never seen.
   Refresh the conversation list on an unknown id rather than dropping the event.
+- **The sender gets the realtime frame too.** Normally the author of a message is excluded from
+  `conversation.MessageCreated`, because they sent it and the send returned it. Nobody sent this
+  one, so both parties receive it. Do not treat "a message from me over the socket" as a duplicate.
 - **It is not suppressed by a mute.** Unlike the push, this is written even when the target has
   silenced the server. A mute is a request not to be interrupted, not a request to be left out of
   your own message history - and it cannot buzz anything, because no system message produces a push.
-- **It is not guaranteed.** The message is skipped, silently, when the two have no conversation and
-  the target's `DirectMessagePolicy` would not admit a first contact from the inviter (the product
-  default is friends-only), or when a profile lookup fails. The ring itself is unaffected in both
-  cases. Do not build anything that assumes a ring always leaves a message behind.
+- **For `Both`, it is not guaranteed.** The message is skipped, and only logged, when the two have
+  no conversation and the target's `DirectMessagePolicy` would not admit a first contact from the
+  inviter. The ring is unaffected, and the request still answers `200`. For `delivery: "Message"`
+  that same refusal is the whole operation failing and comes back as `403 RecipientPolicy` - which
+  is the difference between the two: with a ring in hand the card is a bonus, without one it is
+  everything.
 
 ---
 

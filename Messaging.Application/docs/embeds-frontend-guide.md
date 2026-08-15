@@ -73,16 +73,17 @@ interface EmbedVenta {
   /** The channel: the one a joiner lands on for an invite, the one you are asked into for a
    *  voice_invite. Id only - except on voice_invite, which also carries channel_name. */
   channel_id?: string;
-  /** ISO-8601. On an invite, absent means it never expires. On a voice_invite it is always
-   *  present and is roughly a minute after the message was sent. */
+  /** ISO-8601. On an invite, absent means it never expires. On a voice_invite it is present only
+   *  when there was a ring, and is then about a minute after the message; absent means a standing
+   *  invitation, NOT an expired one. */
   expires_at?: string;
 
   // wiki_page only
   page_id?: string;
 
   // voice_invite only
-  /** The ring to accept through while it is still live. Meaningless past `expires_at` - treat an
-   *  expired one as absent rather than as something to call. */
+  /** The ring to accept through while it is still live. Absent entirely when the invitation was
+   *  sent without one. Meaningless past `expires_at` - treat that as absent rather than callable. */
   ring_id?: string;
   /** Who asked. Same as the message's `authorId` today; carried so the card keeps meaning what it
    *  says if it is ever quoted. */
@@ -224,24 +225,44 @@ the title is narrower than the audience for the message. Neither applies here - 
 checked for `ViewChannel` before the ring was allowed at all, and there is no lookup that would let
 them fill it in later. Render `channel_name`; do not fetch the channel to "get a fresher" one.
 
-### `ring_id` and `expires_at`
+### `ring_id` and `expires_at` - three states, not two
 
-`expires_at` is about a minute after the message was sent, and the card long outlives it. That is
-the point - the ring itself vanishes, the record does not.
+An invitation can be sent with or without a ring (`delivery` on the send; see the voice-ring guide).
+That gives the card three states, and the pair of fields is how you tell them apart:
 
-- **Before `expires_at`**: the ring is live. Accept it through
+| `ring_id` | `expires_at` | State | What to offer |
+|---|---|---|---|
+| set | in the future | a live ring | **Accept** - see below |
+| set | in the past | a ring that lapsed | the ordinary join against `channel_id` |
+| absent | **absent** | a standing invitation | the ordinary join against `channel_id` |
+
+**A missing `expires_at` does not mean expired.** It means there never was a ring: the invitation was
+sent quietly, it was valid the second it arrived, and it stays valid. Rendering "this invitation has
+expired" there is wrong about a card that is still good. The lapsed state is one that *had* an
+expiry and is past it.
+
+- **Live**: accept through
   `POST https://api.venta.gg/api/v1/guild/guilds/{guild_id}/channels/{channel_id}/voice/rings/{ring_id}/accept`,
-  which is the same path the realtime `guild.VoiceRingIncoming` card uses. In practice you will
-  rarely be here - a client that is open enough to render the message already got the realtime
-  event.
-- **After `expires_at`**: treat `ring_id` as absent. Do not call the accept endpoint with it. The
-  card is now history: render it in a past tense, and if you want to offer anything, offer the
+  the same path the realtime `guild.VoiceRingIncoming` card uses. In practice you will rarely be
+  here - a client open enough to render the message already got the realtime event.
+- **Lapsed or standing**: treat `ring_id` as absent and never call accept with it. Offer the
   ordinary "join this voice channel" action against `channel_id`, which is subject to the normal
-  permission check and is not an acceptance of anything.
+  permission check and is an acceptance of nothing. For the lapsed one, say so; for the standing
+  one, do not.
 
-Nothing rewrites this message when the ring is accepted, declined or lapses. Compare `expires_at`
-to your own clock at render time; an absolute instant stays right forever, which a stored "expired"
+Nothing rewrites this message when a ring is accepted, declined or lapses. Compare `expires_at` to
+your own clock at render time; an absolute instant stays right forever, which a stored "expired"
 flag would not.
+
+### Both people see this card
+
+The message is authored by the inviter and lands in the conversation the two of them share, so the
+sender reads the same row as the recipient. Offering the sender a Join button is nonsense - they are
+already in the channel, which is the only way they were allowed to ring at all - so compare
+`inviter_id` against the signed-in user and drop the affordance when they match.
+
+Note also that the sender **does** receive `conversation.MessageCreated` for this message, unlike
+every other message they author. They did not send it; the server did, on their behalf.
 
 ## Trust
 
@@ -338,8 +359,8 @@ also why the wiki share link no longer needs to bracket itself. See the deletion
 3. For `venta.wiki_page`, a lazy per-viewer title fetch with the 403/404 handling above.
 4. For `venta.invite`, optionally a lazy validity refresh; `expires_at` alone covers the common case
    with no request at all.
-5. For `venta.voice_invite`, no fetch at all: everything is in the card. Compare `expires_at` to the
-   clock to choose between the live "accept" affordance and the past-tense one, and handle a
+5. For `venta.voice_invite`, no fetch at all: everything is in the card. Switch on the three states
+   in the table above - live, lapsed, standing - hide the affordance from the sender, and handle a
    `conversation.MessageCreated` arriving for a conversation id you have never seen.
 6. Ignore an unknown `venta.*` type rather than falling back to the link layout - a future kind will
    arrive before your next release, and a half-rendered card is worse than no card.

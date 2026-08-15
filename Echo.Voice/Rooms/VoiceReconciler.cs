@@ -64,6 +64,16 @@ public sealed class VoiceReconciler(
 
     public static string LivenessKey(string userId) => $"voice:heartbeat:{userId}";
 
+    /// <summary>
+    /// Writes the one fact <c>VoiceHeartbeatCleanupService</c> reads: this user is still here, in
+    /// this room, as of now - good for a full <see cref="LivenessTtl"/>.
+    /// </summary>
+    public static Task ClaimLivenessAsync(
+        IDistributedCache cache, string userId, VoiceRoomKey key, CancellationToken ct = default) =>
+        cache.SetStringAsync(
+            LivenessKey(userId), key.ToString(),
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = LivenessTtl }, ct);
+
     /// <summary>Processes one heartbeat.</summary>
     /// <param name="userId">Server-authoritative, taken from the hub context.</param>
     /// <param name="knownInstanceId">
@@ -86,9 +96,7 @@ public sealed class VoiceReconciler(
     {
         // Liveness first and unconditionally: even a heartbeat about a room we disagree on proves
         // the client is alive, and dropping it would let the sweep evict a healthy participant.
-        await cache.SetStringAsync(
-            LivenessKey(userId), key.ToString(),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = LivenessTtl }, ct);
+        await ClaimLivenessAsync(cache, userId, key, ct);
 
         var room = await rooms.LoadAsync(key, ct);
         if (room is null)

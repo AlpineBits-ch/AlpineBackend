@@ -197,7 +197,10 @@ builder.Services.AddScoped<IGitHubClient>(s =>
 });
 builder.Services.AddInfrastructure();
 
-builder.Services.AddSignalR()
+// This is the only process that terminates a client socket (see MapHub below), so it is the only
+// one that sets timeouts - and RealtimeHubTimeouts is where the two numbers and the reasoning
+// behind them live.
+builder.Services.AddSignalR(RealtimeHubTimeouts.Configure)
     .AddStackExchangeRedis($"{redis.Host}:{redis.Port},password={redis.Password}");
 // Cross-origin sign-in for partner sites, scoped to the OIDC protocol endpoints and attached to
 // individual proxy routes rather than to a path prefix.

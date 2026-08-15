@@ -419,6 +419,40 @@ it; the card still appears in an app they already have open, because that is not
 
 ---
 
+## The invitation in the DM - the only part that outlives the ring
+
+Everything above disappears within the minute. A phone that was face-down for that minute is left
+with a notification that has already been swiped away and nothing else, which is why the ring also
+writes a message into the two people's direct conversation.
+
+You do not call anything for this and there is no flag to opt into. Sending a ring produces, in
+addition to the realtime event and the push:
+
+- a message of `type: "VoiceChannelInvite"`, authored by the inviter,
+- in the 1:1 conversation between the inviter and the target,
+- carrying exactly one embed, of type `venta.voice_invite`, with `flags & 65536` set.
+
+The full card shape and the rendering rules are in the **embeds frontend guide**, section
+`venta.voice_invite`. The short version: `ring_id` is live only until `expires_at` (about a minute),
+after which the card is history and any affordance you offer should be the ordinary "join this
+channel" one against `channel_id`. Nothing rewrites the message when the ring resolves.
+
+Three consequences worth planning for:
+
+- **The conversation may not exist yet.** If the two people already have a 1:1 conversation the
+  message goes into the most recently used one. If they have none, the server starts one - so
+  `conversation.MessageCreated` can be your first notice of a conversation id you have never seen.
+  Refresh the conversation list on an unknown id rather than dropping the event.
+- **It is not suppressed by a mute.** Unlike the push, this is written even when the target has
+  silenced the server. A mute is a request not to be interrupted, not a request to be left out of
+  your own message history - and it cannot buzz anything, because no system message produces a push.
+- **It is not guaranteed.** The message is skipped, silently, when the two have no conversation and
+  the target's `DirectMessagePolicy` would not admit a first contact from the inviter (the product
+  default is friends-only), or when a profile lookup fails. The ring itself is unaffected in both
+  cases. Do not build anything that assumes a ring always leaves a message behind.
+
+---
+
 ## Rate limits, in one place
 
 | Limit | Value | Refusal |
@@ -463,7 +497,8 @@ room and may never be - so it sits alongside `guild.MemberJoined` and `guild.Hou
 - **No delivery receipt.** The inviter learns nothing between sending and the resolution - not
   whether the target is online, not whether the push landed. That is deliberate: it would leak
   presence the target has not offered.
-- **No history.** A ring is unreadable 5 minutes after it resolves, and there is no list of who rang
-  whom. If you need "recent invitations", keep it client-side.
+- **No history of the ring itself.** A ring is unreadable 5 minutes after it resolves, and there is
+  no list of who rang whom. The DM card above is the durable record of the *invitation*, not of its
+  outcome: it never says whether it was accepted, declined or simply lapsed.
 - **No proactive event when the channel is deleted.** The ring lapses on its own inside a minute;
   accepting into a deleted channel returns `410`.

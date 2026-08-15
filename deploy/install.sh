@@ -428,6 +428,10 @@ fi
 # derived from INSTANCE_URL, so empty is right for a plain install. A site of your own on its own
 # hostname needs its origin here as well as in AUTH_CLIENTS.
 : "${CORS_ALLOWED_ORIGINS:=}"
+# Extra hostnames that count as this instance in a posted link. Additive to INSTANCE_URL's host
+# and the web client's, so empty is right unless invite links carry a third name - an apex or
+# vanity domain that redirects into the app, say. See the compose.yaml comment.
+: "${INSTANCE_LINK_HOSTS:=}"
 : "${INSTANCE_URL:=http://${INSTANCE_DOMAIN:-127.0.0.1}:8080}"
 : "${USE_EXTERNAL_DB:=no}"
 : "${DATABASE_HOSTNAME:=postgres}"
@@ -575,6 +579,10 @@ ADMIN_DOMAIN="${ADMIN_DOMAIN:-}"
 SUPPORT_DOMAIN="${SUPPORT_DOMAIN:-}"
 STATUS_DOMAIN="${STATUS_DOMAIN:-}"
 AUTH_DOMAIN="${AUTH_DOMAIN:-}"
+# Extra hostnames a posted link may use for this instance, beyond INSTANCE_URL's host and the
+# web client's. Set it if your invite links live on an apex or vanity domain, or their previews
+# come back describing your marketing page instead of the server.
+INSTANCE_LINK_HOSTS="${INSTANCE_LINK_HOSTS:-}"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # ── Sign-in / SSO ────────────────────────────────────────────────────────────────────

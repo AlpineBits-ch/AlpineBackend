@@ -362,6 +362,12 @@ public static class EmbedTypes
     public const string VentaInvite = "venta.invite";
 
     public const string VentaWikiPage = "venta.wiki_page";
+
+    /// <summary>
+    /// An invitation into a voice channel, written into the inviter and invitee's 1:1 conversation
+    /// by the voice ring.
+    /// </summary>
+    public const string VentaVoiceInvite = "venta.voice_invite";
 }
 
 /// <summary>
@@ -409,6 +415,23 @@ public class EmbedVentaPayload
     [JsonPropertyName("max_uses")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? MaxUses { get; set; }
+
+    /// <summary><c>voice_invite</c> only: the ring this card was written for.</summary>
+    [JsonPropertyName("ring_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RingId { get; set; }
+
+    /// <summary><c>voice_invite</c> only: who did the inviting.</summary>
+    [JsonPropertyName("inviter_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InviterId { get; set; }
+
+    /// <summary>
+    /// <c>voice_invite</c> only: the channel's name as it read when the invitation was sent.
+    /// </summary>
+    [JsonPropertyName("channel_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChannelName { get; set; }
 }
 
 public static class EmbedFlags

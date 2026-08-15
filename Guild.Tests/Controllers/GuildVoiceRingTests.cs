@@ -188,6 +188,9 @@ public class GuildVoiceRingTests
     private List<VoiceRingForBots> BotEvents =>
         _bus.Published.OfType<VoiceRingForBots>().ToList();
 
+    private List<VoiceRingDirectMessageRequested> DirectMessages =>
+        _bus.Published.OfType<VoiceRingDirectMessageRequested>().ToList();
+
     // ══════════════════════════════════════════════════════════════════════════ Sending a ring
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -831,6 +834,84 @@ public class GuildVoiceRingTests
                 "somebody who turned this server's phone notifications off asked not to be buzzed by it");
             Assert.That(Sent.RecipientsOf(VoiceRingService.IncomingEvent), Is.EqualTo(new[] { Target }),
                 "the card still appears in an app they already have open, which is not an interruption");
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // The durable half: the invitation in the direct conversation
+    // ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Ring_AsksMessagingToLeaveTheInvitationInTheDirectConversation()
+    {
+        await SitInAsync(ChannelId, Inviter);
+
+        var ring = await RingAsync();
+        var request = DirectMessages.SingleOrDefault();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(request, Is.Not.Null,
+                "a ring lasts a minute; the message is the only surface still there afterwards");
+            Assert.That(request!.RingId, Is.EqualTo(ring.RingId));
+            Assert.That(request.InviterId, Is.EqualTo(Inviter));
+            Assert.That(request.TargetUserId, Is.EqualTo(Target));
+            Assert.That(request.GuildId, Is.EqualTo(GuildId));
+            Assert.That(request.ChannelId, Is.EqualTo(ChannelId));
+            Assert.That(request.ChannelName, Is.EqualTo("General"),
+                "the card names the channel, and only a target already checked for ViewChannel gets one");
+            Assert.That(request.ExpiresAt, Is.EqualTo(_clock.GetUtcNow().Add(VoiceRing.Ttl)),
+                "an absolute instant, because unlike the push this is re-read months later");
+            Assert.That(request.ExpiresAt.Offset, Is.EqualTo(TimeSpan.Zero),
+                "a ring round-trips through Redis as JSON; an Unspecified kind would be read as local time");
+        });
+    }
+
+    [Test]
+    public async Task DirectMessage_IsStillRequested_WhenTheTargetTurnedMobilePushOffForThisGuild()
+    {
+        await SitInAsync(ChannelId, Inviter);
+        _context.GuildNotificationSettings.Add(new GuildNotificationSetting
+        {
+            Id = "gnot-1", MemberId = "member-target", MobilePush = false,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+        await _context.SaveChangesAsync();
+
+        await RingAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Pushes.Where(p => !p.Cancel), Is.Empty);
+            Assert.That(DirectMessages, Has.Count.EqualTo(1),
+                "a mute is a request not to be interrupted, not to be left out of your own message history");
+        });
+    }
+
+    [Test]
+    public async Task DirectMessage_IsNotRequestedASecondTime_WhenTheRingIsAnswered()
+    {
+        await SitInAsync(ChannelId, Inviter);
+        var ring = await RingAsync();
+
+        await Controller(Target).Accept(ring.RingId, CancellationToken.None);
+
+        Assert.That(DirectMessages, Has.Count.EqualTo(1),
+            "the card carries the expiry and the client compares it to its own clock, so there is nothing to rewrite");
+    }
+
+    [Test]
+    public async Task DirectMessage_IsNotRequested_WhenTheRingIsRefused()
+    {
+        // Nobody sitting in the channel, so the inviter is not in the room and the ring never
+        // exists. The refusal paths must not leave an invitation behind in a conversation.
+        var result = await Controller(Inviter)
+            .Ring(GuildId, ChannelId, new RingVoiceChannelDto(Target), CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.Not.InstanceOf<OkObjectResult>());
+            Assert.That(DirectMessages, Is.Empty);
         });
     }
 }

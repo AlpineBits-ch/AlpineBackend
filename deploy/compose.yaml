@@ -58,6 +58,26 @@ x-app-env: &app-env
   ASPNETCORE_URLS: http://+:8080
   ASPNETCORE_ENVIRONMENT: "${ASPNETCORE_ENVIRONMENT:-Production}"
 
+  # --- Extra hostnames that mean "this instance" in a posted link ---------------------
+  # Additive to the two that are derived: INSTANCE_URL's host, and the web client's
+  # (`app.<host>`, or APP_DOMAIN). See AppEnvironment/InstanceLinkHosts.cs.
+  #
+  # Two features read it and would be wrong in opposite directions if they disagreed, which
+  # is why it is IN THE SHARED BLOCK rather than on the two services that use it. Messaging
+  # turns a link to one of these hosts into an invite card resolved in-process; Unfurl
+  # refuses to fetch one at all, because a fetcher that exists to dial strangers must never
+  # be aimed at our own API. Split across two variables, one of them missing an alias means
+  # invite links come back as a scraped card for whatever your marketing page says.
+  #
+  # Set it when invite links people paste do not carry the same hostname as the web client:
+  # a vanity or apex domain that redirects into the app, a hostname you migrated from, or a
+  # CDN name in front of it. Comma, space or semicolon separated; bare hosts or full URLs.
+  #   INSTANCE_LINK_HOSTS=example.com,www.example.com
+  #
+  # Trade-off: a link to any other page on a host listed here gets no card at all rather
+  # than a scraped one. An unrecognised path on our own host is still our own host.
+  INSTANCE_LINK_HOSTS: "${INSTANCE_LINK_HOSTS:-}"
+
   # --- Browser origins allowed to read authenticated API responses --------------------
   # Additive: it never removes the built-ins (the desktop shells, `http://localhost:4200`,
   # `http://localhost:1420`) or the web client derived from INSTANCE_URL, so you cannot lock

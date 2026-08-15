@@ -138,6 +138,10 @@ builder.Services.AddScoped<ExplicitContentGuard>();
 // T2-14's per-guild DM toggle, over Guild's GetGuildDirectMessagePreferenceRequest.
 builder.Services.AddScoped<ISharedGuildDirectMessageLookup, SharedGuildDirectMessageLookup>();
 
+// "the DM with this person", for the server-side callers that address a user rather than a
+// conversation.
+builder.Services.AddScoped<DirectConversationResolver>();
+
 // T2-20. The control exists and is honoured; classification itself is out of scope, so the default
 // classifies nothing. Swapping this one registration is the whole of wiring a real scanner in.
 builder.Services.AddSingleton<IMediaClassifier, NoOpMediaClassifier>();

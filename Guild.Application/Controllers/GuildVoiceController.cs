@@ -173,6 +173,29 @@ public class GuildVoiceController(
         return NoContent();
     }
 
+    /// <summary>"I am still here." Nothing more - see the remarks.</summary>
+    [HttpPost("alive")]
+    public async Task<IActionResult> Alive(string guildId, string channelId, CancellationToken ct)
+    {
+        var participant = (await rooms.LoadAsync(Room(channelId), ct))?.Find(UserId);
+        if (participant is null) return NotFound();
+
+        var device = await ResolveDeviceAsync(ct);
+        if (!IsVoiceDevice(participant.DeviceId, device.DeviceId)) return Conflict();
+
+        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, Room(channelId), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Whether <paramref name="callingDeviceId"/> is the device that holds this room's voice
+    /// connection, recorded on the roster as <paramref name="voiceDeviceId"/>.
+    /// </summary>
+    private static bool IsVoiceDevice(string? voiceDeviceId, string? callingDeviceId) =>
+        string.IsNullOrEmpty(voiceDeviceId)
+        || string.IsNullOrEmpty(callingDeviceId)
+        || voiceDeviceId == callingDeviceId;
+
     /// <summary>
     /// The authoritative state of this channel's voice room, sufficient on its own for a client to
     /// be fully correct however much it missed.

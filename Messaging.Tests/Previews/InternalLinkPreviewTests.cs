@@ -275,6 +275,71 @@ public class InternalLinkPreviewTests
         });
     }
 
+    // ── The apex, which is nobody's sibling ──────────────────────────────────
+
+    [Test]
+    public async Task AnInviteOnTheApexDomain_GoesToTheFetcher_UntilItIsConfigured()
+    {
+        // The bug this pins.
+        var (bus, embeds) = await RunAsync("join us https://venta.gg/invite/ABC23456", AnInvite());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Invoked.OfType<UnfurlUrlsRequest>().Single().Urls,
+                Is.EqualTo(new[] { "https://venta.gg/invite/ABC23456" }));
+            Assert.That(embeds[0].Type, Is.EqualTo(EmbedTypes.Link),
+                "the scraped marketing card, which is what shipped");
+        });
+    }
+
+    [Test]
+    public async Task AnInviteOnTheApexDomain_BecomesAnInviteCard_WhenItIsConfigured()
+    {
+        Environment.SetEnvironmentVariable(InstanceLinkHosts.EnvironmentVariable, "venta.gg");
+
+        var (bus, embeds) = await RunAsync("join us https://venta.gg/invite/ABC23456", AnInvite());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Invoked.OfType<UnfurlUrlsRequest>(), Is.Empty,
+                "and the fetcher stops being pointed at our own apex on every paste");
+            Assert.That(embeds, Has.Count.EqualTo(1));
+            Assert.That(embeds[0].Type, Is.EqualTo(EmbedTypes.VentaInvite));
+            Assert.That(embeds[0].Venta!.InviteCode, Is.EqualTo("ABC23456"));
+        });
+    }
+
+    [Test]
+    public async Task ConfiguringTheApex_DoesNotAffectItsSiblings()
+    {
+        // Additive: the two derived entries are still there, so the deployment that adds an apex
+        // does not lose the host its own API is on.
+        Environment.SetEnvironmentVariable(InstanceLinkHosts.EnvironmentVariable, "venta.gg");
+
+        var (bus, embeds) = await RunAsync($"still ours {AppHost}/invite/ABC23456", AnInvite());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Invoked.OfType<UnfurlUrlsRequest>(), Is.Empty);
+            Assert.That(embeds[0].Type, Is.EqualTo(EmbedTypes.VentaInvite));
+        });
+    }
+
+    [Test]
+    public async Task AConfiguredApex_GetsNoCardForAPathWeDoNotKnow()
+    {
+        // The trade-off, stated.
+        Environment.SetEnvironmentVariable(InstanceLinkHosts.EnvironmentVariable, "venta.gg");
+
+        var (bus, embeds) = await RunAsync("read https://venta.gg/blog/whats-new");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Invoked.OfType<UnfurlUrlsRequest>(), Is.Empty);
+            Assert.That(embeds, Is.Empty);
+        });
+    }
+
     // ── The builder in isolation ─────────────────────────────────────────────
 
     [Test]

@@ -7,11 +7,19 @@ namespace Messaging.Tests.Helpers;
 internal sealed class FakeDistributedCache : IDistributedCache
 {
     private readonly Dictionary<string, byte[]> _store = new();
+    private readonly Dictionary<string, DistributedCacheEntryOptions> _options = new();
 
     public void SetEntry(string key, string value) =>
         _store[key] = Encoding.UTF8.GetBytes(value);
 
     public bool HasEntry(string key) => _store.ContainsKey(key);
+
+    /// <summary>
+    /// The expiry the last write to <paramref name="key"/> asked for, or null if the key was never
+    /// written through <see cref="IDistributedCache"/>.
+    /// </summary>
+    public DistributedCacheEntryOptions? OptionsFor(string key) =>
+        _options.TryGetValue(key, out var options) ? options : null;
 
     // ── IDistributedCache ─────────────────────────────────────────────────────
 
@@ -21,8 +29,11 @@ internal sealed class FakeDistributedCache : IDistributedCache
     public Task<byte[]?> GetAsync(string key, CancellationToken token = default) =>
         Task.FromResult(Get(key));
 
-    public void Set(string key, byte[] value, DistributedCacheEntryOptions options) =>
+    public void Set(string key, byte[] value, DistributedCacheEntryOptions options)
+    {
         _store[key] = value;
+        _options[key] = options;
+    }
 
     public Task SetAsync(string key, byte[] value, DistributedCacheEntryOptions options,
         CancellationToken token = default)
@@ -36,7 +47,11 @@ internal sealed class FakeDistributedCache : IDistributedCache
     public Task RefreshAsync(string key, CancellationToken token = default) =>
         Task.CompletedTask;
 
-    public void Remove(string key) => _store.Remove(key);
+    public void Remove(string key)
+    {
+        _store.Remove(key);
+        _options.Remove(key);
+    }
 
     public Task RemoveAsync(string key, CancellationToken token = default)
     {

@@ -60,6 +60,9 @@ public enum MessageType
 
     /// <summary>See Messaging.Domain.Enums.MessageType.CallMissed.</summary>
     CallMissed,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.VoiceChannelInvite.</summary>
+    VoiceChannelInvite,
 }
 
 public record MinimalAttachmentContract

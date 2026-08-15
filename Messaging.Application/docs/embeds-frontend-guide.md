@@ -49,7 +49,7 @@ the link points at.
 interface Embed {
   // ... everything in the link-previews guide, unchanged ...
   type: "rich" | "link" | "article" | "image" | "video" | "gifv"
-      | "venta.invite" | "venta.wiki_page";
+      | "venta.invite" | "venta.wiki_page" | "venta.voice_invite";
 
   /** Present only on venta.* embeds. Trust it only when `flags & 65536`. */
   venta?: EmbedVenta;
@@ -57,7 +57,7 @@ interface Embed {
 
 interface EmbedVenta {
   /** `type` without the "venta." prefix, so you can switch on one value. */
-  kind: "invite" | "wiki_page";
+  kind: "invite" | "wiki_page" | "voice_invite";
 
   /** Whether the server filled in title/description, or deliberately left them out. See "Stubs". */
   resolved: boolean;
@@ -66,15 +66,30 @@ interface EmbedVenta {
 
   // invite only
   invite_code?: string;
-  /** The channel a joiner lands on, when the invite names one. Id only - never a name. */
-  channel_id?: string;
   /** ISO-8601, or absent for an invite that never expires. */
-  expires_at?: string;
-  /** Absent for unlimited. */
   max_uses?: number;
+
+  // invite and voice_invite
+  /** The channel: the one a joiner lands on for an invite, the one you are asked into for a
+   *  voice_invite. Id only - except on voice_invite, which also carries channel_name. */
+  channel_id?: string;
+  /** ISO-8601. On an invite, absent means it never expires. On a voice_invite it is always
+   *  present and is roughly a minute after the message was sent. */
+  expires_at?: string;
 
   // wiki_page only
   page_id?: string;
+
+  // voice_invite only
+  /** The ring to accept through while it is still live. Meaningless past `expires_at` - treat an
+   *  expired one as absent rather than as something to call. */
+  ring_id?: string;
+  /** Who asked. Same as the message's `authorId` today; carried so the card keeps meaning what it
+   *  says if it is ever quoted. */
+  inviter_id?: string;
+  /** The channel's name when the invitation was sent. The one place a venta.* card carries a name
+   *  rather than only an id - see the voice_invite section for why. */
+  channel_name?: string;
 }
 ```
 
@@ -168,6 +183,66 @@ is deliberately silent about which, and so should the card be.
 This is not more work than before - the desktop wiki card already fetched per message. What you no
 longer do is *find* the link.
 
+## `venta.voice_invite` - the only card that is not about a link
+
+```json
+{
+  "type": "venta.voice_invite",
+  "title": "General",
+  "description": "You have been invited to join this voice channel.",
+  "flags": 65536,
+  "fields": [],
+  "venta": {
+    "kind": "voice_invite",
+    "resolved": true,
+    "ring_id": "vrng_3H66JNBG6BTA8FINHJVTTE2H846",
+    "guild_id": "gild_3H66JNBG6BTA8FINHJVTTE2H846",
+    "channel_id": "chan_3H61jLFREDU2Gl6ummuoEj5ta0h",
+    "channel_name": "General",
+    "inviter_id": "user_3H61jLFREDU2Gl6ummuoEj5ta0h",
+    "expires_at": "2026-08-15T12:01:00Z"
+  }
+}
+```
+
+Three things about it are different from the two above, and all three follow from it not standing
+for a URL somebody pasted.
+
+**There is no `url`.** There is no link shape for a channel anywhere in this product. Do not
+synthesise one, and do not fall back to the link layout when `url` is missing.
+
+**It arrives on a message you did not send and may be in a conversation you have never opened.** It
+is written by the server into the 1:1 conversation between the two people when somebody sitting in
+a voice channel rings you into it - `POST .../voice/rings`, see the voice-ring guide. If the two of
+you already have a DM it goes in the most recently used one; if you have none, the server starts
+one, so a `conversation.MessageCreated` may be the first thing you hear about that conversation
+existing. Re-read the conversation list on one for a conversation id you do not know.
+
+**`channel_name` is carried, unlike every other `venta.*` card.** The invite kind can omit names
+because you re-resolve them from the code; the wiki kind must omit them because the audience for
+the title is narrower than the audience for the message. Neither applies here - the recipient was
+checked for `ViewChannel` before the ring was allowed at all, and there is no lookup that would let
+them fill it in later. Render `channel_name`; do not fetch the channel to "get a fresher" one.
+
+### `ring_id` and `expires_at`
+
+`expires_at` is about a minute after the message was sent, and the card long outlives it. That is
+the point - the ring itself vanishes, the record does not.
+
+- **Before `expires_at`**: the ring is live. Accept it through
+  `POST https://api.venta.gg/api/v1/guild/guilds/{guild_id}/channels/{channel_id}/voice/rings/{ring_id}/accept`,
+  which is the same path the realtime `guild.VoiceRingIncoming` card uses. In practice you will
+  rarely be here - a client that is open enough to render the message already got the realtime
+  event.
+- **After `expires_at`**: treat `ring_id` as absent. Do not call the accept endpoint with it. The
+  card is now history: render it in a past tense, and if you want to offer anything, offer the
+  ordinary "join this voice channel" action against `channel_id`, which is subject to the normal
+  permission check and is not an acceptance of anything.
+
+Nothing rewrites this message when the ring is accepted, declined or lapses. Compare `expires_at`
+to your own clock at render time; an absolute instant stays right forever, which a stored "expired"
+flag would not.
+
 ## Trust
 
 | Field | Who wrote it |
@@ -258,10 +333,13 @@ also why the wiki share link no longer needs to bracket itself. See the deletion
 **Build - both:**
 
 1. Parse `embedsJson` (already done for bot embeds and link previews).
-2. Add two arms to the embed renderer, switched on `type`, gated on `flags & 65536`:
-   `venta.invite` and `venta.wiki_page`.
+2. Add three arms to the embed renderer, switched on `type`, gated on `flags & 65536`:
+   `venta.invite`, `venta.wiki_page` and `venta.voice_invite`.
 3. For `venta.wiki_page`, a lazy per-viewer title fetch with the 403/404 handling above.
 4. For `venta.invite`, optionally a lazy validity refresh; `expires_at` alone covers the common case
    with no request at all.
-5. Ignore an unknown `venta.*` type rather than falling back to the link layout - a future kind will
+5. For `venta.voice_invite`, no fetch at all: everything is in the card. Compare `expires_at` to the
+   clock to choose between the live "accept" affordance and the past-tense one, and handle a
+   `conversation.MessageCreated` arriving for a conversation id you have never seen.
+6. Ignore an unknown `venta.*` type rather than falling back to the link layout - a future kind will
    arrive before your next release, and a half-rendered card is worse than no card.

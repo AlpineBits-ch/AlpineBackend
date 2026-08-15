@@ -14,6 +14,13 @@ public enum MessageType
     /// Content is empty: there is no duration to show, only that it happened and who placed it
     /// (the message's author).</summary>
     CallMissed,
+
+    /// <summary>
+    /// Somebody asked the other party into a voice channel - the durable half of a voice ring
+    /// (<c>Guild.Application/Services/VoiceRingService</c>), written into the 1:1 conversation
+    /// between the two so the invitation survives the ring itself.
+    /// </summary>
+    VoiceChannelInvite,
 }
 
 /// <summary>

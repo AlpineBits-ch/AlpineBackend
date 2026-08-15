@@ -214,6 +214,7 @@ The installer leaves the optional integrations blank and the stack runs without 
 | `ISLE_*` | only read when the `isle` profile is enabled |
 | `AUTH_CLIENTS` | no site other than Venta's own apps can sign people in through this instance |
 | `CORS_ALLOWED_ORIGINS` | only the built-in dev and desktop origins, plus the web client derived from `INSTANCE_URL`, may call the API from a browser - see below |
+| `INSTANCE_LINK_HOSTS` | nothing, unless invite links use a hostname that is neither `INSTANCE_URL`'s nor the web client's - then they preview as a scraped page instead of an invite card, see below |
 | `GATEWAY_PROXY_SECRET` | forwarded headers are ignored and **every anonymous caller on the internet shares one rate-limit bucket** - see below |
 | `GATEWAY_TRUSTED_PROXIES` | nothing, unless you are using it instead of the secret |
 
@@ -325,6 +326,35 @@ Then `ventactl restart identity` for `AUTH_CLIENTS`, or `ventactl up` for the or
 service reads.
 
 Field-by-field reference: [`docs/specs/sso-integration.md`](../docs/specs/sso-integration.md).
+
+### `INSTANCE_LINK_HOSTS` - when an invite link previews as your marketing page
+
+A link to this instance is resolved in-process against the services that own the record, never
+fetched: an invite code becomes a card naming the server, and the fetcher that exists to dial
+third parties is never pointed at our own API. Both halves of that decide the same way, from the
+same list of hostnames.
+
+The list derives two entries with no configuration - `INSTANCE_URL`'s host, and the web client's
+(`app.<host>`, or `APP_DOMAIN`). That covers the ordinary case. It does not cover a **third**
+hostname that the deployment cannot derive: an apex or vanity domain that redirects into the app,
+a hostname you migrated from, or a CDN name in front of it.
+
+The symptom of a missing one is specific and does not look like a configuration problem. The link
+is classified as third-party, so it is fetched like any other URL - and what answers on that
+hostname is usually a marketing site. The preview comes back as a card for that page, correctly
+built, describing the product instead of the server somebody was invited to.
+
+```
+INSTANCE_LINK_HOSTS=example.com,www.example.com
+```
+
+Comma, space or semicolon separated; bare hosts or full URLs, only the host part is used. Additive
+- it never removes the two derived entries. `ventactl up` afterwards, because both the messaging
+and the unfurl service read it and the two must agree.
+
+One trade-off worth knowing before you add a host: a link to *any other* page on it now gets no
+card at all, rather than a scraped one. An unrecognised path on our own host is still our own host,
+so refusing is the only answer that does not hand the fetcher back the job it was taken off.
 
 ### Storage URLs
 

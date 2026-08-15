@@ -21,9 +21,12 @@ didn't exist:
 }
 ```
 
-- **`type`** - string enum, one of `Message`, `Invite`, `GuildMemberJoin`, `GuildMemberLeave`.
-  Ordinary chat messages are `Message` (the default - old messages and every message a human/bot
-  sends still come back this way, nothing to change for those).
+- **`type`** - string enum: `Message`, `Invite`, `GuildMemberJoin`, `GuildMemberLeave`, `CallEnded`,
+  `CallMissed`, `VoiceChannelInvite`. Ordinary chat messages are `Message` (the default - old
+  messages and every message a human/bot sends still come back this way, nothing to change for
+  those). The last three are conversation-only and are covered elsewhere: the call entries in the
+  voice guide, and `VoiceChannelInvite` in the voice-ring guide - it is a system message whose whole
+  content is a `venta.voice_invite` embed, so there is no variant set to write for it.
 - **`systemMessageVariant`** - integer `0`-`9`, only set when `type` is not `Message`. The backend
   picks this randomly per-message. It's an index into a fixed set of ~10 copy variants **you own**
   - the backend never sends copy text for system messages, only the type + variant index + the

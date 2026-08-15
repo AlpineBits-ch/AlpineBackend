@@ -35,6 +35,7 @@ public class CreateMessageCommandHandler
             ContractMessageType.GuildMemberLeave => DomainMessageType.GuildMemberLeave,
             ContractMessageType.CallEnded => DomainMessageType.CallEnded,
             ContractMessageType.CallMissed => DomainMessageType.CallMissed,
+            ContractMessageType.VoiceChannelInvite => DomainMessageType.VoiceChannelInvite,
             _ => DomainMessageType.Message,
         };
 

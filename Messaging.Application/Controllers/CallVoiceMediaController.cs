@@ -136,6 +136,29 @@ public class CallVoiceMediaController(
             : Ok(EntitlementResponses.WithDegradations(session, degradations));
     }
 
+    /// <summary>"I am still here." Nothing more - see the remarks.</summary>
+    [HttpPost("alive")]
+    public async Task<IActionResult> Alive(string callId, CancellationToken ct)
+    {
+        var participant = (await rooms.LoadAsync(Room(callId), ct))?.Find(UserId);
+        if (participant is null) return NotFound();
+
+        var device = await ResolveDeviceAsync(ct);
+        if (!IsVoiceDevice(participant.DeviceId, device.DeviceId)) return Conflict();
+
+        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, Room(callId), ct);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Whether <paramref name="callingDeviceId"/> is the device that holds this room's voice
+    /// connection, recorded on the roster as <paramref name="voiceDeviceId"/>.
+    /// </summary>
+    private static bool IsVoiceDevice(string? voiceDeviceId, string? callingDeviceId) =>
+        string.IsNullOrEmpty(voiceDeviceId)
+        || string.IsNullOrEmpty(callingDeviceId)
+        || voiceDeviceId == callingDeviceId;
+
     /// <summary>Publishes and/or subscribes tracks.</summary>
     [HttpPost("tracks")]
     public async Task<IActionResult> Negotiate(string callId, [FromBody] NegotiateBody body, CancellationToken ct)

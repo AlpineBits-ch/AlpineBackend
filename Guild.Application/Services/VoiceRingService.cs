@@ -160,6 +160,7 @@ public class VoiceRingService(
         var inviter = await ProfileAsync(inviterId, ct);
         await AnnounceIncomingAsync(ring, channel.Name, inviter, room, ct);
         await RequestPushAsync(ring, member.Id, channel.Name, inviter, ct);
+        await RequestDirectMessageAsync(ring, channel.Name, ct);
         await PublishForBotsAsync(ring, ct);
 
         return new VoiceRingResult(VoiceRingOutcome.Created, ring, null, TimeSpan.Zero);
@@ -305,6 +306,22 @@ public class VoiceRingService(
             BodyLocArgs = [channelName],
         });
     }
+
+    /// <summary>
+    /// Asks Messaging to leave the invitation in the two people's direct conversation.
+    /// </summary>
+    private async Task RequestDirectMessageAsync(VoiceRing ring, string channelName, CancellationToken ct) =>
+        await bus.PublishAsync(new VoiceRingDirectMessageRequested
+        {
+            RingId = ring.Id,
+            GuildId = ring.GuildId,
+            ChannelId = ring.ChannelId,
+            ChannelName = channelName,
+            InviterId = ring.InviterId,
+            TargetUserId = ring.TargetUserId,
+            // Stamped rather than converted implicitly.
+            ExpiresAt = new DateTimeOffset(DateTime.SpecifyKind(ring.ExpiresAt, DateTimeKind.Utc), TimeSpan.Zero),
+        });
 
     /// <summary>Takes the notification back off the target's lock screen.</summary>
     private async Task CancelPushAsync(VoiceRing ring, CancellationToken ct) =>

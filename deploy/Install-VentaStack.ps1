@@ -398,7 +398,10 @@ $Defaults = @{
     # docs/specs/sso-integration.md.
     # CORS_ALLOWED_ORIGINS is the other half of putting a site of your own on this instance:
     # AUTH_CLIENTS lets it sign people in, this lets its browser code read API responses.
-    AUTH_ISSUER_URL = ''; AUTH_CLIENTS = ''; CORS_ALLOWED_ORIGINS = ''
+    # INSTANCE_LINK_HOSTS is additive to INSTANCE_URL's host and the web client's, so empty is
+    # right unless invite links carry a third name - an apex or vanity domain that redirects
+    # into the app. Without it those links preview as your marketing page, not as an invite.
+    AUTH_ISSUER_URL = ''; AUTH_CLIENTS = ''; CORS_ALLOWED_ORIGINS = ''; INSTANCE_LINK_HOSTS = ''
     USE_EXTERNAL_DB = 'no'; DATABASE_HOSTNAME = 'postgres'; DATABASE_PORT = '5432'
     DATABASE_USERNAME = 'postgres'; DATABASE_PASSWORD = (New-Secret 24)
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
@@ -574,6 +577,10 @@ ADMIN_DOMAIN="$($Config['ADMIN_DOMAIN'])"
 SUPPORT_DOMAIN="$($Config['SUPPORT_DOMAIN'])"
 STATUS_DOMAIN="$($Config['STATUS_DOMAIN'])"
 AUTH_DOMAIN="$($Config['AUTH_DOMAIN'])"
+# Extra hostnames a posted link may use for this instance, beyond INSTANCE_URL's host and the
+# web client's. Set it if your invite links live on an apex or vanity domain, or their previews
+# come back describing your marketing page instead of the server.
+INSTANCE_LINK_HOSTS="$($Config['INSTANCE_LINK_HOSTS'])"
 ASPNETCORE_ENVIRONMENT="Production"
 
 # -- Sign-in / SSO ---------------------------------------------------------------------

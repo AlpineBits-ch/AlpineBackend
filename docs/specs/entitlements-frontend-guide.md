@@ -29,6 +29,7 @@ treat the "planned" rows as absent-until-present rather than as a reason to desi
 | §6 usage endpoints | Planned. Owned by the services that do the counting |
 | §8 voice `limits` block | Shipped. It rides every voice snapshot, and `degradations[]` rides the join reply in both room kinds |
 | §8.1 publish enforcement and the `video` field | Shipped. Both room kinds. `degradations[]` on the negotiate reply, `403` for the two refusals |
+| §8.2 `video` on the renegotiation | Shipped. Both room kinds. Never refuses and never changes the response body; omitting it leaves your recorded ceiling untouched |
 | §10 guild feature resolution | Shipped, on `GET /guilds/{guildId}` as `featureResolution` and on `GET /guilds/{guildId}/features`. **Not** on the guild list, and not on a nested guild - see §10 |
 | §5.5 `plan` on the snapshot | Shipped, with `currentVersion` beside `version`. Absent on `selfhost`, and on an instance with no plans or no configured default for that kind of subject. On a hosted instance with Billing deployed the plans come from Billing's table, so it is present for everybody |
 | §5.6 `stripePublishableKey` | Shipped. Absent unless the instance was configured with one |
@@ -548,6 +549,36 @@ Two answers, and they are §1 and §4 exactly as everywhere else:
   the clamp does not get you the quality you asked for; it gets you a lower layer distributed to
   everyone. A client that never sends `video` is not capped this way, which is the one thing sending
   it truthfully buys you.
+
+### 8.2 Changing resolution mid-stream
+
+Send `video` on the **renegotiation** too, whenever the renegotiation changes what your video is:
+
+```http
+PUT https://api.venta.gg/api/v1/guilds/{guildId}/channels/{channelId}/voice/negotiate
+PUT https://api.venta.gg/api/v1/voice/calls/{callId}/negotiate
+```
+
+```jsonc
+{
+  "mediaSessionId": "...",
+  "sessionDescription": { "type": "offer", "sdp": "..." },
+  "video": { "height": 1080, "framerate": 60 }   // new, optional
+}
+```
+
+The server-side cap is computed from your declaration, so a declaration made once at publish time
+stops describing you the moment you change encodings. The rules are the same ones as §8.1, plus:
+
+- **Absent changes nothing.** Whatever the last declaration recorded stays in force - in either
+  direction. Omitting the field does not lift a cap, and it does not apply one either.
+- **It moves both ways.** Renegotiating down into your rung lifts the cap on the same call that would
+  have applied one, so re-encoding to comply is never punished by having to republish.
+- **There is no new failure.** A renegotiation is how you repair your own connection, so none of this
+  can refuse one: no `403`, no `degradations[]`, no change to the response body. If your declaration
+  is above your rung the effect is on what leaves the room, not on this request.
+- **A renegotiation that does not touch video needs nothing.** An ICE restart, a track close, a
+  reconnect - send the body you always sent.
 
 ---
 

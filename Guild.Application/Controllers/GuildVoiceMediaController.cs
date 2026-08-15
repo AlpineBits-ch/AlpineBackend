@@ -24,7 +24,13 @@ public record GuildNegotiateBody(
     VoiceSessionDescription SessionDescription,
     List<VoiceTrackRef> Tracks,
     VoiceVideoIntent? Video = null);
-public record GuildRenegotiateBody(string MediaSessionId, VoiceSessionDescription SessionDescription);
+/// <param name="Video">
+/// What the caller intends to send once this renegotiation completes, when it changes their video.
+/// </param>
+public record GuildRenegotiateBody(
+    string MediaSessionId,
+    VoiceSessionDescription SessionDescription,
+    VoiceVideoIntent? Video = null);
 public record GuildCloseTracksBody(string MediaSessionId, List<string> TrackNames);
 
 /// <summary>WebRTC signalling for guild voice channels.</summary>
@@ -252,6 +258,10 @@ public class GuildVoiceMediaController(
         });
     }
 
+    /// <summary>
+    /// Relays a renegotiation offer, after re-applying the video ceiling to whatever the caller now
+    /// says they are sending.
+    /// </summary>
     [HttpPut("negotiate")]
     public async Task<IActionResult> Renegotiate(
         string guildId, string channelId,
@@ -260,6 +270,16 @@ public class GuildVoiceMediaController(
     {
         if (!await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Connect)) return Forbid();
         if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
+
+        var revision = await voice.ReviseVideoLayerAsync(
+            Room(channelId), UserId, VoiceVideoIntent.RequestOf(body.Video), ct);
+
+        // The one thing this server can see of a publisher working around their rung: they declared
+        // a size at publish time and are now declaring a larger one.
+        if (revision is { Changed: true, MaxLayer: not null })
+            logger.LogInformation(
+                "Video ceiling re-applied on renegotiation for user {UserId} in channel {ChannelId}: "
+                + "capped at layer {Layer}", UserId, channelId, revision.MaxLayer);
 
         try
         {

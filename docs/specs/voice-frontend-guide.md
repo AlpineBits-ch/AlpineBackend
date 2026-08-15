@@ -197,11 +197,15 @@ room the roster lists everybody and the set lists the handful you should actuall
 ### 3.5 Renegotiate / close
 
 ```http
-PUT  .../voice/negotiate     { "mediaSessionId", "sessionDescription" }
+PUT  .../voice/negotiate     { "mediaSessionId", "sessionDescription", "video"? }
 POST .../voice/tracks/close { "mediaSessionId", "trackNames": ["screen-abc123"] }
 ```
 
 Closing `audio` marks you no longer publishing and tells peers to drop you.
+
+`video` is optional and only matters when the renegotiation changes your resolution or framerate -
+see §8.2 of the entitlements guide. Omitting it leaves your quality ceiling exactly as your last
+publish declared it, so a renegotiation that is an ICE restart or a reconnect needs nothing new.
 
 ### 3.6 Leave
 

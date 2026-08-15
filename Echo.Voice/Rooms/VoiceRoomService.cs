@@ -313,6 +313,51 @@ public sealed class VoiceRoomService(
     }
 
     /// <summary>
+    /// Re-applies the video ceiling to a publisher who changed what they are sending without
+    /// republishing.
+    /// </summary>
+    /// <param name="request">What the publisher now intends to send.</param>
+    public async Task<VoiceLayerRevision> ReviseVideoLayerAsync(
+        VoiceRoomKey key, string userId, VoiceVideoRequest request, CancellationToken ct = default)
+    {
+        if (request.DeclaredHeight <= 0) return VoiceLayerRevision.Undeclared;
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room?.Find(userId) is not { } publisher) return VoiceLayerRevision.Undeclared;
+
+        // Somebody with no video on the roster has nothing to cap, and writing a layer for them
+        // would put a Redis write on every renegotiation of every audio-only participant.
+        if (!VoiceSubscriptionPlanner.HasVideo(publisher))
+            return VoiceLayerRevision.Undeclared;
+
+        var limits = await ResolveLimitsAsync(room.GuildId, ct);
+
+        // An unresolved ceiling means the resolver could not answer, and the fail-open direction
+        // that is right at publish time is wrong here: it would read as "unlimited" and lift a cap
+        // that a successful resolution had already applied.
+        if (!limits.Resolved) return VoiceLayerRevision.Undeclared;
+
+        var ceiling = await ResolveVideoCeilingAsync(room, userId, limits, ct);
+        var layer = VoiceVideoLayers.CeilingFor(
+            EntitlementLadders.VideoQuality.RungAt(ceiling.Rank), request.DeclaredHeight);
+
+        if (layer == publisher.MaxVideoLayer) return new VoiceLayerRevision(false, layer);
+
+        var updated = await rooms.MutateExistingAsync(key, r =>
+        {
+            if (r.Find(userId) is { } me) me.MaxVideoLayer = layer;
+        }, ct);
+        if (updated is null) return VoiceLayerRevision.Undeclared;
+
+        // Forced, like the publish path and for the same reason: the ranked set has not moved and
+        // yet what every viewer of this publisher should be pulling has.
+        var (plan, changed) = await ReselectAsync(updated, ct);
+        await AnnouncePlanAsync(updated, plan, changed, ct, force: true);
+
+        return new VoiceLayerRevision(true, layer);
+    }
+
+    /// <summary>
     /// Re-resolves the room's limits and, if they moved, writes them - which advances the version.
     /// </summary>
     public async Task<VoiceRoom?> RefreshLimitsAsync(VoiceRoomKey key, CancellationToken ct = default)
@@ -1012,6 +1057,17 @@ public sealed record VoiceVideoIntent(int Height = 0, int Framerate = 0)
     /// about what a missing <c>video</c> means.</summary>
     public static VoiceVideoRequest RequestOf(VoiceVideoIntent? intent) =>
         intent?.ToRequest() ?? VoiceVideoRequest.Best;
+}
+
+/// <summary>What <see cref="VoiceRoomService.ReviseVideoLayerAsync"/> did.</summary>
+/// <param name="Changed">Whether the recorded cap actually moved, in either direction.</param>
+/// <param name="MaxLayer">The cap now in force, null when nothing binds this publisher.</param>
+public readonly record struct VoiceLayerRevision(bool Changed, VoiceVideoLayer? MaxLayer)
+{
+    /// <summary>Nothing was declared, nothing was published, or the ceiling could not be resolved.
+    /// Whatever cap the roster held is untouched - which is not the same claim as "no cap", and is
+    /// why this reports <see cref="Changed"/> false rather than a layer of its own.</summary>
+    public static readonly VoiceLayerRevision Undeclared = new(false, null);
 }
 
 /// <summary>What a publisher may actually send.</summary>

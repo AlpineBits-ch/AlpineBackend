@@ -27,7 +27,13 @@ public record NegotiateBody(
     VoiceSessionDescription SessionDescription,
     List<VoiceTrackRef> Tracks,
     VoiceVideoIntent? Video = null);
-public record RenegotiateBody(string MediaSessionId, VoiceSessionDescription SessionDescription);
+/// <param name="Video">
+/// What the caller intends to send once this renegotiation completes, when it changes their video.
+/// </param>
+public record RenegotiateBody(
+    string MediaSessionId,
+    VoiceSessionDescription SessionDescription,
+    VoiceVideoIntent? Video = null);
 public record CloseTracksBody(string MediaSessionId, List<string> TrackNames);
 
 /// <summary>WebRTC signalling for direct calls.</summary>
@@ -300,11 +306,25 @@ public class CallVoiceMediaController(
         });
     }
 
+    /// <summary>
+    /// Relays a renegotiation offer, after re-applying the video ceiling to whatever the caller now
+    /// says they are sending.
+    /// </summary>
     [HttpPut("negotiate")]
     public async Task<IActionResult> Renegotiate(string callId, [FromBody] RenegotiateBody body, CancellationToken ct)
     {
         if (!await IsConnectedParticipantAsync(callId)) return Forbid();
         if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
+
+        var revision = await voice.ReviseVideoLayerAsync(
+            Room(callId), UserId, VoiceVideoIntent.RequestOf(body.Video), ct);
+
+        // The one thing this server can see of a publisher working around their rung: a size
+        // declared at publish time and a larger one declared now.
+        if (revision is { Changed: true, MaxLayer: not null })
+            logger.LogInformation(
+                "Video ceiling re-applied on renegotiation for user {UserId} in call {CallId}: capped "
+                + "at layer {Layer}", UserId, callId, revision.MaxLayer);
 
         try
         {

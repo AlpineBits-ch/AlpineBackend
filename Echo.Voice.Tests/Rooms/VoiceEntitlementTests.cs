@@ -522,6 +522,184 @@ public class VoiceEntitlementTests
         });
     }
 
+    // ── The cap survives a mid-stream resolution change ───────────────────────
+
+    /// <summary>The hole this closed.</summary>
+    [Test]
+    public async Task Renegotiating_above_the_rung_caps_a_publisher_who_published_inside_it()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var honest = await service.EvaluateVideoPublishAsync(_key, "u01", new VoiceVideoRequest(720, 30));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], honest.MaxLayer);
+        await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
+            TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
+
+        var revision = await service.ReviseVideoLayerAsync(_key, "u01", new VoiceVideoRequest(1080, 60));
+
+        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
+            new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(honest.MaxLayer, Is.Null, "the publish itself was inside the rung");
+            Assert.That(revision.Changed, Is.True);
+            Assert.That(revision.MaxLayer, Is.EqualTo(VoiceVideoLayer.Medium));
+            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.Medium),
+                "a cap computed once at publish time is one a second negotiation walks past");
+        });
+    }
+
+    /// <summary>The other direction, and the reason the revision is a function of the current
+    /// declaration rather than a punishment for an earlier one: a publisher who renegotiates back
+    /// inside their rung gets their full layer again.</summary>
+    [Test]
+    public async Task Renegotiating_back_inside_the_rung_lifts_the_cap()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var over = await service.EvaluateVideoPublishAsync(_key, "u01", new VoiceVideoRequest(2160, 60));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], over.MaxLayer);
+
+        var revision = await service.ReviseVideoLayerAsync(_key, "u01", new VoiceVideoRequest(720, 30));
+        var recorded = (await _h.Rooms.LoadAsync(_key))!.Find("u01")!.MaxVideoLayer;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(over.MaxLayer, Is.EqualTo(VoiceVideoLayer.Low));
+            Assert.That(revision.Changed, Is.True);
+            Assert.That(revision.MaxLayer, Is.Null);
+            Assert.That(recorded, Is.Null);
+        });
+    }
+
+    /// <summary>A renegotiation that declares nothing is not a claim of innocence.</summary>
+    [Test]
+    public async Task A_renegotiation_that_declares_nothing_leaves_the_cap_alone()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var over = await service.EvaluateVideoPublishAsync(_key, "u01", new VoiceVideoRequest(1080, 60));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], over.MaxLayer);
+
+        var revision = await service.ReviseVideoLayerAsync(_key, "u01", VoiceVideoRequest.Best);
+        var recorded = (await _h.Rooms.LoadAsync(_key))!.Find("u01")!.MaxVideoLayer;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(revision.Changed, Is.False);
+            Assert.That(recorded, Is.EqualTo(VoiceVideoLayer.Medium),
+                "absent is not a request to be uncapped");
+        });
+    }
+
+    /// <summary>A declaration that agrees with what is already recorded writes nothing.</summary>
+    [Test]
+    public async Task A_renegotiation_that_changes_nothing_costs_no_version()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var over = await service.EvaluateVideoPublishAsync(_key, "u01", new VoiceVideoRequest(1080, 60));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], over.MaxLayer);
+        var before = (await _h.Rooms.LoadAsync(_key))!.Version;
+
+        var revision = await service.ReviseVideoLayerAsync(_key, "u01", new VoiceVideoRequest(1080, 60));
+        var after = (await _h.Rooms.LoadAsync(_key))!.Version;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(revision.Changed, Is.False);
+            Assert.That(revision.MaxLayer, Is.EqualTo(VoiceVideoLayer.Medium));
+            Assert.That(after, Is.EqualTo(before));
+        });
+    }
+
+    /// <summary>Renegotiating is not publishing.</summary>
+    [Test]
+    public async Task A_participant_publishing_no_video_is_not_given_a_cap()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "480p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        await service.RecordPublishAsync(_key, "u01", "cf-u01");
+        var before = (await _h.Rooms.LoadAsync(_key))!.Version;
+
+        var revision = await service.ReviseVideoLayerAsync(_key, "u01", new VoiceVideoRequest(1080, 60));
+        var room = (await _h.Rooms.LoadAsync(_key))!;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(revision.Changed, Is.False);
+            Assert.That(room.Find("u01")!.MaxVideoLayer, Is.Null);
+            Assert.That(room.Version, Is.EqualTo(before));
+        });
+    }
+
+    /// <summary>The fail-open direction that is right at publish time is wrong here.</summary>
+    [Test]
+    public async Task An_unresolvable_ceiling_leaves_the_recorded_cap_where_it_is()
+    {
+        var plan = new MutablePlan { MaxParticipants = 10 };
+        var options = new VoiceSubscriptionOptions();
+        var service = new VoiceRoomService(
+            _h.Rooms, _h.Announcer, Subscriptions(options), new EntitlementResolver([plan]));
+
+        await JoinAsync(service, 2);
+        await service.RecordTracksAsync(
+            _key, "u01", "cf-u01", ["camera"], VoiceVideoLayer.Medium);
+
+        plan.Broken = true;
+        var revision = await service.ReviseVideoLayerAsync(_key, "u01", new VoiceVideoRequest(2160, 60));
+        var recorded = (await _h.Rooms.LoadAsync(_key))!.Find("u01")!.MaxVideoLayer;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(revision.Changed, Is.False);
+            Assert.That(recorded, Is.EqualTo(VoiceVideoLayer.Medium),
+                "an outage must not be a window in which the ceiling stops applying");
+        });
+    }
+
+    /// <summary>Nobody is subscribed to a room that does not exist and nobody is in one they have not
+    /// joined, so both are a no-op rather than anything to report. A renegotiation is a client
+    /// repairing its own connection and must not be failed by any of this.</summary>
+    [Test]
+    public async Task Revising_a_room_or_participant_that_is_not_there_does_nothing()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        var noRoom = await service.ReviseVideoLayerAsync(
+            VoiceRoomKey.Channel("channel-absent"), "u01", new VoiceVideoRequest(1080, 60));
+
+        await JoinAsync(service, 1);
+        var noParticipant = await service.ReviseVideoLayerAsync(
+            _key, "u99", new VoiceVideoRequest(1080, 60));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(noRoom, Is.EqualTo(VoiceLayerRevision.Undeclared));
+            Assert.That(noParticipant, Is.EqualTo(VoiceLayerRevision.Undeclared));
+        });
+    }
+
     /// <summary>The mapping on its own, at its boundaries.</summary>
     [TestCase("720p30", 720, null)]
     [TestCase("720p30", 721, VoiceVideoLayer.Medium)]

@@ -333,6 +333,83 @@ public class GuildVoicePublishEntitlementTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // The renegotiation, which is how a resolution changes mid-stream
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>The endpoint half of the hole.</summary>
+    [Test]
+    public async Task A_renegotiation_above_the_rung_caps_a_publisher_who_published_inside_it()
+    {
+        var plan = GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"));
+
+        await PublishAsync(plan, new VoiceVideoIntent(720, 30));
+        var published = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+
+        var result = await ControllerFor(plan).Renegotiate(
+            GuildId, ChannelId,
+            new GuildRenegotiateBody(
+                SessionId, new VoiceSessionDescription("offer", "v=0"), new VoiceVideoIntent(1080, 60)),
+            CancellationToken.None);
+
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(published!.Find(UserId)!.MaxVideoLayer, Is.Null,
+                "the publish itself declared a size inside the rung");
+            Assert.That(room!.Find(UserId)!.MaxVideoLayer, Is.EqualTo(VoiceVideoLayer.Medium));
+            Assert.That(result, Is.InstanceOf<OkObjectResult>(),
+                "a renegotiation is a client repairing its own connection and is never refused by "
+                + "any of this");
+        });
+    }
+
+    /// <summary>A renegotiation that declares nothing is every v1 client, and every ICE restart. It
+    /// must leave the recorded cap exactly where it is: reading absence as "uncapped" would make the
+    /// cheapest way past the ceiling be to publish honestly once and then renegotiate empty.</summary>
+    [Test]
+    public async Task A_renegotiation_that_declares_nothing_leaves_the_cap_alone()
+    {
+        var plan = GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"));
+
+        await PublishAsync(plan, new VoiceVideoIntent(1080, 60));
+
+        await ControllerFor(plan).Renegotiate(
+            GuildId, ChannelId,
+            new GuildRenegotiateBody(SessionId, new VoiceSessionDescription("offer", "v=0")),
+            CancellationToken.None);
+
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+
+        Assert.That(room!.Find(UserId)!.MaxVideoLayer, Is.EqualTo(VoiceVideoLayer.Medium),
+            "absent is not a request to be uncapped");
+    }
+
+    /// <summary>Ownership of the session gates this before anything is revised, so a declaration
+    /// cannot be used to move somebody else's cap - in either direction.</summary>
+    [Test]
+    public async Task A_renegotiation_on_a_session_the_caller_does_not_own_revises_nothing()
+    {
+        var plan = GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"));
+
+        await PublishAsync(plan, new VoiceVideoIntent(1080, 60));
+
+        var result = await ControllerFor(plan).Renegotiate(
+            GuildId, ChannelId,
+            new GuildRenegotiateBody(
+                "cf-peer", new VoiceSessionDescription("offer", "v=0"), new VoiceVideoIntent(720, 30)),
+            CancellationToken.None);
+
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidResult>());
+            Assert.That(room!.Find(UserId)!.MaxVideoLayer, Is.EqualTo(VoiceVideoLayer.Medium));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // What is deliberately untouched
     // ══════════════════════════════════════════════════════════════════════════
 

@@ -521,7 +521,7 @@ so one parser handles both. The event additionally carries the usual room-id, `i
 | `revision` | Increases whenever the ranked set changes. **Ignore a payload whose `revision` is lower than one you have already applied** - two server instances can interleave. It is unrelated to `version`. |
 | `activeSpeakers` | The ranked set, for rendering. Not the same as your track list, which also carries your pins. |
 | `tracks` | Everything to pull, complete. Not a delta. |
-| `layer` | Simulcast layer for a video track: `"q"` low, `"h"` medium, `"f"` full. `null` for audio. **The server sends this to the SFU on your behalf** (§6.7), so it describes what you will actually be served, not a request you have to make. |
+| `layer` | Simulcast layer for a video track: `"a"` full, `"b"` medium, `"c"` low. `null` for audio. The names are alphabetical in **descending** quality because the SFU sorts rids a-z and reads that order as best-to-worst (§6.7) - they are a ranking, not an abbreviation. **The server sends this to the SFU on your behalf**, so it describes what you will actually be served, not a request you have to make. |
 | `mediaSessionId` | May be `null` for a share published before the server recorded its session. Use the handle you already have from `TrackPublished`. Never `null` for audio. |
 
 ### 6.3 What to do with it
@@ -630,7 +630,15 @@ Two things follow:
 
 A publisher that sends a single encoding has no layers to choose between, and the SFU is asked to
 fall back to whatever it does have rather than to send nothing. Publish simulcast encodings named
-`q`/`h`/`f` if you want the saving to be real for your own video.
+`a` (full), `b` (medium) and `c` (low) if you want the saving to be real for your own video.
+
+**Name them exactly that, in that order.** The rid names are not abbreviations of a resolution, they
+are the priority ranking itself: Cloudflare's only ordering vocabulary is `asciibetical`, which means
+a-z with "a most desirable, z least", and it governs both what you are dropped to under congestion
+and what you fall back to when a layer stops being published. The WebRTC convention `q`/`h`/`f`
+sorts backwards against quality, so a publisher using it is asking the SFU to degrade congested
+viewers *up* to full quality. Nothing errors when the names are wrong - the bill just stops going
+down.
 
 ---
 

@@ -23,9 +23,9 @@ public enum VoiceVideoLayer
 /// <summary>Wire names for <see cref="VoiceVideoLayer"/>.</summary>
 public static class VoiceVideoLayers
 {
-    public const string Low = "q";
-    public const string Medium = "h";
-    public const string High = "f";
+    public const string High = "a";
+    public const string Medium = "b";
+    public const string Low = "c";
 
     public static string Name(VoiceVideoLayer layer) => layer switch
     {

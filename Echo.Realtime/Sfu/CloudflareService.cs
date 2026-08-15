@@ -40,10 +40,11 @@ public record CfSimulcast(
     string PriorityOrdering = CfSimulcast.NoOrdering
 )
 {
+    /// <summary>Keep sending the preferred rid even when there is not enough bandwidth for it.</summary>
     public const string NoOrdering = "none";
 
     /// <summary>Serve the next rid the publisher actually has, rather than nothing.</summary>
-    public const string NextAvailable = "desc";
+    public const string NextAvailable = "asciibetical";
 }
 
 public record CfTrackNew(

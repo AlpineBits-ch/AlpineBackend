@@ -62,6 +62,27 @@ public class VoiceLayerSelectionTests
     private static string? LayerOf(VoiceSubscribeDecision decision, string trackName) =>
         decision.Tracks.Single(t => t.TrackName == trackName).Layer;
 
+    // ── The names themselves ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Cloudflare's only rid-ordering vocabulary is <c>asciibetical</c>: "a is most desirable, z is
+    /// least" under congestion, and "the next available layer after sorting a-z" when a rid stops
+    /// being published.
+    /// </summary>
+    [Test]
+    public void Layer_names_sort_alphabetically_in_descending_quality()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                string.CompareOrdinal(VoiceVideoLayers.High, VoiceVideoLayers.Medium), Is.Negative,
+                "the SFU sorts rids a-z and reads that order as best-to-worst");
+            Assert.That(
+                string.CompareOrdinal(VoiceVideoLayers.Medium, VoiceVideoLayers.Low), Is.Negative,
+                "the SFU sorts rids a-z and reads that order as best-to-worst");
+        });
+    }
+
     // ── The layer the tile size asks for ──────────────────────────────────────
 
     [Test]

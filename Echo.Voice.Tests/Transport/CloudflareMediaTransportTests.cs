@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Echo.Realtime.Sfu;
+using Echo.Voice.Rooms;
 using Echo.Voice.Transport;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -76,11 +77,12 @@ public class CloudflareMediaTransportTests
         await TransportFor(handler).SubscribeAsync("cf-1", new VoiceNegotiateRequest(
             new VoiceSessionDescription("offer", "v=0"),
             [new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "camera", Layer: "q")]));
+                VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "camera",
+                Layer: VoiceVideoLayers.Low)]));
 
         Assert.Multiple(() =>
         {
-            Assert.That(handler.LastBody, Does.Contain("\"preferredRid\":\"q\""));
+            Assert.That(handler.LastBody, Does.Contain($"\"preferredRid\":\"{VoiceVideoLayers.Low}\""));
             Assert.That(handler.LastBody, Does.Not.Contain("\"layer\""),
                 "the neutral vocabulary must not leak to Cloudflare, which would reject it");
         });
@@ -99,9 +101,28 @@ public class CloudflareMediaTransportTests
         await TransportFor(handler).SubscribeAsync("cf-1", new VoiceNegotiateRequest(
             new VoiceSessionDescription("offer", "v=0"),
             [new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "camera", Layer: "h")]));
+                VoiceTrackDirection.Subscribe, MediaSessionId: "cf-peer", TrackName: "camera",
+                Layer: VoiceVideoLayers.Medium)]));
 
-        Assert.That(handler.LastBody, Does.Contain("\"ridNotAvailable\":\"desc\""));
+        Assert.That(handler.LastBody, Does.Contain("\"ridNotAvailable\":\"asciibetical\""));
+    }
+
+    /// <summary>
+    /// Cloudflare validates both ordering fields against a two-word enum, and a value outside it is
+    /// not a rejected track but a rejected request: the body fails to decode, the 400 names no
+    /// field, and every subscribe carrying a layer dies while audio - which carries none - goes on
+    /// working. That is a whole feature broken by a string, so the strings are asserted.
+    /// </summary>
+    [Test]
+    public void The_ordering_fields_only_carry_words_Cloudflare_accepts()
+    {
+        var simulcast = new CfSimulcast(VoiceVideoLayers.Low);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(simulcast.RidNotAvailable, Is.AnyOf("none", "asciibetical"));
+            Assert.That(simulcast.PriorityOrdering, Is.AnyOf("none", "asciibetical"));
+        });
     }
 
     [Test]
@@ -128,7 +149,8 @@ public class CloudflareMediaTransportTests
         await TransportFor(handler).PublishAsync("cf-1", new VoiceNegotiateRequest(
             new VoiceSessionDescription("offer", "v=0"),
             [new VoiceTrackRef(
-                VoiceTrackDirection.Publish, Mid: "0", TrackName: "camera", Layer: "q")]));
+                VoiceTrackDirection.Publish, Mid: "0", TrackName: "camera",
+                Layer: VoiceVideoLayers.Low)]));
 
         Assert.That(handler.LastBody, Does.Not.Contain("simulcast"),
             "which layer to serve is a question about pulling somebody else's video");

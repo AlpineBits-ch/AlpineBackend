@@ -111,7 +111,11 @@ public class CheckoutContractSerialisationTests
             + "\"priceMinorUnits\":2900,"
             + "\"currency\":\"usd\","
             + "\"interval\":\"month\","
-            + "\"isPayer\":true}"));
+            + "\"isPayer\":true,"
+            // Present and false rather than omitted, so a client can render the toggle from the
+            // subscription it already has rather than asking a second surface whether the field
+            // exists.
+            + "\"useCreditBeforeCharging\":false}"));
     }
 
     [Test]

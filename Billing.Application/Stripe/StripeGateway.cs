@@ -308,6 +308,32 @@ public sealed class StripeGateway(StripeOptions options, ILogger<StripeGateway>?
         return Snapshot(subscription);
     }
 
+    public async Task<StripeSubscriptionSnapshot> DeferBillingAsync(
+        string subscriptionId,
+        DateTimeOffset resumeAt,
+        StripeIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subscriptionId);
+
+        var update = new StripeSdk.SubscriptionUpdateOptions
+        {
+            TrialEnd = resumeAt.UtcDateTime,
+
+            // Nothing to prorate: the price is unchanged and the customer is not owed the
+            // difference between two of them.
+            ProrationBehavior = "none",
+        };
+
+        var subscription = await CallAsync(
+            "subscriptions.update.defer_billing",
+            idempotencyKey,
+            requestOptions => Client.V1.Subscriptions.UpdateAsync(
+                subscriptionId, update, requestOptions, cancellationToken));
+
+        return Snapshot(subscription);
+    }
+
     public async Task<StripeSubscriptionSnapshot> ChangeSubscriptionPriceAsync(
         string subscriptionId,
         string priceId,

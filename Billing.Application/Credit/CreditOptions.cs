@@ -51,6 +51,12 @@ public sealed class CreditOptions
 
     /// <summary>The spend catalogue.</summary>
     public List<CreditSkuOptions> Catalogue { get; set; } = [];
+
+    /// <summary>Whether renewals may spend credit before charging the card at all.</summary>
+    public bool RenewFromCredit { get; set; } = true;
+
+    /// <summary>How far ahead of a renewal the sweep looks, in days.</summary>
+    public int RenewalLeadDays { get; set; } = 3;
 }
 
 /// <summary>One SKU, validated.</summary>

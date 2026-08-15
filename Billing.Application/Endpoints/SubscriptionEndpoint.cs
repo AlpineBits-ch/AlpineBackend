@@ -98,6 +98,31 @@ public class SubscriptionEndpoint
             logger);
     }
 
+    /// <summary>
+    /// Chooses whether renewals spend the payer's credit before charging their card.
+    /// </summary>
+    [Authorize]
+    [WolverinePost("/api/v1/subscriptions/{id}/credit-renewal")]
+    public static async Task<IResult> SetCreditRenewalAsync(
+        string id,
+        SetCreditRenewalRequest request,
+        [NotBody] SubscriptionCheckoutService subscriptions,
+        [NotBody] ClaimsPrincipal caller,
+        [NotBody] ILogger<SubscriptionEndpoint> logger,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var userId = BillingProblems.CallerId(caller);
+        if (userId is null) return BillingProblems.Unauthenticated();
+
+        return await BillingProblems.GuardAsync(
+            async () => Results.Ok(
+                await subscriptions.SetCreditRenewalAsync(
+                    id, request.UseCredit, userId, cancellationToken)),
+            logger);
+    }
+
     /// <summary>What the change would cost, before it is committed.</summary>
     [Authorize]
     [WolverinePost("/api/v1/subscriptions/{id}/preview-change")]

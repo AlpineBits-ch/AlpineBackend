@@ -416,6 +416,26 @@ public sealed class SubscriptionCheckoutService(
         return await ToDtoAsync(row, isPayer: true, cancellationToken);
     }
 
+    /// <summary>
+    /// Turns "spend my credit before charging my card" on or off for one subscription.
+    /// </summary>
+    public async Task<SubscriptionDto> SetCreditRenewalAsync(
+        string stripeSubscriptionId,
+        bool useCredit,
+        string callerUserId,
+        CancellationToken cancellationToken)
+    {
+        var row = await RequirePayerAsync(stripeSubscriptionId, callerUserId, cancellationToken);
+
+        row.UseCreditBeforeCharging = useCredit;
+
+        logger?.LogInformation(
+            "{Payer} set credit-first renewal to {Enabled} on subscription {Subscription}.",
+            callerUserId, useCredit, row.StripeSubscriptionId);
+
+        return await ToDtoAsync(row, isPayer: true, cancellationToken);
+    }
+
     public async Task<ProrationPreviewDto> PreviewChangeAsync(
         string stripeSubscriptionId,
         string planName,
@@ -679,7 +699,8 @@ public sealed class SubscriptionCheckoutService(
                 null,
                 null,
                 null,
-                isPayer);
+                isPayer,
+                row.UseCreditBeforeCharging);
         }
 
         var version = await db.PlanVersions.FirstOrDefaultAsync(

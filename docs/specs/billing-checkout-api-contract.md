@@ -219,7 +219,8 @@ subject.
   "priceMinorUnits": 2900,
   "currency": "usd",
   "interval": "month",
-  "isPayer": true
+  "isPayer": true,
+  "useCreditBeforeCharging": false
 }
 ```
 
@@ -234,6 +235,18 @@ needs a plain sentence with a date, not a status chip.
 
 `isPayer` false means the caller manages the guild but somebody else's card is behind it. They may
 look, they may not cancel.
+
+`useCreditBeforeCharging` is whether renewals spend the payer's credit balance before charging their
+card. Off unless somebody turned it on, and set through `POST /subscriptions/{id}/credit-renewal`
+with `{"useCredit": true|false}` - payer only, the same rule cancelling follows. Per subscription
+rather than per account on purpose: a wallet is one balance and an account can be paying for several
+things, so "use my credits" only answers a question if it says which of them.
+
+When it is on and the wallet covers a whole period, the renewal is bought as a credit grant and
+Stripe is told to bill nothing until that grant runs out - so the customer sees `status` become
+`trialing` and `currentPeriodEnd` move forward with no invoice. **There is no part-payment.** A
+balance that cannot cover a whole period is left alone and the card is charged in full, because
+pricing points against an invoice is what would turn credit into a cash discount.
 
 `interval` is the period the price is charged over, and it is the same string the catalogue publishes
 for the same plan version - `month` in this wave, sourced from the one place that decides it, so the

@@ -476,6 +476,30 @@ and evaporate. Getting this wrong produces the worst possible support ticket: "I
 got nothing." The resolver in section 4.2 handles overlapping sources fine; it is the *purchase* that
 has to be smart about start dates.
 
+**Renewals may spend credit before the card, and the mechanism matters more than the feature.** A
+subscriber who opts in has their renewal bought out of the wallet: the balance buys the ordinary
+time-boxed grant above, and Stripe is then told separately to bill nothing until that grant runs out.
+The obvious alternative - convert the points to a cash amount and put it on the Stripe customer
+balance so it discounts the invoice - is one call instead of two and breaks three rules in 8.1 and
+8.2 at once. It publishes the internal peg as a user-facing exchange rate, it makes credit
+money-equivalent, and it leaves a part-credit invoice whose refund comes back entirely in cash, which
+is a chain of operations adding up to a withdrawal. So the credit buys time and the card stands down;
+the two never meet on one invoice.
+
+Three consequences worth stating rather than rediscovering:
+
+- **Whole periods only.** A balance that cannot cover the SKU is left alone and the card is charged
+  in full. Part-payment would require pricing points against an invoice, and the moment that happens
+  somebody can read the peg off their own receipt.
+- **Opt in, per subscription.** Off by default, because credit expires and a balance somebody is
+  holding for a specific thing is a balance a helpful default would spend for them - and the spend is
+  not reversible afterwards, by 8.6's design. Per subscription rather than per account because a
+  wallet is one balance and an account can be paying for several things.
+- **Nothing owed.** A past-due subscription is not renewed from credit. Deferring the next charge
+  neither pays the outstanding invoice nor stops the dunning clock, so it would spend the balance and
+  downgrade them anyway. Credit renews what is current; it does not settle a debt, which is the
+  cash-conversion shape under another name.
+
 ### 8.4 Wallets are user-scoped; targets are not
 
 One wallet per user. Guilds do not hold balances.

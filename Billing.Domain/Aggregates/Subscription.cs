@@ -86,6 +86,11 @@ public class Subscription : BaseEntity<Subscription>, IPrefixedEntity
 
     public bool CancelAtPeriodEnd { get; set; }
 
+    /// <summary>
+    /// Whether a renewal should spend the payer's credit before it charges their card.
+    /// </summary>
+    public bool UseCreditBeforeCharging { get; set; }
+
     public string? LatestInvoiceId { get; set; }
 
     /// <summary>When the dunning grace after a failed payment runs out, or null when nothing is owed.

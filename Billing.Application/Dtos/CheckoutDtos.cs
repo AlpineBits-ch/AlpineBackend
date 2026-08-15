@@ -111,6 +111,9 @@ public sealed record CreateSubscriptionRequest(
 /// <summary>The body of both preview-change and change.</summary>
 public sealed record ChangePlanRequest(string PlanName);
 
+/// <summary>The body of the credit-first renewal toggle.</summary>
+public sealed record SetCreditRenewalRequest(bool UseCredit);
+
 /// <summary>One sellable plan on the customer-facing catalogue.</summary>
 public sealed record CataloguePlanDto(
     string Name,
@@ -146,7 +149,8 @@ public sealed record SubscriptionDto(
     long? PriceMinorUnits,
     string? Currency,
     string? Interval,
-    bool IsPayer)
+    bool IsPayer,
+    bool UseCreditBeforeCharging = false)
 {
     /// <summary>Mirrors <c>StripeCatalogueSync.MonthlyInterval</c>, spelled out here for the same
     /// reason <c>CheckoutCatalogueService</c> spells out its own copy: the DTO layer does not have to
@@ -175,7 +179,8 @@ public sealed record SubscriptionDto(
             version?.PriceMinorUnits,
             version?.Currency,
             version is null ? null : StripeCatalogueSyncInterval,
-            isPayer);
+            isPayer,
+            subscription.UseCreditBeforeCharging);
     }
 }
 

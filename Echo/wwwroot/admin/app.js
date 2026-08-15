@@ -45,7 +45,13 @@
         return el('span', kind ? `tag ${kind}` : 'tag', text);
     }
 
-    /** Absolute date on hover, relative in the row. A queue is read by age, not by timestamp. */
+    /**
+     * Relative in the row. A queue is read by age, not by timestamp.
+     *
+     * The year is carried on anything past a month, because a queue sorted by age puts the oldest
+     * rows together at one end and "Mar 4" above "Mar 11" says nothing about whether the gap between
+     * them is a week or three years.
+     */
     function ago(iso) {
         if (!iso) return '';
 
@@ -54,11 +60,72 @@
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
         if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
         if (seconds < 2592000) return `${Math.floor(seconds / 86400)}d`;
-        return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
+    /** The relative age as a row cell, with the absolute time on hover. `ago` returns a string, so
+     *  the hover this file has always claimed to have needs a node to hang off. */
+    function agoNode(iso) {
+        const node = el('span', 'rw-time', ago(iso));
+        if (iso) node.title = stamp(iso);
+        return node;
+    }
+
+    /**
+     * An absolute time, with the zone it is in.
+     *
+     * Moderators on the same account are rarely in the same place, and a suspension that ends
+     * "at 9pm" is a different instruction in Berlin than in Denver. Built from parts rather than
+     * concatenated: dateStyle and timeStyle cannot be combined with timeZoneName, and pasting the
+     * abbreviation on afterwards puts it on the wrong side of the string in half the locales.
+     */
+    const STAMP_FORMAT = new Intl.DateTimeFormat(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit',
+        timeZoneName: 'short',
+    });
+
     function stamp(iso) {
-        return iso ? new Date(iso).toLocaleString() : '-';
+        return iso ? STAMP_FORMAT.format(new Date(iso)) : '-';
+    }
+
+    /**
+     * The words this console already uses for an enum, and a readable fallback for the ones nobody
+     * has written wording for yet.
+     *
+     * The override map is not decoration: these are the phrasings the lists have shipped with, and a
+     * screen that says "Under review" beside one that says "Being reviewed" reads as two different
+     * states to the person triaging both.
+     *
+     * Entitlement sources are deliberately absent. Billing has its own map in SOURCE_TEXT, which is
+     * the one the provenance rows read from; wording them twice is how the two drift apart.
+     */
+    const ENUM_TEXT = {
+        UnderReview: 'Being reviewed',
+        AwaitingRequester: 'With them',
+        PendingDeletion: 'Pending deletion',
+        ActionTaken: 'Action taken',
+    };
+
+    function humanEnum(value) {
+        if (!value) return value;
+        if (ENUM_TEXT[value]) return ENUM_TEXT[value];
+
+        const words = String(value)
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+            .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+            .split(' ');
+
+        // Sentence case rather than title case - these sit inside sentences and beside prose, not in
+        // headings. A run of capitals is left as it is: it is an acronym, and lowercasing it costs
+        // the reader the word.
+        return words
+            .map((word, index) => word.length > 1 && word === word.toUpperCase()
+                ? word
+                : index === 0
+                    ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                    : word.toLowerCase())
+            .join(' ');
     }
 
     function toast(kind, message) {
@@ -257,6 +324,11 @@
                 // GET /api/v1/admin/session, resolved from the account row on every request, which
                 // is deliberately not a token claim (a claim outlives a demotion).
                 scope: 'openid offline_access',
+                // Names the row this sign-in adds to the operator's own "Active sessions" list.
+                // Without it CreateSession falls back to the raw User-Agent, and because the console
+                // holds its session per tab, a day's work leaves a column of identical Mozilla/5.0
+                // entries that nobody can tell apart or safely revoke.
+                device_name: 'Moderation console',
                 ...(mfa ? { mfa_code: mfa } : {}),
             });
 
@@ -290,7 +362,32 @@
         $('#gate').classList.remove('hidden');
     }
 
-    $('#sign-out').addEventListener('click', signOut);
+    // The button revokes; signOut() on its own does not. The difference matters because signOut() is
+    // also how a dead session ends, and a token that was just refused has nothing left to give back.
+    // Pressing this is the one moment the operator means "end it on the server too", and on a shared
+    // machine that is the difference between forgetting the refresh token here and leaving it
+    // redeemable for another fortnight.
+    $('#sign-out').addEventListener('click', () => {
+        const refresh = tokens.refresh;
+
+        if (refresh) {
+            // Not awaited, and keepalive so it still goes if the tab is closed on the same gesture. A
+            // revoke that cannot be delivered must never be a reason somebody stays signed in on
+            // screen, so the local sign-out below happens either way.
+            fetch('/connect/revoke', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    token: refresh,
+                    token_type_hint: 'refresh_token',
+                    client_id: 'echo',
+                }),
+                keepalive: true,
+            }).catch(() => {});
+        }
+
+        signOut();
+    });
 
     /**
      * The staff check could not be completed. Waits, retries, and if it still cannot, says so and
@@ -448,49 +545,356 @@
 
     // ── Detail pane ─────────────────────────────────────────────────────────
 
+    /** Whoever had focus when the pane opened, so closing it can hand focus back rather than
+     *  dropping it on the body somewhere above the row that is being worked. */
+    let detailOpener = null;
+
     function openDetail(title, content) {
+        // The pane sits after the list in DOM order, so a keyboard user who opens a row would
+        // otherwise have to tab through every remaining row to reach what they just opened. Focus
+        // goes to the heading rather than to the close button: the heading names what arrived, and
+        // the close button is the one thing in the pane nobody opened it to press.
+        detailOpener = document.activeElement;
+
         $('#detail-title').textContent = title;
         $('#detail-body').replaceChildren(content);
         $('#detail').classList.remove('hidden');
+        $('#detail-title').focus();
     }
 
     function closeDetail() {
-        $('#detail').classList.add('hidden');
+        const pane = $('#detail');
+        const held = pane.contains(document.activeElement);
+
+        pane.classList.add('hidden');
         $('#detail-body').replaceChildren();
         $$('.rw, .plan-row').forEach(row => row.setAttribute('aria-selected', 'false'));
+
+        // Only reclaim focus if the pane actually had it. `go()` closes the pane as part of changing
+        // view, and yanking focus back to a row that is about to be replaced by a different view's
+        // rows is worse than leaving it where the click put it.
+        if (!held) { detailOpener = null; return; }
+
+        const back = detailOpener?.isConnected ? detailOpener : $('.rw') || $('#refresh');
+        back?.focus();
+        detailOpener = null;
     }
 
     $('#detail-close').addEventListener('click', () => { selectedId = null; closeDetail(); });
 
+    // ── Keyboard ────────────────────────────────────────────────────────────
+
+    /*
+     * List navigation, for a tool that is shaped like a queue.
+     *
+     * Two scoping rules, and everything below obeys both. Nothing fires while a modal is open - the
+     * modal owns Escape and Tab, and a shortcut that reaches past it would act on a list the operator
+     * cannot see. Nothing fires while the caret is in a field either, because there `j` and `k` are
+     * letters somebody is typing into a suspension note, not commands.
+     *
+     * The cursor is the row's own `aria-selected`, not a variable: the list is rebuilt on every
+     * render, so any element or index kept here would be pointing at a row that no longer exists.
+     */
+    function modalOpen() {
+        return !$('#modal-host').classList.contains('hidden');
+    }
+
+    function typingInto(node) {
+        return node instanceof HTMLElement
+            && (node.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(node.tagName));
+    }
+
+    function visibleRows() {
+        return $$('.rw').filter(node => node.getClientRects().length > 0);
+    }
+
+    /** Answers whether it moved, so a view with no rows in it - the overview, the billing document -
+     *  leaves the arrow keys to the scroller they belong to. */
+    function moveRow(delta) {
+        const rows = visibleRows();
+        if (!rows.length) return false;
+
+        const at = rows.findIndex(node => node.getAttribute('aria-selected') === 'true');
+        const next = at < 0
+            ? (delta > 0 ? 0 : rows.length - 1)
+            : Math.min(rows.length - 1, Math.max(0, at + delta));
+
+        rows[next].scrollIntoView({ block: 'nearest' });
+        rows[next].click();   // the row's own handler marks the selection and opens the detail
+        return true;
+    }
+
+    function openSelectedRow() {
+        visibleRows().find(node => node.getAttribute('aria-selected') === 'true')?.click();
+    }
+
+    addEventListener('keydown', event => {
+        if (modalOpen() || event.ctrlKey || event.metaKey || event.altKey) return;
+
+        // Escape is the one key that still works from inside a field: it is how you get out of one.
+        if (event.key === 'Escape') {
+            if ($('#detail').classList.contains('hidden')) return;
+            event.preventDefault();
+            selectedId = null;
+            closeDetail();
+            return;
+        }
+
+        if (typingInto(document.activeElement)) return;
+
+        if (event.key === 'j' || event.key === 'ArrowDown') { if (moveRow(1)) event.preventDefault(); return; }
+        if (event.key === 'k' || event.key === 'ArrowUp') { if (moveRow(-1)) event.preventDefault(); return; }
+
+        // A row is a button, so the browser already opens the one that has focus. Enter is only
+        // wired for the case where focus has moved on - into the detail pane, most often - and the
+        // selected row is still the row the operator means.
+        if (event.key === 'Enter') {
+            if (document.activeElement?.closest('.rw')) return;
+            openSelectedRow();
+            return;
+        }
+
+        if (event.key === '/') {
+            const search = $('#view-tools input[type="search"]')
+                || $('#view input[type="search"]')
+                || $('#view-tools input')
+                || $('#view-tools select');
+
+            if (!search) return;
+            event.preventDefault();   // otherwise the slash lands in the field we just focused
+            search.focus();
+            search.select?.();
+        }
+    });
+
     // ── Modal ───────────────────────────────────────────────────────────────
+
+    const FOCUSABLE = [
+        'a[href]', 'button:not([disabled])', 'input:not([disabled])',
+        'select:not([disabled])', 'textarea:not([disabled])', '[tabindex]:not([tabindex="-1"])',
+    ].join(', ');
+
+    /** One counter for every generated id in the file, so a heading and an error message can never
+     *  collide on one. */
+    let idSeq = 0;
 
     function modal(build) {
         const host = $('#modal-host');
         const box = $('#modal');
+        const app = $('#app');
+
+        // Stashed before the modal is built, because building it is what steals the focus. A
+        // moderator who opens a suspension dialog off a row and cancels it belongs back on that row,
+        // not on the body at the top of a list they have to find their place in again.
+        const opener = document.activeElement;
+
+        let confirming = null;
 
         function close() {
             host.classList.add('hidden');
             box.replaceChildren();
-            removeEventListener('keydown', onKey);
+            box.removeAttribute('aria-labelledby');
+            box.removeAttribute('aria-label');
+            removeEventListener('keydown', onKey, true);
+
+            // The rest of the console goes back to being reachable. `inert` is what actually stops
+            // Tab and the pointer; aria-hidden is there for the assistive tech that predates it.
+            app.removeAttribute('inert');
+            app.removeAttribute('aria-hidden');
+
+            confirming = null;
+            if (opener?.isConnected) opener.focus();
         }
 
-        function onKey(event) { if (event.key === 'Escape') close(); }
+        function focusables() {
+            return $$(FOCUSABLE, box).filter(node => node.getClientRects().length > 0);
+        }
+
+        /**
+         * The initial value of every control the builder put in the modal.
+         *
+         * Recorded rather than read back off `defaultValue`, because `select()` sets `selected` on an
+         * option as a property, which never becomes the default the DOM would report.
+         */
+        const initial = new Map();
+
+        function valueOf(control) {
+            return control.type === 'checkbox' || control.type === 'radio'
+                ? String(control.checked)
+                : control.value;
+        }
+
+        function pristine(control) {
+            // Controls a builder added after the modal opened - one more rule row, say - are not in
+            // the snapshot, so they are compared against the DOM's own idea of untouched.
+            if (initial.has(control)) return initial.get(control);
+            if (control.type === 'checkbox' || control.type === 'radio') return String(control.defaultChecked);
+            if (control.tagName === 'SELECT') {
+                return [...control.options].find(option => option.defaultSelected)?.value
+                    ?? control.options[0]?.value ?? '';
+            }
+            return control.defaultValue ?? '';
+        }
+
+        function dirty() {
+            return $$('input, textarea, select', box)
+                .some(control => valueOf(control) !== pristine(control));
+        }
+
+        /**
+         * Escape and the backdrop are both easy to hit by accident, and half a written appeal
+         * decision is not something to lose without being asked about it. The builder's own Cancel
+         * button keeps closing immediately: that one was aimed at.
+         *
+         * Asked inside the modal rather than through `window.confirm`, which blocks the whole tab and
+         * cannot be styled, read out, or dismissed with the keyboard the way the rest of this is.
+         */
+        function tryClose() {
+            if (confirming) return;
+            if (!dirty()) return close();
+
+            confirming = el('div', 'modal-confirm');
+            confirming.append(el('p', null, 'Discard your changes?'));
+
+            const row = el('div', 'btn-row');
+            const keep = button('Keep editing', 'check', () => {
+                confirming?.remove();
+                confirming = null;
+                box.querySelector('input, textarea, select')?.focus();
+            }, 'ghost');
+
+            row.append(keep, button('Discard', 'times', close, 'danger'));
+            confirming.append(row);
+            box.append(confirming);
+            keep.focus();   // the safe half of a two-button question is the one that should be armed
+        }
+
+        function onKey(event) {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+
+                // Escape out of the discard question means "no, keep editing", not "discard".
+                if (confirming) {
+                    confirming.remove();
+                    confirming = null;
+                    box.querySelector('input, textarea, select')?.focus();
+                    return;
+                }
+
+                tryClose();
+                return;
+            }
+
+            if (event.key !== 'Tab') return;
+
+            // Without this, Tab walks straight out of the dialog and into the list behind it, which
+            // the backdrop stops the mouse reaching but does nothing about the keyboard.
+            const items = focusables();
+            if (!items.length) return;
+
+            const first = items[0];
+            const last = items[items.length - 1];
+            const active = document.activeElement;
+
+            if (event.shiftKey && (active === first || !box.contains(active))) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && (active === last || !box.contains(active))) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
 
         box.replaceChildren(build(close));
         host.classList.remove('hidden');
-        addEventListener('keydown', onKey);
 
-        $('.modal-backdrop').onclick = close;
+        // Every builder in this file opens with an h2. Naming the dialog off it means the heading is
+        // read on arrival instead of a bare "dialog"; the fallback is for a builder that does not.
+        const heading = box.querySelector('h2');
+        if (heading) {
+            heading.id ||= `modal-title-${++idSeq}`;
+            box.setAttribute('aria-labelledby', heading.id);
+        } else {
+            box.setAttribute('aria-label', 'Dialog');
+        }
+
+        app.setAttribute('inert', '');
+        app.setAttribute('aria-hidden', 'true');
+
+        $$('input, textarea, select', box).forEach(control => initial.set(control, valueOf(control)));
+
+        // Capturing, so the trap sees Tab and Escape before anything the builder bound.
+        addEventListener('keydown', onKey, true);
+
+        $('.modal-backdrop').onclick = tryClose;
         box.querySelector('input, textarea, select, button')?.focus();
 
         return close;
     }
 
-    function field(label, control, hint) {
+    /**
+     * A labelled control.
+     *
+     * `options.required` marks the label rather than the control: a required field has to be
+     * tellable apart before it is filled in and refused, and the marker is the only part of that
+     * which survives a screenshot pasted into a ticket.
+     */
+    function field(label, control, hint, options = {}) {
         const wrap = el('div', 'field');
-        wrap.append(el('label', null, label), control);
+        const text = el('label', null, label);
+
+        if (options.required) {
+            const mark = el('span', 'req', '*');
+            mark.title = 'Required';
+            mark.setAttribute('aria-label', '(required)');
+            text.append(mark);
+
+            if (control.matches?.('input, textarea, select')) control.setAttribute('aria-required', 'true');
+        }
+
+        wrap.append(text, control);
         if (hint) wrap.append(el('p', 'hint', hint));
         return wrap;
+    }
+
+    /**
+     * A refusal, next to the control that caused it.
+     *
+     * Not a toast: a toast naming a field is read after the eye has already left it, and it is gone
+     * four seconds later. Tracked per control rather than per wrapper so a `.field` holding two
+     * inputs can refuse one of them without wiping the other's message.
+     */
+    const fieldErrors = new WeakMap();
+
+    function fieldError(control, message) {
+        clearFieldError(control);
+
+        const note = el('p', 'field-error');
+        note.id = `field-error-${++idSeq}`;
+        note.append(icon('exclamation-circle'), el('span', null, message));
+
+        control.setAttribute('aria-invalid', 'true');
+        control.setAttribute('aria-describedby', note.id);
+
+        const wrap = control.closest?.('.field');
+        if (wrap) wrap.append(note); else control.after(note);
+
+        fieldErrors.set(control, note);
+
+        // A message still sitting under a field somebody has since corrected is the console arguing
+        // with itself, so the first keystroke takes it away.
+        control.addEventListener('input', () => clearFieldError(control), { once: true });
+        control.focus();
+
+        return note;
+    }
+
+    function clearFieldError(control) {
+        fieldErrors.get(control)?.remove();
+        fieldErrors.delete(control);
+        control.removeAttribute('aria-invalid');
+        control.removeAttribute('aria-describedby');
     }
 
     function select(options, value) {
@@ -661,7 +1065,7 @@
                 if (report.status !== 'Open' && report.status !== 'Triaged') title.push(tag(report.status));
                 else if (report.assignedToUserId) title.push(tag('Claimed'));
 
-                const side = [el('span', 'rw-time', ago(report.createdAt))];
+                const side = [agoNode(report.createdAt)];
 
                 list.append(row({
                     mark: PRIORITY_CLASS[report.priority],
@@ -689,8 +1093,8 @@
 
         pane.append(block(null, kv([
             ['Reason', REASON_TEXT[report.reason] || report.reason],
-            ['Priority', report.priority],
-            ['Status', report.status],
+            ['Priority', humanEnum(report.priority)],
+            ['Status', humanEnum(report.status)],
             ['Filed', stamp(report.createdAt)],
             ['Target', copyable(report.targetUserId)],
             ['Reporter', report.reporterUserId ? copyable(report.reporterUserId) : 'Opened by staff'],
@@ -837,7 +1241,7 @@
                 original = el('input');
                 original.placeholder = 'rprt_...';
                 original.required = true;
-                form.append(field('Original report id', original));
+                form.append(field('Original report id', original, null, { required: true }));
             }
 
             const note = el('textarea');
@@ -846,7 +1250,7 @@
             note.placeholder = status === 'Dismissed'
                 ? 'e.g. Reviewed the channel; the message is heated but within the rules.'
                 : 'e.g. Same incident as the earlier report from another member.';
-            form.append(field('Resolution', note));
+            form.append(field('Resolution', note, null, { required: true }));
 
             const actions = el('div', 'actions');
             const cancel = el('button', 'btn', 'Cancel');
@@ -892,6 +1296,15 @@
         modal(close => {
             const form = el('form');
             form.append(el('h2', null, 'Act on this account'));
+
+            // Whose account, said in the dialog rather than left to the row somebody clicked several
+            // minutes ago. Nothing else on this form names the person it restricts, and the id is
+            // beside the name because two accounts can read alike and only one of them did it.
+            const target = el('p', 'lede');
+            target.append(el('strong', null, preset.userName || 'This account'));
+            target.append(document.createTextNode(` · ${userId}`));
+            form.append(target);
+
             form.append(el('p', 'lede', 'The account is restricted first, then the record is written. If the account service refuses, nothing is changed.'));
 
             const kind = select([
@@ -1003,6 +1416,20 @@
 
     // ── View: appeals ───────────────────────────────────────────────────────
 
+    /**
+     * What an appeal's state is called, in one place.
+     *
+     * The list and the detail pane used to word these separately, so the same appeal was "Waiting" in
+     * the queue and "Pending" once opened - which reads as two different states rather than as one
+     * state described twice. Only the ones this view renames: everything else, "Being reviewed"
+     * included, falls through to `humanEnum` so that there is one place to change the wording.
+     */
+    const APPEAL_STATUS_TEXT = {
+        Pending: 'Waiting', Granted: 'Accepted', Denied: 'Declined',
+    };
+
+    const appealStatusText = status => APPEAL_STATUS_TEXT[status] || humanEnum(status);
+
     views.appeals = {
         title: 'Appeals',
         tools() {
@@ -1022,17 +1449,14 @@
             appeals.forEach(appeal => {
                 const title = [el('span', null, appeal.action?.kind || 'Appeal')];
 
-                title.push(tag({
-                    Pending: 'Waiting', UnderReview: 'Being reviewed',
-                    Granted: 'Accepted', Denied: 'Declined',
-                }[appeal.status] || appeal.status,
+                title.push(tag(appealStatusText(appeal.status),
                     appeal.status === 'Granted' ? 'ok' : appeal.status === 'Denied' ? 'danger' : 'info'));
 
                 list.append(row({
                     mark: appeal.status === 'Pending' ? 'high' : 'normal',
                     title,
                     sub: appeal.body,
-                    side: [el('span', 'rw-time', ago(appeal.createdAt))],
+                    side: [agoNode(appeal.createdAt)],
                     selected: appeal.id === selectedId,
                     onOpen: () => openAppeal(appeal.id),
                 }));
@@ -1053,7 +1477,7 @@
 
         pane.append(block(null, kv([
             ['Appeal', copyable(appeal.reference)],
-            ['Status', appeal.status],
+            ['Status', appealStatusText(appeal.status)],
             ['Filed', stamp(appeal.createdAt)],
             ['From', appeal.contactEmail],
             ['Account', appeal.action ? copyable(appeal.action.targetUserId) : null],
@@ -1086,7 +1510,7 @@
         if (appeal.status === 'Granted' || appeal.status === 'Denied') {
             pane.append(block('Decision',
                 el('div', 'quote', appeal.decisionNote || ''),
-                el('p', 'hint', `${appeal.status} by ${appeal.decidedByUserId} on ${stamp(appeal.decidedAt)}`)));
+                el('p', 'hint', `${appealStatusText(appeal.status)} by ${appeal.decidedByUserId} on ${stamp(appeal.decidedAt)}`)));
 
             if (appeal.status === 'Granted' && appeal.action?.active) {
                 const warn = banner('warn', 'This appeal was accepted but the account is still restricted. Issue an unban to restore it.');
@@ -1133,7 +1557,7 @@
                 ? 'e.g. You are right that the message was quoting someone else. The ban is being lifted.'
                 : 'e.g. We looked again at the full thread. The messages were directed at one member over several days, which is what the rule covers.';
 
-            form.append(field('What they will be told', note));
+            form.append(field('What they will be told', note, null, { required: true }));
 
             const actions = el('div', 'actions');
             const cancel = el('button', 'btn', 'Cancel');
@@ -1173,6 +1597,12 @@
 
     // ── View: tickets ───────────────────────────────────────────────────────
 
+    /** The one ticket state this view renames - the queue calls it "Needs a reply" and the pane used
+     *  to call it AwaitingStaff. The rest, "With them" included, are worded by `humanEnum`. */
+    const TICKET_STATUS_TEXT = { AwaitingStaff: 'Needs a reply' };
+
+    const ticketStatusText = status => TICKET_STATUS_TEXT[status] || humanEnum(status);
+
     views.tickets = {
         title: 'Support',
         tools() {
@@ -1199,16 +1629,16 @@
                 const waiting = ticket.status === 'Open' || ticket.status === 'AwaitingStaff';
 
                 const title = [el('span', null, ticket.subject)];
-                title.push(tag(ticket.category));
+                title.push(tag(humanEnum(ticket.category)));
                 if (waiting) title.push(tag('Needs a reply', 'warn'));
-                else if (ticket.status === 'AwaitingRequester') title.push(tag('With them'));
-                else title.push(tag(ticket.status, 'ok'));
+                else title.push(tag(ticketStatusText(ticket.status),
+                    ticket.status === 'AwaitingRequester' ? '' : 'ok'));
 
                 list.append(row({
                     mark: waiting ? 'high' : 'normal',
                     title,
                     sub: ticket.contactEmail,
-                    side: [el('span', 'rw-time', ago(ticket.lastActivityAt))],
+                    side: [agoNode(ticket.lastActivityAt)],
                     selected: ticket.id === selectedId,
                     onOpen: () => openTicket(ticket.id),
                 }));
@@ -1231,8 +1661,8 @@
             ['Reference', copyable(ticket.reference)],
             ['From', ticket.contactEmail],
             ['Account', ticket.requesterUserId ? copyable(ticket.requesterUserId) : 'Not signed in'],
-            ['Category', ticket.category],
-            ['Status', ticket.status],
+            ['Category', humanEnum(ticket.category)],
+            ['Status', ticketStatusText(ticket.status)],
             ['Opened', stamp(ticket.createdAt)],
             ['Assigned', ticket.assignedToUserId || 'Nobody'],
         ])));
@@ -1362,7 +1792,7 @@
                 ['', 'Any status'],
                 ['Active', 'Active'],
                 ['Banned', 'Banned'],
-                ['PendingDeletion', 'Deleting'],
+                ['PendingDeletion', 'Pending deletion'],
                 ['Deleted', 'Deleted'],
             ], filters.userStatus || '');
 
@@ -1384,16 +1814,19 @@
                 const title = [el('span', null, user.userName || '(no name)')];
 
                 if (user.status === 'Banned') title.push(tag('Banned', 'danger'));
-                else if (user.status !== 'Active') title.push(tag(user.status));
+                else if (user.status !== 'Active') title.push(tag(humanEnum(user.status)));
                 if (user.hasActiveSanction && user.status !== 'Banned') title.push(tag('Sanctioned', 'warn'));
-                if (user.userType !== 'Default') title.push(tag(user.userType, 'info'));
+                if (user.userType !== 'Default') title.push(tag(humanEnum(user.userType), 'info'));
                 if (!user.emailVerified && user.userType !== 'Bot') title.push(tag('Unverified'));
 
                 list.append(row({
                     mark: user.status === 'Banned' ? 'critical' : user.hasActiveSanction ? 'high' : '',
                     title,
-                    sub: user.email || user.id,
-                    side: [el('span', 'rw-time', ago(user.createdAt))],
+                    // A bot has no address and never will, so the id it used to fall back to read as
+                    // a row whose email had failed to load. Say what the row actually is instead.
+                    sub: user.email
+                        || (user.userType === 'Bot' ? 'Bot account, no email' : user.id),
+                    side: [agoNode(user.createdAt)],
                     selected: user.id === selectedId,
                     onOpen: () => openUser(user.id),
                 }));
@@ -1420,8 +1853,8 @@
             ['Id', copyable(user.user.id)],
             ['Email', user.user.email || '-'],
             ['Verified', user.user.emailVerified ? `Yes, ${stamp(user.emailVerifiedAt)}` : 'No'],
-            ['Status', user.user.status],
-            ['Type', user.user.userType],
+            ['Status', humanEnum(user.user.status)],
+            ['Type', humanEnum(user.user.userType)],
             ['Joined', stamp(user.user.createdAt)],
             ['Last seen', user.lastSignInAt ? stamp(user.lastSignInAt) : 'Never signed in'],
             ['Devices', user.deviceCount],
@@ -1454,7 +1887,8 @@
         }
 
         const controls = el('div', 'btn-row');
-        controls.append(button('Act on this account', 'ban', () => issueAction(id), 'danger'));
+        controls.append(button('Act on this account', 'ban',
+            () => issueAction(id, { userName: user.user.userName }), 'danger'));
         // "What is this account entitled to, and why" is a support question somebody already has the
         // id in hand for, so it is one click rather than a copy-paste into another screen.
         controls.append(button('Entitlements', 'key', () => openBillingFor('User', id)));
@@ -1483,7 +1917,7 @@
                 item.append(icon('flag'));
                 const body = el('div');
                 body.append(el('div', 'what', REASON_TEXT[report.reason] || report.reason));
-                body.append(el('span', 'when', `${stamp(report.createdAt)} · ${report.status}`));
+                body.append(el('span', 'when', `${stamp(report.createdAt)} · ${humanEnum(report.status)}`));
                 item.append(body);
                 list.append(item);
             });
@@ -1531,13 +1965,44 @@
 
         picker.addEventListener('change', () => { apply.disabled = picker.value === user.userType; });
 
-        form.addEventListener('submit', event => {
+        form.addEventListener('submit', async event => {
             event.preventDefault();
 
             // Promotion to Admin gets a confirmation step of its own. Everything else in this
             // console is reversible by the person who did it; handing someone the ability to demote
             // you is not.
             const promotingToAdmin = picker.value === 'Admin';
+
+            /*
+             * The last administrator, refused before the modal opens.
+             *
+             * The guard further up covers demoting yourself. Demoting the one other administrator
+             * leaves the same instance with the same nobody left to undo it: changing a role is
+             * administrator-only, so there would be no account able to hand the tier back, and no
+             * amount of moderators between them can do it.
+             *
+             * Advisory, not authoritative. The count comes from the accounts endpoint's own `type`
+             * filter - the overview's staff figure counts moderators too and so cannot answer this -
+             * and a deleted or banned account still carries its tier, so the number reads high if
+             * anything. That errs towards letting a demotion through rather than towards blocking a
+             * legitimate one, and the server stays the one that decides.
+             */
+            const demotingAnAdmin = user.userType === 'Admin' && picker.value !== 'Admin';
+            let administrators = null;
+
+            if (demotingAnAdmin) {
+                apply.disabled = true;
+                administrators = await adminCount();
+                apply.disabled = false;
+
+                if (administrators !== null && administrators <= 1) {
+                    fieldError(picker,
+                        'This is the only administrator left on the instance. Promote somebody else '
+                        + 'first - changing roles is administrator-only, so nobody would be able to '
+                        + 'hand the tier back.');
+                    return;
+                }
+            }
 
             modal(close => {
                 const confirmForm = el('form');
@@ -1550,6 +2015,16 @@
                       + 'no way to undo this except by them agreeing, or by another administrator.'
                     : `${user.userName || userId} will be set to ${picker.value === 'Default' ? 'not staff' : 'moderator'}. `
                       + 'It takes effect on their next request.'));
+
+                // The count could not be read, so the guard above could not run. Said here rather
+                // than swallowed: a demotion that turns out to have been the last administrator is
+                // not something the operator can put back afterwards.
+                if (demotingAnAdmin && administrators === null) {
+                    confirmForm.append(banner('warn',
+                        'We could not check how many administrators are left. If this is the last one, '
+                        + 'nobody will be able to hand the tier back - changing roles is '
+                        + 'administrator-only.'));
+                }
 
                 const actions = el('div', 'actions');
                 const cancel = el('button', 'btn', 'Cancel');
@@ -1589,6 +2064,23 @@
 
         box.append(form);
         return box;
+    }
+
+    /**
+     * How many administrators the instance has, or null if the question could not be asked.
+     *
+     * One row is enough: the accounts endpoint counts the whole match before paging, so the total is
+     * the answer and the page is not. Null rather than a guess on failure - a demotion guard that
+     * reads a failed request as "zero administrators" would block every demotion the moment the
+     * account service hiccups.
+     */
+    async function adminCount() {
+        try {
+            const { total } = await call('GET', `${API}/users`, { query: { type: 'Admin', limit: 1 } });
+            return typeof total === 'number' ? total : null;
+        } catch {
+            return null;
+        }
     }
 
     /** Jump to the accounts view without clearing the selection openUser just made. */
@@ -1657,13 +2149,27 @@
 
             wrap.append(el('div', 'section-head', 'Queues'));
             wrap.append(tiles([
-                ['Open reports', moderation.openReports, moderation.openReports > 0 ? 'warn' : ''],
-                ['Critical', moderation.criticalReports, moderation.criticalReports > 0 ? 'alert' : ''],
-                ['Unclaimed', moderation.unassignedReports],
+                ['Open reports', moderation.openReports, moderation.openReports > 0 ? 'warn' : '',
+                    () => toQueue({ openOnly: true, priority: '', assignee: '' })],
+                ['Critical', moderation.criticalReports, moderation.criticalReports > 0 ? 'alert' : '',
+                    () => toQueue({ openOnly: true, priority: 'Critical', assignee: '' })],
+                ['Unclaimed', moderation.unassignedReports,
+                    '', () => toQueue({ openOnly: true, priority: '', assignee: 'none' })],
+                // Not a link: "older than 48h" is a figure the server computes and there is no
+                // staleness filter behind the queue to send anybody to. A tile that navigated to
+                // something close but different would be worse than one that stays a number.
                 ['Older than 48h', moderation.staleReports, moderation.staleReports > 0 ? 'alert' : ''],
-                ['Open appeals', moderation.openAppeals],
+                ['Open appeals', moderation.openAppeals, '', () => {
+                    filters.appealsOpen = true;
+                    go('appeals');
+                }],
+                // Same reason as the stale tile: the queue filters on open, not on which side the
+                // ticket is waiting for.
                 ['Tickets needing a reply', moderation.ticketsAwaitingStaff],
-                ['Open tickets', moderation.openTickets],
+                ['Open tickets', moderation.openTickets, '', () => {
+                    filters.ticketScope = 'open';
+                    go('tickets');
+                }],
             ]));
 
             wrap.append(el('div', 'section-head', 'Enforcement'));
@@ -1675,11 +2181,13 @@
             if (platformAvailable) {
                 wrap.append(el('div', 'section-head', 'Accounts'));
                 wrap.append(tiles([
+                    // Registered, bots, staff and unverified stay flat: the accounts view filters on
+                    // status, and none of those four is a status.
                     ['Registered', platform.totalUsers],
-                    ['Active', platform.activeUsers],
-                    ['Banned', platform.bannedUsers],
-                    ['Being deleted', platform.pendingDeletion],
-                    ['Deleted', platform.deletedUsers],
+                    ['Active', platform.activeUsers, '', () => toAccounts('Active')],
+                    ['Banned', platform.bannedUsers, '', () => toAccounts('Banned')],
+                    ['Pending deletion', platform.pendingDeletion, '', () => toAccounts('PendingDeletion')],
+                    ['Deleted', platform.deletedUsers, '', () => toAccounts('Deleted')],
                     ['Bots', platform.botAccounts],
                     ['Staff', platform.staffAccounts],
                     ['Email unverified', platform.unverifiedEmail],
@@ -1703,11 +2211,57 @@
         },
     };
 
+    /** The queue, filtered the way a tile promised. The tools row reads these back, so the dropdowns
+     *  arrive showing the same scope the number came from. */
+    function toQueue(scope) {
+        Object.assign(filters.queue, scope);
+        go('queue');
+    }
+
+    function toAccounts(status) {
+        filters.userStatus = status;
+        filters.userQuery = '';
+        go('users');
+    }
+
+    /**
+     * The overview's figures.
+     *
+     * A number somebody can act on is a control, not a caption: "Unclaimed: 14" is the queue a
+     * moderator came here to work, and it used to be text they then had to go and reproduce by hand
+     * in a dropdown. Tiles that map onto a filter the list views already have are buttons that go
+     * there; the rest stay flat, because a tile that looks clickable and is not is worse than one
+     * that never offered.
+     */
     function tiles(entries) {
         const grid = el('div', 'tiles');
 
-        entries.forEach(([label, value, kind]) => {
-            const tile = el('div', `tile ${kind || ''}`);
+        entries.forEach(([label, value, kind, onOpen]) => {
+            const tile = el(onOpen ? 'button' : 'div', `tile ${kind || ''}`);
+
+            if (onOpen) {
+                tile.type = 'button';
+                tile.title = `${label} - open the list`;
+                // A button carries the browser's own font and alignment, which is not the tile's.
+                tile.style.cssText = 'font:inherit;color:inherit;text-align:left;width:100%;cursor:pointer;';
+                tile.addEventListener('click', onOpen);
+
+                // The ring the rail and the rows use, applied here rather than left to the browser's
+                // default so that a keyboard operator sees the same marker everywhere in the console.
+                // Keyboard focus only: a ring painted on every mouse click is noise, and an engine
+                // that cannot answer the question gets the ring rather than nothing.
+                tile.addEventListener('focus', () => {
+                    let keyboard = true;
+                    try { keyboard = tile.matches(':focus-visible'); } catch { /* older engine */ }
+                    if (!keyboard) return;
+
+                    tile.style.outline = '2px solid var(--brand)';
+                    tile.style.outlineOffset = '2px';
+                });
+
+                tile.addEventListener('blur', () => { tile.style.outline = ''; });
+            }
+
             tile.append(el('div', 'tile-label', label));
             tile.append(el('div', 'tile-value', Number(value ?? 0).toLocaleString()));
             grid.append(tile);
@@ -1805,7 +2359,7 @@
                     mark: instance.status === 'Pending' ? 'high' : instance.status === 'Active' ? '' : 'critical',
                     title,
                     sub: instance.defederationReason || instance.name,
-                    side: [el('span', 'rw-time', ago(instance.lastSeen))],
+                    side: [agoNode(instance.lastSeen)],
                     selected: instance.id === selectedId,
                     onOpen: () => openInstance(instance),
                 }));
@@ -1838,12 +2392,7 @@
         const actions = el('div', 'btn-row');
 
         if (instance.status === 'Pending') {
-            actions.append(button('Approve', 'check-circle', async () => {
-                await call('POST', `${FED}/${encodeURIComponent(instance.id)}/approve`);
-                toast('ok', `${instance.host} approved`);
-                closeDetail();
-                render();
-            }, 'primary'));
+            actions.append(button('Approve', 'check-circle', () => approve(instance), 'primary'));
 
             actions.append(button('Deny', 'times-circle', async () => {
                 await call('POST', `${FED}/${encodeURIComponent(instance.id)}/deny`);
@@ -1864,6 +2413,58 @@
         openDetail(instance.host, pane);
     }
 
+    /**
+     * Approval, behind the same kind of gesture defederation asks for.
+     *
+     * Defederating is the reversible direction - an instance shut out can be let back in - and it has
+     * a modal and a mandatory reason. Approving is the direction that opens the door, since Active is
+     * the only thing standing between a remote instance and injecting events here, and it used to be
+     * one click on a row somebody may have opened to read rather than to act on.
+     *
+     * No reason field: nothing is recorded against an instance that is about to be trusted, and a box
+     * nobody has to fill in is not a second gesture. The second click is.
+     */
+    function approve(instance) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Approve ${instance.host}?`));
+            form.append(el('p', 'lede',
+                `${instance.name || instance.host} becomes Active, and events from it are accepted `
+                + 'here from then on - its accounts can reach members of this instance, and what it '
+                + 'sends federates in. Defederating later stops new events; what already arrived '
+                + 'stays.'));
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Approve');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${FED}/${encodeURIComponent(instance.id)}/approve`);
+
+                    close();
+                    toast('ok', `${instance.host} approved`);
+                    closeDetail();
+                    render();
+                } catch (error) {
+                    toast('danger', error.message);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
     function defederate(instance) {
         modal(close => {
             const form = el('form');
@@ -1876,7 +2477,7 @@
             reason.rows = 3;
             reason.required = true;
             reason.placeholder = 'Why. Recorded against the instance.';
-            form.append(field('Reason', reason));
+            form.append(field('Reason', reason, null, { required: true }));
 
             const actions = el('div', 'actions');
             const cancel = el('button', 'btn', 'Cancel');
@@ -1923,7 +2524,8 @@
             host.required = true;
             host.placeholder = 'chat.example.com';
             host.spellcheck = false;
-            form.append(field('Their hostname', host, 'The instance host, without a scheme or a path.'));
+            form.append(field('Their hostname', host, 'The instance host, without a scheme or a path.',
+                { required: true }));
 
             const actions = el('div', 'actions');
             const cancel = el('button', 'btn', 'Cancel');
@@ -2114,13 +2716,14 @@
         picker.addEventListener('change', suggest);
         source.addEventListener('change', suggest);
 
-        box.append(field('File', picker));
+        box.append(field('File', picker, null, { required: true }));
         box.append(field('Database', source,
             'Decides which database each row is credited to and which product page a client links '
             + 'to. Getting it wrong misattributes every row in the file.'));
         box.append(field('Snapshot', version,
             'Travels with every row and appears in the public export, so a reader can tell which '
-            + 'extract an answer came from.'));
+            + 'extract an answer came from.',
+            { required: true }));
 
         const bar = el('div', 'progress');
         const fill = el('span');
@@ -2143,8 +2746,14 @@
         load.addEventListener('click', async () => {
             const file = picker.files?.[0];
 
-            if (!file) { toast('danger', 'Pick a file first.'); return; }
-            if (!version.value.trim()) { toast('danger', 'A snapshot name is required.'); return; }
+            // Beside the control that is empty, not in the corner of the screen: this block is three
+            // fields tall and a toast naming neither of them leaves the operator guessing which.
+            if (!file) { fieldError(picker, 'Choose the extract file to load.'); return; }
+
+            if (!version.value.trim()) {
+                fieldError(version, 'Name the snapshot this file came from - it travels with every row.');
+                return;
+            }
 
             aborter = new AbortController();
             load.disabled = picker.disabled = source.disabled = version.disabled = true;
@@ -2461,9 +3070,61 @@
             return wrap;
         }
 
-        const list = el('div', 'rows');
+        const rows = el('div', 'rows');
+
+        /*
+         * Runs of the same automatic incident, collapsed into one row.
+         *
+         * The detector republishes an incident every time its window reopens, so a signal that flaps
+         * for an hour arrives as eight rows carrying the same title, the same component and the same
+         * state, minutes apart. Read down the list that is eight things wrong; it is one thing wrong
+         * eight times, and the two are not the same page to somebody deciding what to do next.
+         *
+         * Only automatic ones, and only consecutive ones: two incidents a person published under one
+         * title are two statements about the world, and a run interrupted by something else is no
+         * longer one episode. Nothing is filtered away - the head row opens the run in place, every
+         * occurrence keeps its own row, its own reference and its own detail pane, and the count in
+         * the foot still counts all of them.
+         */
+        const runs = [];
 
         incidents.forEach(incident => {
+            // What makes this the same incident republished rather than a new one, matched against
+            // whichever run is currently open. Compared field by field: a joined key would make two
+            // different incidents equal whenever the separator happened to fall differently.
+            const previous = runs[runs.length - 1];
+            const against = previous?.items[0];
+
+            const same = incident.origin === 'automatic'
+                && against?.origin === 'automatic'
+                && against.title === incident.title
+                && against.status === incident.status
+                && against.isRetracted === incident.isRetracted
+                && against.components.join(',') === incident.components.join(',');
+
+            if (same) previous.items.push(incident);
+            else runs.push({ items: [incident] });
+        });
+
+        // Where each incident's row goes: into the list, or into the container its run's head row
+        // reveals. Settled before the loop below so that the row itself is still built one way only.
+        const destination = new Map();
+
+        runs.forEach(run => {
+            if (run.items.length === 1) {
+                destination.set(run.items[0].id, rows);
+                return;
+            }
+
+            const nest = el('div', 'rows hidden');
+            nest.style.marginLeft = '18px';
+            rows.append(runRow(run, nest), nest);
+            run.items.forEach(incident => destination.set(incident.id, nest));
+        });
+
+        incidents.forEach(incident => {
+            const list = destination.get(incident.id);
+
             const title = el('div', 'rw-title');
             title.append(el('strong', null, incident.title));
 
@@ -2478,13 +3139,39 @@
                 mark: incident.resolvedAt ? '' : (impactKind(incident.impact) === 'danger' ? 'critical' : 'high'),
                 title: [title],
                 sub: `${pretty(STATE_TEXT, incident.status)} · ${incident.components.join(', ') || 'no components'} · ${incident.reference}`,
-                side: [el('span', 'rw-time', ago(incident.startedAt))],
+                side: [agoNode(incident.startedAt)],
                 onOpen: () => openIncident(incident.id),
             }));
         });
 
-        wrap.append(list, listFoot(total, incidents.length));
+        wrap.append(rows, listFoot(total, incidents.length));
         return wrap;
+    }
+
+    /** The single row a collapsed run shows, and the click that opens the run under it. */
+    function runRow(run, nest) {
+        const first = run.items[0];
+
+        const title = el('div', 'rw-title');
+        title.append(el('strong', null, first.title));
+        title.append(tag('Automatic', 'info'));
+        if (first.isRetracted) title.append(tag('Retracted'));
+        title.append(tag(`${run.items.length} times`, 'warn'));
+
+        const node = row({
+            mark: first.resolvedAt ? '' : (impactKind(first.impact) === 'danger' ? 'critical' : 'high'),
+            title: [title],
+            sub: `${pretty(STATE_TEXT, first.status)} · ${first.components.join(', ') || 'no components'} · `
+                + `${run.items.length} in a row, open to list them`,
+            side: [agoNode(first.startedAt)],
+            onOpen: () => {
+                const collapsed = nest.classList.toggle('hidden');
+                node.setAttribute('aria-expanded', String(!collapsed));
+            },
+        });
+
+        node.setAttribute('aria-expanded', 'false');
+        return node;
     }
 
     async function openIncident(id) {
@@ -2562,10 +3249,13 @@
             incident.kind === 'maintenance' ? 'InProgress' : 'Identified');
 
         box.append(field('State', state));
-        box.append(field('Update', body));
+        box.append(field('Update', body, null, { required: true }));
 
         const post = button('Post update', 'send', async () => {
-            if (!body.value.trim()) return toast('danger', 'An update needs a body.');
+            if (!body.value.trim()) {
+                fieldError(body, 'An update with no words posts a state change nobody can read.');
+                return;
+            }
 
             busy(post, true);
             try {
@@ -2693,18 +3383,27 @@
             kind.addEventListener('change', () => schedule.classList.toggle('hidden', kind.value !== 'Maintenance'));
 
             form.append(field('Kind', kind));
-            form.append(field('Title', title));
+            form.append(field('Title', title, null, { required: true }));
             form.append(field('Impact', impact, 'Decides the colour, and what the incident claims about its components.'));
             form.append(field('Affects', picker));
             form.append(schedule);
-            form.append(field('First update', body));
+            form.append(field('First update', body, null, { required: true }));
 
             const actions = el('div', 'actions');
             actions.append(button('Cancel', 'times', close));
 
             const publish = button('Publish', 'send', async () => {
-                if (!title.value.trim() || !body.value.trim()) {
-                    return toast('danger', 'A title and a first update are both required.');
+                // In the dialog, against the field that is empty. This form is built on a div rather
+                // than a form element, so nothing native points at the gap, and a toast in the corner
+                // of a dimmed screen names neither the field nor the fix.
+                if (!title.value.trim()) {
+                    fieldError(title, 'Give it a title. This is the line the status page leads with.');
+                    return;
+                }
+
+                if (!body.value.trim()) {
+                    fieldError(body, 'Write the first update. An incident with nothing under it is a red banner and no information.');
+                    return;
                 }
 
                 busy(publish, true);
@@ -2916,6 +3615,11 @@
      *  are user-scoped and guilds do not hold balances (section 8.4), so a guild id in the subject box
      *  is not a wallet that failed to load, it is a question with no answer. */
     const creditWallet = { id: '' };
+
+    /** The campaigns the credit tab last read, kept so the issue dialog can offer them instead of
+     *  asking somebody to retype a code that is listed on the screen behind it. Null until the tab
+     *  has been opened, and left alone when the fetch fails, so the dialog can tell the two apart. */
+    let creditCampaigns = null;
 
     /** Which subject the promotions tab has been asked about. A kind as well as an id, unlike the
      *  wallet above: a trial is recorded against the owner account and against the guild it was
@@ -3377,7 +4081,13 @@
         return item;
     }
 
-    function issueGrant() {
+    async function issueGrant() {
+        // Fetched before the dialog opens so the plan can be picked rather than spelled. A billing
+        // service that will not answer is no reason to refuse to open: a grant of entitlement keys
+        // needs no plan at all, so a failure here falls back to the free-text field this dialog used
+        // to have instead of leaving the operator with nothing.
+        const plans = await planList().catch(() => null);
+
         modal(close => {
             const form = el('form');
             form.append(el('h2', null, 'Issue a grant'));
@@ -3394,12 +4104,41 @@
 
             form.append(field('What to grant', kind));
 
-            const plan = el('input');
-            plan.spellcheck = false;
-            plan.placeholder = 'pro';
-            const planField = field('Plan', plan,
-                'The plan name. Pin a version with name@number to grant a specific set of numbers.');
+            // The version pin stays, as its own control. It used to be typed into the name as
+            // "pro@3", which is a real capability - a grant that has to keep resolving to one
+            // specific set of numbers however often the plan is edited afterwards - and dropping it
+            // for the sake of a dropdown would have cost more than the dropdown is worth.
+            const plan = plans ? select(planChoices(plans), plans[0]?.name) : el('input');
+            const version = el('input');
+            version.type = 'number';
+            version.min = '1';
+
+            let planField;
+            let versionField = null;
+
+            if (plans) {
+                planField = field('Plan', plan, 'Which plan this grant confers.');
+                versionField = field('Version', version,
+                    'Leave empty and the grant follows whatever version is current, which is what a '
+                    + 'new customer gets. Naming one pins it to that set of numbers for good.');
+            } else {
+                plan.spellcheck = false;
+                plan.placeholder = 'pro';
+                planField = field('Plan', plan,
+                    'The plan list could not be read just now, so this is the name as typed. Pin a '
+                    + 'version with name@number to grant a specific set of numbers.');
+            }
+
             form.append(planField);
+            if (versionField) form.append(versionField);
+
+            /** The two controls joined back into the one string the service takes. The pin lives in
+             *  the name on the wire, so splitting it in the form does not change the request. */
+            function readPlan() {
+                const name = plan.value.trim();
+                if (!plans || !version.value) return name;
+                return `${name}@${Number(version.value)}`;
+            }
 
             const editor = entitlementEditor({}, billingSubject.kind);
             const keysField = field('Entitlement values', editor.node,
@@ -3428,6 +4167,7 @@
 
             function sync() {
                 planField.classList.toggle('hidden', kind.value !== 'Plan');
+                versionField?.classList.toggle('hidden', kind.value !== 'Plan');
                 keysField.classList.toggle('hidden', kind.value !== 'Entitlements');
             }
 
@@ -3454,7 +4194,7 @@
                             subjectKind: billingSubject.kind,
                             subjectId: billingSubject.id,
                             grantKind: kind.value,
-                            plan: kind.value === 'Plan' ? plan.value.trim() : null,
+                            plan: kind.value === 'Plan' ? readPlan() : null,
                             entitlements: kind.value === 'Entitlements' ? editor.read() : null,
                             expiresAt: expires.value ? new Date(expires.value).toISOString() : null,
                             reason: reason.value.trim(),
@@ -3601,10 +4341,34 @@
         return new Date(at.getTime() - at.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     }
 
-    async function assignPlan() {
+    /**
+     * The plan catalogue, for the three dialogs that ask somebody to name a plan.
+     *
+     * They used to disagree about how: this one offered the list it is looking at anyway, while the
+     * grant and campaign dialogs took the name as free text and let an unknown_plan refusal be the
+     * thing that tells an operator they mistyped it - a round trip after the fact, with the rest of
+     * the form still to fill in again. Null rather than an empty array when there is nothing to
+     * choose from, because "no plans exist" and "a plan list arrived" want different dialogs.
+     */
+    async function planList() {
         const plans = await call('GET', `${BILLING}/plans`);
+        return plans.length ? plans : null;
+    }
 
-        if (!plans.length) {
+    /** The label this console has always used for a plan: the display name with the version a new
+     *  customer would get, because "pro" and "Pro, currently on version 4" are the same choice
+     *  described at two very different levels of usefulness. */
+    function planChoices(plans) {
+        return plans.map(plan => [
+            plan.name,
+            `${plan.displayName || plan.name} - current version ${plan.currentVersionNumber}`,
+        ]);
+    }
+
+    async function assignPlan() {
+        const plans = await planList();
+
+        if (!plans) {
             toast('danger', 'There are no plans to move anybody onto.');
             return;
         }
@@ -3616,9 +4380,7 @@
                 'The one operation that deliberately changes what an existing subscriber resolves. '
                 + 'Everything else leaves people on the version they bought.'));
 
-            const picker = select(
-                plans.map(plan => [plan.name, `${plan.displayName || plan.name} - current version ${plan.currentVersionNumber}`]),
-                plans[0]?.name);
+            const picker = select(planChoices(plans), plans[0]?.name);
 
             form.append(field('Plan', picker));
 
@@ -3751,12 +4513,48 @@
         return line;
     }
 
+    /**
+     * A price, in the shape the currency actually has.
+     *
+     * The minor unit is not always a hundredth: JPY and KRW have none at all, and a few currencies
+     * have three, so dividing by 100 turned a 500 yen plan into "5.00 JPY" on the one screen an
+     * operator uses to check what somebody is being charged. The divisor is read back out of the
+     * formatter instead, which is the same table the symbol and its placement come from.
+     */
+    /** The currency codes this engine actually knows. Null on an engine without supportedValuesOf,
+     *  which means the check below is skipped rather than rejecting every price. */
+    const CURRENCY_CODES = (() => {
+        try { return new Set(Intl.supportedValuesOf('currency')); }
+        catch { return null; }
+    })();
+
     function money(version) {
         if (!version || version.priceMinorUnits === null || version.priceMinorUnits === undefined) {
             return 'Not sold';
         }
 
-        return `${(version.priceMinorUnits / 100).toFixed(2)} ${(version.currency || '').toUpperCase()}`.trim();
+        const currency = (version.currency || '').trim().toUpperCase();
+
+        // A version with a price and no currency is a malformed row, not a free plan, and Intl throws
+        // on an empty code. The minor units on their own are the only honest thing left to show.
+        if (!currency) return `${version.priceMinorUnits} (no currency on this version)`;
+
+        // Intl does not refuse a well-formed code it has never heard of. Handed "ZZZ" it assumes two
+        // minor units and formats confidently, which is the same wrong number this function was
+        // written to stop printing. Only a malformed code throws, so an unknown one has to be caught
+        // against the table rather than left to the try below.
+        if (CURRENCY_CODES && !CURRENCY_CODES.has(currency)) {
+            return `${version.priceMinorUnits} ${currency}`;
+        }
+
+        try {
+            const format = new Intl.NumberFormat(undefined, { style: 'currency', currency });
+            const digits = format.resolvedOptions().maximumFractionDigits;
+            return format.format(version.priceMinorUnits / 10 ** digits);
+        } catch {
+            // A malformed code lands here rather than taking the screen down with it.
+            return `${version.priceMinorUnits} ${currency}`;
+        }
     }
 
     async function openPlan(name) {
@@ -4374,6 +5172,10 @@
         // either way. Somebody arriving to check a budget should not have to invent a user id first.
         const campaigns = await call('GET', `${CREDIT}/campaigns`).catch(error => ({ error }));
 
+        // Kept for the issue dialog, which offers this list rather than fetching it again: it is the
+        // same list the operator is looking at while deciding which campaign to name.
+        if (!campaigns.error) creditCampaigns = campaigns;
+
         if (creditWallet.id) {
             const id = encodeURIComponent(creditWallet.id);
 
@@ -4395,11 +5197,115 @@
             }
         } else {
             wrap.append(empty(
-                'Enter a user id to see a balance, the lots behind it, and the ledger.', 'search'));
+                'Find an account above to see a balance, the lots behind it, and the ledger.',
+                'search'));
         }
 
         wrap.append(campaignsBlock(campaigns));
         return wrap;
+    }
+
+    /**
+     * An account chooser, for the two lookups that used to ask for a raw `user_...` id.
+     *
+     * It runs the same search the Accounts view runs, which matches a username, an email, or an id
+     * exactly - so pasting an id still works exactly as it did. What changes is that not having one
+     * to hand stops being a dead end: nobody arrives at a wallet from a support ticket knowing a
+     * ULID, and the answer used to be to go to another tab, find the account, copy the id and come
+     * back.
+     *
+     * Returns the two nodes rather than one wrapper, because each caller labels its own field and the
+     * label has to point at the input itself for the association to mean anything.
+     */
+    function userPicker(initial, { id } = {}) {
+        const input = el('input');
+        if (id) input.id = id;
+        input.type = 'search';
+        input.value = initial || '';
+        input.spellcheck = false;
+        input.autocomplete = 'off';
+        input.placeholder = 'Username, email or user_...';
+
+        const results = el('div', 'rows hidden');
+
+        // What was actually chosen, as opposed to what is in the box. Cleared on every keystroke: the
+        // moment the text stops describing the account that was picked, the text is the more honest
+        // of the two, and it may well be an id somebody has just pasted.
+        let chosen = initial || '';
+        let timer = null;
+
+        // Answers can arrive out of order, and a slow one for "dom" landing after a fast one for
+        // "dominic" would leave the wrong list under the box.
+        let sequence = 0;
+
+        function show(...children) {
+            results.replaceChildren(...children);
+            results.classList.remove('hidden');
+        }
+
+        function hide() {
+            results.replaceChildren();
+            results.classList.add('hidden');
+        }
+
+        async function lookup(term) {
+            const mine = ++sequence;
+
+            let users;
+            try {
+                ({ users } = await call('GET', `${API}/users`, { query: { q: term, limit: 8 } }));
+            } catch (error) {
+                // Said out loud. A silent failure here looks identical to "no such account", which is
+                // the one wrong conclusion this box can lead somebody to.
+                if (mine === sequence) show(el('p', 'hint', `The account search failed: ${error.message}`));
+                return;
+            }
+
+            if (mine !== sequence) return;
+
+            if (!users.length) {
+                show(el('p', 'hint',
+                    'No account matches that. A full id still works even when the name does not.'));
+                return;
+            }
+
+            show(...users.map(user => row({
+                title: [
+                    el('span', null, user.userName || '(no name)'),
+                    ...(user.status === 'Banned' ? [tag('Banned', 'danger')]
+                        : user.status !== 'Active' ? [tag(user.status)] : []),
+                ],
+                sub: user.email ? `${user.email} · ${user.id}` : user.id,
+                onOpen: () => {
+                    chosen = user.id;
+                    input.value = user.userName || user.id;
+                    hide();
+                },
+            })));
+        }
+
+        input.addEventListener('input', () => {
+            chosen = '';
+            clearTimeout(timer);
+
+            const term = input.value.trim();
+            if (!term) {
+                hide();
+                return;
+            }
+
+            // Debounced for the same reason the Accounts view debounces: this search reaches
+            // Identity's database over the bus, and a request per keystroke is a load test on the
+            // service that also answers every sign-in.
+            timer = setTimeout(() => lookup(term), 300);
+        });
+
+        return {
+            input,
+            results,
+            /** The picked id, or whatever is in the box - which is an id when one was pasted. */
+            read: () => chosen || input.value.trim(),
+        };
     }
 
     function creditLookup() {
@@ -4413,22 +5319,20 @@
 
         const form = el('form', 'lookup two');
 
-        const id = el('input', 'mono');
-        id.id = 'credit-id';
-        id.value = creditWallet.id;
-        id.spellcheck = false;
-        id.autocomplete = 'off';
-        id.placeholder = 'user_...';
+        const picker = userPicker(creditWallet.id, { id: 'credit-id' });
+
+        const cell = lookupField('User', picker.input);
+        cell.append(picker.results);
 
         const submit = el('button', 'btn primary');
         submit.type = 'submit';
         submit.append(icon('search'), document.createTextNode(' Look up'));
 
-        form.append(lookupField('User', id), submit);
+        form.append(cell, submit);
 
         form.addEventListener('submit', event => {
             event.preventDefault();
-            creditWallet.id = id.value.trim();
+            creditWallet.id = picker.read();
             render();
         });
 
@@ -4655,6 +5559,16 @@
         return `console:${unique}`;
     }
 
+    /** A campaign as one line in a dropdown. The state is said in the label because a paused campaign
+     *  is still offered: the service is the one that refuses it, and an option that quietly vanishes
+     *  is how somebody concludes the campaign was deleted. */
+    function campaignChoice(campaign) {
+        const state = campaign.pausedAt ? ' (paused)' : '';
+        return campaign.description
+            ? `${campaign.code}${state} - ${campaign.description}`
+            : `${campaign.code}${state}`;
+    }
+
     function issueCredit() {
         const idempotencyKey = newIdempotencyKey();
 
@@ -4674,12 +5588,23 @@
                 'Abstract points, not a currency. The cash price of anything they buy is shown beside '
                 + 'the point price wherever they are spent.'));
 
-            const campaign = el('input');
-            campaign.spellcheck = false;
-            campaign.placeholder = 'incident-2026-08';
+            // Picked from the list rendered directly below this dialog rather than retyped. A
+            // mistyped code was accepted quietly and issued outside every budget, which is the one
+            // outcome the budget exists to make impossible - and it left no trace saying so.
+            const campaign = creditCampaigns?.length
+                ? select([['', 'No campaign - counted against no budget at all']]
+                    .concat(creditCampaigns.map(entry => [entry.code, campaignChoice(entry)])), '')
+                : el('input');
+
+            if (!creditCampaigns?.length) {
+                campaign.spellcheck = false;
+                campaign.placeholder = 'incident-2026-08';
+            }
+
             form.append(field('Campaign', campaign,
-                'Optional. Naming one counts this issuance against that campaign\'s budget and its '
-                + 'per-recipient cap, which is what makes either of them mean anything.'));
+                'Optional, and "no campaign" is a real answer. Naming one counts this issuance '
+                + 'against that campaign\'s budget and its per-recipient cap, which is what makes '
+                + 'either of them mean anything.'));
 
             const lifetime = el('input');
             lifetime.type = 'number';
@@ -5425,27 +6350,43 @@
         const kind = select([['User', 'User'], ['Guild', 'Guild']], promotionSubject.kind);
         kind.id = 'promo-kind';
 
-        const id = el('input', 'mono');
-        id.id = 'promo-id';
-        id.value = promotionSubject.id;
-        id.spellcheck = false;
-        id.autocomplete = 'off';
-        id.placeholder = promotionSubject.kind === 'Guild' ? 'guild_...' : 'user_...';
+        // Two controls behind one label, because only half of this lookup can be searched: accounts
+        // are searchable by name or email, and there is no equivalent for a guild here, so a guild is
+        // still identified by the id somebody arrived with.
+        const picker = userPicker(promotionSubject.kind === 'User' ? promotionSubject.id : '',
+            { id: 'promo-id' });
 
-        kind.addEventListener('change', () => {
-            id.placeholder = kind.value === 'Guild' ? 'guild_...' : 'user_...';
-        });
+        const userCell = lookupField('Account', picker.input);
+        userCell.append(picker.results);
+
+        const guild = el('input', 'mono');
+        guild.id = 'promo-guild-id';
+        guild.value = promotionSubject.kind === 'Guild' ? promotionSubject.id : '';
+        guild.spellcheck = false;
+        guild.autocomplete = 'off';
+        guild.placeholder = 'guild_...';
+
+        const guildCell = lookupField('Guild id', guild);
+
+        function sync() {
+            const asGuild = kind.value === 'Guild';
+            userCell.classList.toggle('hidden', asGuild);
+            guildCell.classList.toggle('hidden', !asGuild);
+        }
+
+        kind.addEventListener('change', sync);
+        sync();
 
         const submit = el('button', 'btn primary');
         submit.type = 'submit';
         submit.append(icon('search'), document.createTextNode(' Look up'));
 
-        form.append(lookupField('Subject', kind), lookupField('Id', id), submit);
+        form.append(lookupField('Subject', kind), userCell, guildCell, submit);
 
         form.addEventListener('submit', event => {
             event.preventDefault();
             promotionSubject.kind = kind.value;
-            promotionSubject.id = id.value.trim();
+            promotionSubject.id = kind.value === 'Guild' ? guild.value.trim() : picker.read();
             render();
         });
 
@@ -5871,6 +6812,12 @@
             promotionRules = await call('GET', `${PROMOTIONS}/rules`).catch(() => []);
         }
 
+        // The plan a campaign confers is picked from the same list the Plans tab shows. A campaign
+        // naming a plan that does not exist is worse than a mistyped grant: it is only found out
+        // about when the first person tries to redeem it and is refused for a reason that reads like
+        // their fault.
+        const plans = await planList().catch(() => null);
+
         modal(close => {
             const form = el('form');
             form.append(el('h2', null, 'Open a promotion'));
@@ -5894,13 +6841,20 @@
                 'Somebody will read this a year from now while working out why an account was '
                 + 'refused a trial.'));
 
-            const plan = el('input');
+            const plan = plans ? select(planChoices(plans), plans[0]?.name) : el('input');
             plan.required = true;
-            plan.spellcheck = false;
-            plan.placeholder = 'pro';
-            form.append(field('Plan it confers', plan,
-                'The name from the Plans tab. A campaign that grants nothing is a row nobody can '
-                + 'explain later, so this is required.'));
+
+            if (!plans) {
+                plan.spellcheck = false;
+                plan.placeholder = 'pro';
+            }
+
+            form.append(field('Plan it confers', plan, plans
+                ? 'A campaign that grants nothing is a row nobody can explain later, so this is '
+                    + 'required. It confers whatever version is current when somebody redeems.'
+                : 'The plan list could not be read just now, so this is the name from the Plans tab '
+                    + 'as typed. A campaign that grants nothing is a row nobody can explain later, '
+                    + 'so this is required.'));
 
             const trialDays = el('input');
             trialDays.type = 'number';
@@ -6210,11 +7164,11 @@
                 // 31-character ULIDs side by side are not something anybody reads.
                 const line = el('div', 'rw-title');
                 line.append(el('strong', null, who(entry.actorUserId, entry.actorName)));
-                line.append(document.createTextNode(` ${auditVerb(entry.action)}`));
+                line.append(document.createTextNode(` ${auditVerb(entry.action, namesAnAccount(entry))}`));
 
                 // Only when the subject is an account. It is just as often a report, an action or a
                 // ticket, and "banned rprt_01KZ8M..." is worse than saying nothing.
-                if (entry.subjectId?.startsWith('user_')) {
+                if (namesAnAccount(entry)) {
                     line.append(document.createTextNode(' '));
                     line.append(el('strong', null, who(entry.subjectId, entry.subjectName)));
                 }
@@ -6232,7 +7186,7 @@
                         : '',
                     title: [line],
                     sub: auditSubtitle(entry),
-                    side: [el('span', 'rw-time', ago(entry.createdAt))],
+                    side: [agoNode(entry.createdAt)],
                     onOpen: () => openDetail('Audit entry', auditPane(entry)),
                 }));
             });
@@ -6250,27 +7204,33 @@
      * a column of enum values. Anything unmapped falls back to the raw name with its punctuation
      * softened - an audit log must still render an action nobody has written a label for yet, since
      * the alternative is a new entry type silently displaying as blank.
+     *
+     * A verb is either one phrase, or a [phrase, preposition] pair whose preposition is only spoken
+     * when a name is actually going to follow it. The pair is what the list above needs: it prints
+     * the subject only when the subject is an account, so a report id leaves the sentence ending on
+     * whatever the verb ended on. "dominic lifted a restriction on" and then nothing was the result,
+     * and the fix belongs here rather than in the row, which is right not to read a ULID out loud.
      */
     const AUDIT_VERBS = {
-        'action.issued': 'actioned',
-        'action.revoked': 'lifted a restriction on',
-        'report.assigned': 'picked up a report about',
-        'report.resolved': 'closed a report about',
-        'report.reopened': 'reopened a report about',
-        'appeal.claimed': 'took an appeal from',
-        'appeal.decided': 'decided an appeal from',
-        'ticket.replied': 'replied to a ticket from',
-        'ticket.updated': 'updated a ticket from',
-        'user.role-changed': 'changed the staff role of',
-        'user.viewed': 'looked at',
+        'action.issued': ['issued an action', 'against'],
+        'action.revoked': ['lifted a restriction', 'on'],
+        'report.assigned': ['picked up a report', 'about'],
+        'report.resolved': ['closed a report', 'about'],
+        'report.reopened': ['reopened a report', 'about'],
+        'appeal.claimed': ['took an appeal', 'from'],
+        'appeal.decided': ['decided an appeal', 'from'],
+        'ticket.replied': ['replied to a ticket', 'from'],
+        'ticket.updated': ['updated a ticket', 'from'],
+        'user.role-changed': ['changed a staff role', 'for'],
+        'user.viewed': ['looked at an account', 'belonging to'],
         'status.incident-created': 'published a status incident',
-        'status.incident-updated': 'posted a status update on',
+        'status.incident-updated': ['posted a status update', 'on'],
         'status.incident-edited': 'edited a status incident',
         'status.incident-confirmed': 'took over a status incident',
         'status.incident-retracted': 'retracted a status incident',
         'status.component-created': 'added a status component',
         'status.component-updated': 'edited a status component',
-        'billing.grant-issued': 'granted entitlements to',
+        'billing.grant-issued': ['granted entitlements', 'to'],
         'billing.grant-revoked': 'revoked a grant',
         'billing.grant-amended': 'moved the expiry of a grant',
         'billing.plan-created': 'created a plan',
@@ -6279,12 +7239,12 @@
         'billing.plan-version-archived': 'archived a plan version',
         'billing.plan-archived': 'archived a plan',
         'billing.plan-assigned': 'moved onto a plan version',
-        'billing.cache-invalidated': 'forced an entitlement re-resolve for',
-        'billing.credit-issued': 'issued credit to',
-        'billing.credit-adjusted': 'corrected the credit balance of',
+        'billing.cache-invalidated': ['forced an entitlement re-resolve', 'for'],
+        'billing.credit-issued': ['issued credit', 'to'],
+        'billing.credit-adjusted': ['corrected a credit balance', 'for'],
         'billing.credit-reversed': 'took back a credit issuance',
-        'billing.credit-voided': 'voided the wallet of',
-        'billing.credit-rebuilt': 'rebuilt the cached credit balance of',
+        'billing.credit-voided': ['voided a credit wallet', 'belonging to'],
+        'billing.credit-rebuilt': ['rebuilt a cached credit balance', 'for'],
         'billing.credit-campaign-created': 'opened a credit campaign',
         'billing.credit-campaign-paused': 'paused a credit campaign',
         'billing.credit-campaign-budget-set': 'changed a credit campaign budget',
@@ -6294,7 +7254,18 @@
         'billing.promotion-campaign-budget-set': 'changed a promotion campaign budget',
     };
 
-    const auditVerb = action => AUDIT_VERBS[action] || action.replace(/[.-]/g, ' ');
+    function auditVerb(action, withName = false) {
+        const written = AUDIT_VERBS[action];
+
+        if (!written) return action.replace(/[.-]/g, ' ');
+        if (typeof written === 'string') return written;
+
+        const [phrase, preposition] = written;
+        return withName ? `${phrase} ${preposition}` : phrase;
+    }
+
+    /** Whether the row is about to print a person's name, which is what decides the verb's shape. */
+    const namesAnAccount = entry => Boolean(entry.subjectId?.startsWith('user_'));
 
     /** A name when we have one, the id when we do not. Never both - the id is in the detail pane. */
     const who = (id, name) => name || id || 'someone';
@@ -6322,8 +7293,8 @@
         // identifier. Everything below it is the evidence for that sentence.
         const summary = el('div', 'quote');
         summary.textContent =
-            `${who(entry.actorUserId, entry.actorName)} ${auditVerb(entry.action)}`
-            + (entry.subjectId?.startsWith('user_')
+            `${who(entry.actorUserId, entry.actorName)} ${auditVerb(entry.action, namesAnAccount(entry))}`
+            + (namesAnAccount(entry)
                 ? ` ${who(entry.subjectId, entry.subjectName)}`
                 : '')
             + (entry.detail ? ` - ${entry.detail}` : '');

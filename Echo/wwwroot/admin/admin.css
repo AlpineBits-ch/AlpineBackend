@@ -280,6 +280,15 @@ body { overflow: hidden; }
 }
 .detail-head h2 { flex: 1; font-size: 15px; letter-spacing: -.02em; }
 
+/* The heading takes focus when the pane opens, which is a move the mouse user never asked for - so
+   the ring is drawn only when the keyboard is what is driving. */
+#detail-title:focus { outline: none; }
+#detail-title:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: 4px;
+}
+
 .pane { padding: 18px 18px 60px; }
 
 .block {
@@ -735,6 +744,39 @@ body { overflow: hidden; }
 /* Every other field on the site is width: 100%, which on a checkbox is a stretched grey slab. */
 .check input { width: auto; margin: 0; }
 
+/* ── Buttons and fields ─────────────────────────────────────────────────── */
+/*
+ * The same ring the rail, the rows and the plan table already draw, so a keyboard user tabbing from
+ * a row into the buttons beside it sees one indicator and not two. Offset outwards rather than
+ * inwards, which is the one difference: a brand ring inset into a brand-filled primary button is a
+ * ring nobody can see.
+ */
+.btn:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+/* A marker, not a colour. Which half of a form is compulsory has to survive a monochrome screenshot
+   pasted into a ticket, and it has to be there before the field is filled in and refused. */
+.field label .req {
+    color: var(--danger);
+    font-weight: 600;
+    margin-left: 3px;
+}
+
+/* The refusal itself, under the control that caused it rather than in a toast four seconds from
+   somewhere else on the screen. */
+.field-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--danger);
+}
+.field-error [data-icon] { font-size: 13px; margin-top: .12em; flex: none; }
+
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 .modal-host { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(9, 12, 18, .58); }
@@ -754,6 +796,25 @@ body { overflow: hidden; }
 .modal h2 { font-size: 18px; letter-spacing: -.025em; margin-bottom: 6px; }
 .modal .lede { font-size: 13.5px; color: var(--muted); line-height: 1.55; margin-bottom: 20px; }
 .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+
+/*
+ * "Discard your changes?", asked where the changes are.
+ *
+ * Escape and the backdrop are both easy to hit by accident, and this is what stands between that and
+ * a half-written suspension note. Drawn as a band across the foot of the dialog rather than as a
+ * second dialog on top of the first: stacking one modal over another is how an operator loses track
+ * of which question they are answering.
+ */
+.modal-confirm {
+    margin-top: 18px;
+    padding: 13px 14px;
+    border-radius: 11px;
+    border: 1px solid color-mix(in srgb, var(--danger) 34%, transparent);
+    background: var(--danger-bg);
+}
+
+.modal-confirm p { font-size: 13.5px; font-weight: 550; margin-bottom: 10px; }
+.modal-confirm .btn-row { justify-content: flex-end; }
 
 /* ── Toasts ─────────────────────────────────────────────────────────────── */
 .toasts {

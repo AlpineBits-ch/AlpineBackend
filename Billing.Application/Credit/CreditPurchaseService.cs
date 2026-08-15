@@ -58,12 +58,16 @@ public sealed class CreditPurchaseService(
     /// What makes a retry the same purchase rather than a second one.
     /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="startNotBefore">
+    /// The earliest the bought time may begin, on top of whatever the subject already holds.
+    /// </param>
     public async Task<CreditPurchase> PurchaseAsync(
         string buyerUserId,
         string skuCode,
         string? targetId,
         string idempotencyKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        DateTimeOffset? startNotBefore = null)
     {
         if (string.IsNullOrWhiteSpace(buyerUserId))
         {
@@ -99,7 +103,7 @@ public sealed class CreditPurchaseService(
             : null;
 
         var now = clock.GetUtcNow();
-        var startsAt = await QueueBehindAsync(subject, sku, now, cancellationToken);
+        var startsAt = await QueueBehindAsync(subject, sku, now, startNotBefore, cancellationToken);
 
         var deduction = await ledger.DeductAsync(
             buyerUserId, sku.PricePoints, idempotencyKey, grantId: null,
@@ -146,7 +150,11 @@ public sealed class CreditPurchaseService(
 
     /// <summary>When the bought time should begin.</summary>
     private async Task<DateTimeOffset> QueueBehindAsync(
-        EntitlementSubject subject, CreditSku sku, DateTimeOffset now, CancellationToken cancellationToken)
+        EntitlementSubject subject,
+        CreditSku sku,
+        DateTimeOffset now,
+        DateTimeOffset? startNotBefore,
+        CancellationToken cancellationToken)
     {
         var kind = subject.Kind;
         var id = subject.Id;
@@ -177,7 +185,9 @@ public sealed class CreditPurchaseService(
 
         var latest = samePlan.Select(grant => grant.ExpiresAt).Max();
 
-        return latest is { } end && end > now ? end : now;
+        var behindHeldTime = latest is { } end && end > now ? end : now;
+
+        return startNotBefore is { } floor && floor > behindHeldTime ? floor : behindHeldTime;
     }
 
     /// <summary>A user SKU is always applied to the buyer; a guild SKU needs somewhere to go. The

@@ -255,6 +255,16 @@ public interface IStripeGateway
         StripeIdempotencyKey idempotencyKey,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Pushes the next charge out to <paramref name="resumeAt"/> without billing anything for the
+    /// interval that was skipped.
+    /// </summary>
+    Task<StripeSubscriptionSnapshot> DeferBillingAsync(
+        string subscriptionId,
+        DateTimeOffset resumeAt,
+        StripeIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken);
+
     /// <summary>Moves the subscription's single item onto another price, prorating.</summary>
     Task<StripeSubscriptionSnapshot> ChangeSubscriptionPriceAsync(
         string subscriptionId,

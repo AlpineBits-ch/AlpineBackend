@@ -22,6 +22,10 @@ public static class CreditServiceCollectionExtensions
 
         services.AddHostedService<CreditExpirySweeper>();
 
+        // Registered unconditionally and gated at the top of its own pass instead, on both
+        // CreditOptions.RenewFromCredit and whether Stripe is configured at all.
+        services.AddHostedService<CreditRenewalSweeper>();
+
         return services;
     }
 }

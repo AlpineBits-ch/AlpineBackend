@@ -483,5 +483,5 @@ public sealed class SubscriptionReconciler(
         announcement is null ? [] : [announcement];
 
     /// <summary>Section 3's spelling, verbatim.</summary>
-    private static string AssignedBy(string stripeSubscriptionId) => $"stripe:{stripeSubscriptionId}";
+    public static string AssignedBy(string stripeSubscriptionId) => $"stripe:{stripeSubscriptionId}";
 }

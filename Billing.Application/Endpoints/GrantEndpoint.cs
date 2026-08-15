@@ -1,9 +1,11 @@
 using System.Security.Claims;
 using Billing.Application.Dtos;
+using Billing.Application.Notifications;
 using Billing.Application.Security;
 using Billing.Application.Services;
 using Billing.Contracts.Bus.Events;
 using Echo.Entitlements.Model;
+using Identity.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
 using Wolverine.Http;
 
@@ -53,7 +55,7 @@ public class GrantEndpoint
 
     [Authorize(Policy = BillingPolicies.GrantAdmin)]
     [WolverinePost("/api/v1/grants")]
-    public static async Task<(IResult, EntitlementsChanged?)> IssueAsync(
+    public static async Task<(IResult, EntitlementsChanged?, EntitlementGrantNotification?)> IssueAsync(
         IssueGrantRequest request,
         [NotBody] GrantService grants,
         [NotBody] TimeProvider clock,
@@ -64,7 +66,7 @@ public class GrantEndpoint
         ArgumentNullException.ThrowIfNull(request);
 
         var actor = ActorId(caller);
-        if (actor is null) return (Results.Unauthorized(), null);
+        if (actor is null) return (Results.Unauthorized(), null, null);
 
         try
         {
@@ -86,18 +88,24 @@ public class GrantEndpoint
                 actor, grant.SubjectKind, grant.SubjectId, grant.Plan ?? "specific entitlements",
                 grant.ExpiresAt?.ToString("O") ?? "forever", grant.Reason);
 
-            return (Results.Ok(GrantDto.From(grant, clock.GetUtcNow())), announcement);
+            var now = clock.GetUtcNow();
+
+            return (
+                Results.Ok(GrantDto.From(grant, now)),
+                announcement,
+                BillingNotices.ForGrant(
+                    EntitlementGrantChange.Issued, grant, announcement, planDisplayName: null, now));
         }
         catch (GrantRefusedException refusal)
         {
-            return (Results.BadRequest(new GrantErrorDto(refusal.Code, refusal.Message)), null);
+            return (Results.BadRequest(new GrantErrorDto(refusal.Code, refusal.Message)), null, null);
         }
     }
 
     /// <summary>Ends a grant. The row stays, with who did it and why.</summary>
     [Authorize(Policy = BillingPolicies.GrantAdmin)]
     [WolverinePost("/api/v1/grants/{grantId}/revoke")]
-    public static async Task<(IResult, EntitlementsChanged?)> RevokeAsync(
+    public static async Task<(IResult, EntitlementsChanged?, EntitlementGrantNotification?)> RevokeAsync(
         string grantId,
         RevokeGrantRequest request,
         [NotBody] GrantService grants,
@@ -109,7 +117,7 @@ public class GrantEndpoint
         ArgumentNullException.ThrowIfNull(request);
 
         var actor = ActorId(caller);
-        if (actor is null) return (Results.Unauthorized(), null);
+        if (actor is null) return (Results.Unauthorized(), null, null);
 
         try
         {
@@ -120,15 +128,21 @@ public class GrantEndpoint
                 "Staff {Actor} revoked grant {GrantId} on {SubjectKind} {SubjectId}: {Reason}",
                 actor, grant.Id, grant.SubjectKind, grant.SubjectId, request.Reason);
 
-            return (Results.Ok(GrantDto.From(grant, clock.GetUtcNow())), announcement);
+            var now = clock.GetUtcNow();
+
+            return (
+                Results.Ok(GrantDto.From(grant, now)),
+                announcement,
+                BillingNotices.ForGrant(
+                    EntitlementGrantChange.Revoked, grant, announcement, planDisplayName: null, now));
         }
         catch (KeyNotFoundException)
         {
-            return (Results.NotFound(), null);
+            return (Results.NotFound(), null, null);
         }
         catch (GrantRefusedException refusal)
         {
-            return (Results.BadRequest(new GrantErrorDto(refusal.Code, refusal.Message)), null);
+            return (Results.BadRequest(new GrantErrorDto(refusal.Code, refusal.Message)), null, null);
         }
     }
 
@@ -136,7 +150,7 @@ public class GrantEndpoint
     /// expiry. All three are operations section 6 lists for the console.</summary>
     [Authorize(Policy = BillingPolicies.GrantAdmin)]
     [WolverinePatch("/api/v1/grants/{grantId}/expiry")]
-    public static async Task<(IResult, EntitlementsChanged?)> AmendExpiryAsync(
+    public static async Task<(IResult, EntitlementsChanged?, EntitlementGrantNotification?)> AmendExpiryAsync(
         string grantId,
         AmendGrantExpiryRequest request,
         [NotBody] GrantService grants,
@@ -148,10 +162,14 @@ public class GrantEndpoint
         ArgumentNullException.ThrowIfNull(request);
 
         var actor = ActorId(caller);
-        if (actor is null) return (Results.Unauthorized(), null);
+        if (actor is null) return (Results.Unauthorized(), null, null);
 
         try
         {
+            // Captured as a value before the amend runs, and read back through the tracked entity
+            // the service is about to mutate would give the new date instead.
+            var previousExpiry = (await grants.FindAsync(grantId, cancellationToken))?.ExpiresAt;
+
             var (grant, announcement) = await grants.AmendExpiryAsync(
                 grantId, request.ExpiresAt, cancellationToken);
 
@@ -159,15 +177,24 @@ public class GrantEndpoint
                 "Staff {Actor} moved grant {GrantId} to expire {Expiry}",
                 actor, grant.Id, grant.ExpiresAt?.ToString("O") ?? "never");
 
-            return (Results.Ok(GrantDto.From(grant, clock.GetUtcNow())), announcement);
+            var now = clock.GetUtcNow();
+            var moved = previousExpiry != grant.ExpiresAt;
+
+            return (
+                Results.Ok(GrantDto.From(grant, now)),
+                announcement,
+                moved
+                    ? BillingNotices.ForGrant(
+                        EntitlementGrantChange.Amended, grant, announcement, planDisplayName: null, now)
+                    : null);
         }
         catch (KeyNotFoundException)
         {
-            return (Results.NotFound(), null);
+            return (Results.NotFound(), null, null);
         }
         catch (GrantRefusedException refusal)
         {
-            return (Results.BadRequest(new GrantErrorDto(refusal.Code, refusal.Message)), null);
+            return (Results.BadRequest(new GrantErrorDto(refusal.Code, refusal.Message)), null, null);
         }
     }
 

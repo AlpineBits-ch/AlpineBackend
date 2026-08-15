@@ -2917,6 +2917,17 @@
      *  is not a wallet that failed to load, it is a question with no answer. */
     const creditWallet = { id: '' };
 
+    /** Which subject the promotions tab has been asked about. A kind as well as an id, unlike the
+     *  wallet above: a trial is recorded against the owner account and against the guild it was
+     *  applied to, and those two rows answer different halves of "why can this account not start a
+     *  trial". */
+    const promotionSubject = { kind: 'User', id: '' };
+
+    /** The eligibility rule catalogue, fetched once per session. Served by the billing service rather
+     *  than written here, so a rule added there appears in the campaign editor without a deploy of
+     *  this image - which is the whole reason there is an endpoint for it. */
+    let promotionRules = null;
+
     /**
      * Whether to draw the write controls.
      *
@@ -3002,17 +3013,36 @@
         campaign_code_taken: 'That campaign code is already in use',
         campaign_not_found: 'No such campaign',
         campaign_budget_below_issued: 'That budget is below what has already been issued',
+
+        // Promotions. The three "already" codes are the ones a support agent will meet most, and they
+        // are refusals by design rather than faults: a redemption is permanent, an expired one still
+        // refuses, and that is the whole of what stops a new guild every month being a new trial
+        // every month.
+        campaign_plan_required: 'A campaign needs the plan it confers',
+        campaign_trial_days_required: 'A trial needs a length',
+        campaign_unknown_rule: 'That is not an eligibility rule',
+        already_redeemed: 'This account has already had this campaign',
+        guild_already_redeemed: 'This guild has already had this campaign',
+        identity_already_redeemed: 'A device, number or card here has already redeemed this',
+        not_eligible: 'This account does not meet what the campaign asks',
+        target_required: 'A guild has to be named, and managed by the person asking',
+        not_permitted: 'This account may not do that',
+        signals_unavailable: 'The eligibility signals could not be read',
+        no_trial_to_move: 'There is no live trial to move',
     };
 
     views.billing = {
         title: 'Billing',
 
         tools() {
-            // Credit is absent rather than empty without a billing service. Section 8.8 asks for
-            // exactly that: in selfhost everything already resolves to the maximum, so a wallet is
-            // meaningless and both an infinite balance and a zero one read as a bug.
+            // Credit and promotions are absent rather than empty without a billing service. Section
+            // 8.8 asks for exactly that: in selfhost everything already resolves to the maximum, so a
+            // wallet is meaningless and both an infinite balance and a zero one read as a bug - and a
+            // trial that confers a plan somebody already has in full is the same nothing.
             const names = [['subject', 'Subject'], ['plans', 'Plans']];
-            if (billingCatalogue?.billingDeployed) names.push(['credit', 'Credit']);
+            if (billingCatalogue?.billingDeployed) {
+                names.push(['credit', 'Credit'], ['promotions', 'Promotions']);
+            }
 
             const tabs = names.map(([key, text]) => {
                 const button = el('button', `btn sm ${billingTab === key ? 'primary' : 'ghost'}`, text);
@@ -3034,6 +3064,13 @@
                     add.addEventListener('click', createCreditCampaign);
                     tabs.push(add);
                 }
+
+                if (billingTab === 'promotions') {
+                    const add = el('button', 'btn sm primary');
+                    add.append(icon('plus'), document.createTextNode(' New campaign'));
+                    add.addEventListener('click', createPromotionCampaign);
+                    tabs.push(add);
+                }
             }
 
             return tabs;
@@ -3048,12 +3085,16 @@
                 $('#view-tools').replaceChildren(...views.billing.tools());
             }
 
-            // The credit tab does not exist on an instance with no billing service, and a deep link
-            // or a stale tab from before the catalogue landed must not leave the section blank.
-            if (billingTab === 'credit' && !billingCatalogue.billingDeployed) billingTab = 'subject';
+            // Neither the credit nor the promotions tab exists on an instance with no billing
+            // service, and a deep link or a stale tab from before the catalogue landed must not
+            // leave the section blank.
+            if (!billingCatalogue.billingDeployed && (billingTab === 'credit' || billingTab === 'promotions')) {
+                billingTab = 'subject';
+            }
 
             if (billingTab === 'plans') return renderPlans();
             if (billingTab === 'credit') return renderCredit();
+            if (billingTab === 'promotions') return renderPromotions();
             return renderBillingSubject();
         },
     };
@@ -5254,6 +5295,865 @@
         });
     }
 
+    // ── Billing: promotions ─────────────────────────────────────────────────
+    //
+    // Section 7's trial campaigns. The credit tab above hands out points; this one hands out a plan
+    // for a while. Two tabs over two tables rather than one campaign screen with a unit picker,
+    // because the only things the two share are budget, alert and pause semantics.
+    //
+    // Monitoring is the important half here, not creating. A campaign that has already stopped
+    // issuing is one somebody finds out about from a support ticket, so the list is ordered by how
+    // close each campaign is to its cap rather than alphabetically, and the alert state is a tag
+    // rather than a number somebody has to go looking for.
+    //
+    // Three things this screen deliberately does not do:
+    //
+    // It never renders a hash, and offers no field that takes one. The identity marks behind a
+    // redemption - device, phone, card - are salted hashes, and a console that displayed one would be
+    // the confirmation oracle the salt exists to prevent: paste a hash computed elsewhere, see
+    // whether it matches. What a support agent needs is whether the redemption happened and when,
+    // which is what the service sends and all of what it sends.
+    //
+    // It never calls a phone number verified. The signal is a number somebody typed, checked for
+    // E.164 shape and nothing else, and this console is exactly where a reader would pick up the
+    // wrong idea and later trust it as a guarantee the platform cannot make.
+    //
+    // It offers no delete, no clear and no reset. A redemption is permanent and expiry sets a field,
+    // because a removed redemption is a re-granted trial - the one failure the whole wave exists to
+    // prevent. Pausing is how a campaign is stopped, and the billing service has no route for
+    // anything else, so a control here would have nothing to call.
+
+    const PROMOTIONS = `${BILLING}/promotions`;
+
+    /** Redemptions as a person reads them. The unit is the whole difference between this budget and
+     *  the credit one above: a promotion hands out one thing per person, so what an operator caps is
+     *  how many people got it rather than how much was spent. */
+    function redemptionCount(value) {
+        const count = Number(value ?? 0);
+        return `${count.toLocaleString()} ${count === 1 ? 'redemption' : 'redemptions'}`;
+    }
+
+    /**
+     * A rule code as a person reads it.
+     *
+     * Derived from the code rather than looked up in a table written here, deliberately: the
+     * catalogue is served so that a rule added in the billing service appears in this editor without
+     * a deploy of the gateway image, and a display-name map maintained on this side would quietly
+     * take that back the first time somebody added a rule and forgot it. The service's own refusal
+     * sentence is shown underneath, which is where the meaning actually lives.
+     */
+    function ruleLabel(code) {
+        return String(code || '').replace(/_/g, ' ').replace(/^./, first => first.toUpperCase());
+    }
+
+    /** The strongest rule in the catalogue, and the one whose name undersells it: what it buys is not
+     *  a card but the fingerprint taken from it. Named here because the campaign list flags it on its
+     *  own, ahead of anybody opening the campaign to read the rules. */
+    const CARD_RULE = 'payment_card';
+
+    /**
+     * What an operator needs told at the moment of choosing, beyond the refusal the service serves.
+     *
+     * Two entries and both of them are corrections to something the code name implies. The phone one
+     * is the important one: there is no verified phone on this platform, the column that looks like
+     * one is documented dead, and this console is the surface most likely to teach somebody
+     * otherwise. The card one corrects the other way round - the name sounds like a payment, and the
+     * reason to require it has nothing to do with charging anybody.
+     */
+    const RULE_NOTES = {
+        phone_number_on_file: 'A number somebody typed, checked for E.164 shape and nothing else. '
+            + 'This is not a verified phone and there is no such thing here - the verification design '
+            + 'was dropped because the client talks to the SMS provider directly, so the message is '
+            + 'sent and paid for before this platform is ever called. It is still worth requiring, '
+            + 'because a farmer who reuses a number is caught by the identity mark that goes with it, '
+            + 'but what it says is "this account is not that one" and never "this is a real person".',
+        payment_card: 'The applicant has to have a card attached before the trial starts. The reason '
+            + 'to ask for one is not the card, it is the fingerprint taken from it: the same physical '
+            + 'card carries the same fingerprint on every account it is ever attached to, so this is '
+            + 'the rule that stops one card taking a second trial on a fresh account. The card is '
+            + 'read from the payment provider before the decision is made, and no evidence of one is '
+            + 'a refusal rather than a pass - nobody having looked is not the same as there being no '
+            + 'card. The client asks the same question before a card is attached, to decide whether '
+            + 'to offer the trial at all, and is refused on this rule until one is; that is the '
+            + 'expected answer there rather than a fault to report.',
+    };
+
+    async function renderPromotions() {
+        const wrap = el('div', 'pane billing');
+
+        // The campaign list is not about whichever subject is in the box above it, so it is fetched
+        // either way: somebody arriving to check a budget should not have to invent an id first.
+        const [campaigns] = await Promise.all([
+            call('GET', `${PROMOTIONS}/campaigns`).catch(error => ({ error })),
+            promotionRules
+                ? Promise.resolve()
+                : call('GET', `${PROMOTIONS}/rules`)
+                    .then(rules => { promotionRules = rules; })
+                    .catch(() => { promotionRules = []; }),
+        ]);
+
+        const byId = new Map(Array.isArray(campaigns)
+            ? campaigns.map(campaign => [campaign.id, campaign])
+            : []);
+
+        wrap.append(promotionLookup());
+
+        if (promotionSubject.id) {
+            const rows = await call('GET',
+                `${PROMOTIONS}/subjects/${promotionSubject.kind}`
+                + `/${encodeURIComponent(promotionSubject.id)}/redemptions`)
+                .catch(error => ({ error }));
+
+            wrap.append(subjectRedemptionsBlock(rows, byId));
+        }
+
+        wrap.append(promotionCampaignsBlock(campaigns));
+        return wrap;
+    }
+
+    function promotionLookup() {
+        const box = block('Why was this account refused a trial');
+
+        box.append(el('p', 'hint',
+            'Every campaign a subject has ever redeemed, expired and released rows included. A trial '
+            + 'is recorded twice - against the owner account and against the guild it was applied to '
+            + '- so an account that looks clean can still be refused because of the guild, and the '
+            + 'answer is only complete once both have been looked at.'));
+
+        const form = el('form', 'lookup');
+
+        const kind = select([['User', 'User'], ['Guild', 'Guild']], promotionSubject.kind);
+        kind.id = 'promo-kind';
+
+        const id = el('input', 'mono');
+        id.id = 'promo-id';
+        id.value = promotionSubject.id;
+        id.spellcheck = false;
+        id.autocomplete = 'off';
+        id.placeholder = promotionSubject.kind === 'Guild' ? 'guild_...' : 'user_...';
+
+        kind.addEventListener('change', () => {
+            id.placeholder = kind.value === 'Guild' ? 'guild_...' : 'user_...';
+        });
+
+        const submit = el('button', 'btn primary');
+        submit.type = 'submit';
+        submit.append(icon('search'), document.createTextNode(' Look up'));
+
+        form.append(lookupField('Subject', kind), lookupField('Id', id), submit);
+
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            promotionSubject.kind = kind.value;
+            promotionSubject.id = id.value.trim();
+            render();
+        });
+
+        box.append(form);
+        return box;
+    }
+
+    function subjectRedemptionsBlock(rows, byId) {
+        const box = block('What this subject has redeemed');
+
+        if (rows.error) {
+            box.append(banner('warn', `The redemptions could not be read: ${rows.error.message}`));
+            return box;
+        }
+
+        if (!rows.length) {
+            box.append(el('p', 'hint',
+                'Nothing, ever. If this subject was refused a trial it was not because of a '
+                + 'redemption of its own - check the other half of the pair, and check the '
+                + 'campaign\'s eligibility rules and its budget below.'));
+            return box;
+        }
+
+        const list = el('div', 'timeline');
+        rows.forEach(row => list.append(redemptionEntry(row, byId?.get(row.campaignId))));
+        box.append(list);
+
+        // Said once, under the list, rather than repeated on every row that has run out. It is the
+        // single most common misreading of this screen: a trial that ended looks like it should have
+        // freed the account up, and it deliberately has not.
+        box.append(el('p', 'hint',
+            'Every row here still refuses a second redemption, including the ones that have run out '
+            + 'and the ones released to another guild. That is the control, not a leftover: a '
+            + 'redemption cleaned up when the trial ended would be a monthly reminder rather than '
+            + 'anti-abuse. There is deliberately no way to remove one.'));
+
+        return box;
+    }
+
+    const isGuildRow = row => String(row.subjectKind || '').toLowerCase() === 'guild';
+
+    /** Whether the trial this row records is over. The expiry stamp is written by a sweep rather than
+     *  by the clock, so a row can be past its end date without carrying one - and reading only the
+     *  stamp would show a finished trial as live for as long as the sweep is behind. */
+    const hasEnded = row =>
+        Boolean(row.expiredAt) || Boolean(row.endsAt && new Date(row.endsAt) <= Date.now());
+
+    /**
+     * One redemption as a sentence.
+     *
+     * This is the screen somebody opens after a person has been told they already had a trial, so
+     * what it owes them is a sentence they can paste into a reply. A row of four timestamps and an
+     * opaque campaign id is the same information and answers nobody.
+     */
+    function redemptionEntry(row, campaign) {
+        const ended = hasEnded(row);
+        const item = el('div', `event ${ended || row.releasedAt ? 'struck' : ''}`);
+
+        item.append(icon(row.releasedAt ? 'external-link' : ended ? 'clock' : 'check-circle'));
+
+        const body = el('div');
+
+        const line = el('div', 'what');
+        line.append(el('span', 'mono', campaign?.code || row.campaignId));
+        line.append(tag(isGuildRow(row) ? 'Guild' : 'Account'));
+        if (row.releasedAt) line.append(tag('Moved to another guild'));
+        else if (ended) line.append(tag('Ran out'));
+        else line.append(tag('Live', 'ok'));
+        body.append(line);
+
+        body.append(el('div', 'hint', redemptionSentence(row, campaign)));
+
+        const meta = [`redeemed ${stamp(row.redeemedAt)}`];
+        if (row.endsAt) meta.push(`ends ${stamp(row.endsAt)}`);
+        if (row.expiredAt) meta.push(`expired ${stamp(row.expiredAt)}`);
+        if (row.releasedAt) meta.push(`released ${stamp(row.releasedAt)}`);
+        meta.push(`owner ${row.ownerUserId}`);
+        body.append(el('span', 'when', meta.join(' · ')));
+
+        body.append(el('div', 'hint mono', `${row.subjectId} · ${row.id}`));
+
+        item.append(body);
+        return item;
+    }
+
+    function redemptionSentence(row, campaign) {
+        const subject = isGuildRow(row) ? 'This guild' : 'This account';
+        const what = campaign ? `'${campaign.code}'` : 'this campaign';
+        const when = stamp(row.redeemedAt);
+
+        if (row.releasedAt) {
+            return `${subject} redeemed ${what} on ${when}, and the trial was moved elsewhere on `
+                + `${stamp(row.releasedAt)}. The row stays and still refuses a second one; moving a `
+                + 'trial does not reset its clock and does not free the guild it left.';
+        }
+
+        if (hasEnded(row)) {
+            const sentence = `${subject} redeemed ${what} on ${when} and it ran out on `
+                + `${stamp(row.expiredAt || row.endsAt)}. It still refuses a second one - the record `
+                + 'of a trial is permanent, and this is the row a re-trial attempt is refused by.';
+
+            // The stamp is informational and every eligibility query ignores it, so a row past its end
+            // date without one is not a fault and must not be reported as a trial that is still live.
+            return row.expiredAt
+                ? sentence
+                : `${sentence} The expiry stamp has not been written yet, which changes nothing.`;
+        }
+
+        return row.endsAt
+            ? `${subject} redeemed ${what} on ${when} and it runs until ${stamp(row.endsAt)}.`
+            : `${subject} redeemed ${what} on ${when}.`;
+    }
+
+    function promotionCampaignsBlock(campaigns) {
+        const box = block('Campaigns');
+
+        if (campaigns.error) {
+            box.append(banner('warn', `The campaigns could not be read: ${campaigns.error.message}`));
+            return box;
+        }
+
+        box.append(el('p', 'hint',
+            'A campaign is a budgeted reason to confer a plan for a while. The budget counts '
+            + 'redemptions rather than points - a promotion hands out one thing per person - it is '
+            + 'required, and there is deliberately no unlimited value: an uncapped campaign is one '
+            + 'loop away from handing every plan on the instance out for free. Campaigns are never '
+            + 'deleted; pausing sets a field, and the redemptions a campaign produced outlive it and '
+            + 'still need it to explain them.'));
+
+        if (!campaigns.length) {
+            box.append(el('p', 'hint', 'No campaigns yet.'));
+            return box;
+        }
+
+        // Closest to its cap first, with the paused ones after the live ones. The campaign about to
+        // stop refusing nobody is the one worth seeing, and burying it under whatever was opened most
+        // recently is how it becomes a support ticket instead.
+        const sorted = [...campaigns].sort((a, b) =>
+            Number(Boolean(a.pausedAt)) - Number(Boolean(b.pausedAt))
+            || promotionConsumed(b) - promotionConsumed(a));
+
+        const list = el('div', 'timeline');
+        sorted.forEach(campaign => list.append(promotionCampaignEntry(campaign)));
+        box.append(list);
+
+        return box;
+    }
+
+    const promotionConsumed = campaign => campaign.totalBudgetRedemptions > 0
+        ? campaign.issuedRedemptions / campaign.totalBudgetRedemptions
+        : 1;
+
+    const isGuildCampaign = campaign => String(campaign.subjectKind || '').toLowerCase() === 'guild';
+
+    function promotionCampaignEntry(campaign) {
+        const item = el('div', `event ${campaign.pausedAt ? 'struck' : ''}`);
+        item.append(icon(isGuildCampaign(campaign) ? 'users' : 'user'));
+
+        const body = el('div');
+
+        const line = el('div', 'what');
+        line.append(el('span', 'mono', campaign.code));
+
+        if (campaign.pausedAt) line.append(tag('Paused', 'danger'));
+        else if (!isCampaignOpen(campaign)) line.append(tag('Outside its dates'));
+        if (campaign.alertedAt) line.append(tag('Alert fired', 'danger'));
+        if (!campaign.remainingRedemptions) line.append(tag('Budget spent', 'danger'));
+
+        // Said on the list rather than only in the editor, because it is the one rule that narrows a
+        // campaign to people who have already got as far as attaching a card - which is the answer to
+        // a redemption count that looks lower than the reach of the offer.
+        if ((campaign.requiredRules || []).includes(CARD_RULE)) {
+            line.append(tag('Needs a card on file'));
+        }
+
+        body.append(line);
+        body.append(el('div', 'hint', campaign.description));
+        body.append(promotionBudgetBar(campaign));
+
+        const meta = [
+            `${campaign.plan} for ${campaign.trialDays} days`,
+            `on a ${isGuildCampaign(campaign) ? 'guild' : 'user'}`,
+            `${campaign.maxPerSubject} per subject`,
+            `opened ${stamp(campaign.createdAt)} by ${campaign.createdBy}`,
+        ];
+        if (campaign.startsAt) meta.push(`from ${stamp(campaign.startsAt)}`);
+        if (campaign.endsAt) meta.push(`until ${stamp(campaign.endsAt)}`);
+        if (campaign.pausedAt) meta.push(`paused ${stamp(campaign.pausedAt)} by ${campaign.pausedBy}`);
+        body.append(el('span', 'when', meta.join(' · ')));
+
+        const actions = el('div', 'btn-row');
+        actions.append(button('Open', 'search', () => openPromotionCampaign(campaign)));
+
+        if (canEditBilling()) {
+            if (campaign.pausedAt) {
+                actions.append(button('Resume', 'check-circle', () => resumePromotionCampaign(campaign)));
+            } else {
+                actions.append(button('Pause', 'times-circle',
+                    () => pausePromotionCampaign(campaign), 'danger'));
+            }
+
+            actions.append(button('Change the budget', 'pencil', () => setPromotionBudget(campaign)));
+        }
+
+        body.append(actions);
+
+        item.append(body);
+        return item;
+    }
+
+    /** Redeemed against budget, as a bar and as the two numbers. Same shape as the credit bar and
+     *  deliberately so - the unit differs, the question does not. */
+    function promotionBudgetBar(campaign) {
+        const box = el('div', 'budget');
+
+        const share = Math.min(1, Math.max(0, promotionConsumed(campaign)));
+        const alertAt = (campaign.alertThresholdPercent || 100) / 100;
+
+        const track = el('div', 'budget-track');
+        const fill = el('div', `budget-fill ${share >= 1 ? 'danger' : share >= alertAt ? 'warn' : ''}`);
+        fill.style.width = `${(share * 100).toFixed(1)}%`;
+        track.append(fill);
+        box.append(track);
+
+        box.append(el('div', 'budget-text',
+            `${campaign.issuedRedemptions.toLocaleString()} of `
+            + `${redemptionCount(campaign.totalBudgetRedemptions)} taken`
+            + ` · ${Math.round(share * 100)}% · ${campaign.remainingRedemptions.toLocaleString()} left`
+            + ` · alert at ${campaign.alertThresholdPercent}%`));
+
+        return box;
+    }
+
+    async function openPromotionCampaign(campaign) {
+        selectedId = campaign.code;
+        openDetail(campaign.code, loading());
+
+        const encoded = encodeURIComponent(campaign.code);
+
+        const [fresh, rows] = await Promise.all([
+            call('GET', `${PROMOTIONS}/campaigns/${encoded}`).catch(() => campaign),
+            call('GET', `${PROMOTIONS}/campaigns/${encoded}/redemptions`, { query: { limit: 200 } })
+                .catch(error => ({ error })),
+        ]);
+
+        const pane = el('div', 'pane billing');
+
+        pane.append(block(null, kv([
+            ['Code', copyable(fresh.code)],
+            ['Id', copyable(fresh.id)],
+            ['Confers', `${fresh.plan} for ${fresh.trialDays} days`],
+            ['Applied to', isGuildCampaign(fresh) ? 'A guild' : 'The account itself'],
+            ['Per subject', `${fresh.maxPerSubject} ${fresh.maxPerSubject === 1 ? 'time' : 'times'}`],
+            ['Window', campaignWindow(fresh)],
+            ['Budget', `${fresh.issuedRedemptions.toLocaleString()} of `
+                + `${redemptionCount(fresh.totalBudgetRedemptions)} taken`],
+            ['Alert', fresh.alertedAt
+                ? `Fired ${stamp(fresh.alertedAt)}, at ${fresh.alertThresholdPercent}% of the budget`
+                : `At ${fresh.alertThresholdPercent}% of the budget, not yet fired`],
+            ['Paused', fresh.pausedAt ? `${stamp(fresh.pausedAt)} by ${fresh.pausedBy}` : null],
+            ['Opened', `${stamp(fresh.createdAt)} by ${fresh.createdBy}`],
+        ])));
+
+        pane.append(block('Description', el('p', 'hint', fresh.description)));
+        pane.append(campaignRulesBlock(fresh));
+        pane.append(promotionBudgetBlock(fresh));
+        pane.append(campaignRedemptionsBlock(rows, fresh));
+
+        openDetail(fresh.code, pane);
+    }
+
+    function campaignWindow(campaign) {
+        if (!campaign.startsAt && !campaign.endsAt) return 'Open-ended';
+        if (!campaign.startsAt) return `Until ${stamp(campaign.endsAt)}`;
+        if (!campaign.endsAt) return `From ${stamp(campaign.startsAt)}`;
+
+        return `${stamp(campaign.startsAt)} to ${stamp(campaign.endsAt)}`;
+    }
+
+    /**
+     * What the campaign asks of an account, in the rule catalogue's own words.
+     *
+     * The mask arrives as rule codes rather than as a number, and the sentence beside each one is the
+     * sentence the applicant is shown when it refuses them - which is the useful thing to read here,
+     * because a campaign is a decision about what to refuse people for.
+     */
+    function campaignRulesBlock(campaign) {
+        const box = block('What it asks of an account');
+
+        const required = campaign.requiredRules || [];
+
+        if (!required.length) {
+            box.append(el('p', 'hint',
+                'Nothing at all. Any account inside the window can redeem this, subject only to the '
+                + 'budget and to never having redeemed it before.'));
+            return box;
+        }
+
+        const served = new Map((promotionRules || []).map(rule => [rule.code, rule.description]));
+
+        const list = el('div', 'checks');
+
+        required.forEach(code => {
+            const row = el('div', 'check-row');
+            row.append(el('strong', null, ruleLabel(code)));
+
+            const sentence = served.get(code);
+            if (sentence) row.append(el('p', 'hint', sentence));
+
+            if (code === 'minimum_account_age') {
+                row.append(el('p', 'hint',
+                    `Older than ${campaign.minimumAccountAgeDays} days. An account whose creation date `
+                    + 'cannot be read fails this rather than passing it.'));
+            }
+
+            if (RULE_NOTES[code]) row.append(el('p', 'hint', RULE_NOTES[code]));
+
+            list.append(row);
+        });
+
+        box.append(list);
+
+        // Stated once, here, because it is the question this block invites and the answer is not
+        // obvious from the rules above it.
+        box.append(el('p', 'hint',
+            'A device, phone number or card that has already redeemed this campaign refuses a second '
+            + 'attempt as well, whichever account it turns up on. Those are matched as salted hashes '
+            + 'and are deliberately not shown or searchable anywhere in this console - a screen that '
+            + 'confirmed a hash would be the oracle the salt exists to prevent.'));
+
+        return box;
+    }
+
+    function promotionBudgetBlock(campaign) {
+        const box = block('Budget');
+        box.append(promotionBudgetBar(campaign));
+
+        box.append(el('p', 'hint',
+            'The alert has to fire before the cap, not at it. A campaign that has already stopped is '
+            + 'one somebody finds out about from a support ticket, and raising a budget after the '
+            + 'fact does not go back and grant the people it refused in the meantime.'));
+
+        return box;
+    }
+
+    function campaignRedemptionsBlock(rows, campaign) {
+        const box = block('Redemptions');
+
+        if (rows.error) {
+            box.append(banner('warn', `The redemptions could not be read: ${rows.error.message}`));
+            return box;
+        }
+
+        if (!rows.length) {
+            box.append(el('p', 'hint', 'Nobody has redeemed this campaign yet.'));
+            return box;
+        }
+
+        // Two rows per trial, and worth saying so before somebody reports the list as duplicated: a
+        // guild trial is recorded against the owner account and against the guild, because either
+        // alone is farmable - the account row alone says nothing about a guild sold on, and the guild
+        // row alone means a new guild every month.
+        box.append(el('p', 'hint',
+            'A trial applied to a guild appears twice, once against the owner account and once '
+            + 'against the guild. Both rows are permanent and both refuse a second redemption.'));
+
+        const list = el('div', 'timeline');
+        rows.forEach(row => list.append(redemptionEntry(row, campaign)));
+        box.append(list);
+
+        return box;
+    }
+
+    // ── Billing: promotion writes ───────────────────────────────────────────
+
+    /**
+     * The rule picker, built from the catalogue the service serves.
+     *
+     * Rules are offered by code with the service's own refusal sentence under each, and two of them
+     * carry a note of their own - see `RULE_NOTES`. The notes are shown whether or not the rule is
+     * ticked, because what they correct is what the code name led somebody to expect before they
+     * ticked it.
+     */
+    function rulePicker(selected = []) {
+        const host = el('div', 'checks');
+        const controls = new Map();
+
+        (promotionRules || []).forEach(rule => {
+            const row = el('div', 'check-row');
+
+            const box = el('input');
+            box.type = 'checkbox';
+            box.checked = selected.includes(rule.code);
+
+            const label = el('label', 'check');
+            label.append(box, el('span', null, ruleLabel(rule.code)));
+            row.append(label);
+
+            row.append(el('p', 'hint', rule.description));
+            if (RULE_NOTES[rule.code]) row.append(el('p', 'hint', RULE_NOTES[rule.code]));
+
+            controls.set(rule.code, box);
+            host.append(row);
+        });
+
+        if (!controls.size) {
+            host.append(el('p', 'hint',
+                'The rule catalogue could not be read, so this campaign can only be opened with no '
+                + 'eligibility rules on it. That is a campaign anybody can redeem - close this and '
+                + 'try again once the billing service is answering.'));
+        }
+
+        return {
+            node: host,
+            read: () => [...controls].filter(([, box]) => box.checked).map(([code]) => code),
+        };
+    }
+
+    async function createPromotionCampaign() {
+        // A campaign editor opened before the tab finished loading waits for the catalogue rather
+        // than offering an empty rule list, which would read as "this campaign asks for nothing".
+        if (!promotionRules) {
+            promotionRules = await call('GET', `${PROMOTIONS}/rules`).catch(() => []);
+        }
+
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Open a promotion'));
+            form.append(el('p', 'lede',
+                'A budgeted reason to confer a plan for a while: a trial, a partner offer, a '
+                + 'win-back. The budget counts people rather than points, it is required, and it is '
+                + 'checked inside the same transaction as the redemption it counts.'));
+
+            const code = el('input');
+            code.required = true;
+            code.spellcheck = false;
+            code.placeholder = 'pro-trial-2026';
+            form.append(field('Code', code,
+                'What a redemption names and what the budget is counted against. It has to be '
+                + 'unique - two campaigns sharing one would make "how many people got this" '
+                + 'unanswerable.'));
+
+            const description = el('input');
+            description.required = true;
+            form.append(field('Description', description,
+                'Somebody will read this a year from now while working out why an account was '
+                + 'refused a trial.'));
+
+            const plan = el('input');
+            plan.required = true;
+            plan.spellcheck = false;
+            plan.placeholder = 'pro';
+            form.append(field('Plan it confers', plan,
+                'The name from the Plans tab. A campaign that grants nothing is a row nobody can '
+                + 'explain later, so this is required.'));
+
+            const trialDays = el('input');
+            trialDays.type = 'number';
+            trialDays.min = '1';
+            trialDays.required = true;
+            trialDays.value = '30';
+            form.append(field('Trial length in days', trialDays,
+                'Handed to the payment provider as the trial period, so it is the clock itself '
+                + 'rather than a copy of one. There is no open-ended value: an unbounded trial is a '
+                + 'pricing decision made by accident.'));
+
+            const kind = select([['Guild', 'A guild'], ['User', 'The account itself']], 'Guild');
+            form.append(field('Applied to', kind,
+                'A guild plan is conferred on one guild of the owner\'s choosing. A user plan '
+                + 'applies to the account and needs no guild.'));
+
+            const budget = el('input');
+            budget.type = 'number';
+            budget.min = '1';
+            budget.required = true;
+            form.append(field('Total budget in redemptions', budget,
+                'How many people may ever take this. A positive number, and there is no unlimited.'));
+
+            const perSubject = el('input');
+            perSubject.type = 'number';
+            perSubject.min = '1';
+            perSubject.value = '1';
+            form.append(field('Per subject', perSubject,
+                'One, for anything that is a trial. Higher only makes sense for something like a '
+                + 'referral reward that is meant to be repeatable.'));
+
+            const threshold = el('input');
+            threshold.type = 'number';
+            threshold.min = '1';
+            threshold.max = '100';
+            threshold.value = '80';
+            form.append(field('Alert at', threshold,
+                'Percent of the budget. The alert has to fire before the cap, not at it - a campaign '
+                + 'that has already stopped is one somebody finds out about from a support ticket.'));
+
+            const starts = el('input');
+            starts.type = 'datetime-local';
+            form.append(field('Starts', starts, 'Optional.'));
+
+            const ends = el('input');
+            ends.type = 'datetime-local';
+            form.append(field('Ends', ends, 'Optional.'));
+
+            const minimumAge = el('input');
+            minimumAge.type = 'number';
+            minimumAge.min = '0';
+            minimumAge.value = '0';
+            form.append(field('Minimum account age in days', minimumAge,
+                'Read only by the minimum account age rule below, and meaningless without it.'));
+
+            const rules = rulePicker();
+            form.append(field('Eligibility rules', rules.node,
+                'What the campaign asks of an account before it may redeem. Every one of these is '
+                + 'checked at the moment of redemption against signals asked for fresh, never '
+                + 'cached: a stale answer here fails in the direction of granting a trial that '
+                + 'should have been refused.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Open');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${PROMOTIONS}/campaigns`, {
+                        body: {
+                            code: code.value.trim(),
+                            description: description.value.trim(),
+                            plan: plan.value.trim(),
+                            trialDays: Number(trialDays.value),
+                            totalBudgetRedemptions: Number(budget.value),
+                            subjectKind: kind.value,
+                            requiredRules: rules.read(),
+                            minimumAccountAgeDays: Number(minimumAge.value || 0),
+                            maxPerSubject: Number(perSubject.value || 1),
+                            alertThresholdPercent: Number(threshold.value),
+                            startsAt: starts.value ? new Date(starts.value).toISOString() : null,
+                            endsAt: ends.value ? new Date(ends.value).toISOString() : null,
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Campaign opened');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function pausePromotionCampaign(campaign) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Pause ${campaign.code}`));
+            form.append(el('p', 'lede',
+                'Stops this campaign being redeemed. Nothing is deleted and nothing already redeemed '
+                + 'is touched: the trials it conferred run to their own end dates, and the rows it '
+                + 'produced keep refusing a second redemption. This is how a campaign is stopped - '
+                + 'there is no delete, because a removed redemption is a re-granted trial.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary danger', 'Pause');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST',
+                        `${PROMOTIONS}/campaigns/${encodeURIComponent(campaign.code)}/pause`);
+                    close();
+                    closeDetail();
+                    toast('ok', 'Campaign paused');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function resumePromotionCampaign(campaign) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Resume ${campaign.code}`));
+            form.append(el('p', 'lede',
+                'Lets this campaign be redeemed again, under whatever budget it has left. If it was '
+                + 'paused because of a farming pattern, the rules it asks for are what stops that '
+                + 'pattern recurring - resuming without changing them resumes the pattern too.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Resume');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST',
+                        `${PROMOTIONS}/campaigns/${encodeURIComponent(campaign.code)}/resume`);
+                    close();
+                    closeDetail();
+                    toast('ok', 'Campaign resumed');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function setPromotionBudget(campaign) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Change the budget for ${campaign.code}`));
+            form.append(el('p', 'lede',
+                `${redemptionCount(campaign.issuedRedemptions)} have already been taken against this `
+                + 'campaign. A budget below that is refused, because it would claim fewer people got '
+                + 'it than did. Lowering it to exactly what has been redeemed is how a campaign is '
+                + 'stopped while keeping its history readable; pausing is the other way.'));
+
+            const budget = el('input');
+            budget.type = 'number';
+            budget.min = '1';
+            budget.required = true;
+            budget.value = campaign.totalBudgetRedemptions;
+            form.append(field('Total budget in redemptions', budget,
+                'Raising it puts the campaign back below its alert threshold, so the next crossing '
+                + 'is announced again rather than passing in silence.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Save');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('PATCH',
+                        `${PROMOTIONS}/campaigns/${encodeURIComponent(campaign.code)}/budget`, {
+                            body: { totalBudgetRedemptions: Number(budget.value) },
+                        });
+
+                    close();
+                    closeDetail();
+                    toast('ok', 'Budget changed');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
     // ── View: audit ─────────────────────────────────────────────────────────
 
     /** Entries that reach further than the subject named on them. A grant affects one subject; a
@@ -5388,6 +6288,10 @@
         'billing.credit-campaign-created': 'opened a credit campaign',
         'billing.credit-campaign-paused': 'paused a credit campaign',
         'billing.credit-campaign-budget-set': 'changed a credit campaign budget',
+        'billing.promotion-campaign-created': 'opened a promotion campaign',
+        'billing.promotion-campaign-paused': 'paused a promotion campaign',
+        'billing.promotion-campaign-resumed': 'resumed a promotion campaign',
+        'billing.promotion-campaign-budget-set': 'changed a promotion campaign budget',
     };
 
     const auditVerb = action => AUDIT_VERBS[action] || action.replace(/[.-]/g, ' ');

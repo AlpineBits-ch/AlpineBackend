@@ -34,6 +34,12 @@ public class MicroserviceContext : DbContext
 
     public DbSet<CreditCampaign> CreditCampaigns { get; set; }
 
+    public DbSet<PromotionCampaign> PromotionCampaigns { get; set; }
+
+    public DbSet<PromotionRedemption> PromotionRedemptions { get; set; }
+
+    public DbSet<PromotionIdentityMark> PromotionIdentityMarks { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         if (optionsBuilder.IsConfigured)
@@ -260,6 +266,69 @@ public class MicroserviceContext : DbContext
             campaignBuilder.ToTable(table => table.HasCheckConstraint(
                 "ck_credit_campaigns_within_budget",
                 "total_budget_points > 0 AND issued_points >= 0 AND issued_points <= total_budget_points"));
+        });
+
+        modelBuilder.Entity<PromotionCampaign>(campaignBuilder =>
+        {
+            campaignBuilder.Property(x => x.SubjectKind).HasConversion<string>();
+
+            campaignBuilder.Property(x => x.Code).IsRequired();
+            campaignBuilder.Property(x => x.Description).IsRequired();
+            campaignBuilder.Property(x => x.Plan).IsRequired();
+            campaignBuilder.Property(x => x.CreatedBy).IsRequired();
+
+            campaignBuilder.HasIndex(x => x.Code).IsUnique();
+
+            // The same backstop the credit campaigns carry, over the same rule and for the same
+            // reason: the service produces the readable refusal, and this is what survives the code
+            // path nobody has written yet.
+            campaignBuilder.ToTable(table => table.HasCheckConstraint(
+                "ck_promotion_campaigns_within_budget",
+                "total_budget_redemptions > 0 AND issued_redemptions >= 0 "
+                + "AND issued_redemptions <= total_budget_redemptions"));
+        });
+
+        modelBuilder.Entity<PromotionRedemption>(redemptionBuilder =>
+        {
+            redemptionBuilder.Property(x => x.SubjectKind).HasConversion<string>();
+
+            redemptionBuilder.Property(x => x.CampaignId).IsRequired();
+            redemptionBuilder.Property(x => x.SubjectId).IsRequired();
+            redemptionBuilder.Property(x => x.OwnerUserId).IsRequired();
+
+            // The constraint the entire wave rests on: one redemption per subject per campaign,
+            // said to the database rather than only to the service.
+            redemptionBuilder.HasIndex(x => new { x.CampaignId, x.SubjectKind, x.SubjectId }).IsUnique();
+
+            // "What has this account had", which is the console's question and the move path's.
+            redemptionBuilder.HasIndex(x => new { x.OwnerUserId, x.RedeemedAt });
+
+            // The expiry stamp's query.
+            redemptionBuilder.HasIndex(x => x.EndsAt)
+                .HasFilter("ends_at IS NOT NULL AND expired_at IS NULL");
+
+            redemptionBuilder.HasOne<PromotionCampaign>()
+                .WithMany()
+                .HasForeignKey(x => x.CampaignId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<PromotionIdentityMark>(markBuilder =>
+        {
+            markBuilder.Property(x => x.Kind).HasConversion<string>();
+
+            markBuilder.Property(x => x.CampaignId).IsRequired();
+            markBuilder.Property(x => x.RedemptionId).IsRequired();
+            markBuilder.Property(x => x.Hash).IsRequired();
+
+            // The whole read path: "has anything under this campaign been redeemed with this hash".
+            markBuilder.HasIndex(x => new { x.CampaignId, x.Kind, x.Hash }).IsUnique();
+
+            // Cascade rather than Restrict, and it is the one place in this context that does.
+            markBuilder.HasOne<PromotionRedemption>()
+                .WithMany()
+                .HasForeignKey(x => x.RedemptionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 

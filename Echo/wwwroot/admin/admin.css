@@ -710,6 +710,31 @@ body { overflow: hidden; }
     font-variant-numeric: tabular-nums;
 }
 
+/*
+ * The eligibility rule list, in the campaign editor and again on a campaign's detail pane.
+ *
+ * A stack rather than a grid of checkboxes because each rule carries the sentence it refuses people
+ * with underneath it, and two of them carry a correction on top of that. Somebody opening a campaign
+ * is deciding what to turn applicants away for, and the sentence is the only place that says what
+ * that will read like.
+ */
+.checks { display: flex; flex-direction: column; gap: 14px; }
+
+.check-row { display: flex; flex-direction: column; gap: 4px; }
+
+.check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+/* Every other field on the site is width: 100%, which on a checkbox is a stretched grey slab. */
+.check input { width: auto; margin: 0; }
+
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 .modal-host { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 24px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(9, 12, 18, .58); }

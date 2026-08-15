@@ -235,7 +235,7 @@ public sealed class SubscriptionCheckoutService(
     /// <summary>
     /// Creates with automatic tax, and once without it if that is what Stripe refused over.
     /// </summary>
-    public async Task<StripeSubscriptionResult> CreateWithTaxFallbackAsync(
+    public Task<StripeSubscriptionResult> CreateWithTaxFallbackAsync(
         string customerId,
         string priceId,
         EntitlementSubject subject,
@@ -244,11 +244,59 @@ public sealed class SubscriptionCheckoutService(
     {
         var kind = EntitlementSubjectKinds.Of(subject.Kind);
 
+        return CreateWithTaxFallbackAsync(
+            customerId,
+            priceId,
+            subject,
+            metadata,
+            trialPeriodDays: null,
+            defaultPaymentMethodId: null,
+            automaticTax => StripeIdempotencyKey.ForSubscription(kind, subject.Id, priceId, automaticTax),
+            cancellationToken);
+    }
+
+    /// <summary>The same create and the same fallback, for a trial.</summary>
+    public Task<StripeSubscriptionResult> CreateTrialWithTaxFallbackAsync(
+        string customerId,
+        string priceId,
+        EntitlementSubject subject,
+        IReadOnlyDictionary<string, string> metadata,
+        int trialPeriodDays,
+        string? defaultPaymentMethodId,
+        string campaignCode,
+        CancellationToken cancellationToken)
+    {
+        var kind = EntitlementSubjectKinds.Of(subject.Kind);
+
+        return CreateWithTaxFallbackAsync(
+            customerId,
+            priceId,
+            subject,
+            metadata,
+            trialPeriodDays,
+            defaultPaymentMethodId,
+            automaticTax => StripeIdempotencyKey.ForTrial(kind, subject.Id, campaignCode, automaticTax),
+            cancellationToken);
+    }
+
+    /// <summary>The one body both creates share.</summary>
+    private async Task<StripeSubscriptionResult> CreateWithTaxFallbackAsync(
+        string customerId,
+        string priceId,
+        EntitlementSubject subject,
+        IReadOnlyDictionary<string, string> metadata,
+        int? trialPeriodDays,
+        string? defaultPaymentMethodId,
+        Func<bool, StripeIdempotencyKey> key,
+        CancellationToken cancellationToken)
+    {
         try
         {
             return await gateway.CreateSubscriptionAsync(
-                new StripeSubscriptionRequest(customerId, priceId, AutomaticTax: true, metadata),
-                StripeIdempotencyKey.ForSubscription(kind, subject.Id, priceId),
+                new StripeSubscriptionRequest(
+                    customerId, priceId, AutomaticTax: true, metadata, trialPeriodDays,
+                    defaultPaymentMethodId),
+                key(true),
                 cancellationToken);
         }
         catch (StripeGatewayException failure) when (failure.IsTaxFailure)
@@ -260,8 +308,10 @@ public sealed class SubscriptionCheckoutService(
                 subject.Kind, subject.Id, failure.StripeCode);
 
             return await gateway.CreateSubscriptionAsync(
-                new StripeSubscriptionRequest(customerId, priceId, AutomaticTax: false, metadata),
-                StripeIdempotencyKey.ForSubscription(kind, subject.Id, priceId, automaticTax: false),
+                new StripeSubscriptionRequest(
+                    customerId, priceId, AutomaticTax: false, metadata, trialPeriodDays,
+                    defaultPaymentMethodId),
+                key(false),
                 cancellationToken);
         }
     }
@@ -451,7 +501,8 @@ public sealed class SubscriptionCheckoutService(
         throw CheckoutRefusedException.UnknownSubscription();
     }
 
-    private Task<Subscription?> LiveSubscriptionForAsync(
+    /// <summary>The live subscription on a subject, or null.</summary>
+    public Task<Subscription?> LiveSubscriptionForAsync(
         EntitlementSubject subject, CancellationToken cancellationToken)
     {
         var kind = subject.Kind;
@@ -467,9 +518,11 @@ public sealed class SubscriptionCheckoutService(
             cancellationToken);
     }
 
-    /// <summary>The plan and current version this name can actually be bought as, or the refusal
-    /// saying why not.</summary>
-    private async Task<(Plan Plan, PlanVersion Version)> RequirePurchasableAsync(
+    /// <summary>
+    /// The plan and current version this name can actually be bought as, or the refusal saying why
+    /// not.
+    /// </summary>
+    public async Task<(Plan Plan, PlanVersion Version)> RequirePurchasableAsync(
         string? planName, SubjectKind subjectKind, CancellationToken cancellationToken)
     {
         var name = planName?.Trim().ToLowerInvariant();
@@ -548,7 +601,7 @@ public sealed class SubscriptionCheckoutService(
     }
 
     /// <summary>Asks Guild, and fails closed.</summary>
-    private async Task<bool> CanManageGuildAsync(
+    public async Task<bool> CanManageGuildAsync(
         string guildId, string userId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(guildId) || string.IsNullOrWhiteSpace(userId)) return false;

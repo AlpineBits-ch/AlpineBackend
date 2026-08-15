@@ -155,6 +155,30 @@ public class CheckoutVocabularyTests
         });
     }
 
+    /// <summary>
+    /// A trial's key is its own, and it is keyed on the campaign rather than on the price.
+    /// </summary>
+    [Test]
+    public void The_trial_key_is_its_own_and_names_the_campaign()
+    {
+        var trial = StripeIdempotencyKey.ForTrial("guild", "gld_7", "pro-trial-2026");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(trial.Value, Is.EqualTo("venta:trial:guild:gld_7:pro-trial-2026"));
+
+            Assert.That(trial.Value,
+                Is.Not.EqualTo(StripeIdempotencyKey.ForSubscription("guild", "gld_7", "price_abc").Value));
+
+            Assert.That(
+                StripeIdempotencyKey.ForTrial("guild", "gld_7", "pro-trial-2026", automaticTax: false).Value,
+                Is.EqualTo("venta:trial:guild:gld_7:pro-trial-2026:untaxed"));
+
+            Assert.That(() => StripeIdempotencyKey.ForTrial("guild", "gld_7", " "),
+                Throws.InstanceOf<ArgumentException>());
+        });
+    }
+
     /// <summary>The no-automatic-tax retry is a different request, so it must present a different key
     /// or Stripe refuses the replay for mismatched parameters.</summary>
     [Test]

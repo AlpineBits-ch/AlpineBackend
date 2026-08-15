@@ -30,6 +30,7 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
     public DbSet<UserConsent> UserConsents { get; set; }
     public DbSet<DataSubjectRequest> DataSubjectRequests { get; set; }
     public DbSet<DataExportRequest> DataExportRequests { get; set; }
+    public DbSet<BillingNotificationRecord> BillingNotifications { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -354,6 +355,19 @@ public class MicroserviceContext : IdentityDbContext<ApplicationUser, IdentityRo
 
             // The expiry sweep's read - "what is ready and past its window" - across all accounts.
             export.HasIndex(e => new { e.Status, e.ExpiresAt });
+        });
+
+        // The sent-record for billing mail.
+        modelBuilder.Entity<BillingNotificationRecord>(notification =>
+        {
+            notification.Property(n => n.DedupeKey).HasMaxLength(256);
+            notification.Property(n => n.Kind).HasMaxLength(64);
+
+            // The whole mechanism.
+            notification.HasIndex(n => n.DedupeKey).IsUnique();
+
+            // "What have we sent this account" - the support question this table can answer.
+            notification.HasIndex(n => new { n.UserId, n.SentAt });
         });
 
         modelBuilder.UseOpenIddict();

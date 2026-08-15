@@ -201,6 +201,12 @@ builder.Services.AddScoped<EmailService>();
 // 202. Singleton: it holds no per-request state and opens its own scope per send.
 builder.Services.AddSingleton<Identity.Application.Services.AccountEmailDispatcher>();
 
+// Billing mail (credit issued, a hand-made grant changed, a plan went up).
+builder.Services.AddSingleton<Identity.Application.Templates.EmailTemplateRenderer>();
+builder.Services.AddScoped<Identity.Application.Services.IBillingMailSender,
+    Identity.Application.Services.GraphBillingMailSender>();
+builder.Services.AddScoped<Identity.Application.Services.BillingMailService>();
+
 // Every password-gated route goes through one lockout-aware check, and every per-device rule
 // resolves its device from the session rather than from the X-Device-Id header.
 builder.Services.AddScoped<Identity.Application.Services.IAccountPasswordVerifier,

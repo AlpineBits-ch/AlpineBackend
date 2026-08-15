@@ -1,4 +1,5 @@
 using Billing.Domain.Aggregates;
+using Billing.Domain.Campaigns;
 using Billing.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -62,7 +63,7 @@ public sealed class CreditCampaignService(MicroserviceContext db, TimeProvider c
                 + "the failure monetization.md section 8.6 exists to prevent.");
         }
 
-        if (request.AlertThresholdPercent is < 1 or > 100)
+        if (!CampaignBudget.IsThresholdInRange(request.AlertThresholdPercent))
         {
             throw new CreditRefusedException(CreditCampaignErrorCodes.ThresholdOutOfRange,
                 $"The alert threshold is {request.AlertThresholdPercent}%, which is not a percentage "

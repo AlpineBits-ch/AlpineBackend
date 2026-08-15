@@ -1,5 +1,6 @@
 using AppEnvironment;
 using Billing.Application.Credit;
+using Billing.Application.Promotions;
 using Billing.Application.Security;
 using Billing.Application.Services;
 using Billing.Application.Stripe;
@@ -85,6 +86,9 @@ builder.Services.AddStripeWebhooks();
 // Promotional credit (monetization.md section 8), same arrangement.
 builder.Services.AddCreditLedger();
 
+// Promotions and their anti-abuse controls (monetization.md section 7), same arrangement.
+builder.Services.AddPromotions();
+
 // Billing is the write side, so it registers the grant provider rather than the entitlement source
 // built on it.
 builder.Services.AddScoped<IGrantProvider>(provider => provider.GetRequiredService<GrantService>());
@@ -136,7 +140,11 @@ if (Env.License.IsSelfHost)
         + "LICENSE_MODE=hosted if this instance is meant to be the hosted product.");
 }
 
+// The third check, and the same rule as the two above: a value that must be set is refused rather
+// than defaulted.
 var app = builder.Build();
+
+app.Services.GetRequiredService<IOptions<PromotionOptions>>().Value.EnsureConfigured();
 
 // The other half of the compiled-in sandbox fallbacks in AppEnvironment.LicenseConfiguration, and
 // the reason those fallbacks are acceptable at all.

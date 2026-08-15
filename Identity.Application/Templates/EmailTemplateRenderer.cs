@@ -7,9 +7,15 @@ public class EmailTemplateRenderer
     private readonly RazorLightEngine _engine;
 
     public EmailTemplateRenderer()
+        : this(Path.Combine(Directory.GetCurrentDirectory(), "Templates"))
+    {
+    }
+
+    /// <summary>Renders from a named folder rather than from the working directory.</summary>
+    public EmailTemplateRenderer(string templatesRoot)
     {
         _engine = new RazorLightEngineBuilder()
-            .UseFileSystemProject(Path.Combine(Directory.GetCurrentDirectory(), "Templates"))
+            .UseFileSystemProject(templatesRoot)
             .UseMemoryCachingProvider()
             .Build();
     }

@@ -469,6 +469,127 @@ public class AdminBillingController(
             $"budget set to {Text(request, "totalBudgetPoints")} points");
     }
 
+    // ── Promotions ────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Every campaign, most recently opened first, with what has been redeemed against each
+    /// budget. The monitoring half, and the one that matters: a campaign that has already stopped
+    /// issuing is otherwise something somebody finds out about from a support ticket.</summary>
+    [HttpGet("promotions/campaigns")]
+    public async Task<IActionResult> PromotionCampaignsAsync(CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext, "/api/v1/promotions/campaigns", ct));
+    }
+
+    /// <summary>The eligibility rules a campaign can require, and the sentence each one refuses with.
+    /// Served by Billing rather than written into this console, so a rule added there appears in the
+    /// campaign editor without a second deploy of the gateway image.</summary>
+    [HttpGet("promotions/rules")]
+    public async Task<IActionResult> PromotionRulesAsync(CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext, "/api/v1/promotions/rules", ct));
+    }
+
+    [HttpGet("promotions/campaigns/{codeOrId}")]
+    public async Task<IActionResult> PromotionCampaignAsync(string codeOrId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext,
+            $"/api/v1/promotions/campaigns/{Escape(codeOrId)}", ct));
+    }
+
+    [HttpGet("promotions/campaigns/{codeOrId}/redemptions")]
+    public async Task<IActionResult> PromotionRedemptionsAsync(
+        string codeOrId, [FromQuery] int limit, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext,
+            $"/api/v1/promotions/campaigns/{Escape(codeOrId)}/redemptions"
+            + $"?limit={(limit <= 0 ? 200 : limit)}", ct));
+    }
+
+    /// <summary>Everything one subject has ever redeemed, expired and released rows included. The
+    /// screen a support agent opens when somebody says they were told they already had a trial, and
+    /// the reason redemptions are never deleted.</summary>
+    [HttpGet("promotions/subjects/{subjectKind}/{subjectId}/redemptions")]
+    public async Task<IActionResult> SubjectRedemptionsAsync(
+        string subjectKind, string subjectId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        if (!TrySubject(subjectKind, subjectId, out var subject, out var refusal)) return refusal;
+
+        return Forward(await billing.GetAsync(HttpContext,
+            $"/api/v1/promotions/subjects/{subject.Kind}/{Escape(subject.Id)}/redemptions", ct));
+    }
+
+    /// <summary>Opens a campaign.</summary>
+    [HttpPost("promotions/campaigns")]
+    public async Task<IActionResult> CreatePromotionCampaignAsync(
+        [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        var code = Text(request, "code");
+
+        return await WriteAsync(actor, HttpMethod.Post, "/api/v1/promotions/campaigns", request, ct,
+            ModerationAuditActions.BillingPromotionCampaignCreated, code,
+            $"{Text(request, "plan")} for {Text(request, "trialDays")} days, budget "
+            + $"{Text(request, "totalBudgetRedemptions")} redemptions: {Text(request, "description")}");
+    }
+
+    /// <summary>Stops a campaign being redeemed.</summary>
+    [HttpPost("promotions/campaigns/{codeOrId}/pause")]
+    public async Task<IActionResult> PausePromotionCampaignAsync(string codeOrId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        return await SendAsync(actor, HttpMethod.Post,
+            $"/api/v1/promotions/campaigns/{Escape(codeOrId)}/pause", body: null, ct,
+            ModerationAuditActions.BillingPromotionCampaignPaused, codeOrId, null);
+    }
+
+    /// <summary>Lets a paused campaign be redeemed again.</summary>
+    [HttpPost("promotions/campaigns/{codeOrId}/resume")]
+    public async Task<IActionResult> ResumePromotionCampaignAsync(string codeOrId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        return await SendAsync(actor, HttpMethod.Post,
+            $"/api/v1/promotions/campaigns/{Escape(codeOrId)}/resume", body: null, ct,
+            ModerationAuditActions.BillingPromotionCampaignResumed, codeOrId, null);
+    }
+
+    [HttpPatch("promotions/campaigns/{codeOrId}/budget")]
+    public async Task<IActionResult> SetPromotionCampaignBudgetAsync(
+        string codeOrId, [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        return await WriteAsync(actor, HttpMethod.Patch,
+            $"/api/v1/promotions/campaigns/{Escape(codeOrId)}/budget", request, ct,
+            ModerationAuditActions.BillingPromotionCampaignBudgetSet, codeOrId,
+            $"budget set to {Text(request, "totalBudgetRedemptions")} redemptions");
+    }
+
     // ── Cache ─────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>

@@ -1,3 +1,4 @@
+using Billing.Domain.Campaigns;
 using Persistence;
 
 namespace Billing.Domain.Aggregates;
@@ -29,7 +30,7 @@ public class CreditCampaign : BaseEntity<CreditCampaign>, IPrefixedEntity
     public int? LotLifetimeDays { get; set; }
 
     /// <summary>Percentage of <see cref="TotalBudgetPoints"/> at which the alert fires.</summary>
-    public int AlertThresholdPercent { get; set; } = 80;
+    public int AlertThresholdPercent { get; set; } = CampaignBudget.DefaultAlertThresholdPercent;
 
     public DateTimeOffset? AlertedAt { get; set; }
 
@@ -46,16 +47,18 @@ public class CreditCampaign : BaseEntity<CreditCampaign>, IPrefixedEntity
 
     public string CreatedBy { get; set; } = null!;
 
-    public long RemainingPoints => Math.Max(0, TotalBudgetPoints - IssuedPoints);
+    public long RemainingPoints => CampaignBudget.Remaining(TotalBudgetPoints, IssuedPoints);
 
     public bool IsPaused => PausedAt is not null;
 
-    /// <summary>Whether the campaign may issue at all right now.</summary>
+    /// <inheritdoc cref="CampaignBudget.IsOpenAt"/>
     public bool IsOpenAt(DateTimeOffset instant) =>
-        !IsPaused
-        && (StartsAt is null || StartsAt <= instant)
-        && (EndsAt is null || EndsAt > instant);
+        CampaignBudget.IsOpenAt(instant, StartsAt, EndsAt, PausedAt);
 
-    /// <summary>The points at which the alert is due.</summary>
-    public long AlertAtPoints => (long)(TotalBudgetPoints * (AlertThresholdPercent / 100.0));
+    /// <inheritdoc cref="CampaignBudget.AlertAt"/>
+    public long AlertAtPoints => CampaignBudget.AlertAt(TotalBudgetPoints, AlertThresholdPercent);
+
+    /// <inheritdoc cref="CampaignBudget.ShouldAlert"/>
+    public bool ShouldAlert() =>
+        CampaignBudget.ShouldAlert(TotalBudgetPoints, IssuedPoints, AlertThresholdPercent, AlertedAt);
 }

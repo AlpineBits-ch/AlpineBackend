@@ -105,6 +105,11 @@ public class EmailTemplateTests
         new object[] { "WelcomeEmail.cshtml", (object)new WelcomeEmail { Name = "Sam", Email = "s@e.co", ConfirmationCode = "123456" } },
         new object[] { "PasswordResetEmail.cshtml", (object)new PasswordResetEmail { Name = "Sam", Email = "s@e.co", ResetCode = "123456" } },
         new object[] { "RegistrationAttemptEmail.cshtml", (object)new RegistrationAttemptEmail { Name = "Sam", Email = "s@e.co" } },
+
+        // The three billing mails.
+        new object[] { "CreditIssuedEmail.cshtml", (object)new CreditIssuedEmail { Name = "Sam", Email = "s@e.co", Points = "1,500", BalancePoints = "2,500", ExpiresOn = "14 November 2026", Disclaimer = "Credits have no cash value." } },
+        new object[] { "EntitlementGrantEmail.cshtml", (object)new EntitlementGrantEmail { Name = "Sam", Email = "s@e.co", Headline = "You now have Pro", Summary = "we have added Pro to your account.", PlanDisplayName = "Pro", ExpiresOn = "14 November 2026" } },
+        new object[] { "PlanUpgradedEmail.cshtml", (object)new PlanUpgradedEmail { Name = "Sam", Email = "s@e.co", PlanDisplayName = "Pro", PreviousPlanDisplayName = "Plus", RenewsOn = "3 September 2026" } },
     ];
 
     /// <summary>The rule these mails broke: a stylesheet a client strips takes the whole design with

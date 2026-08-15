@@ -83,6 +83,12 @@ public static class ModerationAuditActions
     public const string BillingCreditCampaignPaused = "billing.credit-campaign-paused";
     public const string BillingCreditCampaignBudgetSet = "billing.credit-campaign-budget-set";
 
+    // Promotion campaigns.
+    public const string BillingPromotionCampaignCreated = "billing.promotion-campaign-created";
+    public const string BillingPromotionCampaignPaused = "billing.promotion-campaign-paused";
+    public const string BillingPromotionCampaignResumed = "billing.promotion-campaign-resumed";
+    public const string BillingPromotionCampaignBudgetSet = "billing.promotion-campaign-budget-set";
+
     /// <summary>An account's staff tier changed.</summary>
     public const string RoleChanged = "user.role-changed";
 }

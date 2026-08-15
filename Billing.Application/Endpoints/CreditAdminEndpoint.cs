@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using Billing.Application.Credit;
+using Billing.Application.Notifications;
 using Billing.Application.Security;
+using Identity.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
 using Wolverine.Http;
 
@@ -53,10 +55,11 @@ public class CreditAdminEndpoint
     /// <summary>Hands somebody credit, with a mandatory reason.</summary>
     [Authorize(Policy = BillingPolicies.GrantAdmin)]
     [WolverinePost("/api/v1/credit/wallets/{userId}/issue")]
-    public static async Task<IResult> IssueAsync(
+    public static async Task<(IResult, CreditIssuedNotification?)> IssueAsync(
         string userId,
         IssueCreditRequest request,
         [NotBody] CreditLedgerService ledger,
+        [NotBody] TimeProvider clock,
         [NotBody] ClaimsPrincipal caller,
         [NotBody] ILogger<CreditAdminEndpoint> logger,
         CancellationToken cancellationToken)
@@ -64,7 +67,7 @@ public class CreditAdminEndpoint
         ArgumentNullException.ThrowIfNull(request);
 
         var actor = ActorId(caller);
-        if (actor is null) return Results.Unauthorized();
+        if (actor is null) return (Results.Unauthorized(), null);
 
         try
         {
@@ -84,11 +87,20 @@ public class CreditAdminEndpoint
                 "Staff {Actor} issued {Amount} credits to {UserId} under {Campaign}: {Reason}",
                 actor, request.Amount, userId, request.Campaign ?? "no campaign", request.Reason);
 
-            return Results.Ok(Written(result));
+            // Read back for the lot's expiry date, which is the one fact the mail needs that the write
+            // result does not carry. Skipped entirely on a replay, where there is no mail to build.
+            var lots = result.WasReplay
+                ? []
+                : await ledger.OpenLotsAsync(userId, cancellationToken);
+
+            return (
+                Results.Ok(Written(result)),
+                BillingNotices.ForCreditIssue(
+                    userId, result, lots, request.Campaign, clock.GetUtcNow()));
         }
         catch (CreditRefusedException refusal)
         {
-            return Results.BadRequest(new CreditErrorDto(refusal.Code, refusal.Message));
+            return (Results.BadRequest(new CreditErrorDto(refusal.Code, refusal.Message)), null);
         }
     }
 

@@ -654,7 +654,7 @@ public sealed class CreditLedgerService(
 
         campaign.IssuedPoints += request.Amount;
 
-        if (campaign.AlertedAt is null && campaign.IssuedPoints >= campaign.AlertAtPoints)
+        if (campaign.ShouldAlert())
         {
             campaign.AlertedAt = now;
 

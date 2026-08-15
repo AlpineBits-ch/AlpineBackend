@@ -693,6 +693,224 @@ namespace Billing.Infrastructure.Migrations
                     b.ToTable("processed_stripe_events", (string)null);
                 });
 
+            modelBuilder.Entity("Billing.Domain.Aggregates.PromotionCampaign", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AlertThresholdPercent")
+                        .HasColumnType("integer")
+                        .HasColumnName("alert_threshold_percent");
+
+                    b.Property<DateTimeOffset?>("AlertedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("alerted_at");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("code");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<long>("IssuedRedemptions")
+                        .HasColumnType("bigint")
+                        .HasColumnName("issued_redemptions");
+
+                    b.Property<int>("MaxPerSubject")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_per_subject");
+
+                    b.Property<int>("MinimumAccountAgeDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("minimum_account_age_days");
+
+                    b.Property<DateTimeOffset?>("PausedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("paused_at");
+
+                    b.Property<string>("PausedBy")
+                        .HasColumnType("text")
+                        .HasColumnName("paused_by");
+
+                    b.Property<string>("Plan")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("plan");
+
+                    b.Property<int>("RequiredSignals")
+                        .HasColumnType("integer")
+                        .HasColumnName("required_signals");
+
+                    b.Property<DateTimeOffset?>("StartsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("starts_at");
+
+                    b.Property<string>("SubjectKind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject_kind");
+
+                    b.Property<long>("TotalBudgetRedemptions")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_budget_redemptions");
+
+                    b.Property<int>("TrialDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("trial_days");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_promotion_campaigns");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_promotion_campaigns_code");
+
+                    b.ToTable("promotion_campaigns", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_promotion_campaigns_within_budget", "total_budget_redemptions > 0 AND issued_redemptions >= 0 AND issued_redemptions <= total_budget_redemptions");
+                        });
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PromotionIdentityMark", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CampaignId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Hash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("hash");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("RedemptionId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("redemption_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_promotion_identity_marks");
+
+                    b.HasIndex("RedemptionId")
+                        .HasDatabaseName("ix_promotion_identity_marks_redemption_id");
+
+                    b.HasIndex("CampaignId", "Kind", "Hash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_promotion_identity_marks_campaign_id_kind_hash");
+
+                    b.ToTable("promotion_identity_marks", (string)null);
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PromotionRedemption", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CampaignId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("ends_at");
+
+                    b.Property<DateTimeOffset?>("ExpiredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expired_at");
+
+                    b.Property<string>("OwnerUserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("owner_user_id");
+
+                    b.Property<DateTimeOffset>("RedeemedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("redeemed_at");
+
+                    b.Property<DateTimeOffset?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("released_at");
+
+                    b.Property<string>("StripeSubscriptionId")
+                        .HasColumnType("text")
+                        .HasColumnName("stripe_subscription_id");
+
+                    b.Property<string>("SubjectId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject_id");
+
+                    b.Property<string>("SubjectKind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject_kind");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_promotion_redemptions");
+
+                    b.HasIndex("EndsAt")
+                        .HasDatabaseName("ix_promotion_redemptions_ends_at")
+                        .HasFilter("ends_at IS NOT NULL AND expired_at IS NULL");
+
+                    b.HasIndex("OwnerUserId", "RedeemedAt")
+                        .HasDatabaseName("ix_promotion_redemptions_owner_user_id_redeemed_at");
+
+                    b.HasIndex("CampaignId", "SubjectKind", "SubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_promotion_redemptions_campaign_id_subject_kind_subject_id");
+
+                    b.ToTable("promotion_redemptions", (string)null);
+                });
+
             modelBuilder.Entity("Billing.Domain.Aggregates.StripeCustomer", b =>
                 {
                     b.Property<string>("Id")
@@ -845,6 +1063,26 @@ namespace Billing.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_plan_versions_plans_plan_id");
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PromotionIdentityMark", b =>
+                {
+                    b.HasOne("Billing.Domain.Aggregates.PromotionRedemption", null)
+                        .WithMany()
+                        .HasForeignKey("RedemptionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_promotion_identity_marks_promotion_redemptions_redemption_id");
+                });
+
+            modelBuilder.Entity("Billing.Domain.Aggregates.PromotionRedemption", b =>
+                {
+                    b.HasOne("Billing.Domain.Aggregates.PromotionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_promotion_redemptions_promotion_campaigns_campaign_id");
                 });
 
             modelBuilder.Entity("Billing.Domain.Aggregates.Subscription", b =>

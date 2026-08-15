@@ -184,7 +184,21 @@ public sealed class StripeGateway(StripeOptions options, ILogger<StripeGateway>?
             PaymentBehavior = "default_incomplete",
             AutomaticTax = new StripeSdk.SubscriptionAutomaticTaxOptions { Enabled = request.AutomaticTax },
             Metadata = new Dictionary<string, string>(request.Metadata),
-            Expand = ["latest_invoice.confirmation_secret"],
+
+            TrialPeriodDays = request.TrialPeriodDays,
+            TrialSettings = new StripeSdk.SubscriptionTrialSettingsOptions
+            {
+                EndBehavior = new StripeSdk.SubscriptionTrialSettingsEndBehaviorOptions
+                {
+                    MissingPaymentMethod = "cancel",
+                },
+            },
+
+            DefaultPaymentMethod = string.IsNullOrWhiteSpace(request.DefaultPaymentMethodId)
+                ? null
+                : request.DefaultPaymentMethodId,
+
+            Expand = ["latest_invoice.confirmation_secret", "pending_setup_intent"],
         };
 
         var subscription = await CallAsync(
@@ -192,16 +206,39 @@ public sealed class StripeGateway(StripeOptions options, ILogger<StripeGateway>?
             idempotencyKey,
             requestOptions => Client.V1.Subscriptions.CreateAsync(create, requestOptions, cancellationToken));
 
-        var clientSecret = subscription.LatestInvoice?.ConfirmationSecret?.ClientSecret;
+        var clientSecret = subscription.LatestInvoice?.ConfirmationSecret?.ClientSecret
+                           ?? subscription.PendingSetupIntent?.ClientSecret;
 
         logger?.LogInformation(
             "Stripe subscription {Subscription} created for customer {Customer} on price {Price} "
-            + "(automatic tax {Tax}, confirmation secret {Secret}).",
+            + "(automatic tax {Tax}, trial {Trial}, confirmation secret {Secret}).",
             subscription.Id, request.CustomerId, request.PriceId,
             request.AutomaticTax ? "on" : "off",
+            request.TrialPeriodDays is { } days ? $"{days} days" : "none",
             clientSecret is null ? "absent" : "present");
 
         return new StripeSubscriptionResult(Snapshot(subscription), clientSecret);
+    }
+
+    public async Task UpdateSubscriptionMetadataAsync(
+        string subscriptionId,
+        IReadOnlyDictionary<string, string> metadata,
+        StripeIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subscriptionId);
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        var update = new StripeSdk.SubscriptionUpdateOptions
+        {
+            Metadata = new Dictionary<string, string>(metadata),
+        };
+
+        await CallAsync(
+            "subscriptions.update.metadata",
+            idempotencyKey,
+            requestOptions => Client.V1.Subscriptions.UpdateAsync(
+                subscriptionId, update, requestOptions, cancellationToken));
     }
 
     public async Task<StripeSubscriptionResult?> GetSubscriptionWithSecretAsync(
@@ -385,6 +422,56 @@ public sealed class StripeGateway(StripeOptions options, ILogger<StripeGateway>?
         {
             throw Failed("payment_methods.list", exception);
         }
+    }
+
+    public async Task<StripeCardIdentity?> GetCardIdentityAsync(
+        string customerId, string? paymentMethodId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customerId);
+
+        StripeSdk.Customer customer;
+        StripeSdk.StripeList<StripeSdk.PaymentMethod> methods;
+
+        try
+        {
+            customer = await Client.V1.Customers.GetAsync(customerId, null, null, cancellationToken);
+
+            methods = await Client.V1.PaymentMethods.ListAsync(
+                new StripeSdk.PaymentMethodListOptions { Customer = customerId, Type = "card" },
+                null,
+                cancellationToken);
+        }
+        catch (StripeSdk.StripeException exception)
+        {
+            throw Failed("payment_methods.list", exception);
+        }
+
+        var cards = methods.Data ?? [];
+
+        StripeSdk.PaymentMethod? chosen;
+
+        if (!string.IsNullOrWhiteSpace(paymentMethodId))
+        {
+            // Matched against this customer's own list rather than fetched by id.
+            chosen = cards.FirstOrDefault(
+                method => string.Equals(method.Id, paymentMethodId, StringComparison.Ordinal));
+        }
+        else
+        {
+            var defaultId = customer?.InvoiceSettings?.DefaultPaymentMethodId;
+
+            chosen = cards.FirstOrDefault(
+                         method => string.Equals(method.Id, defaultId, StringComparison.Ordinal))
+                     ?? cards.FirstOrDefault();
+        }
+
+        if (chosen?.Card?.Fingerprint is not { Length: > 0 } fingerprint) return null;
+
+        logger?.LogDebug(
+            "Read the card identity of payment method {PaymentMethod} on Stripe customer {Customer}.",
+            chosen.Id, customerId);
+
+        return new StripeCardIdentity(chosen.Id, fingerprint);
     }
 
     public async Task<string?> CreateSetupIntentAsync(

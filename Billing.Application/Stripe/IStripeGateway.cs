@@ -57,6 +57,23 @@ public readonly record struct StripeIdempotencyKey
     }
 
     /// <summary>
+    /// <c>venta:trial:{subjectKind}:{subjectId}:{campaignCode}</c>, with <c>:untaxed</c> appended
+    /// for the no-automatic-tax fallback.
+    /// </summary>
+    public static StripeIdempotencyKey ForTrial(
+        string subjectKind, string subjectId, string campaignCode, bool automaticTax = true)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(campaignCode);
+
+        var suffix = automaticTax ? string.Empty : ":untaxed";
+
+        return new StripeIdempotencyKey(
+            $"{Namespace}:trial:{subjectKind.ToLowerInvariant()}:{subjectId}:{campaignCode}{suffix}");
+    }
+
+    /// <summary>
     /// <c>venta:{operation}:{objectId}:{unique}</c> - the one factory whose key is fresh per call.
     /// </summary>
     public static StripeIdempotencyKey ForRequest(string operation, string objectId)
@@ -119,7 +136,9 @@ public sealed record StripeSubscriptionRequest(
     string CustomerId,
     string PriceId,
     bool AutomaticTax,
-    IReadOnlyDictionary<string, string> Metadata);
+    IReadOnlyDictionary<string, string> Metadata,
+    int? TrialPeriodDays = null,
+    string? DefaultPaymentMethodId = null);
 
 /// <summary>A newly created subscription and the secret the client confirms against.</summary>
 public sealed record StripeSubscriptionResult(StripeSubscriptionSnapshot Subscription, string? ClientSecret);
@@ -132,6 +151,9 @@ public sealed record StripePaymentMethodSummary(
     long? ExpMonth,
     long? ExpYear,
     bool IsDefault);
+
+/// <summary>A card's identity, for the one caller allowed to know it.</summary>
+public sealed record StripeCardIdentity(string PaymentMethodId, string Fingerprint);
 
 /// <summary>One invoice, as a list screen reads it.</summary>
 public sealed record StripeInvoiceSummary(
@@ -226,6 +248,13 @@ public interface IStripeGateway
         StripeIdempotencyKey idempotencyKey,
         CancellationToken cancellationToken);
 
+    /// <summary>Replaces a subscription's metadata.</summary>
+    Task UpdateSubscriptionMetadataAsync(
+        string subscriptionId,
+        IReadOnlyDictionary<string, string> metadata,
+        StripeIdempotencyKey idempotencyKey,
+        CancellationToken cancellationToken);
+
     /// <summary>Moves the subscription's single item onto another price, prorating.</summary>
     Task<StripeSubscriptionSnapshot> ChangeSubscriptionPriceAsync(
         string subscriptionId,
@@ -239,6 +268,12 @@ public interface IStripeGateway
 
     Task<IReadOnlyList<StripePaymentMethodSummary>> ListPaymentMethodsAsync(
         string customerId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The identity of one of this customer's cards, for the anti-abuse control and nothing else.
+    /// </summary>
+    Task<StripeCardIdentity?> GetCardIdentityAsync(
+        string customerId, string? paymentMethodId, CancellationToken cancellationToken);
 
     /// <summary>Creates a SetupIntent for adding a card outside a purchase, and returns its client
     /// secret.</summary>

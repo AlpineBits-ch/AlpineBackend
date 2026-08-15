@@ -1,0 +1,120 @@
+@model Identity.Application.Templates.CreditIssuedEmail
+
+@{
+    Layout = null;
+}
+
+@* Light, table-based, inline-styled - the same rules as the three account mails, and for the same
+   reason. See Messaging/EmailLayout.cs: this design language exists because these were once dark
+   themed with everything in a <head><style> block, Gmail drops rules hung off `body`, Outlook renders
+   through Word, and the mail arrived as near-white text on white.
+
+   Rules for editing this file:
+     * every declaration inline; nothing in <style>
+     * tables with bgcolor, not styled divs
+     * no gradients, no flexbox
+     * dark text on light
+   And one rule specific to this mail: no currency symbol, anywhere, ever. Credit is points. *@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>Credit added to your account</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;">
+
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f6f8;">
+    @Model.Points credits are now in your account.
+</div>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f4f6f8" style="background-color:#f4f6f8;">
+    <tr>
+        <td align="center" style="padding:32px 12px 48px;">
+            <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:560px;">
+
+                <tr>
+                    <td style="padding:0 4px 18px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="padding-right:10px;">
+                                    <div style="width:26px;height:26px;border-radius:7px;background:#4B5BC4;"></div>
+                                </td>
+                                <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;color:#14171d;letter-spacing:-.01em;">venta</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td bgcolor="#ffffff" style="background-color:#ffffff;border:1px solid #e3e7ec;border-radius:12px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td bgcolor="#4B5BC4" style="background-color:#4B5BC4;height:3px;line-height:3px;font-size:0;border-radius:12px 12px 0 0;">&nbsp;</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:30px 32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+                                    <div style="font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#4B5BC4;margin:0 0 12px;">Credit added</div>
+
+                                    <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:600;color:#14171d;letter-spacing:-.02em;">@Model.Points credits for you, @Model.Name</h1>
+
+                                    <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#5b6472;">
+                                        @if (Model.FromCampaign)
+                                        {
+                                            <text>These credits were added to your account as part of a promotion.</text>
+                                        }
+                                        else
+                                        {
+                                            <text>A member of our team has added these credits to your account.</text>
+                                        }
+                                    </p>
+
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="#eef1f5" style="background-color:#eef1f5;height:1px;line-height:1px;font-size:0;">&nbsp;</td></tr></table>
+                                    <div style="height:22px;line-height:22px;font-size:0;">&nbsp;</div>
+
+                                    <div style="margin:0 0 16px;">
+                                        <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#646d79;margin:0 0 3px;">Added</div>
+                                        <div style="font-size:14px;line-height:1.5;color:#14171d;">@Model.Points credits</div>
+                                    </div>
+
+                                    <div style="margin:0 0 16px;">
+                                        <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#646d79;margin:0 0 3px;">Balance</div>
+                                        <div style="font-size:14px;line-height:1.5;color:#14171d;">@Model.BalancePoints credits</div>
+                                    </div>
+
+                                    @if (Model.ExpiresOn is not null)
+                                    {
+                                        <div style="margin:0 0 16px;">
+                                            <div style="font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:#646d79;margin:0 0 3px;">These credits expire</div>
+                                            <div style="font-size:14px;line-height:1.5;color:#14171d;">@Model.ExpiresOn</div>
+                                        </div>
+                                    }
+
+                                    <p style="margin:0;font-size:12.5px;line-height:1.6;color:#646d79;">
+                                        @Model.Disclaimer
+                                    </p>
+
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:20px 8px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#646d79;">
+                        Sent to @Model.Email<br />
+                        You are receiving this because something changed on your account.
+                    </td>
+                </tr>
+
+            </table>
+        </td>
+    </tr>
+</table>
+
+</body>
+</html>

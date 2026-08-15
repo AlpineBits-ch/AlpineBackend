@@ -33,10 +33,22 @@ public class MessageCreatedHandler
     {
         if (!string.IsNullOrWhiteSpace(messageCreated.ConversationId))
         {
-            var conversationMembers = await ctx.Members.Where(m => m.ConversationId == messageCreated.ConversationId && m.UserId != messageCreated.AuthorId).AsNoTracking().ToListAsync();
+            var allMembers = await ctx.Members.Where(m => m.ConversationId == messageCreated.ConversationId).AsNoTracking().ToListAsync();
+            var conversationMembers = allMembers.Where(m => m.UserId != messageCreated.AuthorId).ToList();
 
             var profile =await bus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest() { UserId = messageCreated.AuthorId });
-            await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.MessageCreated", messageCreated);
+
+            // The author is normally excluded because they already have the message: they sent it,
+            // and the send returned it.
+            var realtimeRecipients = ServerAuthored(messageCreated.Type)
+                ? allMembers
+                : conversationMembers;
+
+            if (realtimeRecipients.Count > 0)
+            {
+                await hubContext.Clients.Users(realtimeRecipients.Select(m => m.UserId))
+                    .SendAsync("conversation.MessageCreated", messageCreated);
+            }
 
             // Muted members still receive the realtime push above (their unread badge must stay
             // accurate) - the mute only suppresses the phone notification.
@@ -162,6 +174,13 @@ public class MessageCreatedHandler
             });
         }
     }
+    /// <summary>
+    /// Whether this message exists because the server wrote it, rather than because its author sent
+    /// it.
+    /// </summary>
+    private static bool ServerAuthored(DomainMessageType type) =>
+        type == DomainMessageType.VoiceChannelInvite;
+
     public static async Task<ICollection<ConversationMember>> LoadAsync(MessageCreated messageCreated, MicroserviceContext ctx)
     {
         return  await ctx.Members.Where(m => m.ConversationId == messageCreated.ConversationId && m.UserId != messageCreated.AuthorId).AsNoTracking().ToListAsync();

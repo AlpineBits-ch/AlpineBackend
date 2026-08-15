@@ -23,7 +23,7 @@ namespace Messaging.Tests.Handlers;
 /// only surface still there once the ring itself has lapsed a minute later.
 /// </summary>
 [TestFixture]
-public class VoiceRingDirectMessageRequestedHandlerTests
+public class WriteVoiceInviteMessageHandlerTests
 {
     private const string GuildId = "guild-1";
     private const string ChannelId = "channel-voice";
@@ -87,7 +87,7 @@ public class VoiceRingDirectMessageRequestedHandlerTests
         return id;
     }
 
-    private static VoiceRingDirectMessageRequested Request(string channelName = "General") => new()
+    private static WriteVoiceInviteMessage Request(string channelName = "General") => new()
     {
         RingId = "vrng-1",
         GuildId = GuildId,
@@ -98,15 +98,15 @@ public class VoiceRingDirectMessageRequestedHandlerTests
         ExpiresAt = Expiry,
     };
 
-    private async Task HandleAsync(VoiceRingDirectMessageRequested? request = null)
+    private Task<WriteVoiceInviteMessageResponse> HandleAsync(WriteVoiceInviteMessage? request = null)
     {
         var privacy = TestPrivacyServices.Build(_bus);
         var resolver = new DirectConversationResolver(
             _context, privacy.Policy, privacy.Bus, NullLogger<DirectConversationResolver>.Instance);
 
-        await VoiceRingDirectMessageRequestedHandler.Handle(
+        return WriteVoiceInviteMessageHandler.Handle(
             request ?? Request(), resolver, _bus,
-            NullLogger<VoiceRingDirectMessageRequestedHandler>.Instance);
+            NullLogger<WriteVoiceInviteMessageHandler>.Instance);
     }
 
     private CreateMessageCommand? Written() =>
@@ -159,16 +159,66 @@ public class VoiceRingDirectMessageRequestedHandlerTests
     }
 
     [Test]
+    public async Task ReportsWhereItLanded()
+    {
+        var conversationId = await SeedConversationAsync();
+
+        var result = await HandleAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Written, Is.True);
+            Assert.That(result.ConversationId, Is.EqualTo(conversationId),
+                "the caller offers 'open the DM', and for a message-only invite it may be a brand new one");
+            Assert.That(result.Refusal, Is.Null);
+        });
+    }
+
+    [Test]
     public async Task WritesNothing_WhenNoConversationCanBeOpened()
     {
         // Not friends, and the product default is friends-only, so the resolver refuses to start
-        // one. The invitation is not lost - the realtime card and the push both went out already.
-        await HandleAsync();
+        // one.
+        var result = await HandleAsync();
 
         Assert.Multiple(() =>
         {
             Assert.That(Written(), Is.Null);
             Assert.That(_context.Conversations.Count(), Is.Zero);
+            Assert.That(result.Written, Is.False);
+            Assert.That(result.Refusal, Is.EqualTo(WriteVoiceInviteMessageResponse.RecipientPolicy));
+        });
+    }
+
+    [Test]
+    public async Task ReportsAProfileFailureAsSomethingOtherThanARefusal()
+    {
+        // "They do not accept messages from you" is a specific claim about a person.
+        _byUserId.Remove(Target);
+
+        var result = await HandleAsync();
+
+        Assert.That(result.Refusal, Is.EqualTo(WriteVoiceInviteMessageResponse.Unavailable));
+    }
+
+    [Test]
+    public async Task OmitsTheRingFieldsForAnInvitationSentWithoutOne()
+    {
+        // The third card state: no ring id and no expiry means an invitation that simply stands.
+        await SeedConversationAsync();
+
+        var request = Request();
+        request.RingId = null;
+        request.ExpiresAt = null;
+
+        await HandleAsync(request);
+        var card = Card(Written()!);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(card.Venta!.RingId, Is.Null);
+            Assert.That(card.Venta.ExpiresAt, Is.Null);
+            Assert.That(card.Venta.ChannelId, Is.EqualTo(ChannelId), "everything else still identifies the channel");
         });
     }
 

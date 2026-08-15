@@ -63,6 +63,9 @@ public class GuildVoiceRingTests
         _clock = new TestClock(new DateTimeOffset(2026, 8, 15, 12, 0, 0, TimeSpan.Zero));
 
         _bus.SetResponse<GetBlockRelationshipsRequest>(new GetBlockRelationshipsResponse());
+        // Messaging answers the conversation write.
+        _bus.SetResponse<WriteVoiceInviteMessage>(
+            new WriteVoiceInviteMessageResponse { Written = true, ConversationId = "conv-1" });
         _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse
         {
             Profile = new ProfileDto { UserName = "Inviter", AvatarUrl = "https://cdn/a.png" },
@@ -188,8 +191,13 @@ public class GuildVoiceRingTests
     private List<VoiceRingForBots> BotEvents =>
         _bus.Published.OfType<VoiceRingForBots>().ToList();
 
-    private List<VoiceRingDirectMessageRequested> DirectMessages =>
-        _bus.Published.OfType<VoiceRingDirectMessageRequested>().ToList();
+    private List<WriteVoiceInviteMessage> DirectMessages =>
+        _bus.Invoked.OfType<WriteVoiceInviteMessage>().ToList();
+
+    private async Task<IActionResult> InviteAsync(
+        VoiceRingDelivery delivery, string channelId = ChannelId, string target = Target) =>
+        await Controller(Inviter)
+            .Ring(GuildId, channelId, new RingVoiceChannelDto(target, delivery), CancellationToken.None);
 
     // ══════════════════════════════════════════════════════════════════════════ Sending a ring
     // ══════════════════════════════════════════════════════════════════════════
@@ -862,7 +870,7 @@ public class GuildVoiceRingTests
                 "the card names the channel, and only a target already checked for ViewChannel gets one");
             Assert.That(request.ExpiresAt, Is.EqualTo(_clock.GetUtcNow().Add(VoiceRing.Ttl)),
                 "an absolute instant, because unlike the push this is re-read months later");
-            Assert.That(request.ExpiresAt.Offset, Is.EqualTo(TimeSpan.Zero),
+            Assert.That(request.ExpiresAt!.Value.Offset, Is.EqualTo(TimeSpan.Zero),
                 "a ring round-trips through Redis as JSON; an Unspecified kind would be read as local time");
         });
     }
@@ -913,5 +921,157 @@ public class GuildVoiceRingTests
             Assert.That(result, Is.Not.InstanceOf<OkObjectResult>());
             Assert.That(DirectMessages, Is.Empty);
         });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ Delivery: how hard
+    // to knock ══════════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Delivery_DefaultsToBoth_SoAClientThatDoesNotKnowTheFieldIsUnchanged()
+    {
+        await SitInAsync(ChannelId, Inviter);
+
+        await RingAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(Sent.RecipientsOf(VoiceRingService.IncomingEvent), Is.EqualTo(new[] { Target }));
+            Assert.That(Pushes.Where(p => !p.Cancel).ToList(), Has.Count.EqualTo(1));
+            Assert.That(DirectMessages, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Ring_LeavesNoCardBehind()
+    {
+        await SitInAsync(ChannelId, Inviter);
+
+        var result = await InviteAsync(VoiceRingDelivery.Ring);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(Sent.RecipientsOf(VoiceRingService.IncomingEvent), Is.EqualTo(new[] { Target }));
+            Assert.That(DirectMessages, Is.Empty, "the ephemeral form, exactly as it was before the card existed");
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Message_WritesTheCardAndRingsNobody()
+    {
+        // Deliberately nobody in the channel: a message invitation makes no claim to be in it.
+        var result = await InviteAsync(VoiceRingDelivery.Message);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(DirectMessages, Has.Count.EqualTo(1));
+            Assert.That(Sent.SentMessages.Any(m => m.Method == VoiceRingService.IncomingEvent), Is.False,
+                "nothing rings");
+            Assert.That(Pushes, Is.Empty, "and no phone buzzes");
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Message_CreatesNoRingToAcceptOrExpire()
+    {
+        await InviteAsync(VoiceRingDelivery.Message);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(DirectMessages.Single().RingId, Is.Null);
+            Assert.That(DirectMessages.Single().ExpiresAt, Is.Null,
+                "the card renders as a standing invitation, not as one that lapsed the moment it arrived");
+            Assert.That(_bus.Published.OfType<VoiceRingTimeoutCheck>(), Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Message_AnswersTheConversationItLandedIn()
+    {
+        var result = await InviteAsync(VoiceRingDelivery.Message);
+
+        var sent = (VoiceInviteSentDto)((OkObjectResult)result).Value!;
+        Assert.That(sent.ConversationId, Is.EqualTo("conv-1"));
+    }
+
+    [Test]
+    public async Task Delivery_Message_IsRefusedWhenTheRecipientDoesNotAcceptMessages()
+    {
+        // The one refusal a ring never sees.
+        _bus.SetResponse<WriteVoiceInviteMessage>(new WriteVoiceInviteMessageResponse
+        {
+            Written = false,
+            Refusal = WriteVoiceInviteMessageResponse.RecipientPolicy,
+        });
+
+        var result = await InviteAsync(VoiceRingDelivery.Message);
+
+        Assert.That(((ObjectResult)result).StatusCode, Is.EqualTo(403));
+    }
+
+    [Test]
+    public async Task Delivery_Message_IsRefusedWhenTheSenderCannotSeeTheChannel()
+    {
+        // Sitting in the channel implied this for a ring.
+        var result = await Controller(Stranger).Ring(
+            GuildId, PrivateChannelId,
+            new RingVoiceChannelDto(Target, VoiceRingDelivery.Message), CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidResult>());
+            Assert.That(DirectMessages, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Message_IsAllowedFromSomebodyWhoCanSeeTheChannelButIsNotInIt()
+    {
+        // The whole point of the quiet form: nobody has to be sitting anywhere.
+        var result = await InviteAsync(VoiceRingDelivery.Message, PrivateChannelId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That(DirectMessages, Has.Count.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Message_StillRefusesATargetWhoCannotJoin()
+    {
+        // Every check about the *target* is shared with the ring path and none of them are skipped.
+        await SitInAsync(PrivateChannelId, Inviter);
+
+        var result = await InviteAsync(VoiceRingDelivery.Message, PrivateChannelId, Stranger);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ObjectResult>());
+            Assert.That(DirectMessages, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Delivery_Message_IsNotThrottledLikeARing()
+    {
+        // The ring budget is six per five minutes because a ring interrupts.
+        for (var i = 0; i < 10; i++)
+        {
+            var result = await InviteAsync(VoiceRingDelivery.Message);
+            Assert.That(result, Is.InstanceOf<OkObjectResult>(), $"invitation {i + 1} was refused");
+        }
+
+        Assert.That(DirectMessages, Has.Count.EqualTo(10));
+    }
+
+    [Test]
+    public async Task Delivery_IsRejectedWhenItIsNotAValueThisBuildKnows()
+    {
+        var result = await Controller(Inviter).Ring(
+            GuildId, ChannelId, new RingVoiceChannelDto(Target, (VoiceRingDelivery)99), CancellationToken.None);
+
+        Assert.That(result, Is.InstanceOf<BadRequestObjectResult>());
     }
 }

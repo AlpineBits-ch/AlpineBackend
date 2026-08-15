@@ -32,19 +32,28 @@ public class GuildVoiceRingController(
         return device.IsUnknown ? null : device.DeviceId;
     }
 
-    /// <summary>Asks one member into the voice channel the caller is currently sitting in.</summary>
+    /// <summary>Asks one member into a voice channel: quietly, loudly, or both.</summary>
     [HttpPost("{guildId}/channels/{channelId}/voice/rings")]
     public async Task<IActionResult> Ring(
         string guildId, string channelId, RingVoiceChannelDto dto, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(dto.TargetUserId)) return BadRequest("A target user is required.");
+        if (!Enum.IsDefined(dto.Delivery)) return BadRequest("Unknown delivery.");
 
         var deviceId = await DeviceAsync(ct);
-        var result = await rings.RingAsync(UserId, deviceId, guildId, channelId, dto.TargetUserId, ct);
+        var result = await rings.RingAsync(
+            UserId, deviceId, guildId, channelId, dto.TargetUserId, dto.Delivery, ct);
 
         return result.Outcome switch
         {
             VoiceRingOutcome.Created => Ok(VoiceRingDto.From(result.Ring!, Now)),
+
+            // No ring to describe, so no VoiceRingDto.
+            VoiceRingOutcome.MessageSent => Ok(new VoiceInviteSentDto(result.ConversationId!)),
+
+            // The one refusal unique to a message invitation.
+            VoiceRingOutcome.MessageRefused =>
+                StatusCode(403, new VoiceRingRefusalDto("RecipientPolicy", 0)),
 
             // The same 200 as a fresh ring, deliberately.
             VoiceRingOutcome.AlreadyPending => Ok(VoiceRingDto.From(result.Ring!, Now)),

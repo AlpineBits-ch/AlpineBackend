@@ -1,6 +1,7 @@
 using Echo.Realtime;
 using Echo.Voice.Rooms;
 using Guild.Application.Bus.Events.Voice;
+using Guild.Application.Dtos;
 using Guild.Application.Models;
 using Guild.Contracts;
 using Guild.Contracts.Bus.Events;
@@ -19,6 +20,17 @@ namespace Guild.Application.Services;
 public enum VoiceRingOutcome
 {
     Created,
+
+    /// <summary>A <see cref="VoiceRingDelivery.Message"/> invitation was written into the two
+    /// people's conversation. No ring exists, so there is nothing to accept and nothing to
+    /// expire.</summary>
+    MessageSent,
+
+    /// <summary>The invitation could not be written, because the recipient's direct-message policy
+    /// does not admit this sender - or because one of them has blocked the other, which is
+    /// deliberately the same answer. Only reachable for <see cref="VoiceRingDelivery.Message"/>: the
+    /// other two deliveries have a ring to fall back on and never fail for this.</summary>
+    MessageRefused,
 
     /// <summary>This inviter already has a live ring out to this target, into this channel. The
     /// existing one is returned unchanged and nothing is re-sent.</summary>
@@ -42,7 +54,8 @@ public enum VoiceRingOutcome
 
 /// <summary>What the caller gets back.</summary>
 public readonly record struct VoiceRingResult(
-    VoiceRingOutcome Outcome, VoiceRing? Ring, string? Refusal, TimeSpan RetryAfter)
+    VoiceRingOutcome Outcome, VoiceRing? Ring, string? Refusal, TimeSpan RetryAfter,
+    string? ConversationId = null)
 {
     public static VoiceRingResult Refuse(VoiceRingOutcome outcome) => new(outcome, null, null, TimeSpan.Zero);
 }
@@ -81,8 +94,10 @@ public class VoiceRingService(
     /// </summary>
     public async Task<VoiceRingResult> RingAsync(
         string inviterId, string? inviterDeviceId, string guildId, string channelId, string targetUserId,
-        CancellationToken ct = default)
+        VoiceRingDelivery delivery = VoiceRingDelivery.Both, CancellationToken ct = default)
     {
+        var ringing = delivery != VoiceRingDelivery.Message;
+
         if (string.Equals(inviterId, targetUserId, StringComparison.Ordinal))
             return VoiceRingResult.Refuse(VoiceRingOutcome.SelfRing);
 
@@ -95,20 +110,38 @@ public class VoiceRingService(
         if (channel.Type != Guild.Domain.Enums.ChannelType.Voice)
             return VoiceRingResult.Refuse(VoiceRingOutcome.NotAVoiceChannel);
 
-        // Membership of the room, not merely permission to connect to it.
         var room = await rooms.LoadAsync(Room(channelId), ct);
-        if (room?.Find(inviterId) is null) return VoiceRingResult.Refuse(VoiceRingOutcome.InviterNotInChannel);
 
-        var existing = await store.PendingForTargetAsync(targetUserId, ct);
+        if (ringing)
+        {
+            // Membership of the room, not merely permission to connect to it.
+            if (room?.Find(inviterId) is null)
+                return VoiceRingResult.Refuse(VoiceRingOutcome.InviterNotInChannel);
+        }
+        // A message invitation makes no such claim, so it does not need the sender to be in the
+        // room - but it does need them to be able to see the channel they are naming.
+        else if (!await permissions.CanUserPerformActionAsync(inviterId, channelId, Permissions.ViewChannel)
+                 || !await permissions.CanUserPerformActionAsync(inviterId, channelId, Permissions.Connect))
+        {
+            return VoiceRingResult.Refuse(VoiceRingOutcome.InviterNotInChannel);
+        }
 
-        var samePlace = existing.FirstOrDefault(r =>
-            r.InviterId == inviterId && r.ChannelId == channelId);
-        if (samePlace is not null)
-            return new VoiceRingResult(VoiceRingOutcome.AlreadyPending, samePlace, null, TimeSpan.Zero);
+        IReadOnlyList<VoiceRing> existing = [];
 
-        var verdict = await throttle.TryAcquireAsync(inviterId, targetUserId, ct);
-        if (!verdict.Allowed)
-            return new VoiceRingResult(VoiceRingOutcome.Throttled, null, verdict.Reason, verdict.RetryAfter);
+        if (ringing)
+        {
+            existing = await store.PendingForTargetAsync(targetUserId, ct);
+
+            var samePlace = existing.FirstOrDefault(r =>
+                r.InviterId == inviterId && r.ChannelId == channelId);
+            if (samePlace is not null)
+                return new VoiceRingResult(VoiceRingOutcome.AlreadyPending, samePlace, null, TimeSpan.Zero);
+
+            var verdict = await throttle.TryAcquireAsync(inviterId, targetUserId, ct);
+            if (!verdict.Allowed)
+                return new VoiceRingResult(VoiceRingOutcome.Throttled, null, verdict.Reason, verdict.RetryAfter);
+        }
+        // No throttle on a message invitation, and that is a decision rather than an omission.
 
         var member = await db.GuildMembers
             .AsNoTracking()
@@ -126,12 +159,25 @@ public class VoiceRingService(
             || !await permissions.CanUserPerformActionAsync(targetUserId, channelId, Permissions.Connect))
             return VoiceRingResult.Refuse(VoiceRingOutcome.TargetCannotJoinChannel);
 
-        if (room.Find(targetUserId) is not null)
+        if (room?.Find(targetUserId) is not null)
         {
             // A benign race - they walked in while the inviter was clicking - so the budget goes
             // back.
             await throttle.RefundAsync(inviterId, targetUserId, ct);
             return VoiceRingResult.Refuse(VoiceRingOutcome.TargetAlreadyInChannel);
+        }
+
+        // Every shared check has passed.
+        if (!ringing)
+        {
+            var written = await WriteInviteMessageAsync(
+                null, guildId, channelId, channel.Name, inviterId, targetUserId, null, ct);
+
+            return written.Written
+                ? new VoiceRingResult(VoiceRingOutcome.MessageSent, null, null, TimeSpan.Zero, written.ConversationId)
+                : VoiceRingResult.Refuse(written.Refusal == WriteVoiceInviteMessageResponse.RecipientPolicy
+                    ? VoiceRingOutcome.MessageRefused
+                    : VoiceRingOutcome.Unavailable);
         }
 
         // One person may not hold you to two invitations at once.
@@ -158,9 +204,13 @@ public class VoiceRingService(
         await bus.ScheduleAsync(new VoiceRingTimeoutCheck { RingId = ring.Id }, VoiceRing.Ttl);
 
         var inviter = await ProfileAsync(inviterId, ct);
-        await AnnounceIncomingAsync(ring, channel.Name, inviter, room, ct);
+        // Non-null on this path: the ringing branch above refused unless the inviter was found in it.
+        await AnnounceIncomingAsync(ring, channel.Name, inviter, room!, ct);
         await RequestPushAsync(ring, member.Id, channel.Name, inviter, ct);
-        await RequestDirectMessageAsync(ring, channel.Name, ct);
+
+        if (delivery == VoiceRingDelivery.Both)
+            await RequestDirectMessageAsync(ring, channel.Name, ct);
+
         await PublishForBotsAsync(ring, ct);
 
         return new VoiceRingResult(VoiceRingOutcome.Created, ring, null, TimeSpan.Zero);
@@ -310,18 +360,41 @@ public class VoiceRingService(
     /// <summary>
     /// Asks Messaging to leave the invitation in the two people's direct conversation.
     /// </summary>
-    private async Task RequestDirectMessageAsync(VoiceRing ring, string channelName, CancellationToken ct) =>
-        await bus.PublishAsync(new VoiceRingDirectMessageRequested
+    private async Task RequestDirectMessageAsync(VoiceRing ring, string channelName, CancellationToken ct)
+    {
+        try
         {
-            RingId = ring.Id,
-            GuildId = ring.GuildId,
-            ChannelId = ring.ChannelId,
+            await WriteInviteMessageAsync(
+                ring.Id, ring.GuildId, ring.ChannelId, channelName, ring.InviterId, ring.TargetUserId,
+                // Stamped rather than converted implicitly.
+                new DateTimeOffset(DateTime.SpecifyKind(ring.ExpiresAt, DateTimeKind.Utc), TimeSpan.Zero),
+                ct);
+        }
+        catch (Exception e)
+        {
+            // Swallowed here and nowhere else.
+            logger.LogWarning(e,
+                "Could not leave the conversation card for voice ring {RingId}", ring.Id);
+        }
+    }
+
+    /// <summary>
+    /// The one call into Messaging, shared by both deliveries so the card is built from the same
+    /// fields whichever way the invitation was sent.
+    /// </summary>
+    private Task<WriteVoiceInviteMessageResponse> WriteInviteMessageAsync(
+        string? ringId, string guildId, string channelId, string channelName,
+        string inviterId, string targetUserId, DateTimeOffset? expiresAt, CancellationToken ct) =>
+        bus.InvokeAsync<WriteVoiceInviteMessageResponse>(new WriteVoiceInviteMessage
+        {
+            RingId = ringId,
+            GuildId = guildId,
+            ChannelId = channelId,
             ChannelName = channelName,
-            InviterId = ring.InviterId,
-            TargetUserId = ring.TargetUserId,
-            // Stamped rather than converted implicitly.
-            ExpiresAt = new DateTimeOffset(DateTime.SpecifyKind(ring.ExpiresAt, DateTimeKind.Utc), TimeSpan.Zero),
-        });
+            InviterId = inviterId,
+            TargetUserId = targetUserId,
+            ExpiresAt = expiresAt,
+        }, ct);
 
     /// <summary>Takes the notification back off the target's lock screen.</summary>
     private async Task CancelPushAsync(VoiceRing ring, CancellationToken ct) =>

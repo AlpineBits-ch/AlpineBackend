@@ -162,6 +162,68 @@ public class MessageCreatedHandlerTests
         Assert.That(hubClients.SentMessages.Single().Method, Is.EqualTo("conversation.MessageCreated"));
     }
 
+    [Test]
+    public async Task Handle_VoiceChannelInvite_BroadcastsToTheAuthorToo()
+    {
+        // The author is normally excluded because they sent the message and the send returned it.
+        _context.Members.AddRange(
+            MakeMember("m-1", "author-1", "conv-1"),
+            MakeMember("m-2", "user-2", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var bus = BusWithNoDeviceTokens();
+        var invite = MakeEvent(conversationId: "conv-1");
+        invite.Type = DomainMessageType.VoiceChannelInvite;
+
+        await MessageCreatedHandler.Handle(invite, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
+
+        var send = ((FakeHubClients)_hub.Clients).Sends
+            .Single(s => s.Method == "conversation.MessageCreated");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(send.Target, Does.Contain("author-1"));
+            Assert.That(send.Target, Does.Contain("user-2"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_VoiceChannelInvite_StillSendsNoPush()
+    {
+        // Including the author in the realtime frame must not leak into the push list.
+        _context.Members.AddRange(
+            MakeMember("m-1", "author-1", "conv-1"),
+            MakeMember("m-2", "user-2", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var bus = BusWithNoDeviceTokens();
+        var invite = MakeEvent(conversationId: "conv-1");
+        invite.Type = DomainMessageType.VoiceChannelInvite;
+
+        await MessageCreatedHandler.Handle(invite, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
+
+        Assert.That(bus.Invoked.Any(m => m is GetPushTokensForUsersRequest), Is.False);
+    }
+
+    [Test]
+    public async Task Handle_OrdinaryMessage_StillExcludesTheAuthorFromTheBroadcast()
+    {
+        // The exception above is scoped to server-authored types and nothing else.
+        _context.Members.AddRange(
+            MakeMember("m-1", "author-1", "conv-1"),
+            MakeMember("m-2", "user-2", "conv-1"));
+        await _context.SaveChangesAsync();
+
+        var bus = BusWithNoDeviceTokens();
+
+        await MessageCreatedHandler.Handle(MakeEvent(conversationId: "conv-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
+
+        var send = ((FakeHubClients)_hub.Clients).Sends
+            .Single(s => s.Method == "conversation.MessageCreated");
+
+        Assert.That(send.Target, Does.Not.Contain("author-1"));
+    }
+
     // ══════════════════════════════════════════════════════════════════════════ Handle - channel
     // branch ══════════════════════════════════════════════════════════════════════════
 

@@ -2,8 +2,21 @@ using Guild.Application.Models;
 
 namespace Guild.Application.Dtos;
 
-/// <summary>Who to ask into the voice channel named in the route.</summary>
-public record RingVoiceChannelDto(string TargetUserId);
+/// <summary>How hard to knock.</summary>
+public enum VoiceRingDelivery
+{
+    /// <summary>The invitation goes in the conversation and nowhere else.</summary>
+    Message,
+
+    /// <summary>The ephemeral ring on its own, leaving no record once it lapses.</summary>
+    Ring,
+
+    /// <summary>Both: the ring now, and the card that survives it.</summary>
+    Both,
+}
+
+/// <summary>Who to ask into the voice channel named in the route, and how.</summary>
+public record RingVoiceChannelDto(string TargetUserId, VoiceRingDelivery Delivery = VoiceRingDelivery.Both);
 
 /// <summary>A ring as an HTTP caller sees it.</summary>
 public record VoiceRingDto(
@@ -37,3 +50,8 @@ public record VoiceRingDto(
 
 /// <summary>Why a ring was refused, in the one shape every refusal uses.</summary>
 public record VoiceRingRefusalDto(string Reason, int RetryAfterSeconds);
+
+/// <summary>
+/// The answer to a <see cref="VoiceRingDelivery.Message"/> invitation: where it landed.
+/// </summary>
+public record VoiceInviteSentDto(string ConversationId);

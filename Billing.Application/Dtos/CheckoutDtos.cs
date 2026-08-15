@@ -145,8 +145,16 @@ public sealed record SubscriptionDto(
     DateTimeOffset? GracePeriodEndsAt,
     long? PriceMinorUnits,
     string? Currency,
+    string? Interval,
     bool IsPayer)
 {
+    /// <summary>Mirrors <c>StripeCatalogueSync.MonthlyInterval</c>, spelled out here for the same
+    /// reason <c>CheckoutCatalogueService</c> spells out its own copy: the DTO layer does not have to
+    /// know about the Stripe seam to say "month". What keeps the three honest is a test that reads the
+    /// interval off a subscription and off the catalogue entry for the same plan version and demands
+    /// they match, rather than three comments promising they do.</summary>
+    private const string StripeCatalogueSyncInterval = "month";
+
     public static SubscriptionDto From(
         Subscription subscription, Plan plan, PlanVersion? version, bool isPayer)
     {
@@ -166,6 +174,7 @@ public sealed record SubscriptionDto(
             subscription.GracePeriodEndsAt,
             version?.PriceMinorUnits,
             version?.Currency,
+            version is null ? null : StripeCatalogueSyncInterval,
             isPayer);
     }
 }

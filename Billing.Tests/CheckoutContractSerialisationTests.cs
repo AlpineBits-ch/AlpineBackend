@@ -110,6 +110,7 @@ public class CheckoutContractSerialisationTests
             + "\"gracePeriodEndsAt\":null,"
             + "\"priceMinorUnits\":2900,"
             + "\"currency\":\"usd\","
+            + "\"interval\":\"month\","
             + "\"isPayer\":true}"));
     }
 
@@ -186,13 +187,45 @@ public class CheckoutContractSerialisationTests
         Assert.That(Json(plus), Does.Contain("\"subjectKind\":\"user\""));
     }
 
+    /// <summary>The nullability decision on <c>interval</c>, written out as bytes.</summary>
+    [Test]
+    public void A_subscription_whose_plan_version_is_gone_writes_a_null_interval()
+    {
+        var subscription = new Subscription
+        {
+            Id = "subs_02",
+            StripeSubscriptionId = "sub_orphan",
+            PayerUserId = "user_payer",
+            SubjectKind = SubjectKind.Guild,
+            SubjectId = "gld_test",
+            PlanId = "plan_pro",
+            VersionNumber = 7,
+            Status = SubscriptionStatus.Active,
+        };
+
+        var plan = new Plan
+        {
+            Id = "plan_pro", Name = "pro", DisplayName = "Pro", CurrentVersionNumber = 3,
+            CreatedBy = "system",
+        };
+
+        var json = Json(SubscriptionDto.From(subscription, plan, version: null, isPayer: true));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(json, Does.Contain("\"priceMinorUnits\":null"));
+            Assert.That(json, Does.Contain("\"currency\":null"));
+            Assert.That(json, Does.Contain("\"interval\":null"));
+        });
+    }
+
     /// <summary>A create response with nothing to confirm.</summary>
     [Test]
     public void A_null_client_secret_is_written_rather_than_omitted()
     {
         var response = new CreateSubscriptionResponse(
             new SubscriptionDto("sub_1", SubjectKind.User, "user_1", "venta_plus", "Venta Plus", 1,
-                "active", null, false, null, 600, "usd", true),
+                "active", null, false, null, 600, "usd", "month", true),
             ClientSecret: null);
 
         Assert.That(Json(response), Does.Contain("\"clientSecret\":null"));
@@ -210,7 +243,7 @@ public class CheckoutContractSerialisationTests
         {
             Json(ProPlan()),
             Json(new SubscriptionDto("sub_1", SubjectKind.Guild, "gld_1", "pro", "Pro", 1, "active",
-                null, false, null, 2900, "usd", false)),
+                null, false, null, 2900, "usd", "month", false)),
             Json(new CreateSubscriptionRequest("pro", SubjectKind.Guild, "gld_1")),
         };
 

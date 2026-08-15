@@ -73,6 +73,16 @@ public static class ModerationAuditActions
     public const string BillingPlanAssigned = "billing.plan-assigned";
     public const string BillingCacheInvalidated = "billing.cache-invalidated";
 
+    // Promotional credit.
+    public const string BillingCreditIssued = "billing.credit-issued";
+    public const string BillingCreditAdjusted = "billing.credit-adjusted";
+    public const string BillingCreditReversed = "billing.credit-reversed";
+    public const string BillingCreditVoided = "billing.credit-voided";
+    public const string BillingCreditRebuilt = "billing.credit-rebuilt";
+    public const string BillingCreditCampaignCreated = "billing.credit-campaign-created";
+    public const string BillingCreditCampaignPaused = "billing.credit-campaign-paused";
+    public const string BillingCreditCampaignBudgetSet = "billing.credit-campaign-budget-set";
+
     /// <summary>An account's staff tier changed.</summary>
     public const string RoleChanged = "user.role-changed";
 }

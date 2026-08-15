@@ -770,6 +770,90 @@ public class CheckoutSurfaceTests
     }
 
     [Test]
+    public async Task A_live_subscription_states_the_period_its_price_is_charged_over()
+    {
+        var plan = await SeedPlanAsync();
+        await SeedSubscriptionAsync(plan);
+
+        var dto = await _checkout.GetAsync("sub_existing", Payer, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.PriceMinorUnits, Is.EqualTo(2900));
+            Assert.That(dto.Currency, Is.EqualTo("usd"));
+            Assert.That(dto.Interval, Is.EqualTo("month"));
+        });
+    }
+
+    /// <summary>
+    /// The test that makes "one authority for the period" true rather than commented.
+    /// </summary>
+    [Test]
+    public async Task The_interval_on_a_subscription_is_the_one_the_catalogue_advertises_for_it()
+    {
+        var plan = await SeedPlanAsync();
+        await SeedSubscriptionAsync(plan);
+
+        var dto = await _checkout.GetAsync("sub_existing", Payer, CancellationToken.None);
+        var advertised = (await _catalogue.ReadAsync(CancellationToken.None)).Plans
+            .Single(row => row.Name == plan.Name);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(advertised.VersionNumber, Is.EqualTo(dto.VersionNumber),
+                "the two surfaces have to be talking about the same plan version for this to mean "
+                + "anything");
+            Assert.That(dto.Interval, Is.EqualTo(advertised.Interval));
+            Assert.That(dto.Interval, Is.Not.Null);
+        });
+    }
+
+    /// <summary>The converse of the nullability rule, and the reason the rule is keyed on the version
+    /// rather than on the price: a plan with no price still has a period, and the catalogue publishes
+    /// one for it, so the subscription card must not disagree by going null.</summary>
+    [Test]
+    public async Task An_unpriced_plan_still_carries_an_interval_on_the_subscription()
+    {
+        var plan = await SeedPlanAsync("free", price: null);
+        await SeedSubscriptionAsync(plan);
+
+        var dto = await _checkout.GetAsync("sub_existing", Payer, CancellationToken.None);
+        var advertised = (await _catalogue.ReadAsync(CancellationToken.None)).Plans.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.PriceMinorUnits, Is.Null);
+            Assert.That(dto.Interval, Is.EqualTo("month"));
+            Assert.That(dto.Interval, Is.EqualTo(advertised.Interval));
+        });
+    }
+
+    /// <summary>
+    /// The decision, stated: a subscription whose plan version cannot be resolved carries no
+    /// interval.
+    /// </summary>
+    [Test]
+    public async Task A_subscription_whose_plan_version_is_gone_states_no_interval_and_no_price()
+    {
+        var plan = await SeedPlanAsync();
+        await SeedSubscriptionAsync(plan);
+
+        _db.PlanVersions.RemoveRange(await _db.PlanVersions.ToListAsync());
+        await _db.SaveChangesAsync();
+
+        var dto = await _checkout.GetAsync("sub_existing", Payer, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.PlanName, Is.EqualTo("pro"), "the plan row is still there; only the "
+                + "version is gone, so the name is still nameable");
+            Assert.That(dto.PriceMinorUnits, Is.Null);
+            Assert.That(dto.Currency, Is.Null);
+            Assert.That(dto.Interval, Is.Null);
+        });
+    }
+
+    [Test]
     public async Task The_list_includes_guilds_the_caller_manages_as_well_as_what_they_pay_for()
     {
         var plan = await SeedPlanAsync();

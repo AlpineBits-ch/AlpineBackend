@@ -2912,6 +2912,11 @@
      *  operator working one ticket looks at one guild from several angles. */
     const billingSubject = { kind: 'Guild', id: '' };
 
+    /** Which wallet the credit tab is pointed at. Its own field rather than `billingSubject`: wallets
+     *  are user-scoped and guilds do not hold balances (section 8.4), so a guild id in the subject box
+     *  is not a wallet that failed to load, it is a question with no answer. */
+    const creditWallet = { id: '' };
+
     /**
      * Whether to draw the write controls.
      *
@@ -2972,23 +2977,63 @@
         admin_required: 'This needs an administrator account',
         billing_not_deployed: 'This instance has no billing service',
         billing_unreachable: 'The billing service did not answer',
+
+        // Credit. `not_reversible` is the one to read carefully: it is not a missing feature, it is
+        // section 8.6's no-spend-then-refund rule holding. Reversing a spend would hand the credit
+        // back for a grant that has already been given.
+        user_required: 'A user id is required',
+        actor_required: 'The service could not tell who is asking',
+        idempotency_key_required: 'This request needs an idempotency key',
+        amount_not_positive: 'An issuance has to be a positive number of points',
+        amount_zero: 'An adjustment of nothing is not an adjustment',
+        insufficient_balance: 'There is not enough in this wallet',
+        wallet_cap_exceeded: 'That would take the wallet over its cap',
+        unknown_campaign: 'No such campaign',
+        campaign_closed: 'That campaign is paused or outside its dates',
+        campaign_budget_exhausted: 'That campaign has no budget left',
+        campaign_per_user_cap_reached: 'This account has had its share of that campaign',
+        entry_not_found: 'No such ledger entry',
+        not_reversible: 'Only an issuance can be reversed',
+        nothing_to_reverse: 'That issuance has already been taken back',
+        campaign_code_required: 'A campaign needs a code',
+        campaign_description_required: 'A campaign needs a description',
+        campaign_budget_required: 'A campaign needs a positive budget',
+        campaign_threshold_out_of_range: 'That alert threshold is not a percentage',
+        campaign_code_taken: 'That campaign code is already in use',
+        campaign_not_found: 'No such campaign',
+        campaign_budget_below_issued: 'That budget is below what has already been issued',
     };
 
     views.billing = {
         title: 'Billing',
 
         tools() {
-            const tabs = [['subject', 'Subject'], ['plans', 'Plans']].map(([key, text]) => {
+            // Credit is absent rather than empty without a billing service. Section 8.8 asks for
+            // exactly that: in selfhost everything already resolves to the maximum, so a wallet is
+            // meaningless and both an infinite balance and a zero one read as a bug.
+            const names = [['subject', 'Subject'], ['plans', 'Plans']];
+            if (billingCatalogue?.billingDeployed) names.push(['credit', 'Credit']);
+
+            const tabs = names.map(([key, text]) => {
                 const button = el('button', `btn sm ${billingTab === key ? 'primary' : 'ghost'}`, text);
                 button.addEventListener('click', () => billingGo(key));
                 return button;
             });
 
-            if (billingTab === 'plans' && canEditBilling() && billingCatalogue?.billingDeployed) {
-                const add = el('button', 'btn sm primary');
-                add.append(icon('plus'), document.createTextNode(' New plan'));
-                add.addEventListener('click', createPlan);
-                tabs.push(add);
+            if (canEditBilling() && billingCatalogue?.billingDeployed) {
+                if (billingTab === 'plans') {
+                    const add = el('button', 'btn sm primary');
+                    add.append(icon('plus'), document.createTextNode(' New plan'));
+                    add.addEventListener('click', createPlan);
+                    tabs.push(add);
+                }
+
+                if (billingTab === 'credit') {
+                    const add = el('button', 'btn sm primary');
+                    add.append(icon('plus'), document.createTextNode(' New campaign'));
+                    add.addEventListener('click', createCreditCampaign);
+                    tabs.push(add);
+                }
             }
 
             return tabs;
@@ -3003,7 +3048,13 @@
                 $('#view-tools').replaceChildren(...views.billing.tools());
             }
 
-            return billingTab === 'plans' ? renderPlans() : renderBillingSubject();
+            // The credit tab does not exist on an instance with no billing service, and a deep link
+            // or a stale tab from before the catalogue landed must not leave the section blank.
+            if (billingTab === 'credit' && !billingCatalogue.billingDeployed) billingTab = 'subject';
+
+            if (billingTab === 'plans') return renderPlans();
+            if (billingTab === 'credit') return renderCredit();
+            return renderBillingSubject();
         },
     };
 
@@ -4252,6 +4303,957 @@
         });
     }
 
+    // ── Billing: credit ─────────────────────────────────────────────────────
+    //
+    // The staff side of monetization.md section 8. Everything here issues credit, corrects it, takes
+    // it back or stops a campaign issuing it.
+    //
+    // Nothing here buys, sells, gifts, transfers, refunds or withdraws it, and that absence is the
+    // design rather than a gap somebody has not got to yet. Section 8.1 is a hard rule: the moment
+    // money can become a balance it stops being marketing and becomes stored value, which brings
+    // prepaid-card statutes, expiry prohibitions, escheatment and deferred revenue accounting to a
+    // feature whose entire purpose is giving things away. The billing service has no route for any of
+    // it either, so a control here would have nothing to call - which is the point.
+
+    const CREDIT = `${BILLING}/credit`;
+
+    /** Points as a person reads them. The number is abstract on purpose (section 8.2) and there is no
+     *  currency anywhere near it: a wallet that picks a currency breaks the moment there is a second
+     *  price list, and "give me the 5 euros" is the conversation points exist to avoid. */
+    function points(value) {
+        const amount = Number(value ?? 0);
+        return `${Math.abs(amount).toLocaleString()} ${Math.abs(amount) === 1 ? 'credit' : 'credits'}`;
+    }
+
+    async function renderCredit() {
+        const wrap = el('div', 'pane billing');
+        wrap.append(creditLookup());
+
+        // The campaign list is not about whichever wallet is in the box above it, so it is fetched
+        // either way. Somebody arriving to check a budget should not have to invent a user id first.
+        const campaigns = await call('GET', `${CREDIT}/campaigns`).catch(error => ({ error }));
+
+        if (creditWallet.id) {
+            const id = encodeURIComponent(creditWallet.id);
+
+            const [wallet, ledger] = await Promise.all([
+                call('GET', `${CREDIT}/wallets/${id}`).catch(error => ({ error })),
+                call('GET', `${CREDIT}/wallets/${id}/ledger`, { query: { limit: 200 } })
+                    .catch(error => ({ error })),
+            ]);
+
+            wrap.append(walletBlock(wallet));
+
+            if (!wallet.error) {
+                if (canEditBilling()) {
+                    wrap.append(creditActions());
+                    wrap.append(creditRepairBlock());
+                }
+
+                wrap.append(creditLedgerBlock(ledger));
+            }
+        } else {
+            wrap.append(empty(
+                'Enter a user id to see a balance, the lots behind it, and the ledger.', 'search'));
+        }
+
+        wrap.append(campaignsBlock(campaigns));
+        return wrap;
+    }
+
+    function creditLookup() {
+        const box = block('Look up a wallet');
+
+        box.append(el('p', 'hint',
+            'One wallet per user, and guilds never hold one (section 8.4) - a guild balance is an '
+            + 'ownership dispute waiting for the first time a guild changes hands. To give a guild '
+            + 'something, issue a grant from the Subject tab instead: no wallet is involved and the '
+            + 'audit trail is better.'));
+
+        const form = el('form', 'lookup two');
+
+        const id = el('input', 'mono');
+        id.id = 'credit-id';
+        id.value = creditWallet.id;
+        id.spellcheck = false;
+        id.autocomplete = 'off';
+        id.placeholder = 'user_...';
+
+        const submit = el('button', 'btn primary');
+        submit.type = 'submit';
+        submit.append(icon('search'), document.createTextNode(' Look up'));
+
+        form.append(lookupField('User', id), submit);
+
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            creditWallet.id = id.value.trim();
+            render();
+        });
+
+        box.append(form);
+        return box;
+    }
+
+    function walletBlock(wallet) {
+        const box = block('Wallet');
+
+        if (wallet.error) {
+            box.append(banner('warn', `This wallet could not be read: ${wallet.error.message}`));
+            return box;
+        }
+
+        // Beside the balance, every time, because section 8.1 asks for it wherever a balance is
+        // displayed. The sentence comes from the server rather than being written here, so the day
+        // the legal wording changes it changes in one place for all four surfaces.
+        if (wallet.disclaimer) box.append(banner('info', wallet.disclaimer));
+
+        const inLots = wallet.lots.reduce((sum, lot) => sum + lot.points, 0);
+
+        box.append(kv([
+            ['User', copyable(wallet.userId)],
+            ['Balance', points(wallet.balance)],
+            ['Held in open lots', points(inLots)],
+            ['Wallet cap', points(wallet.capPoints)],
+            ['Open lots', String(wallet.lots.length)],
+        ]));
+
+        // Two numbers computed different ways: the balance sums every entry, the lot total sums only
+        // what is left in lots that have not lapsed. In a healthy ledger they are the same number, so
+        // saying so when they are not is worth more than the row is.
+        if (inLots !== wallet.balance) {
+            box.append(banner('warn',
+                'The balance and the open lots disagree, which means at least one entry is not '
+                + 'attributable to a lot that is still open. Rebuilding the cached balance will not '
+                + 'change either of these two numbers - both are computed from the entries - so this '
+                + 'is worth reading the ledger over.'));
+        }
+
+        box.append(lotsTable(wallet.lots));
+        return box;
+    }
+
+    /**
+     * The lots, earliest-expiring first, which is also the order they will be spent in.
+     *
+     * Lots rather than one number because expiry does not work without them: a single balance cannot
+     * say which part of itself was about to lapse, and "500 credits, expires 12 March" is the whole
+     * of what a recipient needs in order to decide whether to spend it.
+     */
+    function lotsTable(lots) {
+        if (!lots.length) {
+            return el('p', 'hint', 'Nothing open. Every lot has been spent, reversed or has lapsed.');
+        }
+
+        const table = el('div', 'prov');
+
+        const head = el('div', 'prov-head');
+        head.append(
+            el('div', null, 'Lot'),
+            el('div', null, 'Left of issued'),
+            el('div', null, 'Expires'));
+        table.append(head);
+
+        lots.forEach(lot => {
+            const line = el('div', 'prov-row');
+
+            const key = el('div', 'prov-key');
+            key.append(el('span', 'mono', lot.lotId));
+            if (lot.campaignId) key.append(el('span', 'faint', ` ${lot.campaignId}`));
+            line.append(key);
+
+            const value = el('div', 'prov-val');
+            value.append(el('strong', null, points(lot.points)));
+            if (lot.points !== lot.originalPoints) {
+                value.append(el('span', 'faint', ` of ${points(lot.originalPoints)}`));
+            }
+            line.append(value);
+
+            const when = el('div', 'prov-src');
+            when.append(el('span', null, stamp(lot.expiresAt)));
+
+            // A lot inside its last thirty days is the one an operator is being asked about, and
+            // section 8.5 puts the user-facing warning at the same distance.
+            const days = (new Date(lot.expiresAt) - Date.now()) / 86400000;
+            if (days <= 30) when.append(tag('Lapsing soon', 'warn'));
+
+            line.append(when);
+            table.append(line);
+        });
+
+        return table;
+    }
+
+    function creditActions() {
+        const box = block('Actions');
+        const actions = el('div', 'btn-row');
+
+        actions.append(button('Issue credit', 'plus', issueCredit, 'primary'));
+        actions.append(button('Adjust the balance', 'pencil', adjustCredit));
+        box.append(actions);
+
+        box.append(el('p', 'hint',
+            'Issuing hands over a new lot with its own expiry. An adjustment is a hand correction in '
+            + 'either direction and is deliberately a separate operation, because credit taken away '
+            + 'is not an issuance and must not read as one on the ledger. Both carry a reason that is '
+            + 'required here, in the service and in the database.'));
+
+        return box;
+    }
+
+    /**
+     * The two operations that are not ordinary buttons.
+     *
+     * A void is the fraud control from section 8.6: it reverses every outstanding lot at once and is
+     * not a partial judgement anybody can make. A rebuild touches no ledger row at all, but it moves
+     * the number every other screen reads, and the cache is only allowed to exist because this
+     * exists. Both are kept out of the row above so neither is ever the click next to the one
+     * somebody meant.
+     */
+    function creditRepairBlock() {
+        const box = block('Fraud void and repair');
+
+        box.append(el('p', 'hint',
+            'Voiding writes a reversal for every lot with something left in it and takes the balance '
+            + 'to zero. Nothing is deleted - an account banned in error gets its history back rather '
+            + 'than a blank page - and it does not stop future issuance on its own, which is the '
+            + 'ban\'s job. Rebuilding recomputes the cached balance from the entries; it changes no '
+            + 'entry and is the reason a cached balance is allowed to exist at all.'));
+
+        const actions = el('div', 'btn-row');
+        actions.append(button('Void this wallet for fraud', 'ban', voidCredit, 'danger'));
+        actions.append(button('Rebuild the cached balance', 'refresh', rebuildCredit));
+        box.append(actions);
+
+        return box;
+    }
+
+    function creditLedgerBlock(ledger) {
+        const box = block('Ledger');
+
+        if (ledger.error) {
+            box.append(banner('warn', `The ledger could not be read: ${ledger.error.message}`));
+            return box;
+        }
+
+        box.append(el('p', 'hint',
+            'Append-only and complete: reversed, spent and expired lines all stay. This is the screen '
+            + 'section 8.8 puts first, and the reason the ledger is append-only at all - "where did my '
+            + 'credits go" has to have an answer that does not depend on anybody remembering.'));
+
+        if (!ledger.entries.length) {
+            box.append(el('p', 'hint', 'Nothing has ever moved in this wallet.'));
+            return box;
+        }
+
+        const list = el('div', 'timeline');
+        ledger.entries.forEach(entry => list.append(creditEntry(entry)));
+        box.append(list);
+
+        return box;
+    }
+
+    const CREDIT_ICONS = {
+        Issue: 'plus', Spend: 'key', Expiry: 'clock', Reversal: 'times-circle', Adjustment: 'pencil',
+    };
+
+    function creditEntry(entry) {
+        const item = el('div', `event ${entry.kind === 'Reversal' ? 'struck' : ''}`);
+        item.append(icon(CREDIT_ICONS[entry.kind] || 'history'));
+
+        const body = el('div');
+
+        // The sentence is rendered by the service rather than here, so the four surfaces that show a
+        // ledger cannot drift the moment one of them forgets a kind.
+        const line = el('div', 'what');
+        line.append(document.createTextNode(entry.summary));
+        line.append(tag(entry.kind, entry.amount < 0 ? 'danger' : 'ok'));
+        body.append(line);
+
+        const meta = [stamp(entry.createdAt)];
+        if (entry.createdBy) meta.push(`by ${entry.createdBy}`);
+        if (entry.campaignId) meta.push(entry.campaignId);
+        if (entry.grantId) meta.push(`grant ${entry.grantId}`);
+        body.append(el('span', 'when', meta.join(' · ')));
+
+        if (entry.reason) body.append(el('div', 'hint', entry.reason));
+        body.append(el('div', 'hint mono', entry.id));
+
+        // Only an issuance. Reversing a spend would hand the credit back for a grant that has already
+        // been given, which is a refund - the service refuses it, and offering the button anyway
+        // would be teaching an operator to expect something that cannot happen.
+        if (canEditBilling() && entry.amount > 0) {
+            const actions = el('div', 'btn-row');
+            actions.append(button('Take this back', 'times-circle',
+                () => reverseCreditEntry(entry), 'danger'));
+            body.append(actions);
+        }
+
+        item.append(body);
+        return item;
+    }
+
+    // ── Billing: credit writes ──────────────────────────────────────────────
+
+    /**
+     * A fresh idempotency key per dialog, not per submit.
+     *
+     * The service makes the key unique in the database, so a retry that carries the same one replays
+     * the original answer instead of issuing twice. Minting it when the dialog opens is what makes
+     * the retry after a dropped connection safe; minting it per click would make the second click a
+     * second issuance, which is the one mistake this whole mechanism exists to prevent.
+     */
+    function newIdempotencyKey() {
+        // `randomUUID` needs a secure context, which every real deployment of this console is. The
+        // fallback is not for correctness - the key only has to be unique across the handful an
+        // operator can produce - it is so that opening the dialog over plain http fails at the
+        // request rather than as a TypeError with a dead Issue button behind it.
+        const unique = crypto.randomUUID?.()
+            ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+        return `console:${unique}`;
+    }
+
+    function issueCredit() {
+        const idempotencyKey = newIdempotencyKey();
+
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Issue credit'));
+            form.append(el('p', 'lede',
+                'This creates a new lot with its own expiry date. Credit is issued, never sold: there '
+                + 'is no path that turns money into a balance, and none that turns a balance back '
+                + 'into money.'));
+
+            const amount = el('input');
+            amount.type = 'number';
+            amount.min = '1';
+            amount.required = true;
+            form.append(field('Credits', amount,
+                'Abstract points, not a currency. The cash price of anything they buy is shown beside '
+                + 'the point price wherever they are spent.'));
+
+            const campaign = el('input');
+            campaign.spellcheck = false;
+            campaign.placeholder = 'incident-2026-08';
+            form.append(field('Campaign', campaign,
+                'Optional. Naming one counts this issuance against that campaign\'s budget and its '
+                + 'per-recipient cap, which is what makes either of them mean anything.'));
+
+            const lifetime = el('input');
+            lifetime.type = 'number';
+            lifetime.min = '1';
+            form.append(field('Lifetime in days', lifetime,
+                'Empty uses the campaign\'s lifetime, or the instance default of twelve months. '
+                + 'Expiry is an abuse control as much as a cost one - it bounds what a farmed '
+                + 'stockpile is ever worth.'));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            reason.placeholder = 'e.g. Goodwill for the 3 August voice outage, agreed with support.';
+            form.append(field('Reason', reason,
+                'Required. The ledger is append-only, so this is the only chance to say why.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Issue');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                if (!requireReason(reason, errors)) return;
+
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${CREDIT}/wallets/${encodeURIComponent(creditWallet.id)}/issue`, {
+                        body: {
+                            amount: Number(amount.value),
+                            reason: reason.value.trim(),
+                            idempotencyKey,
+                            campaign: campaign.value.trim() || null,
+                            lifetimeDays: lifetime.value ? Number(lifetime.value) : null,
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Issued');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function adjustCredit() {
+        const idempotencyKey = newIdempotencyKey();
+
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Adjust this balance'));
+            form.append(el('p', 'lede',
+                'A hand correction in either direction. A positive adjustment creates a lot like any '
+                + 'issuance, so credit that arrived by hand lapses on the same terms as credit that '
+                + 'arrived by campaign - a balance with a piece in it that never expires is the thing '
+                + 'lots exist to prevent.'));
+
+            const amount = el('input');
+            amount.type = 'number';
+            amount.required = true;
+            form.append(field('Credits', amount,
+                'Negative to take credit away. A negative adjustment consumes the earliest-expiring '
+                + 'lots first, exactly as a spend would.'));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            reason.placeholder = 'Why this number is being changed by hand.';
+            form.append(field('Reason', reason,
+                'Required. It is a number somebody typed, and next year it has to be explainable.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Adjust');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                if (!requireReason(reason, errors)) return;
+
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${CREDIT}/wallets/${encodeURIComponent(creditWallet.id)}/adjust`, {
+                        body: {
+                            amount: Number(amount.value),
+                            reason: reason.value.trim(),
+                            idempotencyKey,
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Adjusted');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function reverseCreditEntry(entry) {
+        creditReason({
+            title: 'Take this issuance back',
+            lede: 'Writes a reversal against the lot this issuance created, bounded by what is left '
+                + 'in it. Only an issuance can be taken back: reversing a spend would return the '
+                + 'credit while the grant it bought stays live, which is a refund with the serial '
+                + 'numbers filed off. To end something a spend bought, revoke the grant instead.',
+            confirm: 'Take it back',
+            danger: true,
+            path: `${CREDIT}/entries/${encodeURIComponent(entry.id)}/reverse`,
+            done: () => toast('ok', 'Taken back'),
+        });
+    }
+
+    function voidCredit() {
+        creditReason({
+            title: 'Void this wallet for fraud',
+            lede: 'Every lot with something left in it is reversed and the balance goes to zero. This '
+                + 'is the fraud control, not a correction - there is no partial version of it, '
+                + 'because a partial fraud void is a judgement the ledger has no way to record. The '
+                + 'entries all stay.',
+            confirm: 'Void the wallet',
+            danger: true,
+            // Typed out in full, because this is the one operation on the section that empties an
+            // account in a single click and the id is the only thing distinguishing the right
+            // account from the one whose ticket is open in the next tab.
+            confirmWith: creditWallet.id,
+            path: `${CREDIT}/wallets/${encodeURIComponent(creditWallet.id)}/void`,
+            done: () => toast('ok', 'Wallet voided'),
+        });
+    }
+
+    function rebuildCredit() {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Rebuild the cached balance'));
+            form.append(el('p', 'lede',
+                'Recomputes the cached balance by summing the entries. No entry is written, read or '
+                + 'changed, and if the cache was already right this does nothing visible. It exists '
+                + 'because a cached balance is only defensible while something can rebuild it from '
+                + 'the ledger it claims to summarise.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Rebuild');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    const result = await call(
+                        'POST', `${CREDIT}/wallets/${encodeURIComponent(creditWallet.id)}/rebuild`);
+
+                    close();
+                    toast('ok', `Cached balance is now ${points(result.balance)}`);
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    /**
+     * The credit operations whose whole body is a required reason.
+     *
+     * The same shape as `planReason`, kept separate for `confirmWith`: a fraud void empties an
+     * account in one click and nothing else on this section does, so it is the one place worth making
+     * somebody type the id they are acting on.
+     */
+    function creditReason({ title, lede, confirm: label, danger, confirmWith, path, done }) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, title));
+            form.append(el('p', 'lede', lede));
+
+            const reason = el('textarea');
+            reason.rows = 3;
+            reason.required = true;
+            form.append(field('Reason', reason, 'Required, and kept on the ledger row forever.'));
+
+            let typed = null;
+
+            if (confirmWith) {
+                typed = el('input', 'mono');
+                typed.spellcheck = false;
+                typed.autocomplete = 'off';
+                form.append(field('Type the user id to confirm', typed, confirmWith));
+            }
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', `btn primary ${danger ? 'danger' : ''}`, label);
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                if (!requireReason(reason, errors)) return;
+
+                if (typed && typed.value.trim() !== confirmWith) {
+                    errors.replaceChildren(banner('danger',
+                        'That is not the id of the wallet on screen. Nothing has been sent.'));
+                    return;
+                }
+
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', path, { body: { reason: reason.value.trim() } });
+                    close();
+                    done();
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    /**
+     * The blank reason, refused here.
+     *
+     * The gateway refuses it too and so does the service, and neither of those is redundant. This one
+     * exists because the round trip that would establish it is one nobody needs to wait for, and
+     * because rendering it through `billingRefusal` with the service's own code means a reason
+     * refused locally and a reason refused remotely read identically.
+     */
+    function requireReason(control, errors) {
+        if (control.value.trim()) return true;
+
+        billingRefusal(
+            {
+                code: 'reason_required',
+                message: 'The ledger is append-only, so this is the only chance to record why the '
+                    + 'balance moved.',
+            },
+            errors);
+
+        control.focus();
+        return false;
+    }
+
+    // ── Billing: campaigns ──────────────────────────────────────────────────
+
+    function campaignsBlock(campaigns) {
+        const box = block('Campaigns');
+
+        if (campaigns.error) {
+            box.append(banner('warn', `The campaigns could not be read: ${campaigns.error.message}`));
+            return box;
+        }
+
+        box.append(el('p', 'hint',
+            'Every campaign credit can be issued under, and how much of its budget is gone. A budget '
+            + 'is required and there is no unlimited value for it, because a campaign that issues '
+            + 'with no human in the loop turns one loop bug into a five-figure liability overnight. '
+            + 'Campaigns are never deleted: pausing sets a field, and the lots a campaign issued '
+            + 'outlive it by up to a year and still need it to explain them.'));
+
+        if (!campaigns.length) {
+            box.append(el('p', 'hint', 'No campaigns yet.'));
+            return box;
+        }
+
+        // Automated first. That is the population section 8.6 is actually about: a campaign a person
+        // clicks through has a person in front of every issuance, and one that does not is the one
+        // where a loop bug spends the budget overnight. Within each half, closest to its cap first,
+        // so the one about to matter is at the top rather than in alphabetical order.
+        const sorted = [...campaigns].sort((a, b) =>
+            Number(b.automated) - Number(a.automated) || consumed(b) - consumed(a));
+
+        const list = el('div', 'timeline');
+        sorted.forEach(campaign => list.append(campaignEntry(campaign)));
+        box.append(list);
+
+        return box;
+    }
+
+    const consumed = campaign =>
+        campaign.totalBudgetPoints > 0 ? campaign.issuedPoints / campaign.totalBudgetPoints : 1;
+
+    function campaignEntry(campaign) {
+        const item = el('div', `event ${campaign.pausedAt ? 'struck' : ''}`);
+        item.append(icon(campaign.automated ? 'refresh' : 'user'));
+
+        const body = el('div');
+
+        const line = el('div', 'what');
+        line.append(el('span', 'mono', campaign.code));
+
+        // Said in words rather than left to the icon. It is the one property of a campaign that
+        // decides how much the budget below it is carrying.
+        line.append(campaign.automated
+            ? tag('Automated - no human in the loop', 'warn')
+            : tag('Hand-issued'));
+
+        if (campaign.pausedAt) line.append(tag('Paused', 'danger'));
+        else if (!isCampaignOpen(campaign)) line.append(tag('Outside its dates'));
+        if (campaign.alertedAt) line.append(tag('Alert fired', 'danger'));
+        if (!campaign.remainingPoints) line.append(tag('Budget spent', 'danger'));
+
+        body.append(line);
+        body.append(el('div', 'hint', campaign.description));
+        body.append(budgetBar(campaign));
+
+        const meta = [`opened ${stamp(campaign.createdAt)} by ${campaign.createdBy}`];
+        if (campaign.startsAt) meta.push(`from ${stamp(campaign.startsAt)}`);
+        if (campaign.endsAt) meta.push(`until ${stamp(campaign.endsAt)}`);
+        if (campaign.maxPerUserPoints) meta.push(`${points(campaign.maxPerUserPoints)} per account`);
+        if (campaign.pausedAt) meta.push(`paused ${stamp(campaign.pausedAt)} by ${campaign.pausedBy}`);
+        body.append(el('span', 'when', meta.join(' · ')));
+
+        if (canEditBilling()) {
+            const actions = el('div', 'btn-row');
+            if (!campaign.pausedAt) {
+                actions.append(button('Pause', 'times-circle', () => pauseCampaign(campaign), 'danger'));
+            }
+            actions.append(button('Change the budget', 'pencil', () => setCampaignBudget(campaign)));
+            body.append(actions);
+        }
+
+        item.append(body);
+        return item;
+    }
+
+    function isCampaignOpen(campaign) {
+        const now = Date.now();
+        return (!campaign.startsAt || new Date(campaign.startsAt) <= now)
+            && (!campaign.endsAt || new Date(campaign.endsAt) > now);
+    }
+
+    /** Issued against budget, as a bar and as the two numbers. The bar is what makes a list of
+     *  campaigns scannable; the numbers are what somebody puts in a ticket. */
+    function budgetBar(campaign) {
+        const box = el('div', 'budget');
+
+        const share = Math.min(1, Math.max(0, consumed(campaign)));
+        const alertAt = (campaign.alertThresholdPercent || 100) / 100;
+
+        const track = el('div', 'budget-track');
+        const fill = el('div', `budget-fill ${share >= 1 ? 'danger' : share >= alertAt ? 'warn' : ''}`);
+        fill.style.width = `${(share * 100).toFixed(1)}%`;
+        track.append(fill);
+        box.append(track);
+
+        box.append(el('div', 'budget-text',
+            `${points(campaign.issuedPoints)} issued of ${points(campaign.totalBudgetPoints)}`
+            + ` · ${Math.round(share * 100)}% · ${points(campaign.remainingPoints)} left`
+            + ` · alert at ${campaign.alertThresholdPercent}%`));
+
+        return box;
+    }
+
+    function createCreditCampaign() {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Open a campaign'));
+            form.append(el('p', 'lede',
+                'A campaign is a budgeted reason to hand out credit. The budget is the control: it is '
+                + 'required, it cannot be unlimited, and it is checked inside the same transaction as '
+                + 'the issuance it counts.'));
+
+            const code = el('input');
+            code.required = true;
+            code.spellcheck = false;
+            code.placeholder = 'incident-2026-08';
+            form.append(field('Code', code,
+                'What an issuance names and what the budget is counted against.'));
+
+            const description = el('input');
+            description.required = true;
+            form.append(field('Description', description,
+                'Somebody will read this a year from now while working out where a lot came from.'));
+
+            const budget = el('input');
+            budget.type = 'number';
+            budget.min = '1';
+            budget.required = true;
+            form.append(field('Total budget in credits', budget, 'A positive number. There is no unlimited.'));
+
+            const perUser = el('input');
+            perUser.type = 'number';
+            perUser.min = '1';
+            form.append(field('Cap per account', perUser, 'Optional. Empty for no per-recipient cap.'));
+
+            const perIssue = el('input');
+            perIssue.type = 'number';
+            perIssue.min = '1';
+            form.append(field('Default issuance', perIssue,
+                'Optional. The size of one issuance when the caller does not name an amount.'));
+
+            const lifetime = el('input');
+            lifetime.type = 'number';
+            lifetime.min = '1';
+            form.append(field('Lot lifetime in days', lifetime,
+                'Optional. Empty falls back to the instance default of twelve months.'));
+
+            const threshold = el('input');
+            threshold.type = 'number';
+            threshold.min = '1';
+            threshold.max = '100';
+            threshold.value = '80';
+            form.append(field('Alert at', threshold,
+                'Percent of the budget. The alert has to fire before the cap, not at it - a campaign '
+                + 'that has already stopped is one somebody finds out about from a support ticket.'));
+
+            const starts = el('input');
+            starts.type = 'datetime-local';
+            form.append(field('Starts', starts, 'Optional.'));
+
+            const ends = el('input');
+            ends.type = 'datetime-local';
+            form.append(field('Ends', ends, 'Optional.'));
+
+            const automated = el('input');
+            automated.type = 'checkbox';
+            const automatedLabel = el('label', 'check');
+            automatedLabel.append(automated,
+                el('span', null, 'Issues automatically, with no human in the loop'));
+            const automatedField = el('div', 'field');
+            automatedField.append(automatedLabel);
+            automatedField.append(el('p', 'hint',
+                'Referrals, incident compensation, anything a job issues. It changes nothing about '
+                + 'enforcement - the budget is mandatory either way - and sorts the campaign to the '
+                + 'top of this list, because these are the ones a loop bug empties overnight.'));
+            form.append(automatedField);
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Open');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${CREDIT}/campaigns`, {
+                        body: {
+                            code: code.value.trim(),
+                            description: description.value.trim(),
+                            totalBudgetPoints: Number(budget.value),
+                            maxPerUserPoints: perUser.value ? Number(perUser.value) : null,
+                            defaultIssuePoints: perIssue.value ? Number(perIssue.value) : null,
+                            lotLifetimeDays: lifetime.value ? Number(lifetime.value) : null,
+                            alertThresholdPercent: Number(threshold.value),
+                            automated: automated.checked,
+                            startsAt: starts.value ? new Date(starts.value).toISOString() : null,
+                            endsAt: ends.value ? new Date(ends.value).toISOString() : null,
+                        },
+                    });
+
+                    close();
+                    toast('ok', 'Campaign opened');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function pauseCampaign(campaign) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Pause ${campaign.code}`));
+            form.append(el('p', 'lede',
+                'Stops this campaign issuing. Nothing is deleted and nothing already issued is '
+                + 'touched: the lots it created keep their expiry dates and keep pointing at it for '
+                + 'their explanation.'));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary danger', 'Pause');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('POST', `${CREDIT}/campaigns/${encodeURIComponent(campaign.code)}/pause`);
+                    close();
+                    toast('ok', 'Campaign paused');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
+    function setCampaignBudget(campaign) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, `Change the budget for ${campaign.code}`));
+            form.append(el('p', 'lede',
+                `${points(campaign.issuedPoints)} have already been issued against this campaign. A `
+                + 'budget below that is refused, because it would describe a campaign as having spent '
+                + 'more than it was ever allowed to.'));
+
+            const budget = el('input');
+            budget.type = 'number';
+            budget.min = '1';
+            budget.required = true;
+            budget.value = campaign.totalBudgetPoints;
+            form.append(field('Total budget in credits', budget));
+
+            const errors = el('div');
+            form.append(errors);
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn primary', 'Save');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    await call('PATCH', `${CREDIT}/campaigns/${encodeURIComponent(campaign.code)}/budget`, {
+                        body: { totalBudgetPoints: Number(budget.value) },
+                    });
+
+                    close();
+                    toast('ok', 'Budget changed');
+                    render();
+                } catch (error) {
+                    billingRefusal(error, errors);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
     // ── View: audit ─────────────────────────────────────────────────────────
 
     /** Entries that reach further than the subject named on them. A grant affects one subject; a
@@ -4378,6 +5380,14 @@
         'billing.plan-archived': 'archived a plan',
         'billing.plan-assigned': 'moved onto a plan version',
         'billing.cache-invalidated': 'forced an entitlement re-resolve for',
+        'billing.credit-issued': 'issued credit to',
+        'billing.credit-adjusted': 'corrected the credit balance of',
+        'billing.credit-reversed': 'took back a credit issuance',
+        'billing.credit-voided': 'voided the wallet of',
+        'billing.credit-rebuilt': 'rebuilt the cached credit balance of',
+        'billing.credit-campaign-created': 'opened a credit campaign',
+        'billing.credit-campaign-paused': 'paused a credit campaign',
+        'billing.credit-campaign-budget-set': 'changed a credit campaign budget',
     };
 
     const auditVerb = action => AUDIT_VERBS[action] || action.replace(/[.-]/g, ' ');

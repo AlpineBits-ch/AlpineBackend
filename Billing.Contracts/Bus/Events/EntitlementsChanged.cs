@@ -22,6 +22,12 @@ public enum EntitlementsChangedReason
 
     /// <summary>A subject was put on a plan version, or moved between versions.</summary>
     PlanAssignmentChanged,
+
+    /// <summary>
+    /// The mirror of <see cref="GrantExpired"/>: a queued grant's start date arrived and it began
+    /// counting.
+    /// </summary>
+    GrantStarted,
 }
 
 /// <summary>

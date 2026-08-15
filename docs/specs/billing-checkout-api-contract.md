@@ -218,6 +218,7 @@ subject.
   "gracePeriodEndsAt": null,
   "priceMinorUnits": 2900,
   "currency": "usd",
+  "interval": "month",
   "isPayer": true
 }
 ```
@@ -234,9 +235,22 @@ needs a plain sentence with a date, not a status chip.
 `isPayer` false means the caller manages the guild but somebody else's card is behind it. They may
 look, they may not cancel.
 
-**`interval` is missing from this DTO and should be added.** Without it the card cannot say "$29.00
-per month" without a second catalogue fetch keyed on `planName`, so the client renders the amount plus
-a renewal date and conveys the cadence only indirectly. One field fixes it properly.
+`interval` is the period the price is charged over, and it is the same string the catalogue publishes
+for the same plan version - `month` in this wave, sourced from the one place that decides it, so the
+shop window and the subscription card can never disagree about the cadence of one plan. Without it
+the card could not say "$29.00 per month" without a second catalogue fetch keyed on `planName`, and
+it would render the amount plus a renewal date and convey the cadence only indirectly.
+
+It is nullable, and it is null in exactly one case: the plan version behind the subscription could
+not be resolved, which is the same case that nulls `priceMinorUnits` and `currency`. That is a
+degraded row rather than a normal one - the foreign keys make it near-impossible - and the client
+should render such a subscription without a price line at all rather than inventing a period for it.
+Note that the converse does not hold: a resolvable version with no price still carries an interval,
+because the catalogue publishes one for that version too.
+
+The field was added after the first clients were written, so a client must treat it as optional and
+fall back to the amount-plus-renewal-date rendering when it is absent. An old server during a rolling
+deploy is a real case, not a hypothetical one.
 
 The list returns subscriptions the caller pays for **plus** those on guilds where they hold
 `ManageGuild`, and it **includes ended ones** - a subject can legitimately have both an ended

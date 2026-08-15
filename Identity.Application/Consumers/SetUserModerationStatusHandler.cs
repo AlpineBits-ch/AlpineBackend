@@ -1,3 +1,4 @@
+using Identity.Contracts.Bus.Events;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Identity.Domain.Aggregates;
@@ -11,7 +12,7 @@ namespace Identity.Application.Consumers;
 /// <summary>Makes a ban actually take effect.</summary>
 public class SetUserModerationStatusHandler
 {
-    public async Task<SetUserModerationStatusResponse> Handle(
+    public async Task<(SetUserModerationStatusResponse, UserModerationStatusChangedEvent?)> Handle(
         SetUserModerationStatusRequest request,
         MicroserviceContext ctx,
         ILogger<SetUserModerationStatusHandler> logger)
@@ -43,14 +44,14 @@ public class SetUserModerationStatusHandler
         if (current == target)
         {
             // Not an error.
-            return new SetUserModerationStatusResponse
+            return (new SetUserModerationStatusResponse
             {
                 Success = true,
                 FailureCode = "no_change",
                 Status = current.ToString(),
                 Email = user.Email,
                 UserName = user.UserName,
-            };
+            }, null);
         }
 
         // An account midway through erasure is not a candidate for either verb.
@@ -59,8 +60,10 @@ public class SetUserModerationStatusHandler
             return Refuse("invalid_state", $"The account is {current} and cannot be changed here.", current, user);
         }
 
+        var now = DateTimeOffset.UtcNow;
+
         user.Status = target;
-        user.UpdatedAt = DateTimeOffset.UtcNow;
+        user.UpdatedAt = now;
 
         // Written against the banned account rather than the staff member, so it lands on that
         // user's own security timeline beside their logins.
@@ -79,18 +82,29 @@ public class SetUserModerationStatusHandler
             "Account {UserId} moved {From} -> {To} by staff {ActorId}",
             user.Id, current, target, request.ActorUserId);
 
-        return new SetUserModerationStatusResponse
+        return (new SetUserModerationStatusResponse
         {
             Success = true,
             Status = target.ToString(),
             Email = user.Email,
             UserName = user.UserName,
-        };
+        }, new UserModerationStatusChangedEvent
+        {
+            UserId = user.Id,
+            Banned = target == UserStatus.Banned,
+            Status = target.ToString(),
+            PreviousStatus = current.ToString(),
+            ActorUserId = request.ActorUserId,
+            Reason = request.Reason,
+            OccurredAt = now,
+        });
     }
 
-    private static SetUserModerationStatusResponse Refuse(
+    /// <summary>A refusal, and never an event with it - the tuple shape is what makes that structural
+    /// rather than something each early return has to remember.</summary>
+    private static (SetUserModerationStatusResponse, UserModerationStatusChangedEvent?) Refuse(
         string code, string message, UserStatus? status = null, ApplicationUser? user = null) =>
-        new()
+        (new SetUserModerationStatusResponse
         {
             Success = false,
             FailureCode = code,
@@ -98,5 +112,5 @@ public class SetUserModerationStatusHandler
             Status = status?.ToString() ?? string.Empty,
             Email = user?.Email,
             UserName = user?.UserName,
-        };
+        }, null);
 }

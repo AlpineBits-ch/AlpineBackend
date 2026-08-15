@@ -314,6 +314,161 @@ public class AdminBillingController(
             + $"{Text(request, "reason")}");
     }
 
+    // ── Credit ────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The balance, the wallet cap and every lot with something left in it.</summary>
+    [HttpGet("credit/wallets/{userId}")]
+    public async Task<IActionResult> CreditWalletAsync(string userId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext, $"/api/v1/credit/wallets/{Escape(userId)}", ct));
+    }
+
+    /// <summary>The ledger with its provenance - which lot, which campaign, which grant, which member
+    /// of staff. Section 8.8 puts this first among the admin surfaces, and it is the reason the ledger
+    /// is append-only at all.</summary>
+    [HttpGet("credit/wallets/{userId}/ledger")]
+    public async Task<IActionResult> CreditLedgerAsync(
+        string userId, [FromQuery] int limit, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext,
+            $"/api/v1/credit/wallets/{Escape(userId)}/ledger?limit={(limit <= 0 ? 200 : limit)}", ct));
+    }
+
+    [HttpPost("credit/wallets/{userId}/issue")]
+    public async Task<IActionResult> IssueCreditAsync(
+        string userId, [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+        if (!HasReason(request, out var refusal)) return refusal;
+
+        return await WriteAsync(actor, HttpMethod.Post, $"/api/v1/credit/wallets/{Escape(userId)}/issue",
+            request, ct, ModerationAuditActions.BillingCreditIssued, userId,
+            $"{Text(request, "amount")} points under {Text(request, "campaign") ?? "no campaign"}: "
+            + $"{Text(request, "reason")}");
+    }
+
+    /// <summary>A hand correction in either direction.</summary>
+    [HttpPost("credit/wallets/{userId}/adjust")]
+    public async Task<IActionResult> AdjustCreditAsync(
+        string userId, [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+        if (!HasReason(request, out var refusal)) return refusal;
+
+        return await WriteAsync(actor, HttpMethod.Post, $"/api/v1/credit/wallets/{Escape(userId)}/adjust",
+            request, ct, ModerationAuditActions.BillingCreditAdjusted, userId,
+            $"{Text(request, "amount")} points: {Text(request, "reason")}");
+    }
+
+    /// <summary>Takes back one issuance.</summary>
+    [HttpPost("credit/entries/{entryId}/reverse")]
+    public async Task<IActionResult> ReverseCreditEntryAsync(
+        string entryId, [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+        if (!HasReason(request, out var refusal)) return refusal;
+
+        return await WriteAsync(actor, HttpMethod.Post, $"/api/v1/credit/entries/{Escape(entryId)}/reverse",
+            request, ct, ModerationAuditActions.BillingCreditReversed, entryId, Text(request, "reason"));
+    }
+
+    /// <summary>Empties a wallet after a fraud ban (section 8.6).</summary>
+    [HttpPost("credit/wallets/{userId}/void")]
+    public async Task<IActionResult> VoidCreditAsync(
+        string userId, [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+        if (!HasReason(request, out var refusal)) return refusal;
+
+        return await WriteAsync(actor, HttpMethod.Post, $"/api/v1/credit/wallets/{Escape(userId)}/void",
+            request, ct, ModerationAuditActions.BillingCreditVoided, userId, Text(request, "reason"));
+    }
+
+    /// <summary>Recomputes the cached balance from the entries.</summary>
+    [HttpPost("credit/wallets/{userId}/rebuild")]
+    public async Task<IActionResult> RebuildCreditAsync(string userId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        return await SendAsync(actor, HttpMethod.Post, $"/api/v1/credit/wallets/{Escape(userId)}/rebuild",
+            body: null, ct, ModerationAuditActions.BillingCreditRebuilt, userId,
+            "cached balance recomputed from the entries");
+    }
+
+    [HttpGet("credit/campaigns")]
+    public async Task<IActionResult> CreditCampaignsAsync(CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+
+        return Forward(await billing.GetAsync(HttpContext, "/api/v1/credit/campaigns", ct));
+    }
+
+    /// <summary>Opens a campaign.</summary>
+    [HttpPost("credit/campaigns")]
+    public async Task<IActionResult> CreateCreditCampaignAsync(
+        [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        var code = Text(request, "code");
+
+        // Compared against bool.TrueString rather than "true": Text reads a JSON boolean through
+        // JsonElement.ToString, which renders it as "True".
+        var automated = string.Equals(
+            Text(request, "automated"), bool.TrueString, StringComparison.OrdinalIgnoreCase);
+
+        return await WriteAsync(actor, HttpMethod.Post, "/api/v1/credit/campaigns", request, ct,
+            ModerationAuditActions.BillingCreditCampaignCreated, code,
+            $"budget {Text(request, "totalBudgetPoints")} points, "
+            + $"{(automated ? "automated" : "hand-issued")}: {Text(request, "description")}");
+    }
+
+    /// <summary>Stops a campaign issuing.</summary>
+    [HttpPost("credit/campaigns/{codeOrId}/pause")]
+    public async Task<IActionResult> PauseCreditCampaignAsync(string codeOrId, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        return await SendAsync(actor, HttpMethod.Post,
+            $"/api/v1/credit/campaigns/{Escape(codeOrId)}/pause", body: null, ct,
+            ModerationAuditActions.BillingCreditCampaignPaused, codeOrId, null);
+    }
+
+    [HttpPatch("credit/campaigns/{codeOrId}/budget")]
+    public async Task<IActionResult> SetCreditCampaignBudgetAsync(
+        string codeOrId, [FromBody] JsonElement request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        return await WriteAsync(actor, HttpMethod.Patch,
+            $"/api/v1/credit/campaigns/{Escape(codeOrId)}/budget", request, ct,
+            ModerationAuditActions.BillingCreditCampaignBudgetSet, codeOrId,
+            $"budget set to {Text(request, "totalBudgetPoints")} points");
+    }
+
     // ── Cache ─────────────────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -362,7 +517,23 @@ public class AdminBillingController(
             return Failure(400, "body_required", "This request needs a JSON body with a reason in it.");
         }
 
-        var reply = await billing.SendAsync(HttpContext, method, path, request.GetRawText(), ct);
+        return await SendAsync(actor, method, path, request.GetRawText(), ct, action, subjectId, detail);
+    }
+
+    /// <summary>The same forward-then-audit, for the two operations whose whole request is their URL.
+    /// A pause and a balance rebuild carry nothing to send, and posting an empty object to make them
+    /// fit the shape above would be a body the service does not read.</summary>
+    private async Task<IActionResult> SendAsync(
+        StaffPrincipal actor,
+        HttpMethod method,
+        string path,
+        string? body,
+        CancellationToken ct,
+        string action,
+        string? subjectId,
+        string? detail)
+    {
+        var reply = await billing.SendAsync(HttpContext, method, path, body, ct);
 
         if (!reply.IsSuccess) return Forward(reply);
 
@@ -373,6 +544,24 @@ public class AdminBillingController(
             actor.UserId, action, subjectId ?? "-", detail ?? "-");
 
         return Forward(reply);
+    }
+
+    /// <summary>
+    /// Whether a credit write carries a reason, refused here rather than left to the service.
+    /// </summary>
+    private bool HasReason(JsonElement request, out IActionResult refusal)
+    {
+        if (!string.IsNullOrWhiteSpace(Text(request, "reason")))
+        {
+            refusal = Ok();
+            return true;
+        }
+
+        refusal = Failure(400, "reason_required",
+            "A credit write needs a reason. The ledger is append-only, so this is the only chance to "
+            + "record why the balance moved.");
+
+        return false;
     }
 
     /// <summary>Billing's answer, unaltered.</summary>

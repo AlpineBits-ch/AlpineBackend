@@ -90,6 +90,7 @@ builder.Services.AddCreditLedger();
 builder.Services.AddScoped<IGrantProvider>(provider => provider.GetRequiredService<GrantService>());
 
 builder.Services.AddHostedService<GrantExpirySweeper>();
+builder.Services.AddHostedService<GrantStartSweeper>();
 builder.Services.AddBillingPolicies();
 
 builder.UseWolverine(opts =>

@@ -28,6 +28,11 @@ public class UnfurlService(
         if (!OutboundAddressGuard.TryValidate(url, Env.Unfurl.AllowPrivateTargets, out var uri, out var error))
             return Failed(url, error ?? "Invalid URL.");
 
+        // This instance's own links are resolved in-process by Messaging, against the services that
+        // own the records - see Messaging.Application/Previews/InternalLinkEmbeds.cs.
+        if (InstanceLinkHosts.IsInstanceHost(uri))
+            return Failed(url, "URL points at this instance and is resolved in-process.");
+
         var cached = await cache.GetAsync(url, ct);
         if (cached is not null)
         {

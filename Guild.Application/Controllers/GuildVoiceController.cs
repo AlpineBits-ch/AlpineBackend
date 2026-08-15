@@ -36,6 +36,7 @@ public class GuildVoiceController(
     StreamViewerStore viewers,
     VoiceRoomService voice,
     VoiceRoomStore rooms,
+    VoiceRingService ringService,
     IMessageBus bus) : ControllerBase
 {
     private static readonly DistributedCacheEntryOptions CacheOptions = new()
@@ -109,6 +110,10 @@ public class GuildVoiceController(
 
         await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = UserId, ChannelId = channelId });
 
+        // Anybody who was asking this person in here has got what they wanted, however the person
+        // actually arrived. Leaving the invitation up would ask them to join a room they are in.
+        await ringService.CancelForTargetJoinedAsync(channelId, UserId, ct);
+
         var snapshot = VoiceRoomSnapshot.From(room);
         var degradations = await DescribeAsync(admission, guildId);
 
@@ -121,21 +126,12 @@ public class GuildVoiceController(
 
     /// <summary>The join's degradation as the client reads it.</summary>
     private async Task<IReadOnlyList<EntitlementDegradationDto>> DescribeAsync(
-        VoiceAdmission admission, string guildId)
-    {
-        if (admission.OverCapacity is null) return [];
-
-        var sellsUpgrades = Env.License.IsHosted && Env.License.IsBillingConfigured;
-
-        var needsGuildRemedy = sellsUpgrades
-                               && admission.OverCapacity.Cause.BoundBy == EntitlementBoundBy.Guild;
-
-        var canManageGuild = needsGuildRemedy
-                             && await permissions.CanUserPerformActionOnGuildAsync(
-                                 UserId, guildId, Permissions.ManageGuild);
-
-        return admission.Describe(sellsUpgrades, canManageGuild);
-    }
+        VoiceAdmission admission, string guildId) =>
+        admission.OverCapacity is null
+            ? []
+            : admission.Describe(
+                GuildVoiceRemedies.InstanceSellsUpgrades,
+                await GuildVoiceRemedies.ActorCanRemedyAsync(permissions, UserId, guildId, admission));
 
     /// <summary>Same user, same channel, a different device just joined - transfer the connection
     /// instead of running two. Tells exactly the old device to disconnect, and best-effort closes
@@ -268,6 +264,9 @@ public class GuildVoiceController(
             new { userId, channelId, guildId }, ct);
 
         await bus.PublishAsync(new VoiceStateForBots { GuildId = guildId, UserId = userId, ChannelId = null });
+
+        // Their outstanding invitations go with them.
+        await ringService.CancelForInviterLeftAsync(channelId, userId, ct);
     }
 
     private async Task<List<string>> GetOnlineGuildMemberIdsAsync(string guildId)

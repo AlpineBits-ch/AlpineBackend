@@ -124,4 +124,13 @@ public class OutboundAddressGuardTests
     {
         Assert.That(OutboundAddressGuard.TryValidate(url, false, out _, out _), Is.False);
     }
+
+    [TestCase("https://discord.com/invite/ABC23456")]
+    [TestCase("https://example.com/invite/a-friend")]
+    public void TryValidate_ThirdPartyUrlContainingInvite_IsAccepted(string url)
+    {
+        // A substring test for "/invite/" used to live in this function as a stand-in for "do not
+        // unfurl our own invite links".
+        Assert.That(OutboundAddressGuard.TryValidate(url, false, out _, out _), Is.True);
+    }
 }

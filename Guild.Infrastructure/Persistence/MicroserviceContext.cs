@@ -99,6 +99,7 @@ public class MicroserviceContext : DbContext
             options.MapEnum<MemberType>();
             options.MapEnum<InviteType>();
             options.MapEnum<InviteState>();
+            options.MapEnum<InviteTargetType>();
             options.MapEnum<RoleType>();
             options.MapEnum<WikiVisibility>();
             options.MapEnum<AuditActionType>();
@@ -165,6 +166,13 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey<Domain.Aggregates.Guild>(g => g.SystemChannelId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired(false);
+
+            // Unique across the instance, and partial so the overwhelming majority of guilds -
+            // which have no vanity URL - do not all collide on NULL.
+            guidBuilder.HasIndex(g => g.VanityUrl)
+                .HasDatabaseName("ix_guilds_vanity_url")
+                .IsUnique()
+                .HasFilter("vanity_url IS NOT NULL");
         });
 
         modelBuilder.Entity<ReadState>(readStateBuilder =>
@@ -309,6 +317,10 @@ public class MicroserviceContext : DbContext
                 .IsRequired(false);
 
             guildInviteBuilder.HasIndex(x => x.Code).IsUnique();
+
+            // The moderator list reads one guild's invites and hides the revoked ones by default;
+            // without this that is a scan of every invite ever minted on the instance.
+            guildInviteBuilder.HasIndex(x => new { x.GuildId, x.State });
         });
 
         modelBuilder.Entity<ChannelPermission>(channelPermissionBuilder =>
@@ -367,8 +379,13 @@ public class MicroserviceContext : DbContext
                 .IsRequired(false);
 
             guildMemberBuilder.HasIndex(m => new { m.GuildId, m.UserId });
-            
-   
+
+            // The temporary-membership sweep asks for the due rows once a minute, and the rows it
+            // wants are a vanishing fraction of the table - so the index is partial, and the whole
+            // point is that a guild with no temporary members contributes nothing to it.
+            guildMemberBuilder.HasIndex(m => m.TemporaryEvictionDueAt)
+                .HasDatabaseName("ix_guild_members_temporary_eviction_due_at")
+                .HasFilter("temporary_eviction_due_at IS NOT NULL");
 
         });
         

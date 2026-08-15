@@ -74,6 +74,18 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     /// </summary>
     public bool MfaRequired { get; set; }
 
+    /// <summary>
+    /// The guild's vanity invite slug - the <c>venta.gg/thing</c> half of a link that has no code
+    /// in it.
+    /// </summary>
+    public string? VanityUrl { get; set; }
+
+    /// <summary>When <see cref="VanityUrl"/> was last claimed.</summary>
+    public DateTimeOffset? VanityUrlSetAt { get; set; }
+
+    /// <summary>The ordinary invite a vanity URL resolves to.</summary>
+    public string? VanityInviteId { get; set; }
+
     public static Guild Create(CreateGuildParams parameters)
     {
         var id = Guild.GenerateId();

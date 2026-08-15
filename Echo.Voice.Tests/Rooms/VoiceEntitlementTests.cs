@@ -7,6 +7,7 @@ using Echo.Entitlements.Wire;
 using Echo.Voice.Rooms;
 using Echo.Voice.Testing;
 using Echo.Voice.Tracks;
+using Echo.Voice.Transport;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Echo.Voice.Tests.Rooms;
@@ -376,6 +377,163 @@ public class VoiceEntitlementTests
             Assert.That(await service.CanPublishVideoAsync(_key, "u03"), Is.False);
             Assert.That(await service.CanPublishVideoAsync(_key, "u01"), Is.True);
         });
+    }
+
+    // ── The ceiling binding the layer, not just the response body ─────────────
+
+    /// <summary>The clamp on a publish response is a number a client is free to ignore.</summary>
+    [Test]
+    public async Task A_publisher_above_their_rung_has_the_top_layer_withheld_from_every_subscriber()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var decision = await service.EvaluateVideoPublishAsync(
+            _key, "u01", new VoiceVideoRequest(1080, 60));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], decision.MaxLayer);
+        await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
+            TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
+
+        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
+            new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.VideoAllowed, Is.True, "the clamp is a 200, not a refusal");
+            Assert.That(decision.MaxLayer, Is.EqualTo(VoiceVideoLayer.Medium));
+            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.Medium),
+                "a full-size tile would ask for the top layer, and the ceiling is what it may not "
+                + "have");
+        });
+    }
+
+    /// <summary>A publisher inside their rung is capped by nothing, which is what keeps this from
+    /// being a quality regression for everyone who does as they are told.</summary>
+    [Test]
+    public async Task A_publisher_inside_their_rung_is_served_at_full_quality()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "1080p60"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var decision = await service.EvaluateVideoPublishAsync(
+            _key, "u01", new VoiceVideoRequest(720, 30));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], decision.MaxLayer);
+        await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
+            TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
+
+        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
+            new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.MaxLayer, Is.Null);
+            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.High));
+        });
+    }
+
+    /// <summary>
+    /// A client that has never heard of the <c>video</c> field asks for <see
+    /// cref="VoiceVideoRequest.Best"/>, which is a request for the ceiling rather than a claim
+    /// about what will be sent.
+    /// </summary>
+    [Test]
+    public async Task A_publisher_who_declared_nothing_is_not_capped()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "480p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var decision = await service.EvaluateVideoPublishAsync(_key, "u01", VoiceVideoRequest.Best);
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], decision.MaxLayer);
+        await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
+            TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
+
+        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
+            new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
+        ]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(decision.MaxLayer, Is.Null,
+                "an unstated request is not a claim this server can bind anything to");
+            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.High));
+        });
+    }
+
+    /// <summary>The ceiling composes with the tile size rather than replacing it, and the lower of
+    /// the two wins. A ceiling of Medium must not raise a 120 pixel tile to Medium.</summary>
+    [Test]
+    public async Task A_tiny_tile_still_wins_against_a_ceiling_that_would_allow_more()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+        var decision = await service.EvaluateVideoPublishAsync(
+            _key, "u01", new VoiceVideoRequest(1080, 60));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], decision.MaxLayer);
+        await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
+            TileHeights: new Dictionary<string, int> { ["u01"] = 120 }));
+
+        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
+            new VoiceTrackRef(
+                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
+        ]);
+
+        Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.Low));
+    }
+
+    /// <summary>A publisher who re-encodes to obey the clamp gets their full layer back, which is
+    /// why the cap is written on every video publish rather than only when it binds. If it were only
+    /// written when it bound, complying would be permanently punished.</summary>
+    [Test]
+    public async Task Re_declaring_inside_the_rung_lifts_the_cap_again()
+    {
+        var service = Service(
+            guild: b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"),
+            options: new VoiceSubscriptionOptions());
+
+        await JoinAsync(service, 2);
+
+        var over = await service.EvaluateVideoPublishAsync(_key, "u01", new VoiceVideoRequest(2160, 60));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], over.MaxLayer);
+        var capped = (await _h.Rooms.LoadAsync(_key))!.Find("u01")!.MaxVideoLayer;
+
+        var within = await service.EvaluateVideoPublishAsync(_key, "u01", new VoiceVideoRequest(720, 30));
+        await service.RecordTracksAsync(_key, "u01", "cf-u01", ["camera"], within.MaxLayer);
+        var lifted = (await _h.Rooms.LoadAsync(_key))!.Find("u01")!.MaxVideoLayer;
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(capped, Is.EqualTo(VoiceVideoLayer.Low),
+                "2160 lines against a 720 ceiling leaves only the quarter-height layer inside it");
+            Assert.That(lifted, Is.Null);
+        });
+    }
+
+    /// <summary>The mapping on its own, at its boundaries.</summary>
+    [TestCase("720p30", 720, null)]
+    [TestCase("720p30", 721, VoiceVideoLayer.Medium)]
+    [TestCase("720p30", 1440, VoiceVideoLayer.Medium)]
+    [TestCase("720p30", 1441, VoiceVideoLayer.Low)]
+    [TestCase("2160p60", 2160, null)]
+    [TestCase("none", 1080, VoiceVideoLayer.Low)]
+    [TestCase("720p30", 0, null)]
+    public void The_rung_decides_which_layers_may_leave_the_room(
+        string rung, int declaredHeight, VoiceVideoLayer? expected)
+    {
+        Assert.That(VoiceVideoLayers.CeilingFor(rung, declaredHeight), Is.EqualTo(expected));
     }
 
     // ── The limits reaching the client, on the snapshot and its version ───────

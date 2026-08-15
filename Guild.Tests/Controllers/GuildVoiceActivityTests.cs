@@ -60,7 +60,8 @@ public class GuildVoiceActivityTests
             new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             _activity, _viewers,
-            VoiceTestHarness.ServiceFor(_cache, locks, _hub), VoiceTestHarness.StoreFor(_cache, locks), _bus)
+            VoiceTestHarness.ServiceFor(_cache, locks, _hub), VoiceTestHarness.StoreFor(_cache, locks),
+            VoiceRingTestFactory.Create(_context, _cache, locks, _hub, _bus), _bus)
         {
             ControllerContext = Context(MemberId),
         };

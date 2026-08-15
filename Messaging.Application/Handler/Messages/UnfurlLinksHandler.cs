@@ -1,3 +1,6 @@
+using AppEnvironment;
+using Bots.Contracts.Gateway.Payloads;
+using Messaging.Application.Previews;
 using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
 using Messaging.Domain.Enums;
@@ -37,33 +40,63 @@ public class UnfurlLinksHandler
         // The hash is taken from the body the links came out of, and travels with the write below.
         var contentHash = ContentHash.Of(message.Content);
 
-        UnfurlUrlsResponse response;
-        try
+        var instanceHosts = InstanceLinkHosts.All;
+        var internalUrls = urls.Where(u => InternalLinkRecognizer.IsInternal(u, instanceHosts)).ToList();
+        var externalUrls = urls.Except(internalUrls, StringComparer.OrdinalIgnoreCase).ToList();
+
+        // Keyed by the URL rather than accumulated in resolution order, so the cards below can be
+        // put back into the order the links appear in the message.
+        var byUrl = new Dictionary<string, EmbedPayload>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var url in internalUrls)
         {
-            response = await bus.InvokeAsync<UnfurlUrlsResponse>(new UnfurlUrlsRequest
+            // An internal URL whose path is not a shape we know gets no card at all, deliberately:
+            // it is still our own host, so the alternative is not "fetch it instead".
+            if (!InternalLinkRecognizer.TryRecognize(url, instanceHosts, out var link))
             {
-                Urls = urls,
-                CorrelationId = command.MessageId,
-            });
-        }
-        catch (Exception e)
-        {
-            // Let Wolverine retry: the unfurler being briefly unreachable is transient, and the
-            // message is already delivered - the only thing at stake is whether a card shows up.
-            logger.LogWarning(e, "Unfurl service did not answer for message {MessageId}", command.MessageId);
-            throw;
+                logger.LogDebug("No preview for an instance link in message {MessageId}: unknown shape",
+                    command.MessageId);
+                continue;
+            }
+
+            var embed = await InternalLinkEmbeds.ResolveAsync(link!, bus);
+            if (embed is not null) byUrl[url] = embed;
         }
 
-        var embeds = response.Results
-            .Where(r => r.Embed is not null)
-            .Select(r => r.Embed!)
+        if (externalUrls.Count > 0)
+        {
+            UnfurlUrlsResponse response;
+            try
+            {
+                response = await bus.InvokeAsync<UnfurlUrlsResponse>(new UnfurlUrlsRequest
+                {
+                    Urls = externalUrls,
+                    CorrelationId = command.MessageId,
+                });
+            }
+            catch (Exception e)
+            {
+                // Let Wolverine retry: the unfurler being briefly unreachable is transient, and the
+                // message is already delivered - the only thing at stake is whether a card shows up.
+                logger.LogWarning(e, "Unfurl service did not answer for message {MessageId}", command.MessageId);
+                throw;
+            }
+
+            foreach (var unfurled in response.Results)
+            {
+                if (unfurled.Embed is not null) byUrl[unfurled.Url] = unfurled.Embed;
+                else
+                {
+                    logger.LogDebug("No preview for a link in message {MessageId}: {Reason}",
+                        command.MessageId, unfurled.FailureReason);
+                }
+            }
+        }
+
+        var embeds = urls
+            .Select(u => byUrl.GetValueOrDefault(u))
+            .OfType<EmbedPayload>()
             .ToList();
-
-        foreach (var failure in response.Results.Where(r => r.Embed is null))
-        {
-            logger.LogDebug("No preview for a link in message {MessageId}: {Reason}",
-                command.MessageId, failure.FailureReason);
-        }
 
         // Every link failed.
         if (embeds.Count == 0) return;

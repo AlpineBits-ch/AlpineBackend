@@ -76,6 +76,12 @@ public sealed class VoiceParticipant
     /// <summary>Camera and any other non-microphone, non-share track.</summary>
     public List<ActiveVideoTrack> ActiveVideoTracks { get; set; } = [];
 
+    /// <summary>
+    /// The best simulcast layer of this participant's video that may be fanned out to anybody, or
+    /// null when nothing caps it.
+    /// </summary>
+    public VoiceVideoLayer? MaxVideoLayer { get; set; }
+
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>Derived, never stored, and therefore impossible to set wrong.</summary>

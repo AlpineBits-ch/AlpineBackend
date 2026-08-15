@@ -1,3 +1,4 @@
+using Echo.Entitlements.Wire;
 using Echo.Voice.Tracks;
 
 namespace Echo.Voice.Rooms;
@@ -42,6 +43,32 @@ public static class VoiceVideoLayers
         High => VoiceVideoLayer.High,
         _ => null,
     };
+
+    /// <summary>The cheaper of two choices.</summary>
+    public static VoiceVideoLayer? Lower(VoiceVideoLayer? left, VoiceVideoLayer? right) =>
+        left is null ? right
+        : right is null ? left
+        : (VoiceVideoLayer)Math.Min((int)left.Value, (int)right.Value);
+
+    /// <summary>
+    /// The best layer of a publisher's video that a granted rung permits to leave the room, or null
+    /// when the rung does not bind what they said they would send.
+    /// </summary>
+    /// <param name="grantedRung">A rung of <c>video_quality</c>.</param>
+    /// <param name="declaredHeight">The height the publisher said it intends to send.</param>
+    public static VoiceVideoLayer? CeilingFor(string? grantedRung, int declaredHeight)
+    {
+        if (declaredHeight <= 0 || grantedRung is null) return null;
+        if (!VideoRungs.TryMetrics(grantedRung, out var maxHeight, out _)) return null;
+
+        // The 'none' rung, which the publish path refuses outright.
+        if (maxHeight <= 0) return VoiceVideoLayer.Low;
+
+        if (declaredHeight <= maxHeight) return null;
+        if (declaredHeight <= maxHeight * 2) return VoiceVideoLayer.Medium;
+
+        return VoiceVideoLayer.Low;
+    }
 }
 
 /// <summary>

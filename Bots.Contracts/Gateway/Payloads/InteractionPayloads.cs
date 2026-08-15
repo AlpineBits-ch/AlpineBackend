@@ -328,6 +328,14 @@ public class EmbedPayload
     [JsonPropertyName("footer")]
     public EmbedFooterPayload? Footer { get; set; }
 
+    /// <summary>
+    /// Identity of the instance-local thing this card stands for, when <see cref="Type"/> is one of
+    /// the <c>venta.*</c> types.
+    /// </summary>
+    [JsonPropertyName("venta")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public EmbedVentaPayload? Venta { get; set; }
+
     /// <summary>Bitfield - see <see cref="EmbedFlags"/>.</summary>
     [JsonPropertyName("flags")]
     public int Flags { get; set; }
@@ -346,6 +354,61 @@ public static class EmbedTypes
     public const string Image = "image";
     public const string Video = "video";
     public const string Gifv = "gifv";
+
+    /// <summary>
+    /// A link to something on this instance, resolved in-process rather than fetched
+    /// (docs/specs/message-previews.md, "Internal links").
+    /// </summary>
+    public const string VentaInvite = "venta.invite";
+
+    public const string VentaWikiPage = "venta.wiki_page";
+}
+
+/// <summary>
+/// The identifiers behind a <c>venta.*</c> card, so a client can act on the thing the link points
+/// at without parsing the URL - and can re-resolve the parts of it that go stale.
+/// </summary>
+public class EmbedVentaPayload
+{
+    /// <summary>Mirrors <see cref="EmbedPayload.Type"/> without the <c>venta.</c> prefix, so a
+    /// client can switch on one value. <c>invite</c> or <c>wiki_page</c> today.</summary>
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "";
+
+    /// <summary>
+    /// Whether the server filled in the human-readable fields (title, description) from the real
+    /// record, or deliberately left them out.
+    /// </summary>
+    [JsonPropertyName("resolved")]
+    public bool Resolved { get; set; }
+
+    [JsonPropertyName("guild_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? GuildId { get; set; }
+
+    /// <summary>The invite's short shareable code, not its id.</summary>
+    [JsonPropertyName("invite_code")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? InviteCode { get; set; }
+
+    /// <summary>The channel the invite lands a joining member on, when it names one.</summary>
+    [JsonPropertyName("channel_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ChannelId { get; set; }
+
+    [JsonPropertyName("page_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? PageId { get; set; }
+
+    /// <summary>When the invite stops working, or null for one that never does.</summary>
+    [JsonPropertyName("expires_at")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? ExpiresAt { get; set; }
+
+    /// <summary>Total uses the invite allows, null for unlimited.</summary>
+    [JsonPropertyName("max_uses")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxUses { get; set; }
 }
 
 public static class EmbedFlags

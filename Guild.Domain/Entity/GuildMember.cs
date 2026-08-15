@@ -38,6 +38,15 @@ public class GuildMember : BaseEntity<GuildMember>, IPrefixedEntity
     public string? InviteCode { get; init; }
 
     /// <summary>
+    /// This membership was granted by a <see cref="GuildInvite.Temporary"/> invite, so it ends when
+    /// the account goes offline unless a role beyond @everyone has been granted in the meantime.
+    /// </summary>
+    public bool TemporaryMembership { get; init; }
+
+    /// <summary>When this temporary membership is due to be swept, if it is.</summary>
+    public DateTimeOffset? TemporaryEvictionDueAt { get; set; }
+
+    /// <summary>
     /// Uppercased haystack for the member-search endpoint's <c>Contains</c> query.
     /// </summary>
     public string SearchValue { get; set; }

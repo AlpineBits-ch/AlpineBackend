@@ -43,6 +43,10 @@ public class GuildLifecycleHandler
 
         // A reconnect is the other half of the disconnect grace below.
         await RestoreVoiceLivenessAsync(message, cache, rooms);
+
+        // And the same shape again for temporary membership: coming back cancels the eviction a
+        // disconnect scheduled, so a blip costs nothing.
+        await TemporaryMembershipService.CancelEvictionsAsync(message.UserId, microserviceContext);
     }
 
     // The gateway hub republishes this while the connection is alive (throttled), replacing the old
@@ -295,6 +299,12 @@ public class GuildLifecycleHandler
             await hub.Clients.Users(recipients).SendAsync("guild.PresenceChanged",
                 new { UserId = userId, GuildId = m.GuildId, Status = nameof(OnlineStatus.Offline) });
         }
+
+        // Temporary membership, on the same grace-window principle as the voice work below and for
+        // a stronger version of the same reason: a socket closing is not a departure, and here the
+        // cost of pretending otherwise is a membership somebody has to be re-invited into rather
+        // than a channel they can rejoin.
+        await TemporaryMembershipService.ScheduleEvictionsAsync(userId, microserviceContext, DateTimeOffset.UtcNow);
 
         var locationJson = await cache.GetStringAsync(ChannelVoiceState.GetUserCacheKey(userId));
         if (locationJson is null) return;

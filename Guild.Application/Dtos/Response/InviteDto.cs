@@ -1,5 +1,6 @@
-﻿using Facet;
+using Facet;
 using Guild.Domain.Entity;
+using Guild.Domain.Enums;
 
 namespace Guild.Application.Dtos.Response;
 
@@ -15,6 +16,16 @@ public partial class InviteDto
     /// welcome-screen endpoint). Null when the guild has none or has it disabled. Not produced by
     /// the Facet mapping - the invite preview endpoints fill it in.</summary>
     public Request.UpdateWelcomeScreenDto? WelcomeScreen { get; set; }
+
+    /// <summary>Overwrites the Facet-projected <c>State</c> with
+    /// <see cref="GuildInvite.EffectiveState"/>, which is what every read path must hand out - the
+    /// stored column does not know about expiry. Called by every endpoint that produces one of these,
+    /// which is why the projection lives here rather than being repeated at each site.</summary>
+    public InviteDto WithEffectiveState(GuildInvite invite, DateTimeOffset now)
+    {
+        State = invite.EffectiveState(now);
+        return this;
+    }
 }
 
 /// <summary>
@@ -27,6 +38,8 @@ public partial class InviteDto
         nameof(GuildInvite.GuildId), nameof(GuildInvite.Type), nameof(GuildInvite.State),
         nameof(GuildInvite.Code), nameof(GuildInvite.ExpiresAt), nameof(GuildInvite.MaxUses),
         nameof(GuildInvite.UseCount), nameof(GuildInvite.ChannelId),
+        nameof(GuildInvite.InviterId), nameof(GuildInvite.Temporary),
+        nameof(GuildInvite.TargetType), nameof(GuildInvite.TargetUserId),
     ])]
 public partial class FlatInviteDto
 {

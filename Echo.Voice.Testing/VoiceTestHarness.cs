@@ -1,3 +1,5 @@
+using Echo.Entitlements.Resolution;
+using Echo.Entitlements.Sources;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Voice.Rooms;
@@ -66,9 +68,21 @@ public sealed class VoiceTestHarness
 
     /// <summary>A <see cref="VoiceRoomService"/> over a caller-supplied cache, lock and hub - for
     /// service suites wiring a controller or handler under test to their own fakes.</summary>
+    /// <param name="entitlements">Null resolves every key to its catalogue default, which is
+    /// unlimited - the shape a suite that is not about limits wants. A suite that <em>is</em> about
+    /// them passes a resolver here rather than reaching past the controller, because the whole point
+    /// of a controller-level entitlement test is that the endpoint consults one at all.</param>
+    /// <param name="ceilings">What this box will carry, as opposed to what a guild has paid for.</param>
+    /// <param name="subscriptions">Null keeps the all-to-all behaviour, which is what every suite
+    /// that is not about subscription planning wants.</param>
     public static VoiceRoomService ServiceFor(
-        IDistributedCache cache, IDistributedLockService locks, IHubContext<EchoRealtimeHub> hub) =>
-        new(StoreFor(cache, locks), new VoiceAnnouncer(hub));
+        IDistributedCache cache,
+        IDistributedLockService locks,
+        IHubContext<EchoRealtimeHub> hub,
+        EntitlementResolver? entitlements = null,
+        OperatorCeilings? ceilings = null,
+        VoiceSubscriptions? subscriptions = null) =>
+        new(StoreFor(cache, locks), new VoiceAnnouncer(hub), subscriptions, entitlements, ceilings);
 
     /// <summary>A <see cref="VoiceReconciler"/> over caller-supplied fakes.</summary>
     public static VoiceReconciler ReconcilerFor(

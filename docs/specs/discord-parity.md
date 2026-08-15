@@ -57,7 +57,20 @@ member search. Audit log covers 54 action types (`AuditActionType.cs`) with acto
 JSON metadata blob.
 
 **Invites.** Code (ambiguity-free alphabet), expiry, max uses, use count, exhaustion check,
-optional landing channel, redeem + revoke (`GuildInvite.cs`, `InviteEndpoint.cs`).
+optional landing channel, redeem + revoke (`GuildInvite.cs`, `InviteEndpoint.cs`). The 2026-08-15
+round closed the gaps that made the original "on par" claim optimistic: `InviterId`, `Temporary`
+membership (enforced through a scheduled sweep rather than on the raw socket drop -
+`TemporaryMembershipSweepService`), invite targets (`InviteTargetType.VoiceChannel` with a redeem
+response that can land the joiner in the channel), server-derived expiry on every read path
+(`GuildInvite.EffectiveState` - computed, deliberately not swept), `guild.InviteCreated` /
+`guild.InviteDeleted` realtime events plus their `InviteCreatedForBots` / `InviteDeletedForBots` bus
+contracts, `MANAGE_GUILD`-based permissions on list and revoke, revocation instead of hard delete so
+member attribution survives, and a per-caller rate limit on the unauthenticated preview. Vanity
+invite URLs are covered separately below. Client contract: `Guild.Application/docs/invites-frontend-guide.md`.
+
+Still thinner than Discord: no invite-target type for an embedded application (`STREAM` /
+`EMBEDDED_APPLICATION`), no friend invites, and `INVITE_CREATE`/`INVITE_DELETE` are published on the
+bus but not yet dispatched by the bot gateway.
 
 **Messages.** Create/edit/delete, replies (`InReplyTo`), user + role + `@everyone`/`@here`
 mention arrays, attachments with server-generated thumbnails, unicode **and** guild-custom-emoji
@@ -253,13 +266,18 @@ layered on without a new resolution path.
 Missing on `Guild`: banner, invite splash, discovery splash, animated icon (only icon +
 thumbnail via `GuildIconController`), AFK channel/timeout, default message notification level,
 explicit content filter, MFA-required-for-moderation, preferred locale, NSFW level,
-rules-channel and public-updates-channel designation, system channel flags, vanity URL.
+rules-channel and public-updates-channel designation, system channel flags.
+
+Vanity URL is no longer missing: `Guild.VanityUrl` (unique, case-insensitive by normalization,
+reserved-word checked) with a `ManageGuild` + `guild.vanity_url`-entitled set/clear endpoint, and
+resolution that reaches the same invite preview a code does. It degrades rather than being destroyed
+when the entitlement is lost, per monetization.md 7.3 and downgrade-2026-08-14.md 9.
 
 ### 4.10 Discovery and client organization
 
-No server discovery/browse directory, no vanity invite URLs, no guild widget, no guild insights.
-No guild folders or client-side guild ordering - conversations have `ReorderConversationsDto`,
-guilds have no equivalent.
+No server discovery/browse directory, no guild widget, no guild insights. No guild folders or
+client-side guild ordering - conversations have `ReorderConversationsDto`, guilds have no equivalent.
+Vanity invite URLs exist as of 2026-08-15; see 4.9.
 
 ### 4.11 Member management at scale
 

@@ -18,7 +18,15 @@ using Wolverine;
 
 namespace Messaging.Application.Controllers;
 
-public record NegotiateBody(string MediaSessionId, VoiceSessionDescription SessionDescription, List<VoiceTrackRef> Tracks);
+/// <param name="Video">
+/// What the caller intends to send on the video tracks in <paramref name="Tracks"/>, when there are
+/// any.
+/// </param>
+public record NegotiateBody(
+    string MediaSessionId,
+    VoiceSessionDescription SessionDescription,
+    List<VoiceTrackRef> Tracks,
+    VoiceVideoIntent? Video = null);
 public record RenegotiateBody(string MediaSessionId, VoiceSessionDescription SessionDescription);
 public record CloseTracksBody(string MediaSessionId, List<string> TrackNames);
 
@@ -136,6 +144,41 @@ public class CallVoiceMediaController(
         if (!await IsConnectedParticipantAsync(callId)) return Forbid();
         if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
 
+        var audioTrack = body.Tracks.FirstOrDefault(
+            t => t is { Direction: VoiceTrackDirection.Publish, TrackName: TrackNaming.Audio });
+
+        var otherPublishes = body.Tracks
+            .Where(t => t.Direction == VoiceTrackDirection.Publish && t.TrackName != TrackNaming.Audio)
+            .ToList();
+
+        // Only a body that actually carries video is measured against the video ceiling.
+        VoicePublishDecision? publish = null;
+        IReadOnlyList<EntitlementDegradationDto> degradations = [];
+
+        if (otherPublishes.Count > 0)
+        {
+            publish = await voice.EvaluateVideoPublishAsync(
+                Room(callId), UserId, VoiceVideoIntent.RequestOf(body.Video), ct);
+
+            // No ManageGuild lookup, and not because it was forgotten: there is no guild here, so a
+            // guild-side remedy is not a thing this endpoint can offer.
+            var sells = Env.License.IsHosted && Env.License.IsBillingConfigured;
+
+            if (!publish.VideoAllowed)
+            {
+                // Refused whole, audio included.
+                logger.LogInformation(
+                    "Refusing video publish for user {UserId} in call {CallId}: {Key} bound at {Rung}",
+                    UserId, callId, publish.Refusal!.Key.Name, publish.Rung);
+
+                return StatusCode(
+                    EntitlementDenialDto.StatusCode,
+                    publish.Denial(sells, actorCanManageGuild: false));
+            }
+
+            degradations = publish.Describe(sells, actorCanManageGuild: false);
+        }
+
         // A subscribe naming media nobody is publishing is a stale client, not a server fault.
         var stale = await voice.FindStaleSubscriptionsAsync(Room(callId), body.Tracks, ct);
         if (stale.Count > 0)
@@ -201,19 +244,16 @@ public class CallVoiceMediaController(
             return StatusCode(502, new { operation = ex.Operation, error = ex.Detail });
         }
 
-        var audioTrack = body.Tracks.FirstOrDefault(
-            t => t is { Direction: VoiceTrackDirection.Publish, TrackName: TrackNaming.Audio });
         if (audioTrack is not null)
             await voice.RecordPublishAsync(Room(callId), UserId, body.MediaSessionId, ct);
 
-        var otherPublishes = body.Tracks
-            .Where(t => t.Direction == VoiceTrackDirection.Publish && t.TrackName != TrackNaming.Audio)
-            .ToList();
         if (otherPublishes.Count > 0)
             await voice.RecordTracksAsync(Room(callId), UserId, body.MediaSessionId,
-                otherPublishes.Select(t => t.TrackName!).ToList(), ct);
+                otherPublishes.Select(t => t.TrackName!).ToList(), publish?.MaxLayer, ct);
 
-        return Ok(result);
+        return degradations.Count == 0
+            ? Ok(result)
+            : Ok(EntitlementResponses.WithDegradations(result, degradations));
     }
 
     /// <summary>

@@ -28,6 +28,7 @@ treat the "planned" rows as absent-until-present rather than as a reason to desi
 | `version` on the snapshot | Always `0` until Billing owns a per-subject counter. Compare it anyway |
 | §6 usage endpoints | Planned. Owned by the services that do the counting |
 | §8 voice `limits` block | Shipped. It rides every voice snapshot, and `degradations[]` rides the join reply in both room kinds |
+| §8.1 publish enforcement and the `video` field | Shipped. Both room kinds. `degradations[]` on the negotiate reply, `403` for the two refusals |
 | §10 guild feature resolution | Shipped, on `GET /guilds/{guildId}` as `featureResolution` and on `GET /guilds/{guildId}/features`. **Not** on the guild list, and not on a nested guild - see §10 |
 | §5.5 `plan` on the snapshot | Shipped, with `currentVersion` beside `version`. Absent on `selfhost`, and on an instance with no plans or no configured default for that kind of subject. On a hosted instance with Billing deployed the plans come from Billing's table, so it is present for everybody |
 | §5.6 `stripePublishableKey` | Shipped. Absent unless the instance was configured with one |
@@ -504,6 +505,50 @@ A call has no guild plan behind it, so the only thing that can reduce a call is 
 a self-hoster who has capped what their own box will carry. Those carry no `remedy`, because no
 amount of money moves one. Render the sentence, not a button.
 
+### 8.1 Publishing video: one optional field, and two answers
+
+The negotiate body gains one optional field. Both room kinds, same name, same meaning:
+
+```http
+POST https://api.venta.gg/api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
+POST https://api.venta.gg/api/v1/voice/calls/{callId}/tracks
+```
+
+```jsonc
+{
+  "mediaSessionId": "...",
+  "sessionDescription": { "type": "offer", "sdp": "..." },
+  "tracks": [ /* unchanged */ ],
+  "video": { "height": 1080, "framerate": 60 }   // new, optional
+}
+```
+
+- **Send it whenever the body publishes a camera or a screen share**, with the size you are actually
+  about to encode. It is ignored for an audio-only publish and for a body that only subscribes.
+- **Absent means "whatever the room allows".** A client that never sends it keeps working and is
+  resolved to the ceiling rather than to nothing, so this is safe to adopt at your own pace. It is
+  worth adopting, though: see the last bullet of this section.
+- A non-positive number on either axis reads as unstated for that axis. There is no way to ask for
+  "no video" here; not publishing a video track is how that is said.
+
+Two answers, and they are §1 and §4 exactly as everywhere else:
+
+| Situation | Status | Body |
+|---|---|---|
+| Above the granted rung, and a publisher slot is free | `200` | The negotiate response you already parse, plus `degradations[]` carrying `voice.video_ceiling` |
+| Granted rung is `none`, or no publisher slot is free | `403` | The §4 denial, keyed `voice.video_ceiling` or `voice.max_publishers` |
+
+- **The granted rung is on the degradation**, as `granted.rung` (§2, a ladder value). Re-encode to
+  that and to `ladders.video_quality`'s entry for it; there is nothing to fetch.
+- **A refusal takes the whole request, audio included.** An SDP offer is answered symmetrically, so
+  the server cannot accept the microphone and drop the camera out of one negotiation. If you offered
+  both and got a `403`, re-offer audio on its own - that request cannot be refused by any of this.
+- **A publish that declared a size above its rung is also capped server-side**, at the simulcast
+  layer the SFU is asked for, until a later negotiation declares a size inside the rung. So ignoring
+  the clamp does not get you the quality you asked for; it gets you a lower layer distributed to
+  everyone. A client that never sends `video` is not capped this way, which is the one thing sending
+  it truthfully buys you.
+
 ---
 
 ## 9. Video quality: the rungs are the server's
@@ -640,9 +685,21 @@ time-bounded surface here.
 
 ### 11.5 Vanity URL
 
-`guild.vanity_url` defaults to `false` today because **the capability does not exist yet**, not
-because it is withheld. Do not render a locked upsell against it. When the feature ships, this note
-changes and the flag starts meaning "not entitled".
+**The capability shipped on 2026-08-15, so the flag now means what it says.** Render the locked
+upsell. `false` is "not entitled", and the vanity settings surface is a real one - see
+`Guild.Application/docs/invites-frontend-guide.md` §9 for the routes, the slug grammar and the error
+shapes.
+
+Two things about it are specific to this key and worth reading before you build the screen:
+
+- **A guild that loses the entitlement keeps its name and loses the link.** The settings endpoint
+  returns the held slug with `active: false`. Rendering that as an empty field would be
+  indistinguishable from the name having been taken away, which is exactly what
+  docs/legal/downgrade-2026-08-14.md 9.2 promises does not happen. Show the name, greyed, with the
+  upgrade prompt next to it.
+- **Claiming a name is refused when billing is unreachable, and resolving one is not.** So a `PUT`
+  can answer `403 vanity_url_not_entitled` transiently on a guild that really is entitled. Treat it
+  as retryable rather than as a settled answer about the plan.
 
 ### 11.6 Devices, emoji, bots
 

@@ -180,9 +180,13 @@ public sealed class VoiceRoomService(
     }
 
     /// <summary>Records non-microphone tracks (camera, screen share) and announces each.</summary>
+    /// <param name="maxLayer">
+    /// The best simulcast layer of this publisher's video that may be distributed, from <see
+    /// cref="VoicePublishDecision.MaxLayer"/>.
+    /// </param>
     public async Task<VoiceRoom?> RecordTracksAsync(
         VoiceRoomKey key, string userId, string mediaSessionId, IReadOnlyList<string> trackNames,
-        CancellationToken ct = default)
+        VoiceVideoLayer? maxLayer = null, CancellationToken ct = default)
     {
         var described = trackNames.Select(TrackNaming.Describe).ToList();
 
@@ -190,6 +194,8 @@ public sealed class VoiceRoomService(
         {
             var me = r.Find(userId);
             if (me is null) return;
+
+            me.MaxVideoLayer = maxLayer;
 
             foreach (var track in described)
             {
@@ -301,7 +307,9 @@ public sealed class VoiceRoomService(
 
         return new VoicePublishDecision(
             true, granted, height, framerate, limits.Limits, publishers,
-            reduced is null ? [] : [reduced], null);
+            reduced is null ? [] : [reduced], null,
+            // What the ceiling costs a publisher who ignores the clamp.
+            VoiceVideoLayers.CeilingFor(granted, request.DeclaredHeight));
     }
 
     /// <summary>
@@ -985,11 +993,34 @@ public readonly record struct VoiceVideoRequest(int Height, int Framerate)
 {
     /// <summary>Whatever the room will allow, for a caller that has not been told a size.</summary>
     public static readonly VoiceVideoRequest Best = new(int.MaxValue, int.MaxValue);
+
+    /// <summary>
+    /// The height the publisher actually committed to, or zero when they committed to nothing.
+    /// </summary>
+    public int DeclaredHeight => Height is <= 0 or int.MaxValue ? 0 : Height;
+}
+
+/// <summary>What a publisher says it intends to send, as it arrives on a negotiate body.</summary>
+public sealed record VoiceVideoIntent(int Height = 0, int Framerate = 0)
+{
+    public VoiceVideoRequest ToRequest() => new(
+        Height <= 0 ? int.MaxValue : Height,
+        Framerate <= 0 ? int.MaxValue : Framerate);
+
+    /// <summary>The request an optional body field describes, with absent reading as
+    /// <see cref="VoiceVideoRequest.Best"/>. One place, so the two media controllers cannot disagree
+    /// about what a missing <c>video</c> means.</summary>
+    public static VoiceVideoRequest RequestOf(VoiceVideoIntent? intent) =>
+        intent?.ToRequest() ?? VoiceVideoRequest.Best;
 }
 
 /// <summary>What a publisher may actually send.</summary>
 /// <param name="Rung">The granted rung.</param>
 /// <param name="Height">The request clamped to <paramref name="Rung"/>.</param>
+/// <param name="MaxLayer">
+/// The best simulcast layer of this publish that may be distributed, or null when nothing caps it -
+/// which is every publish inside its ceiling and every publish that declared no size.
+/// </param>
 public sealed record VoicePublishDecision(
     bool VideoAllowed,
     string Rung,
@@ -998,7 +1029,8 @@ public sealed record VoicePublishDecision(
     VoiceRoomLimits Limits,
     int PublisherCount,
     IReadOnlyList<VoiceDegradation> Degradations,
-    VoiceDegradation? Refusal)
+    VoiceDegradation? Refusal,
+    VoiceVideoLayer? MaxLayer = null)
 {
     public IReadOnlyList<EntitlementDegradationDto> Describe(
         bool instanceSellsUpgrades, bool actorCanManageGuild) =>

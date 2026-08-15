@@ -51,7 +51,7 @@ translation needed on the bot side.
 
 > **Updated:** colors, images, thumbnails, videos, providers and timestamps **are** carried now -
 > they used to be dropped server-side. The embed object gained `type`, `timestamp`, `image`,
-> `thumbnail`, `video`, `provider` and `flags`, plus `url`/`iconUrl` on `author` and `iconUrl` on
+> `thumbnail`, `video`, `provider` and `flags`, plus `url`/`icon_url` on `author` and `icon_url` on
 > `footer`. Nothing below is invalidated (the change is purely additive), but a bot that always set
 > a colour will now have it rendered.
 >
@@ -59,6 +59,11 @@ translation needed on the bot side.
 > messages. Those arrive asynchronously, after the message, and behave differently enough to be
 > worth their own document: see
 > [`docs/specs/message-previews-frontend-guide.md`](../../docs/specs/message-previews-frontend-guide.md).
+>
+> It also carries **cards for links back to this instance** - invites and wiki pages - under two new
+> `venta.*` types with an extra `venta` object holding the ids behind the card. Those replace the
+> invite and wiki link handling both clients currently do themselves:
+> [`embeds-frontend-guide.md`](embeds-frontend-guide.md).
 
 ## Rendering
 

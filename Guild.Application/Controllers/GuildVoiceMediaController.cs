@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Echo.Entitlements.Wire;
 using Echo.Voice.Rooms;
 using Echo.Voice.Sessions;
 using Echo.Voice.Tracks;
@@ -14,7 +15,15 @@ using Microsoft.Extensions.Caching.Distributed;
 
 namespace Guild.Application.Controllers;
 
-public record GuildNegotiateBody(string MediaSessionId, VoiceSessionDescription SessionDescription, List<VoiceTrackRef> Tracks);
+/// <param name="Video">
+/// What the caller intends to send on the video tracks in <paramref name="Tracks"/>, when there are
+/// any.
+/// </param>
+public record GuildNegotiateBody(
+    string MediaSessionId,
+    VoiceSessionDescription SessionDescription,
+    List<VoiceTrackRef> Tracks,
+    VoiceVideoIntent? Video = null);
 public record GuildRenegotiateBody(string MediaSessionId, VoiceSessionDescription SessionDescription);
 public record GuildCloseTracksBody(string MediaSessionId, List<string> TrackNames);
 
@@ -105,6 +114,33 @@ public class GuildVoiceMediaController(
             && !await permissions.CanUserPerformActionAsync(UserId, channelId, Permissions.Stream))
             return Forbid();
 
+        // Only a body that actually carries video is measured against the video ceiling.
+        VoicePublishDecision? publish = null;
+        IReadOnlyList<EntitlementDegradationDto> degradations = [];
+
+        if (otherPublishes.Count > 0)
+        {
+            publish = await voice.EvaluateVideoPublishAsync(
+                Room(channelId), UserId, VoiceVideoIntent.RequestOf(body.Video), ct);
+
+            var sells = GuildVoiceRemedies.InstanceSellsUpgrades;
+            var canRemedy = await GuildVoiceRemedies.ActorCanRemedyAsync(
+                permissions, UserId, guildId, publish);
+
+            if (!publish.VideoAllowed)
+            {
+                // The whole request goes, audio included, and that is not an oversight.
+                logger.LogInformation(
+                    "Refusing video publish for user {UserId} in channel {ChannelId}: {Key} bound at "
+                    + "{Rung}", UserId, channelId, publish.Refusal!.Key.Name, publish.Rung);
+
+                return StatusCode(
+                    EntitlementDenialDto.StatusCode, publish.Denial(sells, canRemedy));
+            }
+
+            degradations = publish.Describe(sells, canRemedy);
+        }
+
         // A subscribe naming media nobody is publishing is a stale client, not a server fault.
         var stale = await voice.FindStaleSubscriptionsAsync(Room(channelId), body.Tracks, ct);
         if (stale.Count > 0)
@@ -183,9 +219,13 @@ public class GuildVoiceMediaController(
 
         if (otherPublishes.Count > 0)
             await voice.RecordTracksAsync(Room(channelId), UserId, body.MediaSessionId,
-                otherPublishes.Select(t => t.TrackName!).ToList(), ct);
+                otherPublishes.Select(t => t.TrackName!).ToList(), publish?.MaxLayer, ct);
 
-        return Ok(result);
+        // Byte-identical to what a v1 client already receives whenever nothing was reduced, which
+        // is every publish inside the guild's plan.
+        return degradations.Count == 0
+            ? Ok(result)
+            : Ok(EntitlementResponses.WithDegradations(result, degradations));
     }
 
     /// <summary>

@@ -36,7 +36,8 @@ namespace Guild.Persistence.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "guild_kind", new[] { "community", "event", "household", "study", "team" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "guild_scheduled_event_status", new[] { "active", "cancelled", "completed", "scheduled" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "guild_verification_level", new[] { "high", "low", "medium", "none" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_state", new[] { "active", "expired" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_state", new[] { "active", "expired", "revoked" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_target_type", new[] { "none", "voice_channel" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "invite_type", new[] { "one_time", "permanent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "meal_slot", new[] { "breakfast", "dinner", "lunch", "other" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "member_type", new[] { "bot", "default", "persona" });
@@ -219,6 +220,18 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
+                    b.Property<string>("VanityInviteId")
+                        .HasColumnType("text")
+                        .HasColumnName("vanity_invite_id");
+
+                    b.Property<string>("VanityUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("vanity_url");
+
+                    b.Property<DateTimeOffset?>("VanityUrlSetAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("vanity_url_set_at");
+
                     b.Property<GuildVerificationLevel>("VerificationLevel")
                         .HasColumnType("guild_verification_level")
                         .HasColumnName("verification_level");
@@ -229,6 +242,11 @@ namespace Guild.Persistence.Migrations
                     b.HasIndex("SystemChannelId")
                         .IsUnique()
                         .HasDatabaseName("ix_guilds_system_channel_id");
+
+                    b.HasIndex("VanityUrl")
+                        .IsUnique()
+                        .HasDatabaseName("ix_guilds_vanity_url")
+                        .HasFilter("vanity_url IS NOT NULL");
 
                     b.ToTable("guilds", (string)null);
                 });
@@ -1434,13 +1452,33 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("guild_id");
 
+                    b.Property<string>("InviterId")
+                        .HasColumnType("text")
+                        .HasColumnName("inviter_id");
+
                     b.Property<int?>("MaxUses")
                         .HasColumnType("integer")
                         .HasColumnName("max_uses");
 
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
                     b.Property<InviteState>("State")
                         .HasColumnType("invite_state")
                         .HasColumnName("state");
+
+                    b.Property<InviteTargetType>("TargetType")
+                        .HasColumnType("invite_target_type")
+                        .HasColumnName("target_type");
+
+                    b.Property<string>("TargetUserId")
+                        .HasColumnType("text")
+                        .HasColumnName("target_user_id");
+
+                    b.Property<bool>("Temporary")
+                        .HasColumnType("boolean")
+                        .HasColumnName("temporary");
 
                     b.Property<InviteType>("Type")
                         .HasColumnType("invite_type")
@@ -1464,8 +1502,8 @@ namespace Guild.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_guild_invites_code");
 
-                    b.HasIndex("GuildId")
-                        .HasDatabaseName("ix_guild_invites_guild_id");
+                    b.HasIndex("GuildId", "State")
+                        .HasDatabaseName("ix_guild_invites_guild_id_state");
 
                     b.ToTable("guild_invites", (string)null);
                 });
@@ -1542,6 +1580,14 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("share_phone_for_payments");
 
+                    b.Property<DateTimeOffset?>("TemporaryEvictionDueAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("temporary_eviction_due_at");
+
+                    b.Property<bool>("TemporaryMembership")
+                        .HasColumnType("boolean")
+                        .HasColumnName("temporary_membership");
+
                     b.Property<MemberType>("Type")
                         .HasColumnType("member_type")
                         .HasColumnName("type");
@@ -1560,6 +1606,10 @@ namespace Guild.Persistence.Migrations
 
                     b.HasIndex("InviteId")
                         .HasDatabaseName("ix_guild_members_invite_id");
+
+                    b.HasIndex("TemporaryEvictionDueAt")
+                        .HasDatabaseName("ix_guild_members_temporary_eviction_due_at")
+                        .HasFilter("temporary_eviction_due_at IS NOT NULL");
 
                     b.HasIndex("GuildId", "UserId")
                         .HasDatabaseName("ix_guild_members_guild_id_user_id");

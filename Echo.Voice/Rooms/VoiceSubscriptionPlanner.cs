@@ -184,7 +184,8 @@ public static class VoiceSubscriptionPlanner
                             TrackNaming.VideoKind,
                             null,
                             VoiceVideoLayers.Name(LayerFor(
-                                preferences, publisher.UserId, TrackNaming.VideoKind, selective, options))));
+                                preferences, publisher.UserId, TrackNaming.VideoKind, selective, options,
+                                publisher.MaxVideoLayer))));
                 }
 
                 foreach (var share in publisher.ActiveScreenShares)
@@ -211,7 +212,8 @@ public static class VoiceSubscriptionPlanner
                         described.Kind,
                         share.ShareId,
                         isAudio ? null : VoiceVideoLayers.Name(
-                            LayerFor(preferences, publisher.UserId, described.Kind, selective, options))));
+                            LayerFor(preferences, publisher.UserId, described.Kind, selective, options,
+                                publisher.MaxVideoLayer))));
                 }
             }
 
@@ -223,7 +225,22 @@ public static class VoiceSubscriptionPlanner
     }
 
     /// <summary>The simulcast layer one subscriber should pull one publisher at.</summary>
+    /// <param name="ceiling">
+    /// The publisher's granted rung expressed as a layer - see <see
+    /// cref="VoiceVideoLayers.CeilingFor"/>.
+    /// </param>
     public static VoiceVideoLayer LayerFor(
+        VoiceSubscriberState preferences, string publisherUserId, string trackKind,
+        bool selective, VoiceSubscriptionOptions options, VoiceVideoLayer? ceiling = null)
+    {
+        var requested = Requested(preferences, publisherUserId, trackKind, selective, options);
+
+        return VoiceVideoLayers.Lower(requested, ceiling) ?? requested;
+    }
+
+    /// <summary>What the subscriber's own rendering asks for, before the publisher's ceiling is
+    /// applied.</summary>
+    private static VoiceVideoLayer Requested(
         VoiceSubscriberState preferences, string publisherUserId, string trackKind,
         bool selective, VoiceSubscriptionOptions options)
     {

@@ -106,7 +106,8 @@ public class GuildVoiceJoinDegradationTests
             new VoiceRoomService(
                 VoiceTestHarness.StoreFor(_cache, locks), new VoiceAnnouncer(_hub),
                 operatorCeilings: ceilings),
-            VoiceTestHarness.StoreFor(_cache, locks), _bus)
+            VoiceTestHarness.StoreFor(_cache, locks),
+            VoiceRingTestFactory.Create(_context, _cache, locks, _hub, _bus), _bus)
         {
             ControllerContext = new ControllerContext
             {

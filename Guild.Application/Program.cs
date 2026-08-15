@@ -74,7 +74,17 @@ if (Env.License.IsHosted && Env.License.IsBillingConfigured)
 // check.
 builder.Services.AddEntitlementCache();
 
+// The plan-to-module clamp, which is what makes GuildPermissionService's includedByPlan and
+// withheldByPlan mean anything instead of always reporting "the plan covers everything".
+builder.Services.AddGuildPlanFeatures(builder.Configuration);
+
 builder.Services.AddSingleton<GuildVoiceActivityStore>();
+
+// Ring state is Redis-only and holds nothing per request, so both are singletons alongside the
+// activity index.
+builder.Services.AddSingleton<VoiceRingStore>();
+builder.Services.AddSingleton<VoiceRingThrottle>();
+builder.Services.AddScoped<VoiceRingService>();
 // Scoped: it takes IMessageBus, which Wolverine registers per scope.
 builder.Services.AddScoped<DeviceIdResolver>();
 
@@ -178,6 +188,11 @@ builder.Services.AddScoped<BlockCache>();
 builder.Services.AddScoped<GuildDirectMessagePreferenceService>();
 builder.Services.AddScoped<InboxService>();
 builder.Services.AddScoped<InboxMentionService>();
+builder.Services.AddScoped<GuildInviteAudienceService>();
+builder.Services.AddScoped<VanityUrlService>();
+// Singleton for the same reason ProductCatalogRateLimiter is: it is a handle on a shared Redis
+// budget, and nothing about it is per-request.
+builder.Services.AddSingleton<InvitePreviewRateLimiter>();
 
 // T0-4: telemetry consent.
 builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
@@ -190,6 +205,7 @@ builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();
+builder.Services.AddHostedService<TemporaryMembershipSweepService>();
 builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
 
 // The one outbound client the pantry has.

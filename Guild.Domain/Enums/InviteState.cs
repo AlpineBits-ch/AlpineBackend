@@ -1,7 +1,11 @@
-﻿namespace Guild.Domain.Enums;
+namespace Guild.Domain.Enums;
 
+/// <summary>The lifecycle of an invite.</summary>
 public enum InviteState
 {
     Active,
-    Expired
+    Expired,
+
+    /// <summary>Withdrawn by a moderator.</summary>
+    Revoked,
 }

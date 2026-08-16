@@ -117,6 +117,56 @@ public class VoiceBackfillTests(string kind)
         });
     }
 
+    /// <summary>The half of the camera fix that was left undone.</summary>
+    [Test]
+    public async Task A_camera_is_in_the_snapshot_so_a_missed_announcement_is_recoverable()
+    {
+        await _h.Service.JoinAsync(_key, Alice, "device-1");
+        await _h.Service.RecordPublishAsync(_key, Alice, "cf-alice");
+        // Published on a session of its own, which is what a desktop client sending video from a
+        // second process does - so the microphone session is the wrong handle to pull it by.
+        await _h.Service.RecordTracksAsync(_key, Alice, "cf-alice#camera", ["camera"]);
+
+        var snapshot = VoiceRoomSnapshot.From((await _h.Rooms.LoadAsync(_key))!);
+        var camera = snapshot.Participants.Single(p => p.UserId == Alice).VideoTracks.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(camera.TrackName, Is.EqualTo("camera"));
+            Assert.That(camera.MediaSessionId, Is.EqualTo("cf-alice#camera"),
+                "pulling a camera from the publisher's microphone session names a track that "
+                + "session does not have");
+        });
+    }
+
+    [Test]
+    public async Task A_participant_with_no_camera_carries_an_empty_video_track_list()
+    {
+        await _h.Service.JoinAsync(_key, Alice, "device-1");
+        await _h.Service.RecordPublishAsync(_key, Alice, "cf-alice");
+
+        var snapshot = VoiceRoomSnapshot.From((await _h.Rooms.LoadAsync(_key))!);
+
+        Assert.That(snapshot.Participants.Single(p => p.UserId == Alice).VideoTracks, Is.Empty,
+            "a microphone is not a camera, and a client rendering the list must not be handed one");
+    }
+
+    /// <summary>The mirror of <see cref="StaleShareTests.A_stopped_share_disappears_from_the_snapshot"/>:
+    /// the snapshot is what clients subscribe from, so a camera left on it after it stopped is one
+    /// every subscriber will fail to pull.</summary>
+    [Test]
+    public async Task A_closed_camera_disappears_from_the_snapshot()
+    {
+        await _h.Service.JoinAsync(_key, Alice, "device-1");
+        await _h.Service.RecordPublishAsync(_key, Alice, "cf-alice");
+        await _h.Service.RecordTracksAsync(_key, Alice, "cf-alice#camera", ["camera"]);
+
+        await _h.Service.RecordTracksClosedAsync(_key, Alice, ["camera"]);
+
+        var snapshot = VoiceRoomSnapshot.From((await _h.Rooms.LoadAsync(_key))!);
+        Assert.That(snapshot.Participants.Single(p => p.UserId == Alice).VideoTracks, Is.Empty);
+    }
+
     [Test]
     public async Task Publish_state_cannot_be_set_independently_of_the_handles()
     {

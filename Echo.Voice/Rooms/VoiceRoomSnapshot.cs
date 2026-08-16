@@ -3,6 +3,9 @@ using Echo.Entitlements.Wire;
 namespace Echo.Voice.Rooms;
 
 /// <summary>One participant as a client sees them, including what to pull to hear them.</summary>
+/// <param name="VideoTracks">
+/// Their cameras - every published track that is neither the microphone nor part of a share.
+/// </param>
 public sealed record VoiceParticipantSnapshot(
     string UserId,
     string? MediaSessionId,
@@ -14,6 +17,7 @@ public sealed record VoiceParticipantSnapshot(
     bool IsServerDeafened,
     bool IsStreaming,
     IReadOnlyList<VoiceShareSnapshot> Shares,
+    IReadOnlyList<VoiceVideoTrackSnapshot> VideoTracks,
     DateTime JoinedAt);
 
 /// <param name="MediaSessionId">The session the share is published on, which is not necessarily the
@@ -22,6 +26,12 @@ public sealed record VoiceParticipantSnapshot(
 /// event.</param>
 public sealed record VoiceShareSnapshot(
     string ShareId, IReadOnlyList<string> TrackNames, string? MediaSessionId);
+
+/// <param name="MediaSessionId">
+/// The session the camera is published on, which need not be the publisher's microphone session -
+/// see <see cref="ActiveVideoTrack.MediaSessionId"/>.
+/// </param>
+public sealed record VoiceVideoTrackSnapshot(string TrackName, string? MediaSessionId);
 
 /// <summary>
 /// The complete, authoritative state of a room, and the only thing a client needs in order to be
@@ -85,6 +95,9 @@ public sealed record VoiceRoomSnapshot(
         p.IsStreaming,
         p.ActiveScreenShares
             .Select(s => new VoiceShareSnapshot(s.ShareId, s.TrackNames, s.MediaSessionId))
+            .ToList(),
+        p.ActiveVideoTracks
+            .Select(v => new VoiceVideoTrackSnapshot(v.TrackName, v.MediaSessionId))
             .ToList(),
         p.JoinedAt);
 }

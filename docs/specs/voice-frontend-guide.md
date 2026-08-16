@@ -337,6 +337,12 @@ GET /api/v1/voice/call/{callId}/snapshot
           "mediaSessionId": "user-1#screen"
         }
       ],
+      "videoTracks": [
+        {
+          "trackName": "camera",
+          "mediaSessionId": "user-1#camera"
+        }
+      ],
       "joinedAt": "2026-08-07T12:00:00Z"
     }
   ],
@@ -368,6 +374,17 @@ GET /api/v1/voice/call/{callId}/snapshot
   the publisher's microphone session: a desktop client publishing screen from a separate process
   opens a second one. It is `null` on shares published before the server recorded it, where the
   handle is only in the `TrackPublished` event you already received.
+- `videoTracks[]` is their cameras: every published track that is neither the microphone nor part of
+  a share. **Render from this, not only from `TrackPublished`.** A camera used to be announced and
+  described nowhere else, so a client that was not listening at that moment - joined after it was
+  already on, resynced, reconnected - drew a black tile until the publisher toggled it. This is what
+  gives a camera the same recovery path everything else already had.
+- `videoTracks[].mediaSessionId` is the session the camera is published on, which need not be the
+  publisher's microphone session, exactly as for shares. It is `null` on tracks published before the
+  server recorded it - do **not** fall back to `mediaSessionId`, since that names a track the
+  microphone session does not have.
+- `videoTracks[]` is **not** gated on `publishState`, for the same reason `shares[]` is not: a camera
+  is only listed while it is published, and closing it removes it.
 - `subscriptions` is **absent or `null` in the ordinary small room**, and present only when the
   server is managing the set. Absent means "pull everyone who is `Publishing`", which is what you
   already do. See §6.

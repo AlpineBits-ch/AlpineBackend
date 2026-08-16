@@ -879,6 +879,7 @@ keeps you there.
 
 ### Guild voice
 ```
+GET    /api/v1/voice/state                                  am I in a channel? (204 if not)
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/join
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/leave
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/alive
@@ -900,6 +901,7 @@ POST   /api/v1/voice/call                                   place a call
 PUT    /api/v1/voice/call/{callId}/accept|decline|leave|end
 GET    /api/v1/voice/call/{callId}                          call + ring state
 GET    /api/v1/voice/call/pending                           am I being rung? (204 if not)
+GET    /api/v1/voice/call/active                            was I dropped from a call? (204 if not)
 GET    /api/v1/voice/conversations/{conversationId}/call     is a call happening here?
 GET    /api/v1/voice/call/{callId}/snapshot                 media state
 POST   /api/v1/voice/calls/{callId}/connection?primary=&tag=
@@ -915,6 +917,28 @@ GET    /api/v1/voice/call/{callId}/shares/viewers
 
 Note the call SFU routes are under `/voice/calls/{callId}/` (plural) while the lifecycle routes are
 under `/voice/call/{callId}/` (singular). That is historical; both are correct as written.
+
+### 10.1 The two launch reads
+
+`GET /api/v1/voice/state` and `GET /api/v1/voice/call/active` answer the same question - "where does
+the server think I am" - about rooms that fail in opposite ways, and a client that wants to offer a
+reconnect after a crash asks both, in parallel, once per launch.
+
+A **channel seat outlives the client that abandoned it.** Nothing but
+`VoiceHeartbeatCleanupService` removes a participant, so a force-quit user is still on the roster
+when their app reopens, and `/voice/state` reports the seat they are still holding. Answering it
+means either rejoining (`/join`) or releasing it (`/leave`) - and releasing it is the polite answer,
+because until one of those happens everyone else in the channel is looking at a ghost.
+
+A **call is hung up the moment the socket drops.** By the time the user is looking at their
+launcher they are already `Left`, so `/voice/call/active` reports something different: a call that is
+still running without them, which they may want back into. There is nothing stale to release.
+
+Both are pure reads. Neither claims liveness, extends a seat, or re-admits anybody, and both answer
+`204` far more often than not - a stale pointer, a swept roster, a call that has since ended and a
+user who has already answered on another device all read as "you are in nothing". Treat any `2xx`
+body as an offer to put to the user, never as state to paint: re-admission goes through the ordinary
+authorised route, which is entitled to refuse it.
 
 ---
 

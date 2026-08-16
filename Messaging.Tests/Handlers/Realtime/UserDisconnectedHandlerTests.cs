@@ -162,6 +162,46 @@ public class UserDisconnectedHandlerTests
         });
     }
 
+    [Test]
+    public async Task Handle_LeavesATrailPointingAtTheCallTheUserWasDroppedFrom()
+    {
+        var bus = BusWithEmptyProfile();
+        _cache.SetEntry("user-call:user-1", "call-1");
+        await SeedCall(new Call
+        {
+            Id = "call-1",
+            ConversationId = "conv-1",
+            CreatorId = "user-1",
+            Participants =
+            [
+                new CallParticipant { UserId = "user-1", Status = CallStatus.Connected, ActiveDeviceId = "device-1" },
+                new CallParticipant { UserId = "user-2", Status = CallStatus.Connected, ActiveDeviceId = "device-2" },
+            ],
+        });
+
+        await UserDisconnectedHandler.Handle(new UserDisconnected("user-1", "device-1"), bus, _cache, _callStore, _hub);
+
+        // The forward index is cleared, as it always was.
+        Assert.Multiple(() =>
+        {
+            Assert.That(_cache.HasEntry("user-call:user-1"), Is.False);
+            Assert.That(
+                System.Text.Encoding.UTF8.GetString(
+                    _cache.Get(UserDisconnectedHandler.RecentCallKey("user-1"))!),
+                Is.EqualTo("call-1"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_WithNoCallAtAll_LeavesNoTrail()
+    {
+        var bus = BusWithEmptyProfile();
+
+        await UserDisconnectedHandler.Handle(new UserDisconnected("user-1", "device-1"), bus, _cache, _callStore, _hub);
+
+        Assert.That(_cache.HasEntry(UserDisconnectedHandler.RecentCallKey("user-1")), Is.False);
+    }
+
     /// <summary>
     /// A gateway rollout produces one of these per open socket, in the same second, and every one
     /// of them looks exactly like somebody hanging up.

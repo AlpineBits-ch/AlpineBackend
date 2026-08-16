@@ -63,5 +63,19 @@ public class UserDisconnectedHandler
         }
 
         await cache.RemoveAsync($"user-call:{cmd.UserId}");
+
+        // A trail, left deliberately, and the only reason the reconnect banner can offer a call
+        // back.
+        await cache.SetStringAsync(RecentCallKey(cmd.UserId), callId, RecentCallOptions);
     }
+
+    /// <summary>How long after a drop the call is still worth offering back.</summary>
+    public static readonly DistributedCacheEntryOptions RecentCallOptions = new()
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+    };
+
+    /// <summary>Reverse index answering "was this user just dropped out of a call", written here
+    /// and read by <c>VoiceController.GetActiveCall</c>.</summary>
+    public static string RecentCallKey(string userId) => $"user-recent-call:{userId}";
 }

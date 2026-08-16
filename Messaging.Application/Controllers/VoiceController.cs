@@ -233,6 +233,42 @@ public class VoiceController(
             call.Participants.Where(p => p.Status == CallStatus.Connected).Select(p => p.UserId).ToList()));
     }
 
+    /// <summary>
+    /// The call this user should be offered back into after a relaunch, or <c>204</c>.
+    /// </summary>
+    [HttpGet("call/active")]
+    public async Task<IActionResult> GetActiveCall(CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return BadRequest();
+
+        var callId = await cache.GetStringAsync($"user-call:{userId}", ct)
+                     ?? await cache.GetStringAsync(
+                         Handler.Realtime.UserDisconnectedHandler.RecentCallKey(userId), ct);
+        if (string.IsNullOrWhiteSpace(callId)) return NoContent();
+
+        var call = await callStore.LoadAsync<Domain.Entities.Call>(Domain.Entities.Call.GetCacheId(callId));
+        if (call is null || call.Status != CallStatus.Connected) return NoContent();
+
+        var me = call.Participants.FirstOrDefault(p => p.UserId == userId);
+        if (me is null || me.Status == CallStatus.Connected) return NoContent();
+
+        // Nobody left to rejoin.
+        var connected = call.Participants
+            .Where(p => p.Status == CallStatus.Connected)
+            .Select(p => p.UserId)
+            .ToList();
+        if (connected.Count == 0) return NoContent();
+
+        return Ok(new OngoingCallDto(
+            call.Id,
+            call.ConversationId ?? string.Empty,
+            call.Status.ToString(),
+            call.CreatorId,
+            call.CreatedAt,
+            connected));
+    }
+
     /// <summary>Tells every member of the call's conversation that its state changed.</summary>
     private async Task AnnounceConversationCallAsync(Domain.Entities.Call call, string status)
     {

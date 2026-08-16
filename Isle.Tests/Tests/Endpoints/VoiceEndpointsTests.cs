@@ -170,7 +170,7 @@ public class VoiceEndpointsTests
     public async Task Leave_RegisteredPlayer_UnregistersRemovesTrackAndInvokesRemovePlayerCommand()
     {
         await _registry.RegisterAsync("user-1", "steam-1");
-        _tracks.Publish("user-1", "cf-session", "audio");
+        _tracks.Publish("user-1", "user-1", "TR_sid", "audio");
 
         var result = await VoiceMembershipEndpoints.Leave(
             _registry, _tracks, _bus, TestPrincipal.Create("user-1"));

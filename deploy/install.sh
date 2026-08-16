@@ -389,7 +389,8 @@ if [[ "$REUSE_ENV" == false ]]; then
 
     AUTH_REQUIRE_USER_EMAIL_VERIFICATION="false"
     MICROSOFT_GRAPH_CLIENT_ID=""; MICROSOFT_GRAPH_CLIENT_SECRET=""
-    CLOUDFLARE_APP_ID="mock_app_id"; CLOUDFLARE_API_TOKEN="mock_tocken"
+    LIVEKIT_API_KEY=""; LIVEKIT_API_SECRET=""
+    LIVEKIT_REGION=""; LIVEKIT_SIGNALING_URL=""; LIVEKIT_API_URL=""
     DISCORD_IMPORT_BOT_TOKEN=""; DISCORD_IMPORT_CLIENT_ID=""
     STEAM_WEB_API_KEY=""
     SENTRY_URL=""; PERSONAL_ACCESS_TOKEN=""
@@ -683,9 +684,19 @@ FEDERATION_PUBLIC_KEY_BASE_64="$FEDERATION_PUBLIC_KEY_BASE_64"
 MICROSOFT_GRAPH_CLIENT_ID="${MICROSOFT_GRAPH_CLIENT_ID:-}"
 MICROSOFT_GRAPH_CLIENT_SECRET="${MICROSOFT_GRAPH_CLIENT_SECRET:-}"
 
-# ── Voice / video (Cloudflare Calls SFU) ─────────────────────────────────────────────
-CLOUDFLARE_APP_ID="${CLOUDFLARE_APP_ID:-mock_app_id}"
-CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-mock_tocken}"
+# ── Voice / video (LiveKit SFU) ──────────────────────────────────────────────────────
+# Blank means no voice, which is a supported state: the voice endpoints answer 503 with a
+# reason rather than failing obscurely. Point these at a LiveKit server to turn it on.
+#
+# LIVEKIT_API_SECRET is a root credential - it mints admin tokens for every room and the
+# SFU verifies signatures offline, so there is no revocation short of rotating it.
+LIVEKIT_API_KEY="${LIVEKIT_API_KEY:-}"
+LIVEKIT_API_SECRET="${LIVEKIT_API_SECRET:-}"
+# One node. REGION is any tag you like; SIGNALINGURL is public and handed to clients;
+# APIURL is the control plane and must not be reachable from the internet.
+LIVEKIT__NODES__0__REGION="${LIVEKIT_REGION:-}"
+LIVEKIT__NODES__0__SIGNALINGURL="${LIVEKIT_SIGNALING_URL:-}"
+LIVEKIT__NODES__0__APIURL="${LIVEKIT_API_URL:-}"
 
 # ── License mode ─────────────────────────────────────────────────────────────────────
 # "selfhost" means every limit is off: no plans, no tiers, no billing, nothing to buy and
@@ -695,9 +706,9 @@ LICENSE_MODE="${LICENSE_MODE:-selfhost}"
 
 # ── Limits on this server ────────────────────────────────────────────────────────────
 # A different question from the one above, and the only one worth thinking about: what will
-# THIS machine do? Voice and video are relayed through Cloudflare and billed by the
-# gigabyte, and a busy video room costs roughly forty times what the same room costs on
-# audio alone - so if the bill is yours, these are the two numbers that decide it.
+# THIS machine do? Voice and video are forwarded by an SFU and paid for in egress, and a
+# busy video room costs roughly forty times what the same room costs on audio alone - so if
+# the bill is yours, these are the two numbers that decide it.
 #
 # Empty means no limit, which is how it ships. Set them and they apply on top of everything
 # else, so nobody can exceed them however they joined.

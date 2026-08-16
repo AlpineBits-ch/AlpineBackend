@@ -174,48 +174,14 @@ public class VoiceSubscriptionTests
         });
     }
 
-    // ── Enforcement primitive ────────────────────────────────────────────────
-
-    [Test]
-    public async Task A_subscribe_the_plan_does_not_include_is_reported_as_unplanned()
-    {
-        await PopulateAsync(5);
-        await _service.SetSpeakingAsync(_key, "u01", true);
-
-        var planned = new VoiceTrackRef(
-            VoiceTrackDirection.Subscribe, TrackName: TrackNaming.Audio, MediaSessionId: "cf-u01");
-        var unplanned = new VoiceTrackRef(
-            VoiceTrackDirection.Subscribe, TrackName: TrackNaming.Audio, MediaSessionId: "cf-u03");
-
-        var forPlanned = await _service.FindUnplannedSubscriptionsAsync(_key, "u04", [planned]);
-        var forUnplanned = await _service.FindUnplannedSubscriptionsAsync(_key, "u04", [unplanned]);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(forPlanned, Is.Empty);
-            Assert.That(forUnplanned, Is.EqualTo(new[] { TrackNaming.Audio }),
-                "every microphone track is called 'audio', so only the session tells two of them "
-                + "apart and a name-only check would permit anything");
-        });
-    }
-
-    [Test]
-    public async Task Nothing_is_unplanned_in_a_room_below_the_threshold()
-    {
-        await PopulateAsync(3);
-
-        var anything = new VoiceTrackRef(
-            VoiceTrackDirection.Subscribe, TrackName: TrackNaming.Audio, MediaSessionId: "cf-u02");
-
-        Assert.That(await _service.FindUnplannedSubscriptionsAsync(_key, "u00", [anything]), Is.Empty);
-    }
+    // ── Metering belief ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// The default posture, and the one that matters most: while nothing turns an unplanned pull
-    /// away, the plan is advice, and the meter is not allowed to believe it.
+    /// The default posture, and the one that matters most: the plan is advice, and the meter is not
+    /// allowed to believe it.
     /// </summary>
     [Test]
-    public async Task An_unenforced_plan_permits_everything_and_is_metered_all_to_all()
+    public async Task An_unenforced_plan_is_metered_all_to_all()
     {
         _subscriptions = NewSubscriptions(Options with { Enforce = false });
         _service = new VoiceRoomService(_h.Rooms, _h.Announcer, _subscriptions);
@@ -227,9 +193,6 @@ public class VoiceSubscriptionTests
         await _service.SetSpeakingAsync(_key, "u01", true);
         var room = (await _h.Rooms.LoadAsync(_key))!;
 
-        var unplanned = new VoiceTrackRef(
-            VoiceTrackDirection.Subscribe, TrackName: TrackNaming.Audio, MediaSessionId: "cf-u03");
-
         await _reconciler.HeartbeatAsync("u00", _key, room.InstanceId, room.Version, "cf-u00", TrackNaming.Audio);
         _clock.Advance(VoiceUsageMeter.SampleInterval);
         room = (await _h.Rooms.LoadAsync(_key))!;
@@ -238,25 +201,9 @@ public class VoiceSubscriptionTests
         var totals = await _meter.GetDayAsync("guild-1", DateOnly.FromDateTime(_clock.Now.UtcDateTime));
         var interval = (long)VoiceUsageMeter.SampleInterval.TotalSeconds;
 
-        Assert.Multiple(async () =>
-        {
-            Assert.That(await _service.FindUnplannedSubscriptionsAsync(_key, "u04", [unplanned]), Is.Empty);
-            Assert.That(totals.SubscriberSeconds.GetValueOrDefault(VoiceUsageTrackKind.Audio),
-                Is.EqualTo(5 * 4 * interval),
-                "five publishers pulled by four peers each - the bill the system still has");
-        });
-    }
-
-    [Test]
-    public async Task A_publish_is_never_reported_as_unplanned()
-    {
-        await PopulateAsync(5);
-        await _service.SetSpeakingAsync(_key, "u01", true);
-
-        var publish = new VoiceTrackRef(
-            VoiceTrackDirection.Publish, Mid: "0", TrackName: TrackNaming.Audio);
-
-        Assert.That(await _service.FindUnplannedSubscriptionsAsync(_key, "u04", [publish]), Is.Empty);
+        Assert.That(totals.SubscriberSeconds.GetValueOrDefault(VoiceUsageTrackKind.Audio),
+            Is.EqualTo(5 * 4 * interval),
+            "five publishers pulled by four peers each - the bill the system still has");
     }
 
     // ── Video publisher cap ───────────────────────────────────────────────────

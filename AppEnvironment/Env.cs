@@ -25,7 +25,7 @@ public static class Env
     
     public static readonly RedisConfig Redis = new();
     
-    public static readonly CloudflareConfig CloudflareConfig = new();
+    // The SFU has no entry here on purpose.
     public static readonly MicrosoftGraph MicrosoftGraph = new();
     public static readonly AuthConfiguration AuthConfiguration = new();
     
@@ -474,13 +474,6 @@ public class RedisConfig
 }
 
 
-
-public class CloudflareConfig
-{
-    public string AppName { get; set; } = "echo";
-    public string AppId { get; set; } = GetEnvironmentVariable("CLOUDFLARE_APP_ID") ?? "mock_app_id";
-    public string ApiToken { get; set; } = GetEnvironmentVariable("CLOUDFLARE_API_TOKEN") ?? "mock_tocken";
-}
 
 public class MicrosoftGraph
 {

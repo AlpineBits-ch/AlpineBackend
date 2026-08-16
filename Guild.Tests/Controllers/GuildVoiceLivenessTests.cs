@@ -74,7 +74,7 @@ public class GuildVoiceLivenessTests
         return new GuildVoiceController(
             new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance),
             _hub, _cache,
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _context,
+            _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             new GuildVoiceActivityStore(locks, _cache),
             new StreamViewerStore(locks, _cache),

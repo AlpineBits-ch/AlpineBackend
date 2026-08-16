@@ -99,7 +99,7 @@ public class GuildVoiceJoinDegradationTests
 
         return new GuildVoiceController(
             _permissions, _hub, _cache,
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _context,
+            _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             new GuildVoiceActivityStore(locks, _cache),
             new StreamViewerStore(locks, _cache),

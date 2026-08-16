@@ -53,7 +53,7 @@ public class VoiceUserDisconnectedHandlerTests
     public async Task Handle_PublishingParticipantWithNoAudiblePeers_RemovesTrackButUnsubscribesNobody()
     {
         await _registry.RegisterAsync("player_1", "steam_1");
-        _tracks.Publish("player_1", "cf-session", "track-1");
+        _tracks.Publish("player_1", "player_1", "TR_sid", "track-1");
         _cluster.MovePlayer("player_1", 0, 0, 0);
 
         await HandleAsync("player_1");
@@ -66,7 +66,7 @@ public class VoiceUserDisconnectedHandlerTests
     public async Task Handle_PublishingParticipantWithAudiblePeers_DropsTrackAndUnsubscribesEveryPeer()
     {
         await _registry.RegisterAsync("player_1", "steam_1");
-        _tracks.Publish("player_1", "cf-session", "track-1");
+        _tracks.Publish("player_1", "player_1", "TR_sid", "track-1");
         _cluster.MovePlayer("player_1", 0, 0, 0);
         _cluster.MovePlayer("player_2", 10, 10, 0);
         _cluster.MovePlayer("player_3", 20, 20, 0);

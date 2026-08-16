@@ -7,7 +7,6 @@ public static class SfuSocketEvents
     public const string PeerLeft        = Prefix + "PeerLeft";
     public const string PlayerPosition  = Prefix + "PlayerPosition";
     public const string SelfPosition    = Prefix + "SelfPosition";
-    // Server lost the client's published-track record (server restart) while the client's own
-    // connection stayed up.
-    public const string RepublishVoice  = Prefix + "RepublishVoice";
+
+    // There is deliberately no RepublishVoice any more.
 }

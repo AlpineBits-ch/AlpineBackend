@@ -331,6 +331,10 @@ public class VoiceHeartbeatCleanupServiceTests
             _hub,
             new SingleContextScopeFactory(_context),
             VoiceSubscriptionOptions.Default,
+            VoiceTestHarness.ServiceFor(_cache, locks, _hub),
+            // Configured, but with nothing in the room to prune: the share check is skipped entirely
+            // for a roster carrying no shares, which is every room in this fixture.
+            new FakeVoiceSfu(),
             NullLogger<VoiceHeartbeatCleanupService>.Instance);
     }
 

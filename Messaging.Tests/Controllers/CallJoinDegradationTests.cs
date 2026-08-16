@@ -6,7 +6,6 @@ using Echo.Entitlements.Sources;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using Echo.Voice.Testing;
 using Echo.Voice.Transport;
 using Identity.Contracts.Bus.Request;
@@ -74,9 +73,8 @@ public class CallJoinDegradationTests
         var locks = new FakeDistributedLockService();
 
         return new CallVoiceMediaController(
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _cache, _callStore, _bus,
+            new FakeVoiceSfu(), _cache, _callStore, _bus,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
-            new SfuSessionOwnership(_cache),
             new VoiceRoomService(
                 VoiceTestHarness.StoreFor(_cache, locks), new VoiceAnnouncer(_hub),
                 operatorCeilings: ceilings),
@@ -89,7 +87,7 @@ public class CallJoinDegradationTests
 
     private async Task<object?> JoinAsync(string userId, OperatorCeilings? ceilings) =>
         ((OkObjectResult)await ControllerFor(userId, ceilings)
-            .CreateSession(CallId, CancellationToken.None)).Value;
+            .CreateConnection(CallId, CancellationToken.None)).Value;
 
     [Test]
     public async Task The_joiner_past_the_ceiling_is_admitted_and_told_what_it_cost()

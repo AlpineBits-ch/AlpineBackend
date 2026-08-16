@@ -57,7 +57,7 @@ public class GuildVoiceActivityTests
 
         _voice = new GuildVoiceController(
             permissions, _hub, _cache,
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _context,
+            _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             _activity, _viewers,
             VoiceTestHarness.ServiceFor(_cache, locks, _hub), VoiceTestHarness.StoreFor(_cache, locks),

@@ -31,7 +31,6 @@ namespace Messaging.Application.Controllers;
 [ApiController]
 [Route("api/v1/voice")]
 public class VoiceController(
-    IceServerService iceServerService,
     IMessageBus bus,
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
@@ -88,12 +87,7 @@ public class VoiceController(
         return Ok(room is null ? VoiceRoomSnapshot.Empty(key) : VoiceRoomSnapshot.From(room));
     }
 
-    [HttpGet("ice-servers")]
-    public async Task<IActionResult> GetIceServers()
-    {
-        var iceServers = await iceServerService.GetIceServersForUser(User.Identity.Name);
-        return Ok(iceServers);
-    }
+    // There is deliberately no ice-servers route any more.
 
     [HttpPost("call")]
     public async Task<IActionResult> CallAsync(CreateCallRequestDto request)

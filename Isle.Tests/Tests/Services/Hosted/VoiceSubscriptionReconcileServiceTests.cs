@@ -1,7 +1,10 @@
+using Echo.Realtime.LiveKit;
 using Isle.Api.Services.Hosted;
 using Isle.Domain;
 using Isle.Domain.Aggregates;
 using Isle.Domain.Entity.Voice;
+using Isle.Infrastructure.Sfu;
+using Isle.Tests.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -9,12 +12,10 @@ using NSubstitute;
 namespace Isle.Tests.Tests.Services.Hosted;
 
 /// <summary>
-/// <see cref="VoiceSubscriptionReconcileService"/> has real, meaty inline logic (grace/cooldown for
-/// forgotten-track republish, once-per-process pair pushing) with no separate pure-logic class to
-/// delegate to, and neither <see cref="VoiceCluster"/> nor <see cref="VoiceTrackRegistry"/> need any I/O
-/// to construct - so <c>ReconcileAsync</c> and <c>OrderRepublishForForgottenTracks</c> (both `internal`
-/// for this) are driven directly against real instances of both, with only <see cref="ISfuClient"/>
-/// substituted.
+/// <see cref="VoiceSubscriptionReconcileService"/> has real, meaty inline logic - once-per-process
+/// pair pushing, and a published-track map refreshed from the SFU - with no separate pure-logic
+/// class to delegate to, and neither <see cref="VoiceCluster"/> nor <see
+/// cref="VoiceTrackRegistry"/> need any I/O to construct.
 /// </summary>
 [TestFixture]
 public class VoiceSubscriptionReconcileServiceTests
@@ -36,7 +37,18 @@ public class VoiceSubscriptionReconcileServiceTests
         services.AddSingleton(_sfu);
         _scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
 
-        _service = new VoiceSubscriptionReconcileService(_cluster, _tracks, _scopeFactory, NullLogger<VoiceSubscriptionReconcileService>.Instance);
+        // An unconfigured fleet, which is what makes the poll a no-op: these tests are about the
+        // pair-pushing half, and a room that does not exist has no participants to refresh from.
+        var options = new LiveKitOptions();
+        var registry = new LiveKitRoomRegistry(options, NullLogger<LiveKitRoomRegistry>.Instance);
+        var client = new LiveKitRoomClient(
+            new FakeHttpClientFactory(new QueuedHttpMessageHandler()), options,
+            NullLogger<LiveKitRoomClient>.Instance);
+        var room = new IsleVoiceRoom(options, registry, client, NullLogger<IsleVoiceRoom>.Instance);
+
+        _service = new VoiceSubscriptionReconcileService(
+            _cluster, _tracks, room, client, _scopeFactory,
+            NullLogger<VoiceSubscriptionReconcileService>.Instance);
     }
 
     [TearDown]
@@ -52,8 +64,8 @@ public class VoiceSubscriptionReconcileServiceTests
     public async Task ReconcileAsync_NewlyAudiblePairWithPublishedTracks_SubscribesMutualAndSeedsBothPositions()
     {
         PutTogether("p1", "p2");
-        _tracks.Publish("p1", "cf-session-1", "track-1");
-        _tracks.Publish("p2", "cf-session-2", "track-2");
+        _tracks.Publish("p1", "p1", "TR_sid-1", "track-1");
+        _tracks.Publish("p2", "p2", "TR_sid-2", "track-2");
 
         await _service.ReconcileAsync();
 
@@ -66,8 +78,8 @@ public class VoiceSubscriptionReconcileServiceTests
     public async Task ReconcileAsync_PairAlreadyConfirmedThisProcess_IsNotRePushedOnASecondTick()
     {
         PutTogether("p1", "p2");
-        _tracks.Publish("p1", "cf-session-1", "track-1");
-        _tracks.Publish("p2", "cf-session-2", "track-2");
+        _tracks.Publish("p1", "p1", "TR_sid-1", "track-1");
+        _tracks.Publish("p2", "p2", "TR_sid-2", "track-2");
 
         await _service.ReconcileAsync();
         _sfu.ClearReceivedCalls();
@@ -80,8 +92,8 @@ public class VoiceSubscriptionReconcileServiceTests
     public async Task ReconcileAsync_PairDropsOutOfRangeThenReturns_IsTreatedAsNewAgain()
     {
         PutTogether("p1", "p2");
-        _tracks.Publish("p1", "cf-session-1", "track-1");
-        _tracks.Publish("p2", "cf-session-2", "track-2");
+        _tracks.Publish("p1", "p1", "TR_sid-1", "track-1");
+        _tracks.Publish("p2", "p2", "TR_sid-2", "track-2");
         await _service.ReconcileAsync();
 
         _cluster.MovePlayer("p2", 900_000, 900_000, 0); // far outside the grid's configured bounds/cell
@@ -102,73 +114,35 @@ public class VoiceSubscriptionReconcileServiceTests
         await _sfu.DidNotReceiveWithAnyArgs().SubscribeMutual(default!, default!);
     }
 
+    /// <summary>
+    /// The restart case, which used to need a client to be ordered to republish and now needs
+    /// nothing: the SFU's answer is the map, so a process that starts with an empty one converges by
+    /// asking.
+    /// </summary>
     [Test]
-    public async Task OrderRepublishForForgottenTracks_TracklessFirstTick_GetsGraceAndIsNotOrderedYet()
+    public void Sync_ReplacesTheMapWholesale()
     {
-        _cluster.MovePlayer("p1", 0, 0, 0); // in the grid, no published track
+        _tracks.Publish("p1", "p1", "TR_old", "track-1");
+        _tracks.Publish("p2", "p2", "TR_p2", "track-2");
 
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu);
+        // What ListParticipants would report: p1 republished under a new sid, p2 has stopped.
+        _tracks.Sync([("p1", new VoiceTrackRegistry.PublishedTrack("p1", "TR_new", "track-1"))]);
 
-        await _sfu.DidNotReceive().RequestRepublish(Arg.Any<string>());
-    }
-
-    [Test]
-    public async Task OrderRepublishForForgottenTracks_TracklessTwoConsecutiveTicks_OrdersARepublish()
-    {
-        _cluster.MovePlayer("p1", 0, 0, 0);
-
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // tick 1: grace
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // tick 2: ordered
-
-        await _sfu.Received(1).RequestRepublish("p1");
-    }
-
-    [Test]
-    public async Task OrderRepublishForForgottenTracks_WithinCooldown_DoesNotReorderOnEveryTick()
-    {
-        _cluster.MovePlayer("p1", 0, 0, 0);
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // grace
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // ordered
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // still trackless, within cooldown
-
-        await _sfu.Received(1).RequestRepublish("p1");
-    }
-
-    [Test]
-    public async Task OrderRepublishForForgottenTracks_PlayerPublishesAfterBeingOrdered_ForgetsTheCooldownState()
-    {
-        _cluster.MovePlayer("p1", 0, 0, 0);
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // grace
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // ordered
-
-        _tracks.Publish("p1", "cf-session-1", "track-1"); // client republished
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // no longer trackless
-
-        _tracks.Remove("p1"); // track lost again
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // grace again (fresh)
-        await _service.OrderRepublishForForgottenTracks(_cluster.GetPlayers(), _sfu); // ordered again
-
-        await _sfu.Received(2).RequestRepublish("p1");
-    }
-
-    [Test]
-    public async Task RunStartupForceRepublishAsync_PreCancelledToken_ReturnsEarlyWithoutOrderingAnything()
-    {
-        _cluster.MovePlayer("p1", 0, 0, 0); // trackless, would otherwise be a candidate
-
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        Assert.DoesNotThrowAsync(() => _service.RunStartupForceRepublishAsync(cts.Token));
-        await _sfu.DidNotReceive().RequestRepublish(Arg.Any<string>());
+        Assert.Multiple(() =>
+        {
+            Assert.That(_tracks.TryGet("p1", out var p1), Is.True);
+            Assert.That(p1.TrackSid, Is.EqualTo("TR_new"),
+                "a merge would keep the sid of a publication that no longer exists");
+            Assert.That(_tracks.TryGet("p2", out _), Is.False,
+                "the SFU is authoritative about who is publishing, so an absence is an answer");
+        });
     }
 
     [Test]
     public async Task ExecuteAsync_StartThenImmediateStop_CompletesWithoutException()
     {
-        // Interval is a real 5s and StartupForceRepublishDelay a real 1 minute, so a quick start/stop
-        // only ever exercises the Task.Delay cancellation paths of both the tick loop and the
-        // fire-and-forget startup sweep (covered directly above).
+        // Interval is a real 5s, so a quick start/stop only ever exercises the Task.Delay
+        // cancellation path of the tick loop.
         using var cts = new CancellationTokenSource();
         await _service.StartAsync(cts.Token);
         cts.Cancel();

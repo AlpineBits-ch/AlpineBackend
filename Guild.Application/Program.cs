@@ -5,7 +5,7 @@ using Echo.Entitlements.Caching;
 using Echo.Entitlements.Sources;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
-using Echo.Realtime.Sfu;
+using Echo.Realtime.LiveKit;
 using Echo.Voice;
 using System.Net.Http.Headers;
 using AppEnvironment;
@@ -206,7 +206,8 @@ builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();
 builder.Services.AddHostedService<TemporaryMembershipSweepService>();
-builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
+// The LiveKit control plane: token minting, the room registry and the reconcile sweep.
+builder.Services.AddLiveKit();
 
 // The one outbound client the pantry has.
 builder.Services.AddHttpClient(ProductCatalogLookupService.HttpClientName, client =>

@@ -4,7 +4,6 @@ using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
-using Echo.Realtime.Sfu;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Handler.Call;
@@ -215,17 +214,13 @@ public class CallEventHandlersTests
     // CallDeviceTakeoverHandler
     // ══════════════════════════════════════════════════════════════════════════
 
+    /// <summary>The push is the whole handler now.</summary>
     [Test]
-    public async Task CallDeviceTakeover_NoStaleCfSession_NotifiesOldDevice_SkipsCloudflareCleanup()
+    public async Task CallDeviceTakeover_NotifiesOldDevice()
     {
-        // cfService is constructed but must never be invoked on this path (OldMediaSessionId is
-        // null) - passing a real-looking instance with a null IHttpClientFactory would blow up
-        // if that assumption were ever violated, which doubles as a safety net for the test.
-        var cfService = new CloudflareService(new FakeHttpClientFactory(), NullLogger<CloudflareService>.Instance);
-
         await CallDeviceTakeoverHandler.Handle(
             new CallDeviceTakeover { CallId = "call-1", UserId = "user-1", OldDeviceId = "device-1", NewDeviceId = "device-2", OldMediaSessionId = null, OldAudioTrackName = null },
-            _hub, cfService, NullLogger<CallDeviceTakeoverHandler>.Instance);
+            _hub);
 
         Assert.That(HubClients.SentMessages.Single().Method, Is.EqualTo("call.CallDeviceTakeover"));
     }

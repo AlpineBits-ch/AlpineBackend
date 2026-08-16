@@ -6,7 +6,6 @@ using Echo.Entitlements.Resolution;
 using Echo.Entitlements.Sources;
 using Echo.Entitlements.Wire;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using Echo.Voice.Testing;
 using Echo.Voice.Tracks;
 using Echo.Voice.Transport;
@@ -35,7 +34,6 @@ public class GuildVoicePublishEntitlementTests
     private const string UserId = "user-1";
     private const string OwnerId = "owner-1";
     private const string PeerId = "peer-1";
-    private const string SessionId = "cf-owned-session";
 
     private TestGuildContext _context = null!;
     private FakeDistributedCache _cache = null!;
@@ -46,11 +44,11 @@ public class GuildVoicePublishEntitlementTests
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
+        _sfu = new FakeVoiceSfu();
         _permissions = new GuildPermissionService(
             _cache, _context, NullLogger<GuildPermissionService>.Instance);
 
         await SeedGuildAsync(Permissions.Connect | Permissions.Speak | Permissions.Stream);
-        await _cache.SetStringAsync($"voice:session-owner:{SessionId}", UserId);
         await SeedRoomAsync();
     }
 
@@ -106,13 +104,14 @@ public class GuildVoicePublishEntitlementTests
         ],
     });
 
+    private FakeVoiceSfu _sfu = null!;
+
     private GuildVoiceMediaController ControllerFor(EntitlementResolver? entitlements) =>
         new(
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _permissions,
+            _sfu, _permissions,
             NullLogger<GuildVoiceMediaController>.Instance, _cache,
             VoiceTestHarness.ServiceFor(
-                _cache, new FakeDistributedLockService(), new FakeHubContext(), entitlements),
-            new SfuSessionOwnership(_cache))
+                _cache, new FakeDistributedLockService(), new FakeHubContext(), entitlements))
         {
             ControllerContext = new ControllerContext
             {
@@ -120,17 +119,14 @@ public class GuildVoicePublishEntitlementTests
             },
         };
 
-    private static GuildNegotiateBody Camera(VoiceVideoIntent? video = null) => new(
-        SessionId,
-        new VoiceSessionDescription("offer", "v=0"),
-        [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "camera")],
-        video);
+    private static GuildPublishBody Camera(VoiceVideoIntent? video = null) =>
+        new(["camera"], video);
 
     private static EntitlementResolver GuildPlan(Action<EntitlementSetBuilder> build) =>
         new([new ScriptedGuildPlan(build)]);
 
     private Task<IActionResult> PublishAsync(EntitlementResolver? plan, VoiceVideoIntent? video = null) =>
-        ControllerFor(plan).Negotiate(GuildId, ChannelId, Camera(video), CancellationToken.None);
+        ControllerFor(plan).Publish(GuildId, ChannelId, Camera(video), CancellationToken.None);
 
     // ══════════════════════════════════════════════════════════════════════════
     // Reduction: a 200 that says what it cost
@@ -151,8 +147,8 @@ public class GuildVoicePublishEntitlementTests
             Assert.That(result, Is.InstanceOf<OkObjectResult>(),
                 "a degradation is a 200; an error status makes every existing client path roll back, "
                 + "which is a denial with extra steps");
-            Assert.That(body?["sessionDescription"], Is.Not.Null,
-                "and the body the client already parses is still all of it, byte for byte");
+            Assert.That(body?["maxLayer"], Is.Not.Null,
+                "and the reply still carries the layer cap the roster now holds");
             Assert.That(degradations, Has.Count.EqualTo(1));
             Assert.That((string?)degradations![0]!["key"],
                 Is.EqualTo(EntitlementKeys.VoiceVideoCeiling.Name));
@@ -261,16 +257,10 @@ public class GuildVoicePublishEntitlementTests
     [Test]
     public async Task A_mixed_body_that_would_be_refused_is_refused_whole()
     {
-        var mixed = new GuildNegotiateBody(
-            SessionId,
-            new VoiceSessionDescription("offer", "v=0"),
-            [
-                new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: TrackNaming.Audio),
-                new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "1", TrackName: "camera"),
-            ]);
+        var mixed = new GuildPublishBody([TrackNaming.Audio, "camera"]);
 
         var result = await ControllerFor(GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "none")))
-            .Negotiate(GuildId, ChannelId, mixed, CancellationToken.None);
+            .Publish(GuildId, ChannelId, mixed, CancellationToken.None);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
 
@@ -333,7 +323,7 @@ public class GuildVoicePublishEntitlementTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // The renegotiation, which is how a resolution changes mid-stream
+    // The mid-stream re-declaration, which is how a resolution changes without a republish
     // ══════════════════════════════════════════════════════════════════════════
 
     /// <summary>The endpoint half of the hole.</summary>
@@ -345,11 +335,8 @@ public class GuildVoicePublishEntitlementTests
         await PublishAsync(plan, new VoiceVideoIntent(720, 30));
         var published = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
 
-        var result = await ControllerFor(plan).Renegotiate(
-            GuildId, ChannelId,
-            new GuildRenegotiateBody(
-                SessionId, new VoiceSessionDescription("offer", "v=0"), new VoiceVideoIntent(1080, 60)),
-            CancellationToken.None);
+        var result = await ControllerFor(plan).DeclareVideo(
+            GuildId, ChannelId, new VoiceVideoIntent(1080, 60), CancellationToken.None);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
 
@@ -359,12 +346,12 @@ public class GuildVoicePublishEntitlementTests
                 "the publish itself declared a size inside the rung");
             Assert.That(room!.Find(UserId)!.MaxVideoLayer, Is.EqualTo(VoiceVideoLayer.Medium));
             Assert.That(result, Is.InstanceOf<OkObjectResult>(),
-                "a renegotiation is a client repairing its own connection and is never refused by "
-                + "any of this");
+                "a re-declaration is information, not a request, and is never refused by any of "
+                + "this");
         });
     }
 
-    /// <summary>A renegotiation that declares nothing is every v1 client, and every ICE restart. It
+    /// <summary>A re-declaration that declares nothing is every client that has nothing to say. It
     /// must leave the recorded cap exactly where it is: reading absence as "uncapped" would make the
     /// cheapest way past the ceiling be to publish honestly once and then renegotiate empty.</summary>
     [Test]
@@ -374,39 +361,13 @@ public class GuildVoicePublishEntitlementTests
 
         await PublishAsync(plan, new VoiceVideoIntent(1080, 60));
 
-        await ControllerFor(plan).Renegotiate(
-            GuildId, ChannelId,
-            new GuildRenegotiateBody(SessionId, new VoiceSessionDescription("offer", "v=0")),
-            CancellationToken.None);
+        await ControllerFor(plan).DeclareVideo(
+            GuildId, ChannelId, new VoiceVideoIntent(), CancellationToken.None);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
 
         Assert.That(room!.Find(UserId)!.MaxVideoLayer, Is.EqualTo(VoiceVideoLayer.Medium),
             "absent is not a request to be uncapped");
-    }
-
-    /// <summary>Ownership of the session gates this before anything is revised, so a declaration
-    /// cannot be used to move somebody else's cap - in either direction.</summary>
-    [Test]
-    public async Task A_renegotiation_on_a_session_the_caller_does_not_own_revises_nothing()
-    {
-        var plan = GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "720p30"));
-
-        await PublishAsync(plan, new VoiceVideoIntent(1080, 60));
-
-        var result = await ControllerFor(plan).Renegotiate(
-            GuildId, ChannelId,
-            new GuildRenegotiateBody(
-                "cf-peer", new VoiceSessionDescription("offer", "v=0"), new VoiceVideoIntent(720, 30)),
-            CancellationToken.None);
-
-        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(result, Is.InstanceOf<ForbidResult>());
-            Assert.That(room!.Find(UserId)!.MaxVideoLayer, Is.EqualTo(VoiceVideoLayer.Medium));
-        });
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -418,13 +379,10 @@ public class GuildVoicePublishEntitlementTests
     [Test]
     public async Task An_audio_only_publish_is_never_measured_against_the_video_ceiling()
     {
-        var audio = new GuildNegotiateBody(
-            SessionId,
-            new VoiceSessionDescription("offer", "v=0"),
-            [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: TrackNaming.Audio)]);
+        var audio = new GuildPublishBody([TrackNaming.Audio]);
 
         var result = await ControllerFor(GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "none")))
-            .Negotiate(GuildId, ChannelId, audio, CancellationToken.None);
+            .Publish(GuildId, ChannelId, audio, CancellationToken.None);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
 
@@ -443,25 +401,9 @@ public class GuildVoicePublishEntitlementTests
     {
         var result = await PublishAsync(null);
 
-        Assert.That((result as OkObjectResult)?.Value, Is.InstanceOf<VoiceNegotiateResponse>());
-    }
-
-    /// <summary>A subscribe-only body is not a publish and is not evaluated, whatever the guild's
-    /// ceiling is. Pulling somebody else's media is not producing any.</summary>
-    [Test]
-    public async Task A_subscribe_only_body_is_not_a_publish()
-    {
-        var subscribe = new GuildNegotiateBody(
-            SessionId,
-            new VoiceSessionDescription("offer", "v=0"),
-            [new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, TrackName: TrackNaming.ScreenTrack("share-a"),
-                MediaSessionId: "cf-peer")]);
-
-        var result = await ControllerFor(GuildPlan(b => b.Rung(EntitlementKeys.VoiceVideoCeiling, "none")))
-            .Negotiate(GuildId, ChannelId, subscribe, CancellationToken.None);
-
-        Assert.That(result, Is.InstanceOf<OkObjectResult>());
+        Assert.That(result, Is.InstanceOf<OkObjectResult>(),
+            "and the reply carries no degradations block at all, which is what a v1 response looked "
+            + "like");
     }
 
     // ══════════════════════════════════════════════════════════════════════════ Fixtures

@@ -123,8 +123,11 @@ All variables have sensible defaults for local development. For production deplo
 
 | Variable | Default | Description |
 |---|---|---|
-| `CLOUDFLARE_APP_ID` | `mock_app_id` | Cloudflare Calls app ID for voice channels |
-| `CLOUDFLARE_API_TOKEN` | `mock_token` | Cloudflare API token for voice channels |
+| `LIVEKIT_API_KEY` | _(empty)_ | LiveKit API key. Unset disables voice entirely |
+| `LIVEKIT_API_SECRET` | _(empty)_ | HS256 signing key. A root credential - it mints admin tokens and cannot be revoked |
+| `LIVEKIT__NODES__0__REGION` | _(empty)_ | Region tag of the first SFU node, e.g. `fsn1` |
+| `LIVEKIT__NODES__0__SIGNALINGURL` | _(empty)_ | Public `wss://` URL, handed to clients |
+| `LIVEKIT__NODES__0__APIURL` | _(empty)_ | Control-plane URL, backend only. Must not be reachable from the internet |
 | `GOOGLE_SERVICE_ACCOUNT_JSON_BASE_64` | _(empty)_ | Google Cloud service account JSON in Base64 (file storage) |
 | `FIREBASE_SEVRICE_ACCOUNT_JSON_BASE_64` | _(empty)_ | Firebase service account JSON in Base64 (push notifications) |
 | `SENTRY_URL` | _(empty)_ | Sentry DSN for error reporting |

@@ -54,7 +54,7 @@ public class PrivacyCacheInvalidationHandlerTests
     public async Task Handle_PlayerStillConsents_LeavesThemInTheVoiceGrid()
     {
         await _registry.RegisterAsync(UserId, "steam-1");
-        _tracks.Publish(UserId, "cf-session", "audio");
+        _tracks.Publish(UserId, UserId, "TR_sid", "audio");
         var bundle = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice(UserId, true)]);
 
         var cascaded = await HandleAsync(bundle);
@@ -88,7 +88,7 @@ public class PrivacyCacheInvalidationHandlerTests
     public async Task Handle_ConsentRevokedMidSession_TearsDownPositionalCaptureImmediately()
     {
         await _registry.RegisterAsync(UserId, "steam-1");
-        _tracks.Publish(UserId, "cf-session", "audio");
+        _tracks.Publish(UserId, UserId, "TR_sid", "audio");
         var bundle = PrivacyTestFactory.Build([PrivacyTestFactory.WithPositionalVoice(UserId, false)]);
 
         var cascaded = await HandleAsync(bundle);

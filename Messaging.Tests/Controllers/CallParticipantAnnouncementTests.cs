@@ -1,12 +1,10 @@
 using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using System.Text;
 using System.Text.Json;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
-using Echo.Realtime.Sfu;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
 using Messaging.Application.Controllers;
@@ -31,8 +29,10 @@ public class CallParticipantAnnouncementTests
     private const string CalleeId = "callee-1";
     private const string CallerDevice = "caller-device";
     private const string CalleeDevice = "callee-device";
-    private const string CallerRustSession = "cf-caller-rust";
-    private const string CalleeRustSession = "cf-callee-rust";
+    // The handle the roster records for a publisher, which is now the participant identity at the
+    // SFU rather than a minted session id.
+    private const string CallerIdentity = CallerId;
+    private const string CalleeIdentity = CalleeId;
 
     private FakeDistributedCache _cache = null!;
     private FakeMessagingHubContext _hub = null!;
@@ -72,9 +72,8 @@ public class CallParticipantAnnouncementTests
         var http = new DefaultHttpContext { User = TestPrincipal.ForUser(userId) };
         http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
         return new CallVoiceMediaController(
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _cache, _callStore, _bus,
+            new FakeVoiceSfu(), _cache, _callStore, _bus,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
-            new SfuSessionOwnership(_cache),
             VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub),
             VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
             NullLogger<CallVoiceMediaController>.Instance)
@@ -83,25 +82,19 @@ public class CallParticipantAnnouncementTests
         };
     }
 
-    /// <summary>The webview's own session: secondary, carries no microphone, connects no device.</summary>
-    private Task OpenSecondarySessionAsync(string userId, string deviceId) =>
-        ControllerFor(userId, deviceId).CreateSession(CallId, CancellationToken.None, primary: false);
+    /// <summary>The webview's own connection: secondary, carries no microphone, connects no
+    /// device.</summary>
+    private Task OpenSecondaryConnectionAsync(string userId, string deviceId) =>
+        ControllerFor(userId, deviceId).CreateConnection(CallId, CancellationToken.None, primary: false);
 
-    /// <summary>The audio publisher's session.</summary>
-    private async Task OpenPrimarySessionAsync(string userId, string deviceId, string rustSessionId)
-    {
-        await ControllerFor(userId, deviceId).CreateSession(CallId, CancellationToken.None);
-        // The stub Cloudflare always mints the same id, so record ownership of the id this
-        // participant will actually publish on by hand.
-        _cache.SetEntry($"voice:session-owner:{rustSessionId}", userId);
-    }
+    /// <summary>The audio publisher's connection.</summary>
+    private Task OpenPrimaryConnectionAsync(string userId, string deviceId) =>
+        ControllerFor(userId, deviceId).CreateConnection(CallId, CancellationToken.None);
 
-    private async Task PublishAudioAsync(string userId, string deviceId, string rustSessionId)
+    private async Task PublishAudioAsync(string userId, string deviceId)
     {
-        var result = await ControllerFor(userId, deviceId).Negotiate(CallId, new NegotiateBody(
-            rustSessionId,
-            new VoiceSessionDescription("offer", "v=0"),
-            [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")]), CancellationToken.None);
+        var result = await ControllerFor(userId, deviceId)
+            .Publish(CallId, new CallPublishBody(["audio"]), CancellationToken.None);
         Assert.That(result, Is.InstanceOf<OkObjectResult>(), $"{userId} could not publish audio");
     }
 
@@ -143,26 +136,26 @@ public class CallParticipantAnnouncementTests
     public async Task CallerWhoseSessionLandsAfterTheCalleePublished_IsStillToldWhatToPull()
     {
         // The reported bug.
-        await OpenSecondarySessionAsync(CallerId, CallerDevice);
+        await OpenSecondaryConnectionAsync(CallerId, CallerDevice);
 
         // The callee answers quickly and publishes inside that window.
         Accept(CalleeId, CalleeDevice);
-        await OpenSecondarySessionAsync(CalleeId, CalleeDevice);
-        await OpenPrimarySessionAsync(CalleeId, CalleeDevice, CalleeRustSession);
-        await PublishAudioAsync(CalleeId, CalleeDevice, CalleeRustSession);
+        await OpenSecondaryConnectionAsync(CalleeId, CalleeDevice);
+        await OpenPrimaryConnectionAsync(CalleeId, CalleeDevice);
+        await PublishAudioAsync(CalleeId, CalleeDevice);
 
         Assert.That(AnnouncementsTo(CallerId), Is.Empty,
             "precondition: someone still ringing is deliberately not handed session ids");
 
         // The caller's publisher session finally lands, which is what puts them in the room.
-        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
+        await OpenPrimaryConnectionAsync(CallerId, CallerDevice);
 
         // They learn what to pull from the snapshot the join hands back, not from a replayed
         // per-peer event.
         var callee = SnapshotTo(CallerId)!.Participants.Single(p => p.UserId == CalleeId);
         Assert.Multiple(() =>
         {
-            Assert.That(callee.MediaSessionId, Is.EqualTo(CalleeRustSession));
+            Assert.That(callee.MediaSessionId, Is.EqualTo(CalleeIdentity));
             Assert.That(callee.AudioTrackName, Is.EqualTo("audio"));
             Assert.That(callee.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
         });
@@ -182,11 +175,11 @@ public class CallParticipantAnnouncementTests
         // client dedupes per user, so the failed attempt burns the guard and the real announcement
         // moments later is discarded as a duplicate. One-way silence for the rest of the call.
         Accept(CalleeId, CalleeDevice);
-        await OpenPrimarySessionAsync(CalleeId, CalleeDevice, CalleeRustSession);
-        await PublishAudioAsync(CalleeId, CalleeDevice, CalleeRustSession);
+        await OpenPrimaryConnectionAsync(CalleeId, CalleeDevice);
+        await PublishAudioAsync(CalleeId, CalleeDevice);
 
         var before = Announcements().Count;
-        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
+        await OpenPrimaryConnectionAsync(CallerId, CallerDevice);
 
         Assert.That(Announcements().Skip(before).Select(a => a.Target), Is.All.EqualTo($"user:{CallerId}"),
             "opening a session publishes nothing, so it may only tell the joiner about others");
@@ -195,7 +188,7 @@ public class CallParticipantAnnouncementTests
     [Test]
     public async Task JoiningTheMediaPath_ClaimsLivenessImmediately()
     {
-        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
+        await OpenPrimaryConnectionAsync(CallerId, CallerDevice);
 
         // VoiceHeartbeatCleanupService sweeps both room kinds and evicts anyone with no heartbeat
         // key.
@@ -207,7 +200,7 @@ public class CallParticipantAnnouncementTests
     {
         // A screen-share session is not a presence in the call: it connects no device, joins no
         // roster, and must not create the appearance of a live participant.
-        await OpenSecondarySessionAsync(CallerId, CallerDevice);
+        await OpenSecondaryConnectionAsync(CallerId, CallerDevice);
 
         Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId)), Is.False);
     }
@@ -217,13 +210,13 @@ public class CallParticipantAnnouncementTests
     {
         // The callee is Connected and holds a session, but has published no track yet.
         Accept(CalleeId, CalleeDevice);
-        await OpenPrimarySessionAsync(CalleeId, CalleeDevice, CalleeRustSession);
+        await OpenPrimaryConnectionAsync(CalleeId, CalleeDevice);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Call(CallId));
         Assert.That(room!.Find(CalleeId)!.PublishState, Is.EqualTo(VoicePublishState.Joined),
             "precondition: a session without a track is not publishing");
 
-        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
+        await OpenPrimaryConnectionAsync(CallerId, CallerDevice);
 
         Assert.That(AnnouncementsTo(CallerId), Is.Empty,
             "a participant with no AudioTrackName has published nothing and must not be announced "
@@ -235,26 +228,26 @@ public class CallParticipantAnnouncementTests
     {
         // The ordering that already worked, and must keep working: the caller wins the race, so the
         // callee's publish is what tells them.
-        await OpenSecondarySessionAsync(CallerId, CallerDevice);
-        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
-        await PublishAudioAsync(CallerId, CallerDevice, CallerRustSession);
+        await OpenSecondaryConnectionAsync(CallerId, CallerDevice);
+        await OpenPrimaryConnectionAsync(CallerId, CallerDevice);
+        await PublishAudioAsync(CallerId, CallerDevice);
 
         Accept(CalleeId, CalleeDevice);
-        await OpenPrimarySessionAsync(CalleeId, CalleeDevice, CalleeRustSession);
-        await PublishAudioAsync(CalleeId, CalleeDevice, CalleeRustSession);
+        await OpenPrimaryConnectionAsync(CalleeId, CalleeDevice);
+        await PublishAudioAsync(CalleeId, CalleeDevice);
 
         Assert.Multiple(() =>
         {
             // The caller was already in the room, so the callee's publish reaches them as a live
             // announcement.
             Assert.That(
-                AnnouncementsTo(CallerId).Any(p => p.Contains(CalleeId) && p.Contains(CalleeRustSession)),
+                AnnouncementsTo(CallerId).Any(p => p.Contains(CalleeId) && p.Contains(CalleeIdentity)),
                 Is.True, "the caller was never told about the callee's audio");
 
             // The callee joined after the caller had already published, so there was no live event
             // left to receive - they learn it from the snapshot their join hands back.
             var caller = SnapshotTo(CalleeId)!.Participants.Single(p => p.UserId == CallerId);
-            Assert.That(caller.MediaSessionId, Is.EqualTo(CallerRustSession),
+            Assert.That(caller.MediaSessionId, Is.EqualTo(CallerIdentity),
                 "the callee was never told about the caller's audio");
             Assert.That(caller.PublishState, Is.EqualTo(nameof(VoicePublishState.Publishing)));
         });
@@ -265,12 +258,12 @@ public class CallParticipantAnnouncementTests
     {
         // The engine runs several calls at once, so an announcement that does not say which call it
         // belongs to cannot be routed - guild voice has always carried its channelId.
-        await OpenPrimarySessionAsync(CallerId, CallerDevice, CallerRustSession);
-        await PublishAudioAsync(CallerId, CallerDevice, CallerRustSession);
+        await OpenPrimaryConnectionAsync(CallerId, CallerDevice);
+        await PublishAudioAsync(CallerId, CallerDevice);
 
         Accept(CalleeId, CalleeDevice);
-        await OpenPrimarySessionAsync(CalleeId, CalleeDevice, CalleeRustSession);
-        await PublishAudioAsync(CalleeId, CalleeDevice, CalleeRustSession);
+        await OpenPrimaryConnectionAsync(CalleeId, CalleeDevice);
+        await PublishAudioAsync(CalleeId, CalleeDevice);
 
         Assert.That(Announcements(), Is.Not.Empty);
         Assert.That(Announcements().Select(a => a.Payload), Is.All.Contains($"\"callId\":\"{CallId}\""));

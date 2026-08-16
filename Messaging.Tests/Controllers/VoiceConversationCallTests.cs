@@ -74,10 +74,8 @@ public class VoiceConversationCallTests
     {
         var callStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
-        // IceServerService is only touched by the ice-servers endpoint, and constructing one drags
-        // in Cloudflare credentials - see VoicePendingCallTests.
         return new VoiceController(
-            null!, _bus, _cache, callStore,
+            _bus, _cache, callStore,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             TestPrivacyServices.Build(_bus).Policy,
             _viewers, _context,

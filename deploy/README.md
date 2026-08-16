@@ -205,7 +205,7 @@ The installer leaves the optional integrations blank and the stack runs without 
 | Setting | Effect when unset |
 | --- | --- |
 | `MICROSOFT_GRAPH_CLIENT_ID` / `_SECRET` | no outbound e-mail; keep `AUTH_REQUIRE_USER_EMAIL_VERIFICATION=false` or sign-ups cannot verify |
-| `CLOUDFLARE_APP_ID` / `_API_TOKEN` | voice and video calls (Cloudflare Calls SFU) do not connect |
+| `LIVEKIT_API_KEY` / `_SECRET` / `LIVEKIT__NODES__0__*` | voice and video do not connect; the voice endpoints answer 503 `voiceNotConfigured` |
 | `FIREBASE_SERVICE_ACCOUNT_JSON_BASE_64` | no Android/iOS push notifications |
 | `APNS_KEY_ID` / `_TEAM_ID` / `_AUTH_KEY_BASE_64` | no iOS VoIP/CallKit pushes |
 | `DISCORD_IMPORT_BOT_TOKEN` / `_CLIENT_ID` | the Discord import service idles; nothing else is affected |

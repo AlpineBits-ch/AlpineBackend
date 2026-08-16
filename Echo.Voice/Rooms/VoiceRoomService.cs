@@ -375,18 +375,6 @@ public sealed class VoiceRoomService(
         return room;
     }
 
-    /// <summary>
-    /// The subscribed tracks a <c>TrackNotFound</c> can be blamed on, for <see
-    /// cref="RecordTracksMissingAsync"/>.
-    /// </summary>
-    public static IReadOnlyList<string> AttributableSubscribes(IEnumerable<VoiceTrackRef> tracks)
-    {
-        var subscribes = tracks
-            .Where(t => t.Direction == VoiceTrackDirection.Subscribe && t.TrackName is not null)
-            .ToList();
-        return subscribes.Count == 1 ? [subscribes[0].TrackName!] : [];
-    }
-
     /// <summary>Forgets tracks the SFU says do not exist, whoever published them.</summary>
     public async Task<VoiceRoom?> RecordTracksMissingAsync(
         VoiceRoomKey key, IReadOnlyList<string> trackNames, CancellationToken ct = default)
@@ -436,6 +424,36 @@ public sealed class VoiceRoomService(
         var (plan, changed) = await ReselectAsync(room, ct);
         await AnnouncePlanAsync(room, plan, changed, ct, force: true);
         return room;
+    }
+
+    /// <summary>
+    /// Compares the roster's screen shares against what the SFU actually has, and prunes the
+    /// difference.
+    /// </summary>
+    /// <returns>The track names pruned, empty when the roster already agreed.</returns>
+    public async Task<IReadOnlyList<string>> PruneMissingSharesAsync(
+        VoiceRoomKey key, IReadOnlyList<VoiceSfuParticipant> live, CancellationToken ct = default)
+    {
+        if (live.Count == 0) return [];
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room is null) return [];
+
+        var published = live
+            .SelectMany(p => p.TrackNames)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var missing = room.Participants
+            .SelectMany(p => p.ActiveScreenShares)
+            .SelectMany(s => s.TrackNames)
+            .Where(name => !published.Contains(name))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (missing.Count == 0) return [];
+
+        await RecordTracksMissingAsync(key, missing, ct);
+        return missing;
     }
 
     /// <summary>Forgets closed tracks and tells the room, so peers drop them rather than waiting
@@ -581,75 +599,6 @@ public sealed class VoiceRoomService(
             : await subscriptions.PlanAsync(room, ct);
     }
 
-    /// <summary>
-    /// The tracks in a subscribe request that this subscriber's plan does not include.
-    /// </summary>
-    public async Task<IReadOnlyList<string>> FindUnplannedSubscriptionsAsync(
-        VoiceRoomKey key, string subscriberUserId, IEnumerable<VoiceTrackRef> tracks,
-        CancellationToken ct = default) =>
-        (await PrepareSubscribeAsync(key, subscriberUserId, tracks.ToList(), ct)).Unplanned;
-
-    /// <summary>
-    /// Everything the plan has to say about one subscribe request: which of its tracks the
-    /// subscriber is not supposed to be pulling, and which simulcast layer each of the rest should
-    /// be served at.
-    /// </summary>
-    public async Task<VoiceSubscribeDecision> PrepareSubscribeAsync(
-        VoiceRoomKey key, string subscriberUserId, IReadOnlyList<VoiceTrackRef> tracks,
-        CancellationToken ct = default)
-    {
-        var unchanged = new VoiceSubscribeDecision([], tracks);
-
-        var subscribes = tracks
-            .Where(t => t.Direction == VoiceTrackDirection.Subscribe && t.TrackName is not null)
-            .ToList();
-        if (subscribes.Count == 0 || subscriptions is null) return unchanged;
-
-        var room = await rooms.LoadAsync(key, ct);
-        if (room is null) return unchanged;
-
-        var plan = await subscriptions.PlanAsync(room, ct);
-
-        var planned = new Dictionary<string, VoiceSubscription>(StringComparer.Ordinal);
-        foreach (var subscription in plan.For(subscriberUserId).Tracks)
-            planned[subscription.MatchKey()] = subscription;
-
-        // Only a selective plan can refuse anything, and only while the plan is binding.
-        var unplanned = subscriptions.Options.Enforce && plan.IsSelective
-            ? subscribes
-                .Where(t => !planned.ContainsKey(
-                    VoiceSubscription.MatchKey(t.MediaSessionId, t.TrackName!)))
-                .Select(t => t.TrackName!)
-                .Distinct(StringComparer.Ordinal)
-                .ToList()
-            : [];
-
-        if (!subscriptions.Options.SendPreferredRid || planned.Count == 0)
-            return new VoiceSubscribeDecision(unplanned, tracks);
-
-        var layered = tracks.Select(track =>
-        {
-            if (track.Direction != VoiceTrackDirection.Subscribe || track.TrackName is null)
-                return track;
-
-            var match = VoiceSubscription.MatchKey(track.MediaSessionId, track.TrackName);
-            if (!planned.TryGetValue(match, out var subscription) || subscription.Layer is null)
-                return track;
-
-            return track with { Layer = Lower(track.Layer, subscription.Layer) };
-        }).ToList();
-
-        return new VoiceSubscribeDecision(unplanned, layered);
-    }
-
-    /// <summary>The cheaper of what the client asked for and what the plan decided.</summary>
-    private static string Lower(string? requested, string planned) =>
-        VoiceVideoLayers.Parse(requested) is { } asked
-        && VoiceVideoLayers.Parse(planned) is { } decided
-        && asked < decided
-            ? requested!
-            : planned;
-
     /// <summary>Starts or stops a screen share.</summary>
     public async Task<VoiceRoom?> SetStreamingAsync(
         VoiceRoomKey key, string userId, bool isStreaming, string shareId,
@@ -674,48 +623,6 @@ public sealed class VoiceRoomService(
         var (plan, changed) = await ReselectAsync(room, ct);
         await AnnouncePlanAsync(room, plan, changed, ct, force: true);
         return room;
-    }
-
-    /// <summary>The tracks in a subscribe request that nobody in the room is publishing.</summary>
-    public async Task<IReadOnlyList<string>> FindStaleSubscriptionsAsync(
-        VoiceRoomKey key, IEnumerable<VoiceTrackRef> tracks, CancellationToken ct = default)
-    {
-        var subscribes = tracks.Where(t => t.Direction == VoiceTrackDirection.Subscribe).ToList();
-        if (subscribes.Count == 0) return [];
-
-        var room = await rooms.LoadAsync(key, ct);
-        if (room is null) return subscribes.Select(t => t.TrackName ?? "?").ToList();
-
-        // Keyed by share, but carrying the track names, because a share is not all-or-nothing: the
-        // video half can die while the audio half is still live, and a check that only asked
-        // whether the *share* existed would go on accepting subscribes for the dead half of it.
-        var liveShares = room.Participants
-            .SelectMany(p => p.ActiveScreenShares)
-            .ToDictionary(s => s.ShareId, s => s.TrackNames, StringComparer.Ordinal);
-
-        var publishingSessions = room.Participants
-            .Where(p => p.PublishState == VoicePublishState.Publishing)
-            .Select(p => p.MediaSessionId!)
-            .ToHashSet(StringComparer.Ordinal);
-
-        var stale = new List<string>();
-        foreach (var track in subscribes)
-        {
-            if (track.TrackName is not { } name) continue;
-            var described = TrackNaming.Describe(name);
-
-            var missing = described.ShareId is { } shareId
-                // A share that lists no tracks at all is one nothing can judge, so it is let
-                // through rather than reported stale on a technicality.
-                ? !liveShares.TryGetValue(shareId, out var names)
-                  || (names.Count > 0 && !names.Contains(name))
-                : TrackNaming.IsMicrophone(name)
-                  && (track.MediaSessionId is null || !publishingSessions.Contains(track.MediaSessionId));
-
-            if (missing) stale.Add(name);
-        }
-
-        return stale;
     }
 
     /// <summary>Announces the current audience of a screen share to the room.</summary>
@@ -1019,19 +926,6 @@ public sealed record VoiceAdmission(
         bool instanceSellsUpgrades, bool actorCanManageGuild) =>
         OverCapacity is null ? [] : [OverCapacity.Describe(instanceSellsUpgrades, actorCanManageGuild)];
 }
-
-/// <summary>What the plan says about one subscribe request.</summary>
-/// <param name="Unplanned">
-/// Track names this subscriber's set does not include, empty unless the plan is both selective and
-/// binding.
-/// </param>
-/// <param name="Tracks">
-/// The request's tracks with the simulcast layer filled in, or the caller's own list unchanged when
-/// there is nothing to say.
-/// </param>
-public sealed record VoiceSubscribeDecision(
-    IReadOnlyList<string> Unplanned,
-    IReadOnlyList<VoiceTrackRef> Tracks);
 
 /// <summary>What a publisher intends to send.</summary>
 public readonly record struct VoiceVideoRequest(int Height, int Framerate)

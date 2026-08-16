@@ -174,8 +174,18 @@ x-app-env: &app-env
   STORAGE_UPLOAD_MAX_BYTES: "${STORAGE_UPLOAD_MAX_BYTES:-}"
 
   # --- Optional third-party integrations ----------------------------------------------
-  CLOUDFLARE_APP_ID: "${CLOUDFLARE_APP_ID:-mock_app_id}"
-  CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-mock_tocken}"
+  # Voice/video SFU. Unset means the instance runs with no voice at all, which is a supported
+  # state - the voice endpoints answer 503 with a reason rather than failing obscurely.
+  #
+  # LIVEKIT_API_SECRET is a root credential: it mints admin tokens for every room, the SFU verifies
+  # signatures offline, and there is no revocation short of rotating the key on the node.
+  LIVEKIT_API_KEY: "${LIVEKIT_API_KEY:-}"
+  LIVEKIT_API_SECRET: "${LIVEKIT_API_SECRET:-}"
+  # One entry per node, contiguous from zero. SIGNALINGURL is public and is handed to browsers;
+  # APIURL is the control plane and must stay unroutable from outside the deployment.
+  LIVEKIT__NODES__0__REGION: "${LIVEKIT__NODES__0__REGION:-}"
+  LIVEKIT__NODES__0__SIGNALINGURL: "${LIVEKIT__NODES__0__SIGNALINGURL:-}"
+  LIVEKIT__NODES__0__APIURL: "${LIVEKIT__NODES__0__APIURL:-}"
   SENTRY_URL: "${SENTRY_URL:-}"
   ACCOUNT_DELETION_GRACE_PERIOD_SECONDS: "${ACCOUNT_DELETION_GRACE_PERIOD_SECONDS:-2592000}"
   ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS: "${ACCOUNT_DELETION_SWEEP_INTERVAL_SECONDS:-300}"

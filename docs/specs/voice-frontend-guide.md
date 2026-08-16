@@ -45,8 +45,9 @@ does today, and simply keeps paying for streams nobody is listening to.
 
 ## 2. Media model: what a "stream" actually is
 
-A participant can publish up to four kinds of track at once. The **track name** is the only thing
-the SFU stores, so the naming convention is the contract.
+A participant can publish up to four kinds of track at once. The **track name** is what peers and
+the roster agree on, so the naming convention is the contract. Set it on the SDK publication; do not
+let the SDK pick one for you.
 
 | Track name | `kind` | What it is |
 |---|---|---|
@@ -78,7 +79,7 @@ screen-{shareId}         <- video track
 screen-audio-{shareId}   <- audio track, same shareId
 ```
 
-Publish both in the **same** `POST .../tracks` call when you have both. You will get one
+Declare both in the **same** `POST .../voice/publish` call when you have both. You will get one
 `TrackPublished` event per track, each with its own `kind`, and both carrying the same `shareId` so
 the receiving client can group them into one tile.
 
@@ -86,28 +87,29 @@ the receiving client can group them into one tile.
 
 ## 3. Connection lifecycle
 
-The order matters. Doing it out of order is the single most common source of "I can hear them but
-they cannot hear me".
+**The SFU is LiveKit, and your client talks to it directly.** This is the one thing that changed and
+everything else in this section follows from it. There is no SDP relay any more: you do not send
+offers to this backend, you do not receive answers from it, and you do not name transceiver MIDs to
+anybody. You connect to the node with the `livekit-client` SDK and it owns the peer connection,
+renegotiation and reconnect.
+
+What this backend still does is decide **whether** you may connect, **what** you may send, and keep
+the roster the rest of the product reads from - the channel list showing who is in voice, the share
+viewer counts, the mute state, the subscription plan.
 
 ```
 1. Join the room                -> you get a Snapshot immediately
-2. Open a media session         -> you get a mediaSessionId + backend
-3. Publish your local tracks    -> POST .../tracks, direction "publish"
-4. Refetch the snapshot         -> GET .../snapshot, now that transport exists
-5. Subscribe from that snapshot -> POST .../tracks, direction "subscribe"
+2. Get a connection             -> POST .../voice/connection -> { url, token }
+3. room.connect(url, token)     -> the SDK does the rest
+4. Publish through the SDK, then declare it -> POST .../voice/publish
+5. Subscribe through the SDK    -> from the snapshot, honouring your subscription set
 6. Heartbeat every ~30s         -> keeps you alive AND repairs drift
 ```
 
-**Step 4 is not redundant, and skipping it breaks screen shares.** The snapshot from step 1 arrives
-before you have a peer connection or a media session, because those are created in steps 2 and 3.
-Audio usually survives that - a subscribe path that waits for the session will catch up - but there
-is nothing to attach a receiving transceiver to yet, so any `shares[]` in that first snapshot are
-dropped on the floor and the feature fails silently. Read it again once the transport is up and
-subscribe from *that* copy.
-
-**Always publish before you subscribe.** The SFU rejects a pull on a session that has not completed
-its own negotiation. The snapshot tells you who is pullable so you can sequence this
-correctly with full information.
+Two traps that used to exist are gone with the negotiation. You no longer have to publish before you
+subscribe - the SDK sequences that itself - and you no longer have to refetch the snapshot before
+subscribing to a share, because there is no transceiver of yours that has to exist first. Read the
+snapshot when you like; it is authoritative whenever you ask.
 
 ### 3.1 Join
 
@@ -117,7 +119,7 @@ POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/join
 X-Device-Id: <your device id>
 ```
 
-**Direct call** - joining is implicit in opening a primary session (step 2). For an incoming call
+**Direct call** - joining is implicit in taking a primary connection (step 2). For an incoming call
 you first accept:
 ```http
 PUT /api/v1/voice/call/{callId}/accept
@@ -128,84 +130,127 @@ Joining puts you in the roster **before** any media work. It returns the snapsho
 pushes the same `Snapshot` over SignalR, so you can render the room from the HTTP response without
 waiting for any event.
 
-### 3.2 Open a media session
+### 3.2 Get a connection
 
 ```http
-POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/session?primary=true
-POST /api/v1/voice/calls/{callId}/session?primary=true
-```
-```json
-{ "mediaSessionId": "...", "backend": "cloudflare" }
-```
-
-`primary=true` is the session carrying your microphone. Use `primary=false` for a **second session
-opened only for a screen share** (a desktop client publishing screen from a separate process). A
-secondary session must not take over the call.
-
-`backend` names the SFU behind the session. Nothing else in this document is backend-specific: the
-routes, request bodies and responses are all neutral, so the server can change SFU without changing
-any of it. Branch on `backend` only where your media layer genuinely differs, and treat an
-unrecognised value as "I cannot handle this room" rather than guessing.
-
-> Opening a session does **not** make you audible. You are `Joined`, not `Publishing`, until a track
-> exists. Nobody will be told to subscribe to you yet, by design.
-
-### 3.3 Publish
-
-```http
-POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
-POST /api/v1/voice/calls/{callId}/tracks
+POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/connection?primary=true
+POST /api/v1/voice/calls/{callId}/connection?primary=true
 ```
 ```json
 {
-  "mediaSessionId": "...",
-  "sessionDescription": { "type": "offer", "sdp": "..." },
-  "tracks": [
-    { "direction": "publish", "mid": "0", "trackName": "audio" },
-    { "direction": "publish", "mid": "1", "trackName": "camera" },
-    { "direction": "publish", "mid": "2", "trackName": "screen-abc123" },
-    { "direction": "publish", "mid": "3", "trackName": "screen-audio-abc123" }
-  ]
+  "backend": "livekit",
+  "url": "wss://sfu-fsn1.venta.gg",
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "room": "channel-123",
+  "identity": "user-1",
+  "mediaSessionId": "user-1",
+  "expiresAt": "2026-08-16T12:10:00Z",
+  "canPublishAudio": true,
+  "canPublishVideo": true
 }
 ```
 
-Set your local description first, then send the MIDs. The response is the answer SDP plus per-track
-results.
+Then:
 
-Publishing `audio` is what flips you to `Publishing` and announces you to the room.
+```js
+import { Room, RoomEvent } from "livekit-client";
 
-### 3.4 Subscribe
-
-Same endpoint, every track `direction: "subscribe"`:
-
-```json
-{
-  "mediaSessionId": "<your own session>",
-  "sessionDescription": { "type": "offer", "sdp": "..." },
-  "tracks": [
-    { "direction": "subscribe", "mediaSessionId": "<theirs>", "trackName": "audio" }
-  ]
-}
+const room = new Room({ adaptiveStream: true, dynacast: true });
+room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => attach(track, participant));
+await room.connect(url, token);
+await room.localParticipant.setMicrophoneEnabled(true);
 ```
 
-The server retries the publisher-not-ready race for you (up to ~6s). If it still fails you get a
-**409** or a **502**, never a 200 - see §8 for which means what.
+`adaptiveStream` drops video quality for elements that are off-screen or small, and `dynacast` stops
+publishing layers nobody is subscribed to. Both cut bandwidth meaningfully and are safe defaults.
 
-**Subscribe from your subscription set, not from the roster, whenever you have one.** In a large
-room the roster lists everybody and the set lists the handful you should actually pull. See §6.
+Fields worth understanding:
 
-### 3.5 Renegotiate / close
+- **`url` is the node your room is on.** There is no shared hostname in front of the fleet: a room
+  lives on exactly one node, and this field is the routing answer. Do not cache it against a room id
+  and do not derive it yourself - ask again.
+- **`token` is short-lived** (minutes, not hours) and is only consulted while the WebSocket is
+  opened. Once you are connected it does not matter that it expires. If you took too long, or you
+  are reconnecting after a network change, call this route again - it is cheap, it does not touch
+  the roster, and only the token is new.
+- **`identity`** is how the SFU names you, and it is the same handle the roster records as
+  `mediaSessionId`. Both fields carry it so an existing client can adopt the new name without
+  changing its snapshot handling on the same day.
+- **`canPublishAudio` / `canPublishVideo`** are what the token actually grants. Render your
+  microphone and camera buttons from these rather than from a permission you computed locally: a
+  member whose plan has no video left connects, hears everyone, and cannot turn a camera on however
+  the client is patched.
+- **`primary=false`** is for a *second* connection opened only for a screen share - a desktop client
+  publishing screen from a separate process. It matters more than it looks: the SFU keys
+  participants by identity and disconnects an earlier session that reappears under the same one, so
+  a secondary connection minted as primary would kick your own call off the air. Pass
+  `?primary=false&tag=screen` and you get a distinct identity.
+
+> Taking a connection does **not** make you audible. You are `Joined`, not `Publishing`, until a
+> track exists and you have declared it in step 4.
+
+### 3.3 Publish through the SDK
+
+Publish with the SDK, setting the track **name** to the convention in §2 - the name is what peers
+and the roster agree on:
+
+```js
+await room.localParticipant.setMicrophoneEnabled(true);           // name: "audio"
+await room.localParticipant.setScreenShareEnabled(true, { audio: true });
+```
+
+For a screen share, publish the two halves under `screen-{shareId}` and `screen-audio-{shareId}` so
+the receiving client can group them into one tile.
+
+### 3.4 Declare what you published
 
 ```http
-PUT  .../voice/negotiate     { "mediaSessionId", "sessionDescription", "video"? }
-POST .../voice/tracks/close { "mediaSessionId", "trackNames": ["screen-abc123"] }
+POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/publish
+POST /api/v1/voice/calls/{callId}/publish
+```
+```json
+{
+  "trackNames": ["screen-abc123", "screen-audio-abc123"],
+  "video": { "height": 1080, "framerate": 60 }
+}
+```
+```json
+{ "identity": "user-1", "rung": "1080p60", "height": 1080, "framerate": 60, "maxLayer": null }
 ```
 
-Closing `audio` marks you no longer publishing and tells peers to drop you.
+This is what puts you on the roster as publishing, announces you to the room, and feeds the share
+viewer counts and the usage meter. **The media does not depend on it** - you are already publishing
+by the time you call it - but nothing else in the product can see you until you do.
 
-`video` is optional and only matters when the renegotiation changes your resolution or framerate -
-see §8.2 of the entitlements guide. Omitting it leaves your quality ceiling exactly as your last
-publish declared it, so a renegotiation that is an ICE restart or a reconnect needs nothing new.
+`video` describes what you intend to send and is optional; absent means "whatever the room allows".
+It is only read when the body carries video, because the video ceiling has never had anything to say
+about a microphone.
+
+Two answers you must handle:
+
+- **200 with a `degradations` array.** You asked for more than your plan allows and were clamped.
+  `granted.rung` tells you what to re-encode to. See the entitlements guide.
+- **403 with a denial body.** There was nothing below what you asked for - a granted rung of `none`,
+  or no publisher slot free. Stop the local track: your video will not reach anybody, because the
+  token you connected with does not permit it either.
+
+### 3.5 Declare a resolution change, and unpublish
+
+```http
+PUT  .../voice/video      { "height": 1080, "framerate": 60 }
+POST .../voice/unpublish  { "trackNames": ["screen-abc123"] }
+```
+
+`PUT .../video` is for a client that changes what it sends **without republishing** - a screen share
+that switches source, a camera that changes resolution. It replaces the `video` field the old
+renegotiate route carried, for the same reason: a quality ceiling computed once at publish time is
+one that a later resolution change walks straight past. It never refuses anything.
+
+Declaring nothing leaves your ceiling exactly where your last publish put it. An unchanged
+resolution needs no call at all.
+
+`unpublish` marks the tracks closed and tells peers to drop them. Unpublishing `audio` marks you no
+longer publishing.
 
 ### 3.6 Leave
 
@@ -214,7 +259,9 @@ POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/leave
 PUT  /api/v1/voice/call/{callId}/leave
 ```
 
----
+Disconnect the SDK room as well. The roster does not wait for the SFU and the SFU does not wait for
+the roster; both want telling.
+
 
 ## 4. State: snapshots and versions
 
@@ -599,59 +646,45 @@ Both room kinds report it: `call.SpeakingChanged` and `guild.voice.SpeakingChang
 channel whose clients do not send the guild one stays `mode: "all"` at any size**, which is what
 every guild room did until the command existed - nothing looks broken, and nothing is saved.
 
-### 6.6 Enforcement
+### 6.6 The set is advice, and it is yours to honour
 
-**Enforcement is on.** A subscribe for a track your set does not include is answered with a **409**
-in the same shape as a stale subscription, and the recovery is the same: refetch the snapshot,
-reconcile, subscribe from the new set.
+**Nothing refuses a subscription any more, and that is a real change.** When every pull was relayed
+by this backend, a subscribe the plan did not include was answered with a 409 and you had to
+implement §6.3 or be refused. The SDK subscribes directly now, so there is no request left to turn
+away.
 
-```jsonc
-{
-  "error": "staleSubscription",
-  "reason": "unplannedSubscription",
-  "tracks": ["audio"],
-  "action": "refetchSnapshot"
-}
-```
+That makes §6.3 more important rather than less. A client that ignores its set is not corrected by
+anybody: it pulls everyone, it costs what it always did, and nothing about the room looks wrong. Use
+the SDK's selective subscription - `autoSubscribe: false` on connect, then `setSubscribed` per
+publication - and drive it from the set.
 
-The error code is deliberately the one you already handle - the situation is identical from your side
-(you are acting on a view of the room that has moved) and so is the fix. `reason` is additive and
-tells the two apart in a log.
+The server-side switch that used to govern enforcement now governs only whether the usage meter
+believes the plan, and it is still off by default for the same reason: billing against a reduction
+nobody made prices a tier against egress that is still being paid for.
 
-What can actually be refused is narrow: only a room above the ranking threshold that has heard
-somebody speak has a selective set at all, so every small room and every room whose clients report no
-speech is unaffected. But **implement §6.3 before you ship against a server with this on**, because a
-client that ignores its set in a large room will be refused rather than served.
+### 6.7 Layers are chosen by the server and applied by you
 
-`VOICE_ENFORCE=false` turns it off for an instance, and it turns off the metering side with it. The
-two are one switch on purpose: while a client can pull whatever it likes, counting the plan would
-report a saving nobody made.
-
-### 6.7 Layers are chosen by the server and sent to the SFU
-
-`layer` on a track is no longer advice you may act on. The server puts the chosen simulcast layer on
-the subscribe it makes to the SFU, so a tile you reported as 120 pixels tall is **served** the low
-layer whether or not your transport asked for one.
+`layer` on a track is the server's answer to "how large is this viewer drawing it", computed from the
+tile sizes you report. Apply it with `publication.setVideoQuality(...)` on the subscription.
 
 Two things follow:
 
 1. **Report `tileHeights`.** It is the only measurement the server has. Without it a ranked room
    falls back to the middle layer for cameras and full quality for screen shares, which is a
    deliberate guess and a worse one than yours.
-2. **You may still ask for a layer,** and asking for a *lower* one than the server chose is honoured.
-   Asking for a higher one is not: the party paying for the egress picks the layer.
+2. **Apply what you are told.** The layer used to ride the subscribe this backend made on your
+   behalf, so it bound whether you cooperated or not. It does not any more - a tile you report as
+   120 pixels tall is served the top layer until you ask for something smaller.
 
-A publisher that sends a single encoding has no layers to choose between, and the SFU is asked to
-fall back to whatever it does have rather than to send nothing. Publish simulcast encodings named
+A publisher that sends a single encoding has no layers to choose between, and asking for one it does
+not have falls back to whatever it does have rather than to nothing. Publish simulcast encodings named
 `a` (full), `b` (medium) and `c` (low) if you want the saving to be real for your own video.
 
 **Name them exactly that, in that order.** The rid names are not abbreviations of a resolution, they
-are the priority ranking itself: Cloudflare's only ordering vocabulary is `asciibetical`, which means
-a-z with "a most desirable, z least", and it governs both what you are dropped to under congestion
-and what you fall back to when a layer stops being published. The WebRTC convention `q`/`h`/`f`
-sorts backwards against quality, so a publisher using it is asking the SFU to degrade congested
-viewers *up* to full quality. Nothing errors when the names are wrong - the bill just stops going
-down.
+are the priority ranking itself: an SFU degrading a congested viewer sorts the available rids a-z and
+walks the list, and it is never told what the names mean. The WebRTC convention `q`/`h`/`f` sorts
+backwards against quality, so a publisher using it is asking the SFU to degrade congested viewers *up*
+to full quality. Nothing errors when the names are wrong - the bill just stops going down.
 
 ---
 
@@ -678,49 +711,51 @@ Stop heartbeating and you are evicted from the room after 90 seconds, in both ro
 
 | Status | Meaning | What to do |
 |---|---|---|
-| **409** | `{ error: "staleSubscription", tracks?, action: "refetchSnapshot" }`. You subscribed to media nobody is publishing - the share stopped, or the publisher never started. | Refetch the snapshot and reconcile. **Do not retry the same body** - the track is gone, not late. Roll back your subscribe guard. |
-| **409** | The same body with `reason: "unplannedSubscription"`. The track exists, but your subscription set does not include it - see §6.6. | Identical: refetch, reconcile, subscribe from the new set. **Do not retry the same body**; it will be refused the same way until your set moves. |
-| **409** | `{ error: "sessionGone", action: "recreateSession" }`. Your *own* media session has no live PeerConnection - it was closed, or never reached `connected`. | `POST .../voice/session` for a fresh `mediaSessionId`, then republish and re-subscribe. **Do not retry the same body**: that session is spent and every call on it fails identically. |
-| **502** | The media transport rejected the operation. Body: `{ operation, error }`. | Real failure. Roll back any local "subscribed" flag for that peer and back off before retrying. **Do not** treat as success. |
+| **503** | `{ error: "voiceNotConfigured", action: "contactOperator" }`. This instance has no SFU. | Not a fault and not transient. A self-hosted install that has not configured voice is a supported state - hide the feature and say so. |
+| **503** | `{ error: "sfuUnavailable", action: "retry" }`. The control plane could not be reached. | Retry with backoff. Every call already in progress is unaffected - media does not travel the path that failed - so do **not** tear anything down. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
-| **403** | Not permitted (missing `Connect`/`Speak`/`Stream`, not a participant, or acting as a session you do not own). | Do not retry blindly. |
+| **502** | The SFU refused a control-plane operation. Body: `{ operation, error }`. | Real failure, and not fixed by retrying the same request. |
+| **403** | Not permitted: missing `Connect`/`Speak`/`Stream`, or not a participant. | Do not retry blindly. |
+| **403** | An entitlement denial body (see the entitlements guide) on `POST .../voice/publish`. | Stop the local track: the token you connected with does not permit it either, so nobody will receive it. |
 | **404** | Room or call does not exist - **or you forgot the gateway prefix**, see §10. | Stop, rejoin from scratch. |
 
-**Critical:** if a subscribe fails - 409 or 502 - roll back whatever guard you use to dedupe
-subscriptions per user. A guard that is consumed by a failed attempt and never released is how one transient error
-becomes permanent silence for that participant.
+**`staleSubscription` and `sessionGone` are gone**, along with the negotiation that produced them.
+There is no subscribe request for this backend to refuse, and there is no minted session id to go
+stale - a connection is opened with a token, and a token that has expired is replaced by asking for
+another. If your client still has handlers for either code, they are dead paths.
 
-**On `sessionGone` specifically:** the two ways to earn it are worth knowing, because both are
-avoidable. You get it if you keep a `mediaSessionId` across a PeerConnection teardown - a session id
-outlives the connection that gave it meaning, so a rebuilt `RTCPeerConnection` needs a new one - and
-you get it if you pull a remote track before your own publish handshake has reached `connected`. The
-SFU will not set up a receiver on a session that is not connected yet. Wait for
-`pc.connectionState === "connected"` before your first subscribe.
+**A failed connection is not a failed room.** If `POST .../voice/connection` answers 503, ask again:
+you are still on the roster, your peers still see you as joined, and the heartbeat is still what
+keeps you there.
 
 ---
 
 ## 9. Rules that will bite you if you skip them
 
-1. **Publish before you subscribe.** Otherwise the SFU rejects the pull.
-2. **Only subscribe to `publishState: "Publishing"`.** A session id alone is not enough.
-3. **Roll back the dedupe guard on failure.** See §8.
+1. **Declare what you publish.** The media works without it; the roster, the viewer counts, the
+   entitlement check and everybody else's UI do not. See §3.4.
+2. **Only subscribe to `publishState: "Publishing"`.** An identity alone is not enough.
+3. **Ask for a new connection rather than reusing an expired token.** It is cheap, it does not
+   touch the roster, and there is nothing else to recover with.
 4. **Handle version gaps.** Without this, one dropped event is permanent.
 5. **Compare `instanceId` before `version`.** A rebuilt room reuses low version numbers.
-6. **Send `X-Device-Id`** on join, accept, decline, leave and session creation. One user is in one
-   room on one device at a time; joining elsewhere kicks the old device via
-   `KickedByOtherDevice`.
+6. **Send `X-Device-Id`** on join, accept, decline, leave and connection creation. One user is in
+   one room on one device at a time; joining elsewhere kicks the old device via
+   `KickedByOtherDevice` - and the SFU evicts it by itself, because both devices connect under the
+   same identity.
 7. **Heartbeat with your real state.** It is the repair channel, not just a keepalive.
 8. **Unwatch and unsubscribe** when a stream is not visible.
 9. **Screen audio is a separate track.** Group by `shareId`, do not assume it exists.
 10. **A hub reconnect is not a rejoin.** Do not tear down media because the SignalR connection
     blipped; heartbeat as soon as it is back. See §4.3.
-11. **A new PeerConnection needs a new media session.** Reusing the old `mediaSessionId` earns
-    `sessionGone` on every call from then on. See §8.
-12. **Honour your subscription set if you are sent one, and expect it to change without anybody
-    doing anything.** See §6. A client that ignores it still works; it just pays for streams nobody
-    is listening to, and it will start getting 409s once enforcement is on.
+11. **A second connection for the same user needs `primary=false`.** The SFU keys participants by
+    identity and disconnects the earlier session under the same one, so a screen-share connection
+    minted as primary kicks your own call off the air. See §3.2.
+12. **Honour your subscription set, and expect it to change without anybody doing anything.** See
+    §6. Nothing enforces it any more, so a client that ignores it simply pays for streams nobody is
+    listening to and nobody tells it.
 13. **Debounce voice-activity detection before reporting `SpeakingChanged`.** It is the sole input
-    to active-speaker ranking, and an un-debounced one costs the whole room a renegotiation. See
+    to active-speaker ranking, and an un-debounced one costs the whole room a resubscription. See
     §6.5.
 
 ---
@@ -740,10 +775,10 @@ POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/join
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/leave
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice            (same as /voice/snapshot)
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice/snapshot
-POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/session?primary=
-POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
-PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/negotiate
-POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks/close
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/connection?primary=&tag=
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/publish
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/unpublish
+PUT    /api/v1/guilds/{guildId}/channels/{channelId}/voice/video
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/subscriptions
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/{shareId}/watch
 DELETE /api/v1/guilds/{guildId}/channels/{channelId}/voice/shares/{shareId}/watch
@@ -758,15 +793,15 @@ GET    /api/v1/voice/call/{callId}                          call + ring state
 GET    /api/v1/voice/call/pending                           am I being rung? (204 if not)
 GET    /api/v1/voice/conversations/{conversationId}/call     is a call happening here?
 GET    /api/v1/voice/call/{callId}/snapshot                 media state
-POST   /api/v1/voice/calls/{callId}/session?primary=
-POST   /api/v1/voice/calls/{callId}/tracks
-PUT    /api/v1/voice/calls/{callId}/negotiate
-POST   /api/v1/voice/calls/{callId}/tracks/close
+POST   /api/v1/voice/calls/{callId}/connection?primary=&tag=
+POST   /api/v1/voice/calls/{callId}/publish
+POST   /api/v1/voice/calls/{callId}/unpublish
+PUT    /api/v1/voice/calls/{callId}/video
+POST   /api/v1/voice/calls/{callId}/alive
 POST   /api/v1/voice/calls/{callId}/subscriptions
 POST   /api/v1/voice/call/{callId}/shares/{shareId}/watch
 DELETE /api/v1/voice/call/{callId}/shares/{shareId}/watch
 GET    /api/v1/voice/call/{callId}/shares/viewers
-GET    /api/v1/voice/ice-servers
 ```
 
 Note the call SFU routes are under `/voice/calls/{callId}/` (plural) while the lifecycle routes are
@@ -777,40 +812,40 @@ under `/voice/call/{callId}/` (singular). That is historical; both are correct a
 ## 11. Worked example
 
 ```js
+import { Room, RoomEvent } from "livekit-client";
+
 // 1. Join. The snapshot arrives over SignalR before this resolves in practice.
-await api.post(`/api/v1/guilds/${guildId}/channels/${channelId}/voice/join`, null,
-               { headers: { "X-Device-Id": deviceId } });
+const snapshot = await api.post(
+  `/api/v1/guilds/${guildId}/channels/${channelId}/voice/join`, null,
+  { headers: { "X-Device-Id": deviceId } });
 
-// 2. Session.
-const { mediaSessionId, backend } = await api.post(
-  `/api/v1/guilds/${guildId}/channels/${channelId}/voice/session?primary=true`);
+// 2. Connection. `url` is the node this room lives on - do not cache it, ask again.
+const conn = await api.post(
+  `/api/v1/guilds/${guildId}/channels/${channelId}/voice/connection?primary=true`, null,
+  { headers: { "X-Device-Id": deviceId } });
 
-// 3. Publish mic (+ camera, + screen with audio if you have them).
-const pc = new RTCPeerConnection({ iceServers });
-const micTx = pc.addTransceiver(micTrack, { direction: "sendonly" });
-await pc.setLocalDescription(await pc.createOffer());
+// 3. Connect. The SDK owns the peer connection, renegotiation and reconnect.
+//    autoSubscribe: false so that §6 decides what you pull rather than the room.
+const room = new Room({ adaptiveStream: true, dynacast: true });
+room.on(RoomEvent.TrackSubscribed, (track, _pub, participant) => attach(track, participant));
+await room.connect(conn.url, conn.token, { autoSubscribe: false });
 
-const publish = await api.post(`.../voice/tracks`, {
-  mediaSessionId,
-  sessionDescription: { type: "offer", sdp: pc.localDescription.sdp },
-  tracks: [{ direction: "publish", mid: micTx.mid, trackName: "audio" }],
-});
-await pc.setRemoteDescription(publish.sessionDescription);
+// 4. Publish, then say so. The media works without step 4b; nothing else does.
+await room.localParticipant.setMicrophoneEnabled(true);
+await api.post(`.../voice/publish`, { trackNames: ["audio"] });
 
-// 4. Refetch: the join snapshot predates the transport, so its shares are unusable.
-const current = await api.get(`.../voice/snapshot`);
-
-// 5. Subscribe to everyone already publishing, from the *refetched* snapshot.
-for (const p of current.participants) {
+// 5. Subscribe to everyone already publishing. No refetch needed - there is no
+//    transport of yours that has to exist first.
+for (const p of snapshot.participants) {
   if (p.userId === me || p.publishState !== "Publishing") continue;
-  await subscribeTo(p.mediaSessionId, p.audioTrackName);
+  subscribeTo(room, p.userId);   // honour your subscription set in a ranked room - see §6
 }
 
-// 6. Heartbeat.
+// 6. Heartbeat. mediaSessionId is your identity, which conn hands back under both names.
 setInterval(() => connection.invoke("voice.Heartbeat", "channel", channelId, {
   knownInstanceId: held.instanceId,
   knownVersion: held.version,
-  mediaSessionId,
+  mediaSessionId: conn.identity,
   audioTrackName: "audio",
 }), 30_000);
 ```
@@ -826,3 +861,21 @@ keys. A client written against an older description of this API will not work.
 That is deliberate. Carrying a compatibility layer for an API with no users costs more than it
 saves, and the two shims that mattered - a response that withheld the media handles, and a
 heartbeat that could not repair anything - are the exact things that made voice unrecoverable.
+
+### What the move to LiveKit removed
+
+The SFU changed and the negotiation went with it. These are gone and will 404:
+
+| Removed | Replaced by |
+|---|---|
+| `POST .../voice/session` | `POST .../voice/connection` (§3.2) |
+| `POST .../voice/tracks` (publish and subscribe) | the SDK, plus `POST .../voice/publish` to declare it (§3.3, §3.4) |
+| `PUT .../voice/negotiate` | the SDK; `PUT .../voice/video` for the quality declaration alone (§3.5) |
+| `POST .../voice/tracks/close` | `POST .../voice/unpublish` (§3.5) |
+| `GET /api/v1/voice/ice-servers` | nothing - the SDK negotiates TURN with the node as part of connecting |
+| `staleSubscription`, `sessionGone` | nothing - neither condition exists (§8) |
+
+Everything else is untouched. The snapshot, the version rules, every hub event, the heartbeat, the
+subscription sets, the share viewer counts and the entitlement bodies are all exactly as they were,
+because none of them were ever about which SFU was behind them. That was the point of keeping the
+client contract free of vendor vocabulary, and this migration is what it bought.

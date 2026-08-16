@@ -4,7 +4,6 @@ using Echo.Entitlements.Wire;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using Echo.Voice.Tracks;
 using Echo.Voice.Transport;
 
@@ -18,35 +17,27 @@ using Wolverine;
 
 namespace Messaging.Application.Controllers;
 
-/// <param name="Video">
-/// What the caller intends to send on the video tracks in <paramref name="Tracks"/>, when there are
-/// any.
+/// <param name="TrackNames">
+/// What the caller has just started publishing, in the naming <see cref="TrackNaming"/> defines.
 /// </param>
-public record NegotiateBody(
-    string MediaSessionId,
-    VoiceSessionDescription SessionDescription,
-    List<VoiceTrackRef> Tracks,
-    VoiceVideoIntent? Video = null);
-/// <param name="Video">
-/// What the caller intends to send once this renegotiation completes, when it changes their video.
-/// </param>
-public record RenegotiateBody(
-    string MediaSessionId,
-    VoiceSessionDescription SessionDescription,
-    VoiceVideoIntent? Video = null);
-public record CloseTracksBody(string MediaSessionId, List<string> TrackNames);
+/// <param name="Video">What the caller intends to send on the video tracks.</param>
+public record CallPublishBody(List<string> TrackNames, VoiceVideoIntent? Video = null);
 
-/// <summary>WebRTC signalling for direct calls.</summary>
+public record CallUnpublishBody(List<string> TrackNames);
+
+/// <summary>
+/// The SFU-facing half of direct calls: what a client needs to connect, and what it tells us once
+/// it has.
+/// </summary>
 [Authorize]
 [ApiController]
 [Route("api/v1/voice/calls/{callId}")]
 public class CallVoiceMediaController(
-    IVoiceMediaTransport media,
+    IVoiceSfu sfu,
     IDistributedCache cache,
     LockedJsonCacheStore callStore,
     IMessageBus bus,
     DeviceIdResolver devices,
-    SfuSessionOwnership sessions,
     VoiceRoomService voice,
     VoiceRoomStore rooms,
     ILogger<CallVoiceMediaController> logger) : ControllerBase
@@ -63,14 +54,13 @@ public class CallVoiceMediaController(
     private Task<DeviceIdResult> ResolveDeviceAsync(CancellationToken ct = default) =>
         devices.ResolveAsync(Request, UserId, ct);
 
-    private Task<bool> OwnsSessionAsync(string? mediaSessionId, CancellationToken ct = default) =>
-        sessions.OwnsAsync(mediaSessionId, UserId, ct);
+    /// <summary>Identical to the guild side on purpose - a client implements this once for both room
+    /// kinds, which is the whole reason the media contract is shared.</summary>
+    private ObjectResult NotConfigured() =>
+        StatusCode(503, new { error = "voiceNotConfigured", action = "contactOperator" });
 
-    /// <summary>
-    /// The answer to a session whose transport is gone: 409, and the one recovery that works.
-    /// </summary>
-    private ConflictObjectResult SessionGone() =>
-        Conflict(new { error = "sessionGone", action = "recreateSession" });
+    private ObjectResult Unavailable() =>
+        StatusCode(503, new { error = "sfuUnavailable", action = "retry" });
 
     /// <summary>The caller must be a connected participant.</summary>
     private async Task<bool> IsConnectedParticipantAsync(string callId)
@@ -79,12 +69,18 @@ public class CallVoiceMediaController(
         return call is not null && call.Participants.Any(p => p.UserId == UserId && p.Status == CallStatus.Connected);
     }
 
-    /// <summary>Creates a media session for this call participant.</summary>
-    /// <param name="primary">Whether this session carries the participant's microphone.</param>
-    [HttpPost("session")]
-    public async Task<IActionResult> CreateSession(
-        string callId, CancellationToken ct, [FromQuery] bool primary = true)
+    /// <summary>
+    /// Everything the caller needs to open its own connection to the SFU, plus the roster work that
+    /// used to ride on minting a media session.
+    /// </summary>
+    /// <param name="primary">Whether this connection carries the participant's microphone.</param>
+    [HttpPost("connection")]
+    public async Task<IActionResult> CreateConnection(
+        string callId, CancellationToken ct,
+        [FromQuery] bool primary = true, [FromQuery] string? tag = null)
     {
+        if (!sfu.IsConfigured) return NotConfigured();
+
         var device = await ResolveDeviceAsync(ct);
         if (device.IsUnknown)
             return BadRequest($"Unknown {DeviceIdentity.HeaderName} '{device.DeviceId}' - register the device first.");
@@ -92,10 +88,34 @@ public class CallVoiceMediaController(
         var call0 = await LoadCall(callId);
         if (call0 is null || !call0.IsParticipant(UserId)) return NotFound();
 
-        var mediaSessionId = await media.CreateSessionAsync(ct);
-        await sessions.BindAsync(mediaSessionId, UserId, ct);
+        var identity = primary
+            ? VoiceIdentity.Primary(UserId)
+            : VoiceIdentity.Secondary(UserId, tag);
 
-        if (!primary) return Ok(new { mediaSessionId, backend = media.Backend });
+        // A call has no permission model of its own beyond participation, so a participant may send
+        // everything the operator's ceiling allows.
+        var rights = await ResolveRightsAsync(callId, ct);
+
+        VoiceConnection connection;
+        try
+        {
+            connection = await sfu.ConnectAsync(
+                Room(callId), identity, displayName: null, rights, maxParticipants: null, ct);
+        }
+        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.Unavailable)
+        {
+            logger.LogWarning(
+                "Could not reach the SFU control plane for call {CallId}: {Detail}", callId, ex.Detail);
+            return Unavailable();
+        }
+        catch (VoiceMediaException ex)
+        {
+            logger.LogError(ex, "SFU refused a connection for user {UserId} in call {CallId}",
+                UserId, callId);
+            return StatusCode(502, new { operation = ex.Operation, error = ex.Detail });
+        }
+
+        if (!primary) return Ok(Describe(connection, rights));
 
         // The media state of any device this connection supersedes lives in the room, so it is read
         // here and handed to the domain for the takeover event.
@@ -129,17 +149,17 @@ public class CallVoiceMediaController(
 
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);
 
-        var session = new { mediaSessionId, backend = media.Backend };
-
         // No ManageGuild lookup, and not because it was forgotten: a call has no guild, so the only
         // cause a capacity limit can carry here is an operator ceiling, which no amount of money
         // moves and which therefore has no remedy to be permitted or refused.
         var degradations = admission.Describe(
             Env.License.IsHosted && Env.License.IsBillingConfigured, actorCanManageGuild: false);
 
+        var payload = Describe(connection, rights);
+
         return degradations.Count == 0
-            ? Ok(session)
-            : Ok(EntitlementResponses.WithDegradations(session, degradations));
+            ? Ok(payload)
+            : Ok(EntitlementResponses.WithDegradations(payload, degradations));
     }
 
     /// <summary>"I am still here." Nothing more - see the remarks.</summary>
@@ -172,26 +192,24 @@ public class CallVoiceMediaController(
         || string.IsNullOrEmpty(callingDeviceId)
         || voiceDeviceId == callingDeviceId;
 
-    /// <summary>Publishes and/or subscribes tracks.</summary>
-    [HttpPost("tracks")]
-    public async Task<IActionResult> Negotiate(string callId, [FromBody] NegotiateBody body, CancellationToken ct)
+    /// <summary>
+    /// Records what the caller has published, and re-decides the video ceiling against what they
+    /// say they are sending.
+    /// </summary>
+    [HttpPost("publish")]
+    public async Task<IActionResult> Publish(
+        string callId, [FromBody] CallPublishBody body, CancellationToken ct)
     {
-        // Both halves matter.
         if (!await IsConnectedParticipantAsync(callId)) return Forbid();
-        if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
 
-        var audioTrack = body.Tracks.FirstOrDefault(
-            t => t is { Direction: VoiceTrackDirection.Publish, TrackName: TrackNaming.Audio });
+        var identity = VoiceIdentity.Primary(UserId);
+        var audio = body.TrackNames.Where(TrackNaming.IsMicrophone).ToList();
+        var video = body.TrackNames.Where(n => !TrackNaming.IsMicrophone(n)).ToList();
 
-        var otherPublishes = body.Tracks
-            .Where(t => t.Direction == VoiceTrackDirection.Publish && t.TrackName != TrackNaming.Audio)
-            .ToList();
-
-        // Only a body that actually carries video is measured against the video ceiling.
         VoicePublishDecision? publish = null;
         IReadOnlyList<EntitlementDegradationDto> degradations = [];
 
-        if (otherPublishes.Count > 0)
+        if (video.Count > 0)
         {
             publish = await voice.EvaluateVideoPublishAsync(
                 Room(callId), UserId, VoiceVideoIntent.RequestOf(body.Video), ct);
@@ -202,10 +220,11 @@ public class CallVoiceMediaController(
 
             if (!publish.VideoAllowed)
             {
-                // Refused whole, audio included.
                 logger.LogInformation(
                     "Refusing video publish for user {UserId} in call {CallId}: {Key} bound at {Rung}",
                     UserId, callId, publish.Refusal!.Key.Name, publish.Rung);
+
+                await TryRevokeVideoAsync(callId, identity, ct);
 
                 return StatusCode(
                     EntitlementDenialDto.StatusCode,
@@ -215,81 +234,58 @@ public class CallVoiceMediaController(
             degradations = publish.Describe(sells, actorCanManageGuild: false);
         }
 
-        // A subscribe naming media nobody is publishing is a stale client, not a server fault.
-        var stale = await voice.FindStaleSubscriptionsAsync(Room(callId), body.Tracks, ct);
-        if (stale.Count > 0)
-        {
-            logger.LogInformation(
-                "Rejecting stale subscribe for user {UserId}: {Tracks} no longer published",
-                UserId, string.Join(", ", stale));
-            return Conflict(new { error = "staleSubscription", tracks = stale, action = "refetchSnapshot" });
-        }
+        if (audio.Count > 0)
+            await voice.RecordPublishAsync(Room(callId), UserId, identity, ct);
 
-        // The plan, consulted once for both of the things it decides: whether this caller is
-        // pulling something its subscription set does not include, and which simulcast layer each
-        // track it may pull should be served at.
-        var decision = await voice.PrepareSubscribeAsync(Room(callId), UserId, body.Tracks, ct);
-        if (decision.Unplanned.Count > 0)
-        {
-            logger.LogInformation(
-                "Refusing unplanned subscribe for user {UserId}: {Tracks} are not in their set",
-                UserId, string.Join(", ", decision.Unplanned));
-            return Conflict(new
-            {
-                error = "staleSubscription",
-                reason = "unplannedSubscription",
-                tracks = decision.Unplanned,
-                action = "refetchSnapshot",
-            });
-        }
+        if (video.Count > 0)
+            await voice.RecordTracksAsync(
+                Room(callId), UserId, identity, video, publish?.MaxLayer, ct);
 
-        var request = new VoiceNegotiateRequest(body.SessionDescription, decision.Tracks);
-        VoiceNegotiateResponse result;
-        try
+        var result = new
         {
-            result = body.Tracks.All(t => t.Direction == VoiceTrackDirection.Subscribe)
-                ? await media.SubscribeAsync(body.MediaSessionId, request, ct)
-                : await media.PublishAsync(body.MediaSessionId, request, ct);
-        }
-        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.TrackNotFound)
-        {
-            // The roster said this track exists - it passed the pre-check above - and the SFU says
-            // it does not.
-            var blamed = VoiceRoomService.AttributableSubscribes(body.Tracks);
-            var missing = await voice.RecordTracksMissingAsync(Room(callId), blamed, ct);
-            logger.LogInformation(
-                "Subscribe found media the roster still advertised for user {UserId}: {Detail}. "
-                + "Pruned [{Tracks}]; room is now v{Version}",
-                UserId, ex.Detail, string.Join(", ", blamed), missing?.Version);
-            return Conflict(new { error = "staleSubscription", action = "refetchSnapshot" });
-        }
-        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)
-        {
-            // The caller's PeerConnection is closed or never connected, so this session id is spent.
-            logger.LogInformation(
-                "Session {MediaSessionId} has no live transport for user {UserId} in call {CallId} "
-                + "- asking them to recreate it: {Detail}",
-                body.MediaSessionId, UserId, callId, ex.Detail);
-            return SessionGone();
-        }
-        catch (VoiceMediaException ex)
-        {
-            logger.LogError(ex,
-                "Negotiate failed for user {UserId} in call {CallId} on session {MediaSessionId}",
-                UserId, callId, body.MediaSessionId);
-            return StatusCode(502, new { operation = ex.Operation, error = ex.Detail });
-        }
-
-        if (audioTrack is not null)
-            await voice.RecordPublishAsync(Room(callId), UserId, body.MediaSessionId, ct);
-
-        if (otherPublishes.Count > 0)
-            await voice.RecordTracksAsync(Room(callId), UserId, body.MediaSessionId,
-                otherPublishes.Select(t => t.TrackName!).ToList(), publish?.MaxLayer, ct);
+            identity,
+            rung = publish?.Rung,
+            height = publish?.Height,
+            framerate = publish?.Framerate,
+            maxLayer = publish?.MaxLayer?.ToString(),
+        };
 
         return degradations.Count == 0
             ? Ok(result)
             : Ok(EntitlementResponses.WithDegradations(result, degradations));
+    }
+
+    /// <summary>
+    /// Re-applies the video ceiling to a publisher who changed what they are sending without
+    /// republishing.
+    /// </summary>
+    [HttpPut("video")]
+    public async Task<IActionResult> DeclareVideo(
+        string callId, [FromBody] VoiceVideoIntent body, CancellationToken ct)
+    {
+        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
+
+        var revision = await voice.ReviseVideoLayerAsync(
+            Room(callId), UserId, VoiceVideoIntent.RequestOf(body), ct);
+
+        if (revision is { Changed: true, MaxLayer: not null })
+            logger.LogInformation(
+                "Video ceiling re-applied for user {UserId} in call {CallId}: capped at layer {Layer}",
+                UserId, callId, revision.MaxLayer);
+
+        return Ok(new { changed = revision.Changed, maxLayer = revision.MaxLayer?.ToString() });
+    }
+
+    /// <summary>Records that the caller has stopped publishing tracks, so peers drop them rather than
+    /// waiting on media that has ended.</summary>
+    [HttpPost("unpublish")]
+    public async Task<IActionResult> Unpublish(
+        string callId, [FromBody] CallUnpublishBody body, CancellationToken ct)
+    {
+        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
+
+        await voice.RecordTracksClosedAsync(Room(callId), UserId, body.TrackNames, ct);
+        return NoContent();
     }
 
     /// <summary>
@@ -313,59 +309,42 @@ public class CallVoiceMediaController(
         });
     }
 
-    /// <summary>
-    /// Relays a renegotiation offer, after re-applying the video ceiling to whatever the caller now
-    /// says they are sending.
-    /// </summary>
-    [HttpPut("negotiate")]
-    public async Task<IActionResult> Renegotiate(string callId, [FromBody] RenegotiateBody body, CancellationToken ct)
+    /// <summary>What this participant may send.</summary>
+    private async Task<VoiceMediaRights> ResolveRightsAsync(string callId, CancellationToken ct)
     {
-        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
-        if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
+        var decision = await voice.EvaluateVideoPublishAsync(
+            Room(callId), UserId, VoiceVideoRequest.Best, ct);
 
-        var revision = await voice.ReviseVideoLayerAsync(
-            Room(callId), UserId, VoiceVideoIntent.RequestOf(body.Video), ct);
+        return decision.VideoAllowed ? VoiceMediaRights.Full : VoiceMediaRights.AudioOnly;
+    }
 
-        // The one thing this server can see of a publisher working around their rung: a size
-        // declared at publish time and a larger one declared now.
-        if (revision is { Changed: true, MaxLayer: not null })
-            logger.LogInformation(
-                "Video ceiling re-applied on renegotiation for user {UserId} in call {CallId}: capped "
-                + "at layer {Layer}", UserId, callId, revision.MaxLayer);
-
+    private async Task TryRevokeVideoAsync(string callId, string identity, CancellationToken ct)
+    {
         try
         {
-            var sdp = await media.RenegotiateAsync(body.MediaSessionId, body.SessionDescription, ct);
-            return Ok(new { sessionDescription = sdp });
-        }
-        catch (VoiceMediaException ex) when (ex.Failure == VoiceMediaFailure.SessionGone)
-        {
-            logger.LogInformation(
-                "Renegotiate on spent session {MediaSessionId} for user {UserId} in call {CallId}: {Detail}",
-                body.MediaSessionId, UserId, callId, ex.Detail);
-            return SessionGone();
+            await sfu.UpdateRightsAsync(Room(callId), identity, VoiceMediaRights.AudioOnly, ct);
         }
         catch (VoiceMediaException ex)
         {
-            logger.LogError(ex, "Renegotiate failed for user {UserId} in call {CallId}", UserId, callId);
-            return StatusCode(502, new { operation = ex.Operation, error = ex.Detail });
+            logger.LogWarning(ex,
+                "Could not narrow {Identity}'s publish rights in call {CallId} after refusing their "
+                + "video", identity, callId);
         }
     }
 
-    [HttpPost("tracks/close")]
-    public async Task<IActionResult> CloseTracks(string callId, [FromBody] CloseTracksBody body, CancellationToken ct)
+    /// <summary>The connection payload.</summary>
+    private static object Describe(VoiceConnection connection, VoiceMediaRights rights) => new
     {
-        // Ownership is the load-bearing check here: closing tracks is a hard teardown, so without it
-        // a co-participant could silence any other participant on demand.
-        if (!await IsConnectedParticipantAsync(callId)) return Forbid();
-        if (!await OwnsSessionAsync(body.MediaSessionId, ct)) return Forbid();
-
-        await media.CloseTracksAsync(body.MediaSessionId, body.TrackNames, ct);
-
-        await voice.RecordTracksClosedAsync(Room(callId), UserId, body.TrackNames, ct);
-
-        return NoContent();
-    }
+        backend = connection.Backend,
+        url = connection.Url,
+        token = connection.Token,
+        room = connection.Room,
+        identity = connection.Identity,
+        mediaSessionId = connection.Identity,
+        expiresAt = connection.ExpiresAt,
+        canPublishAudio = rights.MayPublishAudio,
+        canPublishVideo = rights.MayPublishVideo,
+    };
 
     private Task<Call?> LoadCall(string callId) => callStore.LoadAsync<Call>(Call.GetCacheId(callId));
 }

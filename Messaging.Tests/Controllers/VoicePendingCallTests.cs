@@ -38,10 +38,8 @@ public class VoicePendingCallTests
         });
         var callStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
-        // IceServerService is never reached by GetPendingCall - it is only touched by the
-        // ice-servers endpoint, and constructing one drags in Cloudflare credentials.
         _controller = new VoiceController(
-            null!, bus, _cache, callStore,
+            bus, _cache, callStore,
             new DeviceIdResolver(bus, _cache, NullLogger<DeviceIdResolver>.Instance),
             // GetPendingCall never consults the DM policy - only POST /call does.
             TestPrivacyServices.Build(bus).Policy,

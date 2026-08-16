@@ -9,7 +9,6 @@ using Echo.Entitlements.Wire;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using Echo.Voice.Testing;
 using Echo.Voice.Tracks;
 using Echo.Voice.Transport;
@@ -31,7 +30,6 @@ public class CallVoicePublishEntitlementTests
 {
     private const string CallId = "call-1";
     private const string UserId = "user-1";
-    private const string SessionId = "cf-local-session";
 
     private FakeDistributedCache _cache = null!;
     private FakeMessageBus _bus = null!;
@@ -62,7 +60,6 @@ public class CallVoicePublishEntitlementTests
 
         await _cache.SetAsync(
             Call.GetCacheId(CallId), Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
-        await _cache.SetAsync($"voice:session-owner:{SessionId}", Encoding.UTF8.GetBytes(UserId), new());
 
         await VoiceTestHarness.SeedRoomAsync(_cache, new VoiceRoom
         {
@@ -77,10 +74,9 @@ public class CallVoicePublishEntitlementTests
         var locks = new FakeDistributedLockService();
 
         return new CallVoiceMediaController(
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _cache,
+            new FakeVoiceSfu(), _cache,
             new LockedJsonCacheStore(locks, _cache), _bus,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
-            new SfuSessionOwnership(_cache),
             VoiceTestHarness.ServiceFor(
                 _cache, locks, new FakeMessagingHubContext(), entitlements, ceilings),
             VoiceTestHarness.StoreFor(_cache, locks),
@@ -93,16 +89,10 @@ public class CallVoicePublishEntitlementTests
         };
     }
 
-    private static NegotiateBody Camera(VoiceVideoIntent? video = null) => new(
-        SessionId,
-        new VoiceSessionDescription("offer", "v=0"),
-        [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "camera")],
-        video);
+    private static CallPublishBody Camera(VoiceVideoIntent? video = null) =>
+        new(["camera"], video);
 
-    private static NegotiateBody Microphone() => new(
-        SessionId,
-        new VoiceSessionDescription("offer", "v=0"),
-        [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: TrackNaming.Audio)]);
+    private static CallPublishBody Microphone() => new([TrackNaming.Audio]);
 
     /// <summary>A box whose operator has decided it carries no video at all.</summary>
     private static OperatorCeilings NoVideo() => OperatorCeilings.Parse(
@@ -115,7 +105,7 @@ public class CallVoicePublishEntitlementTests
     public async Task A_video_publish_with_no_rung_left_is_refused_with_the_denial_body()
     {
         var result = await ControllerFor(ceilings: NoVideo())
-            .Negotiate(CallId, Camera(), CancellationToken.None);
+            .Publish(CallId, Camera(), CancellationToken.None);
 
         var denial = (result as ObjectResult)?.Value as EntitlementDenialDto;
 
@@ -144,16 +134,10 @@ public class CallVoicePublishEntitlementTests
     [Test]
     public async Task A_mixed_body_that_would_be_refused_is_refused_whole()
     {
-        var mixed = new NegotiateBody(
-            SessionId,
-            new VoiceSessionDescription("offer", "v=0"),
-            [
-                new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: TrackNaming.Audio),
-                new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "1", TrackName: "camera"),
-            ]);
+        var mixed = new CallPublishBody([TrackNaming.Audio, "camera"]);
 
         var result = await ControllerFor(ceilings: NoVideo())
-            .Negotiate(CallId, mixed, CancellationToken.None);
+            .Publish(CallId, mixed, CancellationToken.None);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Call(CallId));
 
@@ -161,7 +145,7 @@ public class CallVoicePublishEntitlementTests
         {
             Assert.That((result as ObjectResult)?.StatusCode, Is.EqualTo(403));
             Assert.That(room!.Find(UserId)!.PublishState, Is.EqualTo(VoicePublishState.Joined),
-                "nothing in the offer was accepted, so nothing about it is recorded");
+                "nothing in the declaration was accepted, so nothing about it is recorded");
         });
     }
 
@@ -178,7 +162,7 @@ public class CallVoicePublishEntitlementTests
         ]);
 
         var result = await ControllerFor(resolver)
-            .Negotiate(CallId, Camera(new VoiceVideoIntent(1080, 60)), CancellationToken.None);
+            .Publish(CallId, Camera(new VoiceVideoIntent(1080, 60)), CancellationToken.None);
 
         var body = (result as OkObjectResult)?.Value as JsonNode;
         var degradations = body?["degradations"]?.AsArray();
@@ -187,8 +171,8 @@ public class CallVoicePublishEntitlementTests
         {
             Assert.That(result, Is.InstanceOf<OkObjectResult>(),
                 "a degradation is a 200; an error status makes every existing client path roll back");
-            Assert.That(body?["sessionDescription"], Is.Not.Null,
-                "and the body the client already parses is still all of it");
+            Assert.That(body?["maxLayer"], Is.Not.Null,
+                "and the reply still carries the layer cap the roster now holds");
             Assert.That(degradations, Has.Count.EqualTo(1));
             Assert.That((string?)degradations![0]!["key"],
                 Is.EqualTo(EntitlementKeys.VoiceVideoCeiling.Name));
@@ -211,7 +195,7 @@ public class CallVoicePublishEntitlementTests
     public async Task An_audio_only_publish_is_never_measured_against_the_video_ceiling()
     {
         var result = await ControllerFor(ceilings: NoVideo())
-            .Negotiate(CallId, Microphone(), CancellationToken.None);
+            .Publish(CallId, Microphone(), CancellationToken.None);
 
         var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Call(CallId));
 
@@ -227,12 +211,14 @@ public class CallVoicePublishEntitlementTests
     [Test]
     public async Task A_publish_with_nothing_to_bind_it_answers_exactly_as_it_always_did()
     {
-        var result = await ControllerFor().Negotiate(CallId, Camera(), CancellationToken.None);
+        var result = await ControllerFor().Publish(CallId, Camera(), CancellationToken.None);
 
         Assert.Multiple(() =>
         {
-            Assert.That((result as OkObjectResult)?.Value, Is.InstanceOf<VoiceNegotiateResponse>(),
-                "absent and empty mean the same thing to a client, and absent is the v1 reply");
+            Assert.That(result, Is.InstanceOf<OkObjectResult>());
+            Assert.That((result as OkObjectResult)?.Value, Is.Not.InstanceOf<JsonNode>(),
+                "no degradations block at all - absent and empty mean the same thing to a client, "
+                + "and absent is what an unreduced reply looks like");
         });
     }
 

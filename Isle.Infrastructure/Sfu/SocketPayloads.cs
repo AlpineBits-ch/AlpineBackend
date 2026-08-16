@@ -2,9 +2,9 @@ namespace Isle.Infrastructure.Sfu;
 
 // Wire contracts pushed to the game client.
 
-// CfSessionId + TrackName together locate the peer's audio as a Cloudflare "remote"
-// track, which the client pulls via tracks/new (location: "remote").
-public record SubscribeMutualPayload(string TargetUserId, string CfSessionId, string TrackName);
+// A peer became audible.
+public record SubscribeMutualPayload(
+    string TargetUserId, string Identity, string TrackName, string TrackSid);
 
 // A single peer (by userId) has left your earshot - tear down just their track/spatial node.
 public record PeerLeftPayload(string UserId);

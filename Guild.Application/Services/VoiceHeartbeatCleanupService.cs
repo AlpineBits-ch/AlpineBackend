@@ -2,6 +2,7 @@ using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Voice.Rooms;
+using Echo.Voice.Transport;
 
 using Guild.Application.Models;
 using Guild.Contracts.Bus.Events;
@@ -32,6 +33,8 @@ public class VoiceHeartbeatCleanupService(
     IHubContext<EchoRealtimeHub> hub,
     IServiceScopeFactory scopeFactory,
     VoiceSubscriptionOptions options,
+    VoiceRoomService voice,
+    IVoiceSfu sfu,
     ILogger<VoiceHeartbeatCleanupService> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
@@ -39,6 +42,33 @@ public class VoiceHeartbeatCleanupService(
     {
         SlidingExpiration = TimeSpan.FromHours(4)
     };
+
+    /// <summary>
+    /// Asks the SFU what it actually has and drops any share the roster still advertises that it
+    /// does not.
+    /// </summary>
+    private async Task PruneSharesTheSfuNoLongerHasAsync(
+        VoiceRoomKey key, VoiceRoom room, CancellationToken ct)
+    {
+        if (!sfu.IsConfigured) return;
+        if (!room.Participants.Any(p => p.ActiveScreenShares.Count > 0)) return;
+
+        try
+        {
+            var live = await sfu.ListParticipantsAsync(key, ct);
+            var pruned = await voice.PruneMissingSharesAsync(key, live, ct);
+
+            if (pruned.Count > 0)
+                logger.LogInformation(
+                    "Pruned {Count} share track(s) from {Room} that the SFU no longer has: {Tracks}",
+                    pruned.Count, key, string.Join(", ", pruned));
+        }
+        catch (VoiceMediaException ex)
+        {
+            logger.LogWarning(ex,
+                "Could not check {Room}'s shares against the SFU; the roster is left alone", key);
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -99,6 +129,8 @@ public class VoiceHeartbeatCleanupService(
                 if (heartbeat is null)
                     stale.Add(participant);
             }
+
+            await PruneSharesTheSfuNoLongerHasAsync(roomKey, loaded, ct);
 
             if (stale.Count == 0)
             {

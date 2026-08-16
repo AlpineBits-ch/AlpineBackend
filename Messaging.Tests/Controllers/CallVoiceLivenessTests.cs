@@ -2,7 +2,6 @@ using System.Text.Json;
 using Echo.Realtime.Caching;
 using Echo.Realtime.Devices;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using Echo.Voice.Testing;
 using Echo.Voice.Transport;
 using Identity.Contracts.Bus.Request;
@@ -72,10 +71,9 @@ public class CallVoiceLivenessTests
         var locks = new FakeDistributedLockService();
 
         return new CallVoiceMediaController(
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), _cache,
+            new FakeVoiceSfu(), _cache,
             new LockedJsonCacheStore(locks, _cache), _bus,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),
-            new SfuSessionOwnership(_cache),
             VoiceTestHarness.ServiceFor(_cache, locks, _hub),
             VoiceTestHarness.StoreFor(_cache, locks),
             NullLogger<CallVoiceMediaController>.Instance)

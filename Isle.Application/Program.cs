@@ -1,6 +1,6 @@
 using Echo.Auth;
 using AppEnvironment;
-using Echo.Realtime.Sfu;
+using Echo.Realtime.LiveKit;
 using Isle.Api.Extensions;
 using Isle.Infrastructure;
 using Isle.Infrastructure.Persistence;
@@ -50,8 +50,8 @@ builder.Services.AddStackExchangeRedisCache(config =>
 
 builder.Services.AddInfrastructure();
 
-// Cloudflare Calls SFU signalling relay for proximity voice.
-builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
+// The LiveKit control plane for proximity voice.
+builder.Services.AddLiveKit();
 
 builder.Services.AddIsleApplication();
 

@@ -6,7 +6,7 @@ using Echo.Realtime.Devices;
 using Echo.Entitlements;
 using Echo.Entitlements.Caching;
 using Echo.Entitlements.Sources;
-using Echo.Realtime.Sfu;
+using Echo.Realtime.LiveKit;
 using Echo.Voice;
 using AppEnvironment;
 using StackExchange.Redis;
@@ -106,12 +106,8 @@ builder.Services.AddWolverineHttp()
         options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 
     });
-builder.Services.AddHttpClient("CloudflareRtc", client =>
-{
-    client.BaseAddress = new Uri("https://rtc.live.cloudflare.com/");
-    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", Env.CloudflareConfig.ApiToken);
-});
-builder.Services.AddCloudflareCalls(Env.CloudflareConfig.AppId, Env.CloudflareConfig.ApiToken);
+// The LiveKit control plane: token minting, the room registry and the reconcile sweep.
+builder.Services.AddLiveKit();
 
 // Web Push, for the browser client: a named HTTP client plus the sender that resolves it.
 builder.Services.AddWebPush();
@@ -124,7 +120,6 @@ builder.Services.AddScoped<MlsGroupService>();
 // The §I.1 rollout knobs, read from configuration rather than baked into the binary, so the
 // certificate-enforcement phase is actually flippable and two instances cannot disagree about it.
 Domain.MlsPolicy.Bind(builder.Configuration);
-builder.Services.AddScoped<IceServerService>();
 
 // ── Privacy (docs/specs/privacy.md, T0-2/T0-3 and T2-18/20/22/23) ──────────────
 // Both caches are Redis-backed rather than in-memory on purpose: they are read on every DM send

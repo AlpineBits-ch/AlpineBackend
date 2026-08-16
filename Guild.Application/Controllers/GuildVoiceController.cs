@@ -29,7 +29,6 @@ public class GuildVoiceController(
     GuildPermissionService permissions,
     IHubContext<EchoRealtimeHub> hub,
     IDistributedCache cache,
-    IVoiceMediaTransport media,
     MicroserviceContext db,
     DeviceIdResolver devices,
     GuildVoiceActivityStore activity,
@@ -133,20 +132,16 @@ public class GuildVoiceController(
                 GuildVoiceRemedies.InstanceSellsUpgrades,
                 await GuildVoiceRemedies.ActorCanRemedyAsync(permissions, UserId, guildId, admission));
 
-    /// <summary>Same user, same channel, a different device just joined - transfer the connection
-    /// instead of running two. Tells exactly the old device to disconnect, and best-effort closes
-    /// its stale Cloudflare session server-side too.</summary>
+    /// <summary>
+    /// Same user, same channel, a different device just joined - transfer the connection instead of
+    /// running two.
+    /// </summary>
     private async Task TakeoverDeviceAsync(string guildId, string channelId, string userId, string oldDeviceId, string newDeviceId, CancellationToken ct)
     {
-        string? oldMediaSessionId = null;
-        string? oldAudioTrackName = null;
-
         await rooms.MutateExistingAsync(Room(channelId), r =>
         {
             var participant = r.Find(userId);
             if (participant is null) return;
-            oldMediaSessionId = participant.MediaSessionId;
-            oldAudioTrackName = participant.AudioTrackName;
             participant.DeviceId = newDeviceId;
             participant.MediaSessionId = null;
             participant.AudioTrackName = null;
@@ -154,16 +149,6 @@ public class GuildVoiceController(
 
         await hub.Clients.Group(EchoRealtimeHub.DeviceGroup(userId, oldDeviceId))
             .SendAsync("guild.voice.KickedByOtherDevice", new { channelId, guildId }, ct);
-
-        if (oldMediaSessionId is null || oldAudioTrackName is null) return;
-        try
-        {
-            await media.CloseTracksAsync(oldMediaSessionId, [oldAudioTrackName], ct);
-        }
-        catch (VoiceMediaException)
-        {
-            // Best-effort - the old device still tears itself down client-side from the kick above.
-        }
     }
 
     [HttpPost("leave")]

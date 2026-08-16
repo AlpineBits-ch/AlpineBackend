@@ -12,15 +12,9 @@ public sealed record VoiceSubscriptionOptions
     public bool Enabled { get; init; } = true;
 
     /// <summary>
-    /// Whether the plan is binding rather than advisory, and with it whether the usage meter is
-    /// allowed to bill against it.
+    /// Whether the usage meter is allowed to bill against the plan rather than against all-to-all.
     /// </summary>
     public bool Enforce { get; init; } = false;
-
-    /// <summary>
-    /// Whether the chosen simulcast layer is actually sent to the SFU on a subscribe.
-    /// </summary>
-    public bool SendPreferredRid { get; init; } = true;
 
     /// <summary>Room size at and below which everyone subscribes to everyone, unchanged.</summary>
     public int ActiveSpeakerThreshold { get; init; } = 10;
@@ -94,7 +88,6 @@ public sealed record VoiceSubscriptionOptions
         // operator who reaches for a switch during an incident must not find that the name in the
         // document does nothing. The explicit one wins where both are set.
         Enforce = Flag("VOICE_ENFORCE_SUBSCRIPTION_PLAN", Flag("VOICE_ENFORCE", Default.Enforce)),
-        SendPreferredRid = Flag("VOICE_PREFERRED_RID", Default.SendPreferredRid),
         ActiveSpeakerThreshold = Number("VOICE_ACTIVE_SPEAKER_THRESHOLD", Default.ActiveSpeakerThreshold),
         ActiveSpeakerCount = Number("VOICE_ACTIVE_SPEAKER_COUNT", Default.ActiveSpeakerCount),
         MaxActiveSpeakers = Number("VOICE_MAX_ACTIVE_SPEAKERS", Default.MaxActiveSpeakers),

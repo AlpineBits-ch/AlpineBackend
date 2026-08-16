@@ -1,10 +1,8 @@
 using Echo.Voice.Transport;
 using Echo.Voice.Testing;
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using System.Text.Json;
 using Echo.Realtime.Caching;
-using Echo.Realtime.Sfu;
 using Guild.Application.Controllers;
 using Guild.Application.Models;
 using Guild.Application.Services;
@@ -46,10 +44,9 @@ public class GuildVoiceParticipantAnnouncementTests
 
         var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _controller = new GuildVoiceMediaController(
-            new CloudflareMediaTransport(StubCloudflareHttp.CreateService()), permissions,
+            new FakeVoiceSfu(), permissions,
             NullLogger<GuildVoiceMediaController>.Instance, _cache,
-            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub),
-            new SfuSessionOwnership(_cache))
+            VoiceTestHarness.ServiceFor(_cache, new FakeDistributedLockService(), _hub))
         {
             ControllerContext = new ControllerContext
             {
@@ -94,10 +91,6 @@ public class GuildVoiceParticipantAnnouncementTests
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         });
         await _context.SaveChangesAsync();
-
-        // Every CF action must act as a session the caller minted - CreateSession records this, and
-        // these tests call TracksNew directly.
-        _cache.SetEntry("voice:session-owner:cf-publisher", PublisherId);
     }
 
     /// <summary>
@@ -125,17 +118,11 @@ public class GuildVoiceParticipantAnnouncementTests
         _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(state));
     }
 
-    private Task<IActionResult> PublishAudioAsync() => _controller.Negotiate(
-        GuildId, ChannelId,
-        new GuildNegotiateBody(
-            "cf-publisher",
-            new VoiceSessionDescription("offer", "v=0"),
-            [new VoiceTrackRef(VoiceTrackDirection.Publish, Mid: "0", TrackName: "audio")]),
-        CancellationToken.None);
+    private Task<IActionResult> PublishAudioAsync() => _controller.Publish(
+        GuildId, ChannelId, new GuildPublishBody(["audio"]), CancellationToken.None);
 
     /// <summary>Every ParticipantJoined payload emitted, as JSON (the payloads are anonymous types
-    /// declared in another assembly, so serialising is the only way to inspect them - same approach
-    /// as <see cref="GuildCloudflareControllerTests"/>).</summary>
+    /// declared in another assembly, so serialising is the only way to inspect them).</summary>
     private List<string> ParticipantJoinedPayloads() =>
         ((FakeHubClients)_hub.Clients).SentMessages
             .Where(m => m.Method == "guild.voice.ParticipantJoined")
@@ -145,7 +132,7 @@ public class GuildVoiceParticipantAnnouncementTests
     // ══════════════════════════════════════════════════════════════════════════
 
     [Test]
-    public async Task CreateSession_LeavesTheParticipantUnpublished()
+    public async Task CreatingAConnection_LeavesTheParticipantUnpublished()
     {
         // The original defect started here.
         _cache.SetEntry(VoiceRoomKey.Channel(ChannelId).CacheKey, JsonSerializer.Serialize(
@@ -155,7 +142,7 @@ public class GuildVoiceParticipantAnnouncementTests
                 Participants = [new VoiceParticipant { UserId = PublisherId }],
             }));
 
-        await _controller.CreateSession(GuildId, ChannelId, CancellationToken.None);
+        await _controller.CreateConnection(GuildId, ChannelId, CancellationToken.None);
 
         var me = (await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId)))!
             .Participants.Single();
@@ -175,8 +162,8 @@ public class GuildVoiceParticipantAnnouncementTests
 
         await PublishAudioAsync();
 
-        // Announcing the mid-joiner here hands the publisher a (session, trackName) pair that
-        // Cloudflare has nothing behind.
+        // Announcing the mid-joiner here hands the publisher a (session, trackName) pair the SFU
+        // has nothing behind.
         Assert.That(ParticipantJoinedPayloads().Where(p => p.Contains(MidJoinerId)), Is.Empty,
             "a participant with no AudioTrackName has published nothing and must not be announced "
             + "as pullable; they announce themselves when their own tracks/new lands");

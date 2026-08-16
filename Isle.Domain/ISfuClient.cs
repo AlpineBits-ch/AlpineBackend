@@ -6,13 +6,13 @@ public interface ISfuClient
 {
     Task<string?> GetActiveTrackId(string userId);
 
+    /// <summary>Wires two players to hear each other.</summary>
     Task SubscribeMutual(string userIdA, string userIdB);
 
-    /// <summary>Tells both peers to drop each other - one walked out of the other's audible block, or left voice.</summary>
+    /// <summary>Tells both peers to drop each other - one walked out of the other's audible block, or
+    /// left voice. Also unsubscribes them at the SFU, so proximity is enforced by more than the
+    /// client's cooperation.</summary>
     Task UnsubscribePair(string userIdA, string userIdB);
-
-    /// <summary>Orders one client to re-run its Cloudflare session/track publish.</summary>
-    Task RequestRepublish(string userId);
 
     /// <summary>Pushes a peer's world position + facing + velocity to everyone within earshot (their 3x3 voice block).</summary>
     Task BroadcastPosition(string userId, IReadOnlyList<string> recipients, float x, float y, float z, float yaw, float vx, float vy, float vz, long timestampMs);

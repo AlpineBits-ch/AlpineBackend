@@ -1,5 +1,4 @@
 using Echo.Voice.Rooms;
-using Echo.Voice.Sessions;
 using Echo.Voice.Transport;
 using Echo.Voice.Usage;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,8 +15,9 @@ public static class VoiceServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddVoiceRooms(this IServiceCollection services)
     {
-        services.AddSingleton<SfuSessionOwnership>();
-        services.AddScoped<IVoiceMediaTransport, CloudflareMediaTransport>();
+        // Singleton rather than scoped, unlike the Cloudflare transport it replaces: there is no
+        // per-request state left in it now that negotiation belongs to the client SDK.
+        services.AddSingleton<IVoiceSfu, LiveKitVoiceSfu>();
         services.AddSingleton<VoiceRoomStore>();
         services.AddSingleton<VoiceAnnouncer>();
 

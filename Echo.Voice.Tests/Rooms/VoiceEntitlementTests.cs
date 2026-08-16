@@ -396,16 +396,13 @@ public class VoiceEntitlementTests
         await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
             TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
 
-        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
-            new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
-        ]);
+        var layer = await LayerFor(service, "u02", "camera");
 
         Assert.Multiple(() =>
         {
             Assert.That(decision.VideoAllowed, Is.True, "the clamp is a 200, not a refusal");
             Assert.That(decision.MaxLayer, Is.EqualTo(VoiceVideoLayer.Medium));
-            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.Medium),
+            Assert.That(layer, Is.EqualTo(VoiceVideoLayers.Medium),
                 "a full-size tile would ask for the top layer, and the ceiling is what it may not "
                 + "have");
         });
@@ -427,15 +424,12 @@ public class VoiceEntitlementTests
         await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
             TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
 
-        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
-            new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
-        ]);
+        var layer = await LayerFor(service, "u02", "camera");
 
         Assert.Multiple(() =>
         {
             Assert.That(decision.MaxLayer, Is.Null);
-            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.High));
+            Assert.That(layer, Is.EqualTo(VoiceVideoLayers.High));
         });
     }
 
@@ -457,16 +451,13 @@ public class VoiceEntitlementTests
         await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
             TileHeights: new Dictionary<string, int> { ["u01"] = 1080 }));
 
-        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
-            new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
-        ]);
+        var layer = await LayerFor(service, "u02", "camera");
 
         Assert.Multiple(() =>
         {
             Assert.That(decision.MaxLayer, Is.Null,
                 "an unstated request is not a claim this server can bind anything to");
-            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.High));
+            Assert.That(layer, Is.EqualTo(VoiceVideoLayers.High));
         });
     }
 
@@ -486,12 +477,9 @@ public class VoiceEntitlementTests
         await service.SetSubscriberAsync(_key, "u02", new VoiceSubscriberUpdate(
             TileHeights: new Dictionary<string, int> { ["u01"] = 120 }));
 
-        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
-            new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
-        ]);
+        var layer = await LayerFor(service, "u02", "camera");
 
-        Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.Low));
+        Assert.That(layer, Is.EqualTo(VoiceVideoLayers.Low));
     }
 
     /// <summary>A publisher who re-encodes to obey the clamp gets their full layer back, which is
@@ -540,17 +528,14 @@ public class VoiceEntitlementTests
 
         var revision = await service.ReviseVideoLayerAsync(_key, "u01", new VoiceVideoRequest(1080, 60));
 
-        var subscribe = await service.PrepareSubscribeAsync(_key, "u02", [
-            new VoiceTrackRef(
-                VoiceTrackDirection.Subscribe, TrackName: "camera", MediaSessionId: "cf-u01"),
-        ]);
+        var layer = await LayerFor(service, "u02", "camera");
 
         Assert.Multiple(() =>
         {
             Assert.That(honest.MaxLayer, Is.Null, "the publish itself was inside the rung");
             Assert.That(revision.Changed, Is.True);
             Assert.That(revision.MaxLayer, Is.EqualTo(VoiceVideoLayer.Medium));
-            Assert.That(subscribe.Tracks.Single().Layer, Is.EqualTo(VoiceVideoLayers.Medium),
+            Assert.That(layer, Is.EqualTo(VoiceVideoLayers.Medium),
                 "a cap computed once at publish time is one a second negotiation walks past");
         });
     }
@@ -881,6 +866,14 @@ public class VoiceEntitlementTests
             options is null ? null : Subscriptions(options),
             new EntitlementResolver([new ScriptedEntitlements(guild, user)]),
             ceilings);
+
+    /// <summary>The layer one subscriber is told to serve a track at.</summary>
+    private static async Task<string?> LayerFor(
+        VoiceRoomService service, string subscriber, string trackName)
+    {
+        var plan = await service.GetSubscriptionsAsync(VoiceRoomKey.Channel("channel-1"));
+        return plan.For(subscriber).Tracks.FirstOrDefault(t => t.TrackName == trackName)?.Layer;
+    }
 
     /// <summary>Joins <paramref name="count"/> people in order.</summary>
     private async Task JoinAsync(VoiceRoomService service, int count)

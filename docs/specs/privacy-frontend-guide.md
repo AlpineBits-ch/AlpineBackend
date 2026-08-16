@@ -367,8 +367,14 @@ Returns `403` when the user has `allowPositionalVoiceCapture: false`:
 { "code": "positional_voice_consent" }
 ```
 
-Also enforced on `/api/v1/isle/voice/cf/session` and `/api/v1/isle/voice/cf/tracks/new` (the latter
-only when publishing a local audio track - listening is unaffected).
+Also enforced on `/api/v1/isle/voice/connection`, which is the one route that hands out a way into
+the proximity room. It replaced the four `/voice/cf/*` signalling routes when voice moved to LiveKit,
+and the consent check moved with it - re-checked there rather than inferred from the registry entry,
+because a registration carries a 2h TTL and survives socket drops, so a revocation landing between
+join and connection would otherwise be honoured only on the next join.
+
+The token that route mints grants the microphone source and nothing else, so consent now binds at the
+SFU rather than only at the moment of asking.
 
 **Revocation is immediate.** Turning the setting off mid-session tears the session down server-side:
 the user is unregistered and their published track dropped. Handle a live session ending without a

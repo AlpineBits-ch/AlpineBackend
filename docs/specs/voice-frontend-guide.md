@@ -470,9 +470,10 @@ liveness to 75 seconds, and reconnecting restores it before your next heartbeat 
 window is sized to outlast the reconnect ladder of the clients we ship, so a client that is still
 retrying is never swept while it retries. Two things follow for the client:
 
-- Do **not** tear down your PeerConnection or your media session because the hub connection
-  dropped. They are independent: media rides its own transport, and rebuilding it on every blip is
-  how a healthy session ends up spending its session id (see §8, `sessionGone`).
+- Do **not** tear down your SFU connection because the hub connection dropped. They are entirely
+  independent transports - the hub carries roster events, the SFU carries media - and the SDK has
+  its own reconnect for its own socket. Rebuilding media on a hub blip drops audio for a fault
+  that was never on the media path.
 - **Do** send a heartbeat as soon as you reconnect, rather than waiting for the next tick of your
   30-second timer. That is also when you find out whether anything changed while you were away.
 

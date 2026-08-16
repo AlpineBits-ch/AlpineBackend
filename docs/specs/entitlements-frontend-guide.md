@@ -28,7 +28,7 @@ treat the "planned" rows as absent-until-present rather than as a reason to desi
 | `version` on the snapshot | Always `0` until Billing owns a per-subject counter. Compare it anyway |
 | §6 usage endpoints | Planned. Owned by the services that do the counting |
 | §8 voice `limits` block | Shipped. It rides every voice snapshot, and `degradations[]` rides the join reply in both room kinds |
-| §8.1 publish enforcement and the `video` field | Shipped. Both room kinds. `degradations[]` on the negotiate reply, `403` for the two refusals |
+| §8.1 publish enforcement and the `video` field | Shipped. Both room kinds. `degradations[]` on the publish reply, `403` for the two refusals. Since the LiveKit move the ceiling is also enforced *before* the fact, in the connection token |
 | §8.2 `video` on the renegotiation | Shipped. Both room kinds. Never refuses and never changes the response body; omitting it leaves your recorded ceiling untouched |
 | §10 guild feature resolution | Shipped, on `GET /guilds/{guildId}` as `featureResolution` and on `GET /guilds/{guildId}/features`. **Not** on the guild list, and not on a nested guild - see §10 |
 | §5.5 `plan` on the snapshot | Shipped, with `currentVersion` beside `version`. Absent on `selfhost`, and on an instance with no plans or no configured default for that kind of subject. On a hosted instance with Billing deployed the plans come from Billing's table, so it is present for everybody |
@@ -498,9 +498,14 @@ would only be refused.
 
 **Both room kinds carry it, and the two joins are different requests.** For a guild channel it is
 `POST /api/v1/guilds/{guildId}/channels/{channelId}/voice/join`, whose body is the room snapshot. For
-a direct call it is `POST /api/v1/voice/calls/{callId}/session`, whose body is
-`{ mediaSessionId, backend }`. In both cases the array is a sibling of the body you already parse and
-is absent whenever nothing was reduced, which is every join on an instance that sells nothing.
+a direct call it is `POST /api/v1/voice/calls/{callId}/connection`, whose body is the connection
+payload. In both cases the array is a sibling of the body you already parse and is absent whenever
+nothing was reduced, which is every join on an instance that sells nothing.
+
+**The connection payload also answers the question pre-emptively.** `canPublishAudio` and
+`canPublishVideo` are what the token actually grants, so a camera button can be disabled from the
+connection reply rather than from a limit you evaluated yourself. Prefer them to any local
+computation: they are the same decision the SFU will enforce.
 
 A call has no guild plan behind it, so the only thing that can reduce a call is an operator ceiling -
 a self-hoster who has capped what their own box will carry. Those carry no `remedy`, because no
@@ -508,21 +513,25 @@ amount of money moves one. Render the sentence, not a button.
 
 ### 8.1 Publishing video: one optional field, and two answers
 
-The negotiate body gains one optional field. Both room kinds, same name, same meaning:
+The publish declaration carries the field. Both room kinds, same name, same meaning:
 
 ```http
-POST https://api.venta.gg/api/v1/guilds/{guildId}/channels/{channelId}/voice/tracks
-POST https://api.venta.gg/api/v1/voice/calls/{callId}/tracks
+POST https://api.venta.gg/api/v1/guilds/{guildId}/channels/{channelId}/voice/publish
+POST https://api.venta.gg/api/v1/voice/calls/{callId}/publish
 ```
 
 ```jsonc
 {
-  "mediaSessionId": "...",
-  "sessionDescription": { "type": "offer", "sdp": "..." },
-  "tracks": [ /* unchanged */ ],
-  "video": { "height": 1080, "framerate": 60 }   // new, optional
+  "trackNames": ["camera"],
+  "video": { "height": 1080, "framerate": 60 }   // optional
 }
 ```
+
+> **You have already published by the time you call this.** The media goes to the SFU through the
+> client SDK; this declares it so the roster, the viewer counts and the meter can see it. So a
+> `403` here does not prevent the publish - it tells you why nobody will receive it, and the
+> enforcement that actually bound happened at connect, in the token's source grants. Stop the
+> local track when you get one.
 
 - **Send it whenever the body publishes a camera or a screen share**, with the size you are actually
   about to encode. It is ignored for an audio-only publish and for a body that only subscribes.
@@ -536,48 +545,50 @@ Two answers, and they are §1 and §4 exactly as everywhere else:
 
 | Situation | Status | Body |
 |---|---|---|
-| Above the granted rung, and a publisher slot is free | `200` | The negotiate response you already parse, plus `degradations[]` carrying `voice.video_ceiling` |
+| Above the granted rung, and a publisher slot is free | `200` | The publish response, plus `degradations[]` carrying `voice.video_ceiling` |
 | Granted rung is `none`, or no publisher slot is free | `403` | The §4 denial, keyed `voice.video_ceiling` or `voice.max_publishers` |
 
 - **The granted rung is on the degradation**, as `granted.rung` (§2, a ladder value). Re-encode to
   that and to `ladders.video_quality`'s entry for it; there is nothing to fetch.
-- **A refusal takes the whole request, audio included.** An SDP offer is answered symmetrically, so
-  the server cannot accept the microphone and drop the camera out of one negotiation. If you offered
-  both and got a `403`, re-offer audio on its own - that request cannot be refused by any of this.
-- **A publish that declared a size above its rung is also capped server-side**, at the simulcast
-  layer the SFU is asked for, until a later negotiation declares a size inside the rung. So ignoring
-  the clamp does not get you the quality you asked for; it gets you a lower layer distributed to
-  everyone. A client that never sends `video` is not capped this way, which is the one thing sending
-  it truthfully buys you.
+- **A refusal takes the whole declaration, audio included.** One declaration gets one answer, and
+  accepting half of it would leave the roster claiming a microphone for somebody the same request
+  just told to stop sharing. If you declared both and got a `403`, declare audio on its own - that
+  request cannot be refused by any of this.
+- **A publish that declared a size above its rung is capped in the plan**, as `maxLayer` on this
+  reply and as `layer` in every viewer's subscription set, until a later declaration comes inside
+  the rung. Note what that is worth and what it is not: under the previous SFU the cap rode the
+  subscribe the server made for each viewer, so it bound whatever the client did. Viewers subscribe
+  themselves now, so the cap is honoured by cooperating clients and is advisory against a patched
+  one. The hard half is the token: a granted rung of `none` removes the camera and screen-share
+  sources outright, which no client can patch around.
 
 ### 8.2 Changing resolution mid-stream
 
-Send `video` on the **renegotiation** too, whenever the renegotiation changes what your video is:
+Declare it whenever you change what your video is **without republishing**:
 
 ```http
-PUT https://api.venta.gg/api/v1/guilds/{guildId}/channels/{channelId}/voice/negotiate
-PUT https://api.venta.gg/api/v1/voice/calls/{callId}/negotiate
+PUT https://api.venta.gg/api/v1/guilds/{guildId}/channels/{channelId}/voice/video
+PUT https://api.venta.gg/api/v1/voice/calls/{callId}/video
 ```
 
 ```jsonc
-{
-  "mediaSessionId": "...",
-  "sessionDescription": { "type": "offer", "sdp": "..." },
-  "video": { "height": 1080, "framerate": 60 }   // new, optional
-}
+{ "height": 1080, "framerate": 60 }
 ```
 
-The server-side cap is computed from your declaration, so a declaration made once at publish time
-stops describing you the moment you change encodings. The rules are the same ones as §8.1, plus:
+The cap is computed from your declaration, so a declaration made once at publish time stops
+describing you the moment you change encodings - and since the renegotiation no longer passes
+through this backend, your declaring it is the only signal there is. The rules are the same ones as
+§8.1, plus:
 
 - **Absent changes nothing.** Whatever the last declaration recorded stays in force - in either
   direction. Omitting the field does not lift a cap, and it does not apply one either.
 - **It moves both ways.** Renegotiating down into your rung lifts the cap on the same call that would
   have applied one, so re-encoding to comply is never punished by having to republish.
-- **There is no new failure.** A renegotiation is how you repair your own connection, so none of this
-  can refuse one: no `403`, no `degradations[]`, no change to the response body. If your declaration
-  is above your rung the effect is on what leaves the room, not on this request.
-- **A renegotiation that does not touch video needs nothing.** An ICE restart, a track close, a
+- **There is no failure.** A re-declaration is information, not a request, so none of this can
+  refuse one: no `403`, no `degradations[]`. If your declaration is above your rung the effect is on
+  what viewers are told to pull, not on this request. The reply is
+  `{ changed, maxLayer }` - `changed` is whether the recorded cap actually moved.
+- **A change that does not touch video needs nothing.** A reconnect, a track close, a
   reconnect - send the body you always sent.
 
 ---

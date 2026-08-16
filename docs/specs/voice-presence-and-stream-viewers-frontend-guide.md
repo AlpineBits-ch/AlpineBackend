@@ -158,7 +158,10 @@ run one implementation with one contract: rooms, a versioned snapshot that is su
 and a heartbeat that repairs drift. Anything that section told you is either restated properly there
 or no longer true - in particular:
 
-- `cfSessionId` is now `mediaSessionId`, and `POST .../cf/tracks/new` is now `POST .../tracks` with
+- `cfSessionId` is now `mediaSessionId`, which since the LiveKit move carries the participant
+  identity rather than a minted session id. `POST .../cf/tracks/new` became `POST .../tracks` and is
+  now gone entirely - the client SDK publishes, and `POST .../voice/publish` declares it. See
+  the voice frontend guide §3 and §12. The line below describes a shape that no longer exists:
   `direction: "publish"` / `"subscribe"`.
 - Announcements *are* now repeatable. The old section's central warning - that a missed
   announcement is lost for good, so a client must never drop one - was true and is not any more.
@@ -176,4 +179,4 @@ What stays here is the part that is genuinely not the room contract: the guild v
 
 Per-viewer stream quality (Auto/720p/480p) is not implemented. It needs simulcast layers from the
 publisher, which is client-side encoder work; the backend piece is a passthrough parameter on the
-negotiate call and can follow once the publisher sends more than one encoding.
+publish declaration and can follow once the publisher sends more than one encoding.

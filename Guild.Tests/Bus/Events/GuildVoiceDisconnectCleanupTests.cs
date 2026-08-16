@@ -105,8 +105,7 @@ public class GuildVoiceDisconnectCleanupTests
         return _handler.Handle(
             new UserConnected(userId, deviceId), _context, _hydrate, _hub,
             PrivacyTestFactory.Blocks(privacyBus, privacyCache),
-            PrivacyTestFactory.Privacy(privacyBus, privacyCache, PrivacyTestFactory.Permissive(userId)),
-            _cache, VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()));
+            PrivacyTestFactory.Privacy(privacyBus, privacyCache, PrivacyTestFactory.Permissive(userId)));
     }
 
     /// <summary>The lifetime the last write to the heartbeat key asked for.</summary>
@@ -282,16 +281,18 @@ public class GuildVoiceDisconnectCleanupTests
     // ══════════════════════════════════════════════════════════════════════════ 3.
 
     [Test]
-    public async Task Reconnect_FromTheDeviceInVoice_RestoresTheFullHeartbeatTtl()
+    public async Task Reconnect_FromTheDeviceInVoice_DoesNotExtendTheGrace()
     {
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
         await HandleDisconnectAsync(UserId, DesktopDevice);
 
         await HandleConnectAsync(UserId, DesktopDevice);
 
-        // Without this, surviving a reconnect depends on the client's next heartbeat landing inside
-        // the window - a coin toss on a 30s timer. The connect is the earlier and stronger signal.
-        Assert.That(HeartbeatTtl(), Is.EqualTo(VoiceReconciler.LivenessTtl));
+        // This used to restore a full LivenessTtl, which is how a force-quit seat outlived the app
+        // that abandoned it: the new process - no voice session, no liveness being posted, no
+        // intention of resuming - handed the seat another 90 seconds just by connecting, and
+        // another on every reconnect after that.
+        Assert.That(HeartbeatTtl(), Is.EqualTo(VoiceReconciler.DisconnectGraceTtl));
     }
 
     [Test]
@@ -304,6 +305,26 @@ public class GuildVoiceDisconnectCleanupTests
 
         // The phone coming online says nothing about the desktop that was talking.
         Assert.That(HeartbeatTtl(), Is.EqualTo(VoiceReconciler.DisconnectGraceTtl));
+    }
+
+    [Test]
+    public async Task Reconnect_AfterTheGraceLapsed_DoesNotResurrectTheSeat()
+    {
+        // The shape of the bug this whole section exists for.
+        SeedVoice(UserId, Participant(UserId, DesktopDevice));
+        await HandleDisconnectAsync(UserId, DesktopDevice);
+        _cache.Remove(VoiceReconciler.LivenessKey(UserId));
+
+        await HandleConnectAsync(UserId, DesktopDevice);
+
+        var roster = await RosterAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.False);
+            // Still on the roster, because only the sweep removes anybody - which is exactly why the
+            // seat must not be given a fresh lease here.
+            Assert.That(roster, Does.Contain(UserId));
+        });
     }
 
     [Test]

@@ -138,9 +138,7 @@ public class GuildPresenceBroadcastTests
             HydrateWith(Present(PeerMemberId, PeerUserId, OnlineStatus.Online)),
             _hub,
             PrivacyTestFactory.Blocks(_bus, _cache),
-            PrivacyTestFactory.Privacy(_bus, _cache, PrivacyTestFactory.Permissive(SubjectUserId)),
-            _cache,
-            VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()));
+            PrivacyTestFactory.Privacy(_bus, _cache, PrivacyTestFactory.Permissive(SubjectUserId)));
 
         Assert.That(StatusSentTo(PeerUserId), Is.EqualTo(nameof(OnlineStatus.Online)));
     }

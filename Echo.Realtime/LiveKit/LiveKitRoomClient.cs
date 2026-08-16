@@ -31,8 +31,25 @@ public sealed record LiveKitParticipant(
     string Sid, string Identity, string? Name, string State,
     IReadOnlyList<LiveKitTrack> Tracks);
 
+/// <summary>One simulcast encoding as the publisher declared it.</summary>
+public sealed record LiveKitVideoLayer(string? Quality, int Width, int Height, uint Bitrate);
+
 /// <param name="Source">LiveKit's source tag - see <see cref="LiveKitSources"/>.</param>
-public sealed record LiveKitTrack(string Sid, string? Name, string? Source, bool Muted);
+/// <param name="Width">What the publisher is actually sending, as negotiated.</param>
+/// <param name="Layers">The simulcast ladder, empty for a single-encoding publisher.</param>
+public sealed record LiveKitTrack(
+    string Sid,
+    string? Name,
+    string? Source,
+    bool Muted,
+    int Width = 0,
+    int Height = 0,
+    bool Simulcast = false,
+    IReadOnlyList<LiveKitVideoLayer>? Layers = null)
+{
+    /// <summary>The tallest thing this publication can produce.</summary>
+    public int MaxHeight => Math.Max(Height, Layers?.Count > 0 ? Layers.Max(l => l.Height) : 0);
+}
 
 /// <summary>The LiveKit room control API, over Twirp.</summary>
 public sealed class LiveKitRoomClient(

@@ -135,8 +135,10 @@ public sealed class LiveKitVoiceSfu(
             .Select(p => new VoiceSfuParticipant(
                 p.Identity,
                 LiveKitIdentity.UserOf(p.Identity),
-                p.Tracks.Any(t => IsMicrophone(t)),
-                p.Tracks.Select(t => t.Name ?? t.Sid).ToList()))
+                p.Tracks.Any(IsMicrophone),
+                p.Tracks.Select(t => t.Name ?? t.Sid).ToList(),
+                p.Tracks.Select(t => new VoiceSfuTrack(
+                    t.Name ?? t.Sid, t.Sid, !IsMicrophone(t) && t.MaxHeight > 0, t.MaxHeight)).ToList()))
             .ToList();
     }
 

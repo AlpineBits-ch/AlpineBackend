@@ -239,7 +239,8 @@ public class CallVoiceMediaController(
 
         if (video.Count > 0)
             await voice.RecordTracksAsync(
-                Room(callId), UserId, identity, video, publish?.MaxLayer, ct);
+                Room(callId), UserId, identity, video, publish?.MaxLayer,
+                VoiceVideoIntent.RequestOf(body.Video).DeclaredHeight, ct);
 
         var result = new
         {

@@ -562,6 +562,39 @@ Two answers, and they are §1 and §4 exactly as everywhere else:
   one. The hard half is the token: a granted rung of `none` removes the camera and screen-share
   sources outright, which no client can patch around.
 
+### 8.3 When the SFU disagrees with your declaration
+
+Everything above is evaluated against a number **you sent**. The SFU also reports what it actually
+negotiated, and the two are compared on a timer. When what you are sending is taller than your
+rung, you - and nobody else in the room - receive:
+
+```jsonc
+// guild.voice.PublishCapped  |  call.PublishCapped
+{
+  "channelId": "...",         // or callId
+  "instanceId": "...",
+  "version": 42,
+  "degradations": [ /* §1, keyed voice.video_ceiling */ ]
+}
+```
+
+- **Render it with the code you already have.** It is the ordinary degradation shape, keyed
+  `voice.video_ceiling`. `requested` is the rung your *measured* output falls on, not one you
+  asked for; `granted` is your rung.
+- **An empty `degradations` array clears it.** That is the only way you learn to take the banner
+  down, so handle the empty case or it stays up for the rest of the session.
+- **It only arrives on a change.** The measurement runs on a sweep; you will not get one per
+  sweep, and you should not need to debounce it.
+- **Nothing is muted and nothing is refused.** Honest clients reach this - an encoder that
+  overshoots, a screen share that adopts its source's dimensions, a camera with no mode at the
+  size you asked for - so it is information, not an enforcement action. The enforcement that does
+  bind is the token: a rung of `none` removes the camera and screen-share sources outright.
+
+> **Declare honestly and this never fires spuriously.** The comparison the server keeps is between
+> what you said and what the SFU sees. A client that declares the size it is really encoding is
+> only ever reported for genuinely exceeding its plan, which is a billing conversation. A client
+> whose declaration does not describe it is a different signal, and it is recorded as one.
+
 ### 8.2 Changing resolution mid-stream
 
 Declare it whenever you change what your video is **without republishing**:

@@ -82,6 +82,17 @@ public sealed class VoiceParticipant
     /// </summary>
     public VoiceVideoLayer? MaxVideoLayer { get; set; }
 
+    /// <summary>
+    /// The height this participant last said they would send, or null if they never said.
+    /// </summary>
+    public int? DeclaredVideoHeight { get; set; }
+
+    /// <summary>
+    /// The tallest video the SFU last observed this participant sending, when that was above their
+    /// rung.
+    /// </summary>
+    public int? OverPublishHeight { get; set; }
+
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>Derived, never stored, and therefore impossible to set wrong.</summary>

@@ -3,6 +3,7 @@ using Echo.Entitlements.Model;
 using Echo.Entitlements.Resolution;
 using Echo.Entitlements.Sources;
 using Echo.Entitlements.Wire;
+using Echo.Voice.Abuse;
 using Echo.Voice.Tracks;
 using Echo.Voice.Transport;
 using Microsoft.Extensions.Logging;
@@ -184,9 +185,12 @@ public sealed class VoiceRoomService(
     /// The best simulcast layer of this publisher's video that may be distributed, from <see
     /// cref="VoicePublishDecision.MaxLayer"/>.
     /// </param>
+    /// <param name="declaredHeight">
+    /// What the publisher said they would send, or zero when they said nothing.
+    /// </param>
     public async Task<VoiceRoom?> RecordTracksAsync(
         VoiceRoomKey key, string userId, string mediaSessionId, IReadOnlyList<string> trackNames,
-        VoiceVideoLayer? maxLayer = null, CancellationToken ct = default)
+        VoiceVideoLayer? maxLayer = null, int declaredHeight = 0, CancellationToken ct = default)
     {
         var described = trackNames.Select(TrackNaming.Describe).ToList();
 
@@ -196,6 +200,9 @@ public sealed class VoiceRoomService(
             if (me is null) return;
 
             me.MaxVideoLayer = maxLayer;
+
+            // Only overwritten by a caller that actually declared something.
+            if (declaredHeight > 0) me.DeclaredVideoHeight = declaredHeight;
 
             foreach (var track in described)
             {
@@ -345,7 +352,9 @@ public sealed class VoiceRoomService(
 
         var updated = await rooms.MutateExistingAsync(key, r =>
         {
-            if (r.Find(userId) is { } me) me.MaxVideoLayer = layer;
+            if (r.Find(userId) is not { } me) return;
+            me.MaxVideoLayer = layer;
+            me.DeclaredVideoHeight = request.DeclaredHeight;
         }, ct);
         if (updated is null) return VoiceLayerRevision.Undeclared;
 
@@ -454,6 +463,124 @@ public sealed class VoiceRoomService(
 
         await RecordTracksMissingAsync(key, missing, ct);
         return missing;
+    }
+
+    /// <summary>
+    /// Compares what the SFU says each publisher is actually sending against the rung they are
+    /// entitled to, tells anybody over it, and reports the findings.
+    /// </summary>
+    /// <param name="live">What the SFU currently reports.</param>
+    /// <param name="instanceSellsUpgrades">
+    /// Whether this instance has anything to sell, which decides whether the degradation carries a
+    /// remedy at all.
+    /// </param>
+    /// <returns>
+    /// One finding per over-publishing track, empty when everybody is inside their rung.
+    /// </returns>
+    public async Task<IReadOnlyList<VoiceOverPublishDetected>> DetectOverPublishAsync(
+        VoiceRoomKey key, IReadOnlyList<VoiceSfuParticipant> live,
+        bool instanceSellsUpgrades = false, CancellationToken ct = default)
+    {
+        if (live.Count == 0) return [];
+
+        var room = await rooms.LoadAsync(key, ct);
+        if (room is null) return [];
+
+        var limits = await ResolveLimitsAsync(room.GuildId, ct);
+
+        // An unresolved ceiling is not evidence of anything.
+        if (!limits.Resolved) return [];
+
+        // Tallest observed video per user, across every connection they hold - a screen share on a
+        // secondary connection is still their publication, and reading only the primary would let a
+        // desktop client put its 4K share on the connection nobody measures.
+        var observed = new Dictionary<string, (string TrackName, int Height)>(StringComparer.Ordinal);
+        foreach (var participant in live)
+        foreach (var track in participant.Media.Where(t => t.IsVideo && t.Height > 0))
+        {
+            if (!observed.TryGetValue(participant.UserId, out var current) || track.Height > current.Height)
+                observed[participant.UserId] = (track.Name, track.Height);
+        }
+
+        var findings = new List<VoiceOverPublishDetected>();
+        var changed = new Dictionary<string, int?>(StringComparer.Ordinal);
+
+        foreach (var participant in room.Participants)
+        {
+            var ceiling = await ResolveVideoCeilingAsync(room, participant.UserId, limits, ct);
+            var rung = EntitlementLadders.VideoQuality.RungAt(ceiling.Rank);
+
+            // A rung this cannot read binds nothing, exactly as it binds nothing at publish time.
+            var permitted = VideoRungs.TryMetrics(rung, out var maxHeight, out _) ? maxHeight : 0;
+
+            var over = permitted > 0
+                       && observed.TryGetValue(participant.UserId, out var seen)
+                       && seen.Height > permitted
+                ? seen
+                : default;
+
+            var height = over.Height > 0 ? over.Height : (int?)null;
+            if (height == participant.OverPublishHeight) continue;
+
+            changed[participant.UserId] = height;
+
+            if (height is null) continue;
+
+            findings.Add(new VoiceOverPublishDetected(
+                participant.UserId, room.GuildId, room.Kind, room.RoomId,
+                over.TrackName, over.Height,
+                // Zero when they declared nothing, which is its own signal: a client that never
+                // tells us what it sends cannot be caught contradicting itself, only exceeding its
+                // plan.
+                participant.DeclaredVideoHeight ?? 0, rung, DateTime.UtcNow));
+        }
+
+        if (changed.Count == 0) return [];
+
+        var updated = await rooms.MutateExistingAsync(key, r =>
+        {
+            foreach (var (userId, height) in changed)
+            {
+                if (r.Find(userId) is { } p) p.OverPublishHeight = height;
+            }
+        }, ct);
+        if (updated is null) return findings;
+
+        foreach (var (userId, height) in changed)
+        {
+            var degradations = height is null || updated.Find(userId) is null
+                ? []
+                : DescribeOverPublish(updated, userId, height.Value, limits, instanceSellsUpgrades);
+
+            await announcer.ToUserAsync(
+                updated, userId, VoiceEvents.PublishCapped, new { degradations }, ct);
+        }
+
+        return findings;
+    }
+
+    /// <summary>The over-publish as a degradation the client already knows how to render.</summary>
+    private static IReadOnlyList<EntitlementDegradationDto> DescribeOverPublish(
+        VoiceRoom room, string userId, int observedHeight, ResolvedVoiceLimits limits,
+        bool instanceSellsUpgrades)
+    {
+        var ladder = EntitlementLadders.VideoQuality;
+        var granted = ladder.RankOf(limits.Limits.VideoCeiling);
+        var sending = ladder.RankOf(VideoRungs.RungFor(ladder, observedHeight, 0));
+
+        return
+        [
+            new VoiceDegradation(
+                EntitlementKeys.VoiceVideoCeiling,
+                EntitlementValue.OfRank(sending),
+                EntitlementValue.OfRank(granted),
+                limits.VideoCeiling,
+                SubjectOf(room, userId, limits.VideoCeiling.BoundBy))
+            // No ManageGuild lookup: this runs on a sweep with no request behind it and no caller to
+            // resolve permissions for, so the remedy is described without claiming this user can
+            // perform it. A client renders "an admin can upgrade" rather than a button that 403s.
+            .Describe(instanceSellsUpgrades, actorCanManageGuild: false),
+        ];
     }
 
     /// <summary>Forgets closed tracks and tells the room, so peers drop them rather than waiting

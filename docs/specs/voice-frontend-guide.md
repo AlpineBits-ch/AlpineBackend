@@ -508,6 +508,7 @@ Prefix with `guild.voice.` or `call.`. Every payload also carries the room id fi
 | `SpeakingChanged` | `userId`, `isSpeaking` | Relay only. High frequency; do not persist. |
 | `ScreenShareStarted` | `userId`, `shareId` | |
 | `ScreenShareStopped` | `userId`, `shareId` | |
+| `PublishCapped` | `degradations` | **Only to you.** What the SFU sees you sending is above your plan - or, when the array is empty, no longer is. Not a reply to anything you sent: it is a measurement taken on a timer. Entitlements guide §8.3. |
 | `ShareViewersChanged` | `shareId`, `viewerCount`, `viewerIds` | |
 | `SubscriptionsChanged` | `mode`, `revision`, `activeSpeakers`, `subscriptions` | **What you should now be pulling.** Sent without any user action. Relay only; see §6. |
 

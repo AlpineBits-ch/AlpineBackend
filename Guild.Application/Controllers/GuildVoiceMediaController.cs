@@ -167,7 +167,8 @@ public class GuildVoiceMediaController(
 
         if (video.Count > 0)
             await voice.RecordTracksAsync(
-                Room(channelId), UserId, identity, video, publish?.MaxLayer, ct);
+                Room(channelId), UserId, identity, video, publish?.MaxLayer,
+                VoiceVideoIntent.RequestOf(body.Video).DeclaredHeight, ct);
 
         var result = new
         {

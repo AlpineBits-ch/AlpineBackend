@@ -19,6 +19,11 @@ public static class VoiceEvents
     public const string ScreenShareStopped = "ScreenShareStopped";
     public const string ShareViewersChanged = "ShareViewersChanged";
 
+    /// <summary>
+    /// "What you are sending is above your plan, and here is what to render about it."
+    /// </summary>
+    public const string PublishCapped = "PublishCapped";
+
     /// <summary>"This is what you should be pulling now."</summary>
     public const string SubscriptionsChanged = "SubscriptionsChanged";
 

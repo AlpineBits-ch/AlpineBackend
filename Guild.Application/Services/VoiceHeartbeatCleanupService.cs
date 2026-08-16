@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AppEnvironment;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
 using Echo.Voice.Rooms;
@@ -47,26 +48,59 @@ public class VoiceHeartbeatCleanupService(
     /// Asks the SFU what it actually has and drops any share the roster still advertises that it
     /// does not.
     /// </summary>
-    private async Task PruneSharesTheSfuNoLongerHasAsync(
+    private async Task ReconcileAgainstTheSfuAsync(
         VoiceRoomKey key, VoiceRoom room, CancellationToken ct)
     {
         if (!sfu.IsConfigured) return;
-        if (!room.Participants.Any(p => p.ActiveScreenShares.Count > 0)) return;
+        if (!room.Participants.Any(VoiceSubscriptionPlanner.HasVideo)) return;
 
         try
         {
             var live = await sfu.ListParticipantsAsync(key, ct);
-            var pruned = await voice.PruneMissingSharesAsync(key, live, ct);
 
+            var pruned = await voice.PruneMissingSharesAsync(key, live, ct);
             if (pruned.Count > 0)
                 logger.LogInformation(
                     "Pruned {Count} share track(s) from {Room} that the SFU no longer has: {Tracks}",
                     pruned.Count, key, string.Join(", ", pruned));
+
+            await ReportOverPublishAsync(key, live, ct);
         }
         catch (VoiceMediaException ex)
         {
             logger.LogWarning(ex,
-                "Could not check {Room}'s shares against the SFU; the roster is left alone", key);
+                "Could not reconcile {Room} against the SFU; the roster is left alone", key);
+        }
+    }
+
+    /// <summary>Raises a bus event for every publisher measured above their rung.</summary>
+    private async Task ReportOverPublishAsync(
+        VoiceRoomKey key, IReadOnlyList<VoiceSfuParticipant> live, CancellationToken ct)
+    {
+        var findings = await voice.DetectOverPublishAsync(
+            key, live, Env.License.IsHosted && Env.License.IsBillingConfigured, ct);
+        if (findings.Count == 0) return;
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+
+            foreach (var finding in findings)
+            {
+                logger.LogInformation(
+                    "User {UserId} is publishing {Observed}p in {Room} against a {Rung} ceiling "
+                    + "(declared {Declared}p)",
+                    finding.UserId, finding.ObservedHeight, key, finding.GrantedRung,
+                    finding.DeclaredHeight);
+
+                await bus.PublishAsync(finding);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex,
+                "Could not raise {Count} over-publish finding(s) for {Room}", findings.Count, key);
         }
     }
 
@@ -130,7 +164,7 @@ public class VoiceHeartbeatCleanupService(
                     stale.Add(participant);
             }
 
-            await PruneSharesTheSfuNoLongerHasAsync(roomKey, loaded, ct);
+            await ReconcileAgainstTheSfuAsync(roomKey, loaded, ct);
 
             if (stale.Count == 0)
             {

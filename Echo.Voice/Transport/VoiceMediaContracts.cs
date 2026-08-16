@@ -31,9 +31,23 @@ public sealed record VoiceConnection(
     string Identity,
     DateTimeOffset ExpiresAt);
 
+/// <summary>One track as the SFU currently sees it.</summary>
+/// <param name="Height">
+/// The tallest encoding this publication can produce, measured by the SFU rather than declared by
+/// the client.
+/// </param>
+public sealed record VoiceSfuTrack(string Name, string Sid, bool IsVideo, int Height);
+
 /// <summary>One participant as the SFU currently sees them.</summary>
 public sealed record VoiceSfuParticipant(
-    string Identity, string UserId, bool IsPublishing, IReadOnlyList<string> TrackNames);
+    string Identity,
+    string UserId,
+    bool IsPublishing,
+    IReadOnlyList<string> TrackNames,
+    IReadOnlyList<VoiceSfuTrack>? Tracks = null)
+{
+    public IReadOnlyList<VoiceSfuTrack> Media => Tracks ?? [];
+}
 
 /// <summary>Why a control-plane operation failed, in terms a caller can map to a status code without
 /// knowing which SFU produced it.</summary>

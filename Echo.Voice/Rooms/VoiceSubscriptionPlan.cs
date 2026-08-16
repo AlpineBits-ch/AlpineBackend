@@ -135,6 +135,13 @@ public sealed record VoiceSubscriptionPlan(
     public VoiceSubscriptionSet For(string userId) =>
         Sets.TryGetValue(userId, out var set) ? set : VoiceSubscriptionSet.Empty(userId);
 
+    /// <summary>
+    /// The track list as it goes on the wire: the subscriber's set, or null when this plan is not
+    /// selective.
+    /// </summary>
+    public IReadOnlyList<VoiceSubscription>? WireTracksFor(string userId) =>
+        IsSelective ? For(userId).Tracks : null;
+
     /// <summary>Total tracks being distributed across the room - the fan-out this plan asks the SFU
     /// for, and the number the cost model is expressed in.</summary>
     public long TotalSubscriptions => Sets.Values.Sum(s => (long)s.Tracks.Count);

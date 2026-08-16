@@ -707,7 +707,7 @@ public sealed class VoiceRoomService(
             mode = plan.Mode,
             revision = plan.Revision,
             activeSpeakers = plan.ActiveSpeakers,
-            tracks = plan.For(userId).Tracks,
+            tracks = plan.WireTracksFor(userId),
         }, ct);
 
         return plan;

@@ -73,8 +73,10 @@ public sealed class VoiceAnnouncer(IHubContext<EchoRealtimeHub> hub)
                 revision = plan.Revision,
                 activeSpeakers = plan.ActiveSpeakers,
                 // Named to match VoiceSubscriptionSnapshot's own field, so the same object read
-                // off a snapshot and off this event is parsed by one piece of client code.
-                tracks = set.Tracks,
+                // off a snapshot and off this event is parsed by one piece of client code - and
+                // null rather than empty when no plan is in force, for the same reason the
+                // snapshot omits the block. See VoiceSubscriptionPlan.WireTracksFor.
+                tracks = plan.WireTracksFor(participant.UserId),
             }, ct);
         }
     }

@@ -174,6 +174,46 @@ public class VoiceSubscriptionTests
         });
     }
 
+    // ── Null and empty are opposite answers ──────────────────────────────────
+
+    /// <summary>
+    /// The distinction a client's whole subscription handling turns on, and the one that silences a
+    /// room when it is lost.
+    /// </summary>
+    [Test]
+    public async Task An_unplanned_room_puts_null_on_the_wire_rather_than_an_empty_set()
+    {
+        await PopulateAsync(2);
+        var plan = await _service.GetSubscriptionsAsync(_key);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.IsSelective, Is.False, "precondition: a two-person room has no plan");
+            Assert.That(plan.For("u00").Tracks, Is.Empty,
+                "the in-process answer is an empty set, which is why the wire form cannot be it");
+            Assert.That(plan.WireTracksFor("u00"), Is.Null,
+                "null is how a client is told to pull everyone; an empty array would mute the room");
+        });
+    }
+
+    /// <summary>A real set that happens to be empty is a legitimate state - a subscriber who has
+    /// collapsed every tile - and must survive the null rule intact.</summary>
+    [Test]
+    public async Task A_selective_plan_puts_a_real_array_on_the_wire_even_when_it_is_empty()
+    {
+        await PopulateAsync(5);
+        await _service.SetSpeakingAsync(_key, "u01", true);
+
+        var plan = await _service.GetSubscriptionsAsync(_key);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(plan.IsSelective, Is.True);
+            Assert.That(plan.WireTracksFor("u04"), Is.Not.Null,
+                "a selective plan always states the set, even if the set is empty");
+        });
+    }
+
     // ── Metering belief ──────────────────────────────────────────────────────
 
     /// <summary>

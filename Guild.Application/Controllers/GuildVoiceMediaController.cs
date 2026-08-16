@@ -248,7 +248,8 @@ public class GuildVoiceMediaController(
             mode = plan.Mode,
             revision = plan.Revision,
             activeSpeakers = plan.ActiveSpeakers,
-            tracks = plan.For(UserId).Tracks,
+            // Null, not an empty array, when no plan is in force - see WireTracksFor.
+            tracks = plan.WireTracksFor(UserId),
         });
     }
 

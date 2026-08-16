@@ -510,7 +510,7 @@ Prefix with `guild.voice.` or `call.`. Every payload also carries the room id fi
 | `ScreenShareStopped` | `userId`, `shareId` | |
 | `PublishCapped` | `degradations` | **Only to you.** What the SFU sees you sending is above your plan - or, when the array is empty, no longer is. Not a reply to anything you sent: it is a measurement taken on a timer. Entitlements guide §8.3. |
 | `ShareViewersChanged` | `shareId`, `viewerCount`, `viewerIds` | |
-| `SubscriptionsChanged` | `mode`, `revision`, `activeSpeakers`, `subscriptions` | **What you should now be pulling.** Sent without any user action. Relay only; see §6. |
+| `SubscriptionsChanged` | `mode`, `revision`, `activeSpeakers`, `tracks` | **What you should now be pulling.** Flattened onto the envelope - the track list is `tracks`, not nested under a `subscriptions` key. Sent without any user action. Relay only; see §6. |
 
 **`ParticipantJoined` is never sent for someone who has merely opened a session.** If you receive
 it, the track exists and the subscribe will work.
@@ -610,9 +610,18 @@ You receive it two ways, and they are the same object:
 }
 ```
 
-The snapshot's `subscriptions` object and the `SubscriptionsChanged` payload have the same fields,
-so one parser handles both. The event additionally carries the usual room-id, `instanceId` and
-`version` envelope, which you ignore for this event - see §4.2.
+The snapshot's `subscriptions` object and the `SubscriptionsChanged` payload have the same **fields**,
+so one parser handles the object itself. They differ in **nesting**, and this is worth reading twice:
+
+- On a **snapshot**, the object is nested: `snapshot.subscriptions.tracks`. The whole
+  `subscriptions` key is absent when no set is in force.
+- On the **event**, the fields are flattened straight onto the envelope: `payload.tracks`,
+  `payload.mode`, alongside the usual room-id, `instanceId` and `version`. There is **no
+  `subscriptions` key on the event.**
+
+So parse the inner object with shared code, but reach it differently in the two places. A parser that
+looks for `payload.subscriptions` on the event finds nothing, and if it then defaults to an empty
+track list it will unsubscribe the client from the entire room - see §6.2b.
 
 | Field | Meaning |
 |---|---|
@@ -637,6 +646,28 @@ input - `tileHeights`, `pausedPublishers`, `paused` - is only consulted when cho
 when deciding whether to include a video track. A collapsed tile stops paying for pixels, not for
 sound; a backgrounded client keeps hearing the room. So report tile sizes freely from whichever
 connection renders them.
+
+### 6.2b `tracks: null` and `tracks: []` are opposite instructions
+
+This is the single most dangerous field in the voice contract to get wrong, because getting it
+wrong is silent: the room simply goes quiet and nothing errors.
+
+| Value | Meaning |
+|---|---|
+| `tracks` **absent or `null`** | No set is in force. **Pull everyone who is `Publishing`.** The ordinary small room. |
+| `tracks: []` | A real set that is empty. **Pull nobody.** A subscriber who has collapsed every tile. |
+| `tracks: [...]` | Pull exactly these. |
+
+The rule is the same in all three places a set can reach you - the `subscriptions` block on a
+snapshot (absent when no set is in force), the `SubscriptionsChanged` event, and the reply to
+`POST .../voice/subscriptions`. Keep "absent" and "empty" strictly distinct in your parser; a
+default of `[]` for a missing key unsubscribes the client from the whole room.
+
+**`POST .../voice/subscriptions` always answers `200` with the full object**, never 204 and never a
+bare `null`. In a room with no plan that object is `{ "mode": "all", "revision": 0,
+"activeSpeakers": [], "tracks": null }` - and that reply *is* the revocation signal. A room that has
+just dropped back below the ranking threshold tells you so with `tracks: null`, which is your cue to
+go back to pulling everyone rather than to keep honouring the narrow set you were holding.
 
 ### 6.3 What to do with it
 
@@ -833,6 +864,7 @@ keeps you there.
 ```
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/join
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/leave
+POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/alive
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice            (same as /voice/snapshot)
 GET    /api/v1/guilds/{guildId}/channels/{channelId}/voice/snapshot
 POST   /api/v1/guilds/{guildId}/channels/{channelId}/voice/connection?primary=&tag=

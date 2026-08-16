@@ -176,6 +176,12 @@ Fields worth understanding:
 - **`identity`** is how the SFU names you, and it is the same handle the roster records as
   `mediaSessionId`. Both fields carry it so an existing client can adopt the new name without
   changing its snapshot handling on the same day.
+
+  **It is the bare user id, not `user-{userId}`.** The `user-1` above is a user id in this
+  example, not a prefix. A secondary connection is `{userId}#{tag}` - `user-1#screen` - and the
+  `#` separator is guaranteed: user ids are Sqids and never contain one, and the tag is stripped
+  to alphanumerics before it is appended, so splitting on the first `#` always recovers the user.
+  You can map a remote LiveKit participant to a user without consulting the snapshot.
 - **`canPublishAudio` / `canPublishVideo`** are what the token actually grants. Render your
   microphone and camera buttons from these rather than from a permission you computed locally: a
   member whose plan has no video left connects, hears everyone, and cannot turn a camera on however
@@ -186,8 +192,32 @@ Fields worth understanding:
   a secondary connection minted as primary would kick your own call off the air. Pass
   `?primary=false&tag=screen` and you get a distinct identity.
 
+  `tag` is free-form, not an allow-list: it is stripped to letters and digits, truncated to 32
+  characters, and falls back to `alt` if nothing survives. `tag=view` for a video-only connection
+  is fine. One tag per connection per user, though - two connections sharing a tag share an
+  identity, and the second evicts the first.
+
 > Taking a connection does **not** make you audible. You are `Joined`, not `Publishing`, until a
 > track exists and you have declared it in step 4.
+
+#### Reconnecting
+
+**Resume with the token and URL you already have.** The SDK's own reconnect path reuses them and
+that is correct here: a room is placed on a node once and is never moved while it exists, so the URL
+you connected with cannot become the wrong one. The registry row is only ever dropped for a room the
+SFU itself no longer has - and a room the SFU no longer has is one there is nothing to resume into.
+
+The token is the only thing that can expire under you. It is good for ten minutes by default
+(`LIVEKIT_JOIN_TOKEN_TTL_SECONDS`), which outlasts any normal reconnect ladder, so the rule is:
+
+1. Resume with the cached token.
+2. If the resume is refused as unauthorised, or you have been disconnected longer than the TTL -
+   a laptop sleeping, a long tunnel - call `POST .../voice/connection` again and do a full connect.
+
+Re-fetching is cheap and safe at any point: it does not touch the roster, does not re-announce you,
+and does not disturb a connection you still hold. Only the token is new. Do **not** pre-emptively
+re-fetch on every attempt of a reconnect ladder - you will be minting tokens at the SFU's retry rate
+to solve a problem you have not got.
 
 ### 3.3 Publish through the SDK
 
@@ -217,6 +247,13 @@ POST /api/v1/voice/calls/{callId}/publish
 ```json
 { "identity": "user-1", "rung": "1080p60", "height": 1080, "framerate": 60, "maxLayer": null }
 ```
+
+`maxLayer` is the best simulcast layer of *your* video that the room will distribute to anybody,
+in the same vocabulary as `layer` on a subscription set (§6.7). **`null` is the ordinary case** and
+means nothing caps you - every publish inside its rung, and every publish that declared no size.
+A non-null value means you declared more than your plan allows: you are still publishing, but no
+viewer will be served above that layer however large their tile is. Re-encode to your `rung` and
+declare it again and it goes back to `null`.
 
 This is what puts you on the roster as publishing, announces you to the room, and feeds the share
 viewer counts and the usage meter. **The media does not depend on it** - you are already publishing
@@ -285,7 +322,7 @@ GET /api/v1/voice/call/{callId}/snapshot
   "participants": [
     {
       "userId": "user-1",
-      "mediaSessionId": "cf-abc",
+      "mediaSessionId": "user-1",
       "audioTrackName": "audio",
       "publishState": "Publishing",
       "isSelfMuted": false,
@@ -297,7 +334,7 @@ GET /api/v1/voice/call/{callId}/snapshot
         {
           "shareId": "abc123",
           "trackNames": ["screen-abc123", "screen-audio-abc123"],
-          "mediaSessionId": "cf-def"
+          "mediaSessionId": "user-1#screen"
         }
       ],
       "joinedAt": "2026-08-07T12:00:00Z"
@@ -310,7 +347,7 @@ GET /api/v1/voice/call/{callId}/snapshot
     "tracks": [
       {
         "userId": "user-1",
-        "mediaSessionId": "cf-abc",
+        "mediaSessionId": "user-1",
         "trackName": "audio",
         "kind": "audio",
         "shareId": null,
@@ -563,9 +600,9 @@ You receive it two ways, and they are the same object:
   "revision": 12,
   "activeSpeakers": ["user-1", "user-9"],
   "tracks": [
-    { "userId": "user-1", "mediaSessionId": "cf-abc", "trackName": "audio",
+    { "userId": "user-1", "mediaSessionId": "user-1", "trackName": "audio",
       "kind": "audio", "shareId": null, "layer": null },
-    { "userId": "user-4", "mediaSessionId": "cf-xyz", "trackName": "screen-abc123",
+    { "userId": "user-4", "mediaSessionId": "user-2", "trackName": "screen-abc123",
       "kind": "screen", "shareId": "abc123", "layer": "b" }
   ]
 }
@@ -583,6 +620,21 @@ so one parser handles both. The event additionally carries the usual room-id, `i
 | `tracks` | Everything to pull, complete. Not a delta. |
 | `layer` | Simulcast layer for a video track: `"a"` full, `"b"` medium, `"c"` low. `null` for audio. The names are alphabetical in **descending** quality because the SFU sorts rids a-z and reads that order as best-to-worst (§6.7) - they are a ranking, not an abbreviation. **The server sends this to the SFU on your behalf**, so it describes what you will actually be served, not a request you have to make. |
 | `mediaSessionId` | May be `null` for a share published before the server recorded its session. Use the handle you already have from `TrackPublished`. Never `null` for audio. |
+
+### 6.2a One plan per user, not per connection
+
+**The plan is computed per `userId`, and there is no way to address one connection.** If you hold two
+connections for one user - a media engine taking audio, a webview taking video - both are the same
+subscriber to this server. `POST .../voice/subscriptions` does not name a connection and does not need
+to; it speaks for the authenticated user. Split `tracks[]` by `kind` yourself and route each half to
+the connection that wants it.
+
+**Reporting `tileHeights` from the video side cannot affect the audio side.** That is structural, not
+a convention: audio entries are built with `layer: null` unconditionally, and every tile-derived
+input - `tileHeights`, `pausedPublishers`, `paused` - is only consulted when choosing a video layer or
+when deciding whether to include a video track. A collapsed tile stops paying for pixels, not for
+sound; a backgrounded client keeps hearing the room. So report tile sizes freely from whichever
+connection renders them.
 
 ### 6.3 What to do with it
 
@@ -676,15 +728,21 @@ Two things follow:
    behalf, so it bound whether you cooperated or not. It does not any more - a tile you report as
    120 pixels tall is served the top layer until you ask for something smaller.
 
-A publisher that sends a single encoding has no layers to choose between, and asking for one it does
-not have falls back to whatever it does have rather than to nothing. Publish simulcast encodings named
-`a` (full), `b` (medium) and `c` (low) if you want the saving to be real for your own video.
+A publisher that sends a single encoding has no layers to choose between, so publish simulcast
+encodings if you want the saving to be real for your own video.
 
-**Name them exactly that, in that order.** The rid names are not abbreviations of a resolution, they
-are the priority ranking itself: an SFU degrading a congested viewer sorts the available rids a-z and
-walks the list, and it is never told what the names mean. The WebRTC convention `q`/`h`/`f` sorts
-backwards against quality, so a publisher using it is asking the SFU to degrade congested viewers *up*
-to full quality. Nothing errors when the names are wrong - the bill just stops going down.
+**Name them whatever your SDK names them** - `f`/`h`/`q` for livekit-client. The server never sees a
+rid, never sends one, and never matches one.
+
+`layer` is a **ranking vocabulary of ours**, not a rid to look up: `a` is the top encoding, `b` the
+middle, `c` the bottom, and your job is to map those onto your SDK's quality enum
+(`VideoQuality.HIGH` / `MEDIUM` / `LOW`) when you call `setVideoQuality`. It is deliberately opaque
+so that it cannot be mistaken for a resolution.
+
+> This paragraph previously told you to name your encodings `a`/`b`/`c`, because the string went on
+> the wire as a `preferredRid` and the old SFU ranked rids alphabetically. That is no longer true of
+> anything. Naming your encodings `a`/`b`/`c` still works, but so does `f`/`h`/`q`, and the latter is
+> what your SDK will do on its own.
 
 ---
 
@@ -711,7 +769,7 @@ Stop heartbeating and you are evicted from the room after 90 seconds, in both ro
 
 | Status | Meaning | What to do |
 |---|---|---|
-| **503** | `{ error: "voiceNotConfigured", action: "contactOperator" }`. This instance has no SFU. | Not a fault and not transient. A self-hosted install that has not configured voice is a supported state - hide the feature and say so. |
+| **503** | `{ error: "voiceNotConfigured", action: "contactOperator" }`. This instance has no SFU. | Not a fault and not transient. A self-hosted install that has not configured voice is a supported state - hide the feature and say so. **There is no capability read yet**: probe once on first join attempt and cache the answer for the session. |
 | **503** | `{ error: "sfuUnavailable", action: "retry" }`. The control plane could not be reached. | Retry with backoff. Every call already in progress is unaffected - media does not travel the path that failed - so do **not** tear anything down. |
 | **503** | The room was contended and your change was not applied. | Retry after a short delay. This is transient, not a server fault. |
 | **502** | The SFU refused a control-plane operation. Body: `{ operation, error }`. | Real failure, and not fixed by retrying the same request. |

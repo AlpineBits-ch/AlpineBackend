@@ -247,7 +247,9 @@ public class CallVoiceMediaController(
             rung = publish?.Rung,
             height = publish?.Height,
             framerate = publish?.Framerate,
-            maxLayer = publish?.MaxLayer?.ToString(),
+            // The wire spelling, not the enum name - same vocabulary as `layer` on a subscription
+            // set, for the same reason as the guild side.
+            maxLayer = publish?.MaxLayer is { } layer ? VoiceVideoLayers.Name(layer) : null,
         };
 
         return degradations.Count == 0
@@ -273,7 +275,11 @@ public class CallVoiceMediaController(
                 "Video ceiling re-applied for user {UserId} in call {CallId}: capped at layer {Layer}",
                 UserId, callId, revision.MaxLayer);
 
-        return Ok(new { changed = revision.Changed, maxLayer = revision.MaxLayer?.ToString() });
+        return Ok(new
+        {
+            changed = revision.Changed,
+            maxLayer = revision.MaxLayer is { } layer ? VoiceVideoLayers.Name(layer) : null,
+        });
     }
 
     /// <summary>Records that the caller has stopped publishing tracks, so peers drop them rather than

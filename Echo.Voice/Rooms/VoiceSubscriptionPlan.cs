@@ -21,7 +21,10 @@ public enum VoiceVideoLayer
     High,
 }
 
-/// <summary>Wire names for <see cref="VoiceVideoLayer"/>.</summary>
+/// <summary>
+/// Wire names for <see cref="VoiceVideoLayer"/>: the spelling <c>layer</c> takes on every entry of
+/// a subscriber's set, and on <c>maxLayer</c> in a publish reply.
+/// </summary>
 public static class VoiceVideoLayers
 {
     public const string High = "a";
@@ -74,11 +77,13 @@ public static class VoiceVideoLayers
 /// <summary>
 /// One track one subscriber should be pulling, with everything needed to pull it.
 /// </summary>
-/// <param name="MediaSessionId">
-/// Null only for a share recorded before <see cref="ActiveScreenShare.MediaSessionId"/> existed,
-/// where the handle lives in the <c>TrackPublished</c> event the client already has.
-/// </param>
-/// <param name="Layer">Null for audio, which is not simulcast.</param>
+/// <param name="MediaSessionId">Null only for a share recorded before
+/// <see cref="ActiveScreenShare.MediaSessionId"/> existed, where the handle lives in the
+/// <c>TrackPublished</c> event the client already has. Never null for a microphone track, which is
+/// the one case where the name identifies nobody on its own.</param>
+/// <param name="Layer">Null for audio, which is not simulcast - and null on every audio entry by
+/// construction, so nothing a subscriber reports about its tiles can affect what it hears. See
+/// <see cref="VoiceVideoLayers"/> for the spelling.</param>
 public sealed record VoiceSubscription(
     string UserId,
     string? MediaSessionId,

@@ -175,7 +175,8 @@ public class GuildVoiceMediaController(
             rung = publish?.Rung,
             height = publish?.Height,
             framerate = publish?.Framerate,
-            maxLayer = publish?.MaxLayer?.ToString(),
+            // The wire spelling, not the enum name.
+            maxLayer = publish?.MaxLayer is { } layer ? VoiceVideoLayers.Name(layer) : null,
         };
 
         return degradations.Count == 0
@@ -204,7 +205,11 @@ public class GuildVoiceMediaController(
                 "Video ceiling re-applied for user {UserId} in channel {ChannelId}: capped at layer "
                 + "{Layer}", UserId, channelId, revision.MaxLayer);
 
-        return Ok(new { changed = revision.Changed, maxLayer = revision.MaxLayer?.ToString() });
+        return Ok(new
+        {
+            changed = revision.Changed,
+            maxLayer = revision.MaxLayer is { } layer ? VoiceVideoLayers.Name(layer) : null,
+        });
     }
 
     /// <summary>Records that the caller has stopped publishing tracks, so peers drop them rather than

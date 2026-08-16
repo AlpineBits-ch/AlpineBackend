@@ -18,6 +18,11 @@ public class BannerController(FileService service, MicroserviceContext ctx) : Co
         if (url == null)
             return NotFound();
 
+        // Public: this route is anonymous, so there is nothing viewer-specific to protect.
+        var now = DateTime.UtcNow;
+        var maxAge = (int)(FileService.WindowEnd(now) - now).TotalSeconds;
+        Response.Headers.CacheControl = $"public, max-age={maxAge}";
+
         return Redirect(url);
     }
 

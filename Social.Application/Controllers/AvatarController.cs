@@ -18,7 +18,12 @@ public class AvatarController(FileService service, MicroserviceContext ctx) : Co
         var url = await service.GetPresignedUrlForAvatar(profileId);
         if (url == null)
             return NotFound();
-        
+
+        // Public: this route is anonymous, so there is nothing viewer-specific to protect.
+        var now = DateTime.UtcNow;
+        var maxAge = (int)(FileService.WindowEnd(now) - now).TotalSeconds;
+        Response.Headers.CacheControl = $"public, max-age={maxAge}";
+
         return Redirect(url);
     }
     [Authorize]

@@ -1,6 +1,7 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using AppEnvironment;
 
 namespace Social.Api.Services;
@@ -14,7 +15,7 @@ public class UploadedFile
     public string ContentType { get; set; }
 }
 
-public class FileService(IAmazonS3 s3Client)
+public class FileService(IAmazonS3 s3Client, IMemoryCache cache)
 {
     /// <summary>Image types accepted for avatars and banners.</summary>
     private static readonly HashSet<string> AllowedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -77,23 +78,43 @@ public class FileService(IAmazonS3 s3Client)
         };
     }
 
-    public async Task<string?> GetPresignedUrlForAvatar(string id)
+    /// <summary>How long one presigned URL is reused for.</summary>
+    private static readonly TimeSpan UrlWindow = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// The end of the window <paramref name="utcNow"/> falls in, always strictly in the future.
+    /// </summary>
+    public static DateTime WindowEnd(DateTime utcNow)
+    {
+        var ticks = UrlWindow.Ticks;
+        return new DateTime((utcNow.Ticks / ticks + 1) * ticks, DateTimeKind.Utc);
+    }
+
+    /// <summary>One presigned URL per key per window, memoized.</summary>
+    private string PresignedForWindow(string cacheKey, string objectKey)
+    {
+        var windowEnd = WindowEnd(DateTime.UtcNow);
+        var memoKey = $"presigned:{cacheKey}:{windowEnd:O}";
+
+        return cache.GetOrCreate(memoKey, entry =>
+        {
+            entry.AbsoluteExpiration = windowEnd;
+            return s3Client.GetPreSignedURL(new GetPreSignedUrlRequest
+            {
+                BucketName = Env.StorageConfiguration.BucketName,
+                Key = objectKey,
+                Expires = windowEnd + UrlWindow,
+                Verb = HttpVerb.GET
+            });
+        })!;
+    }
+
+    public Task<string?> GetPresignedUrlForAvatar(string id)
     {
         if (string.IsNullOrEmpty(id))
-            return null;
+            return Task.FromResult<string?>(null);
 
-        var config = Env.StorageConfiguration;
-
-        var request = new GetPreSignedUrlRequest
-        {
-            BucketName = config.BucketName,
-            Key = id,
-            Expires = DateTime.UtcNow.AddMinutes(10),
-            Verb = HttpVerb.GET
-        };
-
-        // Generates the presigned URL dynamically matching the user's host endpoint
-        return s3Client.GetPreSignedURL(request);
+        return Task.FromResult<string?>(PresignedForWindow($"avatar:{id}", id));
     }
 
     // Banners use a "banner/" key prefix, distinct from the bare profileId key avatars use, so
@@ -142,21 +163,12 @@ public class FileService(IAmazonS3 s3Client)
         };
     }
 
-    public async Task<string?> GetPresignedUrlForBanner(string id)
+    public Task<string?> GetPresignedUrlForBanner(string id)
     {
         if (string.IsNullOrEmpty(id))
-            return null;
+            return Task.FromResult<string?>(null);
 
-        var config = Env.StorageConfiguration;
-
-        var request = new GetPreSignedUrlRequest
-        {
-            BucketName = config.BucketName,
-            Key = GetBannerKey(id),
-            Expires = DateTime.UtcNow.AddMinutes(10),
-            Verb = HttpVerb.GET
-        };
-
-        return s3Client.GetPreSignedURL(request);
+        var key = GetBannerKey(id);
+        return Task.FromResult<string?>(PresignedForWindow($"banner:{id}", key));
     }
 }

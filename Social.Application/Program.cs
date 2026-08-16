@@ -28,6 +28,7 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
 
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<FileService>();
 
 // Privacy enforcement (docs/specs/privacy.md).

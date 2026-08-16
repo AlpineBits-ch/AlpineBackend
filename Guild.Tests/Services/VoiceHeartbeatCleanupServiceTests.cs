@@ -26,17 +26,24 @@ public class VoiceHeartbeatCleanupServiceTests
     private FakeDistributedCache _cache = null!;
     private TestGuildContext _context = null!;
 
+    /// <summary>The hub the announcer pushes through.</summary>
+    private FakeHubContext _hub = null!;
+
     [SetUp]
     public void SetUp()
     {
         _cache = new FakeDistributedCache();
         _context = new TestGuildContext(Guid.NewGuid().ToString());
+        _hub = new FakeHubContext();
     }
 
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
     // ── Seeding ───────────────────────────────────────────────────────────────
+
+    /// <summary>How long ago a seeded participant joined.</summary>
+    private static readonly TimeSpan Settled = VoiceSubscriptionOptions.Default.IdleRoomGrace * 2;
 
     private void SeedRoom(params string[] userIds)
     {
@@ -46,7 +53,12 @@ public class VoiceHeartbeatCleanupServiceTests
             Kind = VoiceRoomKind.Channel,
             GuildId = GuildId,
             Participants = userIds
-                .Select(id => new VoiceParticipant { UserId = id, DeviceId = $"device-{id}" })
+                .Select(id => new VoiceParticipant
+                {
+                    UserId = id,
+                    DeviceId = $"device-{id}",
+                    JoinedAt = DateTime.UtcNow - Settled,
+                })
                 .ToList(),
         };
         _cache.SetEntry(room.Key.CacheKey, JsonSerializer.Serialize(room));
@@ -71,6 +83,20 @@ public class VoiceHeartbeatCleanupServiceTests
     }
 
     private Task SweepAsync() => BuildService().EvictStaleParticipantsAsync(CancellationToken.None);
+
+    /// <summary>Puts <paramref name="userId"/> on the roster as of now, which is what a join, a
+    /// rejoin or a moderator move all look like a moment after they land.</summary>
+    private async Task SeedJustJoinedAsync(string userId)
+    {
+        var room = await VoiceTestHarness.ReadRoomAsync(_cache, VoiceRoomKey.Channel(ChannelId));
+        room!.Participants.Add(new VoiceParticipant
+        {
+            UserId = userId,
+            DeviceId = $"device-{userId}",
+            JoinedAt = DateTime.UtcNow,
+        });
+        _cache.SetEntry(room.Key.CacheKey, JsonSerializer.Serialize(room));
+    }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
 
@@ -168,6 +194,107 @@ public class VoiceHeartbeatCleanupServiceTests
         await Task.CompletedTask;
     }
 
+    // ── Telling the evicted ───────────────────────────────────────────────────
+
+    /// <summary>The person removed is the person who has to hear about it.</summary>
+    [Test]
+    public async Task Sweep_TellsTheParticipantItEvicted()
+    {
+        SeedRoom(Ghost, Live);
+        SeedHeartbeat(Live);
+
+        await SweepAsync();
+
+        Assert.That(ResyncRecipients("roomGone"), Does.Contain(Ghost));
+    }
+
+    /// <summary>
+    /// The case from the incident: everybody in the room loses liveness at once - a gateway
+    /// rollout, a Redis blip - and the sweep takes all of them in a single pass.
+    /// </summary>
+    [Test]
+    public async Task Sweep_TellsEveryoneWhenItEvictsTheWholeRoom()
+    {
+        const string SecondGhost = "user-ghost-2";
+        SeedRoom(Ghost, SecondGhost);
+
+        await SweepAsync();
+
+        Assert.That(ResyncRecipients("roomGone"), Is.EquivalentTo(new[] { Ghost, SecondGhost }));
+    }
+
+    [Test]
+    public async Task Sweep_TellsTheSurvivorsAboutTheRosterChangeInsteadOfRoomGone()
+    {
+        SeedRoom(Ghost, Live);
+        SeedHeartbeat(Live);
+
+        await SweepAsync();
+
+        Assert.Multiple(() =>
+        {
+            // Still in the room, so "the roster moved", never "your room is gone" - which would
+            // have a healthy client tear down a call it is sitting in.
+            Assert.That(ResyncRecipients("participantsEvicted"), Does.Contain(Live));
+            Assert.That(ResyncRecipients("roomGone"), Does.Not.Contain(Live));
+        });
+    }
+
+    [Test]
+    public async Task Sweep_SaysNothingAtAllWhenItEvictsNobody()
+    {
+        SeedRoom(Live);
+        SeedHeartbeat(Live);
+
+        await SweepAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ResyncRecipients("roomGone"), Is.Empty);
+            Assert.That(ResyncRecipients("participantsEvicted"), Is.Empty,
+                "a quiet sweep that announced anything would push a refetch at every participant "
+                + "of every room once a minute");
+        });
+    }
+
+    // ── The join grace ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Not every path onto a roster claims liveness - a moderator move puts somebody in a channel
+    /// without their client doing anything - so a participant who has only just arrived is
+    /// indistinguishable here from one who is gone.
+    /// </summary>
+    [Test]
+    public async Task Sweep_SparesAnArrivalWhoHasNotHadTimeToHeartbeatYet()
+    {
+        const string Arrival = "user-arrival";
+        SeedRoom(Live);
+        SeedHeartbeat(Live);
+        await SeedJustJoinedAsync(Arrival);
+
+        await SweepAsync();
+
+        var roster = await RosterAsync();
+        Assert.Multiple(() =>
+        {
+            Assert.That(roster, Does.Contain(Arrival));
+            Assert.That(ResyncRecipients("roomGone"), Does.Not.Contain(Arrival));
+        });
+    }
+
+    [Test]
+    public async Task Sweep_StillTakesASettledParticipantWithNoHeartbeat()
+    {
+        // The other side of the grace: it is a window after joining, not a permanent exemption for
+        // anybody the sweep has not seen heartbeat.
+        SeedRoom(Ghost);
+        await SeedJustJoinedAsync("user-arrival");
+
+        await SweepAsync();
+
+        Assert.That(await RosterAsync(), Does.Not.Contain(Ghost));
+    }
+
     // ── Fixture plumbing ──────────────────────────────────────────────────────
 
     /// <summary>
@@ -197,14 +324,27 @@ public class VoiceHeartbeatCleanupServiceTests
             multiplexer,
             _cache,
             VoiceTestHarness.StoreFor(_cache, locks),
-            new VoiceAnnouncer(new FakeHubContext()),
-            VoiceTestHarness.ReconcilerFor(_cache, locks, new FakeHubContext()),
+            new VoiceAnnouncer(_hub),
+            VoiceTestHarness.ReconcilerFor(_cache, locks, _hub),
             new GuildVoiceActivityStore(locks, _cache),
             new StreamViewerStore(locks, _cache),
-            new FakeHubContext(),
+            _hub,
             new SingleContextScopeFactory(_context),
+            VoiceSubscriptionOptions.Default,
             NullLogger<VoiceHeartbeatCleanupService>.Instance);
     }
+
+    /// <summary>Everyone sent a <c>Resync</c> carrying <paramref name="reason"/>.</summary>
+    private List<string> ResyncRecipients(string reason) =>
+        ((FakeHubClients)_hub.Clients).SentToUsers
+            .Where(s => s.Method == "guild.voice.Resync"
+                        && s.Args.Length > 0
+                        && s.Args[0] is IReadOnlyDictionary<string, object?> payload
+                        && payload.TryGetValue("reason", out var actual)
+                        && actual as string == reason)
+            .SelectMany(s => s.UserIds)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
 
     /// <summary>Hands out the fixture's own DbContext and a throwaway bus, so the guild fan-out at
     /// the end of a sweep can run without a real container.</summary>

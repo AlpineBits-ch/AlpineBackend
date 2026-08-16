@@ -62,10 +62,13 @@ public class CallVoiceLivenessTests
         });
     }
 
-    private CallVoiceMediaController ControllerFor(string userId, string deviceId)
+    /// <param name="deviceId">Null sends no <c>X-Device-Id</c> at all, which is a different thing
+    /// from sending the shared default bucket and is exactly the distinction the route has to
+    /// make.</param>
+    private CallVoiceMediaController ControllerFor(string userId, string? deviceId)
     {
         var http = new DefaultHttpContext { User = TestPrincipal.ForUser(userId) };
-        http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
+        if (deviceId is not null) http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
         var locks = new FakeDistributedLockService();
 
         return new CallVoiceMediaController(
@@ -81,7 +84,7 @@ public class CallVoiceLivenessTests
         };
     }
 
-    private Task<IActionResult> AliveAsync(string userId, string deviceId) =>
+    private Task<IActionResult> AliveAsync(string userId, string? deviceId) =>
         ControllerFor(userId, deviceId).Alive(CallId, CancellationToken.None);
 
     /// <summary>The expiry currently recorded against the caller's liveness key, or null if there is
@@ -143,6 +146,32 @@ public class CallVoiceLivenessTests
                 "a key for somebody the roster does not have would make the sweep spare a "
                 + "participant who does not exist");
         });
+    }
+
+    /// <summary>
+    /// A caller that names no device at all is trusted, which is what <c>IsVoiceDevice</c> has
+    /// always claimed and what the route did not do.
+    /// </summary>
+    [Test]
+    public async Task Alive_FromAClientThatSendsNoDeviceHeaderAtAll_IsAccepted()
+    {
+        var result = await AliveAsync(ParticipantId, null);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<NoContentResult>());
+            Assert.That(LivenessTtlOf(ParticipantId), Is.EqualTo(VoiceReconciler.LivenessTtl));
+        });
+    }
+
+    /// <summary>The other half of the pair: a client that <em>does</em> name a device is still held
+    /// to it, so the tolerance above cannot be reached by sending the bucket name on purpose.</summary>
+    [Test]
+    public async Task Alive_FromAClientThatNamesTheDefaultBucketWhileTheRosterHasARealDevice_Is409()
+    {
+        var result = await AliveAsync(ParticipantId, DeviceIdentity.DefaultDeviceId);
+
+        Assert.That(result, Is.InstanceOf<ConflictResult>());
     }
 
     [Test]

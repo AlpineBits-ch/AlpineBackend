@@ -18,6 +18,9 @@ namespace Guild.Application.Services;
 /// Only <see cref="VoiceReconciler.ReapAsync"/> is used, and only for the rooms this sweep itself
 /// empties.
 /// </param>
+/// <param name="options">
+/// Read for <see cref="VoiceSubscriptionOptions.IdleRoomGrace"/> and nothing else.
+/// </param>
 public class VoiceHeartbeatCleanupService(
     IConnectionMultiplexer redis,
     IDistributedCache cache,
@@ -28,6 +31,7 @@ public class VoiceHeartbeatCleanupService(
     StreamViewerStore viewers,
     IHubContext<EchoRealtimeHub> hub,
     IServiceScopeFactory scopeFactory,
+    VoiceSubscriptionOptions options,
     ILogger<VoiceHeartbeatCleanupService> logger) : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(60);
@@ -79,9 +83,17 @@ public class VoiceHeartbeatCleanupService(
             var loaded = await rooms.LoadAsync(roomKey, ct);
             if (loaded is null) continue;
 
+            // Somebody who has only just arrived is spared, on the same grace and for the same
+            // reason as VoiceReconciler.ReapAsync: not every path that puts a participant on a
+            // roster claims liveness for them - a moderator move does not - and to this sweep
+            // somebody thirty seconds into a call is indistinguishable from somebody who is gone.
+            var joinCutoff = DateTime.UtcNow - options.IdleRoomGrace;
+
             var stale = new List<VoiceParticipant>();
             foreach (var participant in loaded.Participants)
             {
+                if (participant.JoinedAt > joinCutoff) continue;
+
                 var heartbeat = await cache.GetStringAsync(
                     VoiceReconciler.LivenessKey(participant.UserId), ct);
                 if (heartbeat is null)
@@ -123,14 +135,17 @@ public class VoiceHeartbeatCleanupService(
                     await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(participant.UserId), ct);
             }
 
-            // Tell the room itself, for both kinds: an evicted participant is a roster change, so
-            // peers have to be able to detect it like any other.
+            // The evicted are told first, and one at a time.
             foreach (var participant in stale)
             {
                 logger.LogInformation(
                     "Evicted stale voice participant {UserId} from room {Room}",
                     participant.UserId, roomKey);
+                await announcer.SendRoomGoneAsync(roomKey, participant.UserId, ct);
             }
+
+            // Then the people still in it, for both kinds: an evicted participant is a roster
+            // change, so peers have to be able to detect it like any other.
             await announcer.ToAllAsync(voiceState, VoiceEvents.Resync,
                 new { reason = "participantsEvicted" }, ct);
 

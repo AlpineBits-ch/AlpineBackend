@@ -162,6 +162,53 @@ public class UserDisconnectedHandlerTests
         });
     }
 
+    /// <summary>
+    /// A gateway rollout produces one of these per open socket, in the same second, and every one
+    /// of them looks exactly like somebody hanging up.
+    /// </summary>
+    [Test]
+    public async Task Handle_WhenTheGatewayIsStopping_LeavesTheCallRunning()
+    {
+        var bus = BusWithEmptyProfile();
+        _cache.SetEntry("user-call:user-1", "call-1");
+        await SeedCall(new Call
+        {
+            Id = "call-1",
+            ConversationId = "conv-1",
+            CreatorId = "user-1",
+            Participants =
+            [
+                new CallParticipant { UserId = "user-1", Status = CallStatus.Connected, ActiveDeviceId = "device-1" },
+                new CallParticipant { UserId = "user-2", Status = CallStatus.Connected, ActiveDeviceId = "device-2" },
+            ],
+        });
+
+        await UserDisconnectedHandler.Handle(
+            new UserDisconnected("user-1", "device-1", ServerStopping: true), bus, _cache, _callStore, _hub);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(bus.Published.Any(p => p is CallParticipantLeft), Is.False);
+            Assert.That(bus.Published.Any(p => p is CallEnded), Is.False);
+            Assert.That(_cache.HasEntry("user-call:user-1"), Is.True,
+                "the reverse-lookup key is how this user's client finds its way back into the call "
+                + "when it reconnects to a surviving gateway pod");
+        });
+    }
+
+    [Test]
+    public async Task Handle_WhenTheGatewayIsStopping_StillReportsPresence()
+    {
+        var bus = BusWithEmptyProfile();
+
+        await UserDisconnectedHandler.Handle(
+            new UserDisconnected("user-1", "device-1", ServerStopping: true), bus, _cache, _callStore, _hub);
+
+        // Presence is a claim about right now and repairs itself on the next connect, so it is on the
+        // near side of the guard. Only the things that start a clock against the user are skipped.
+        Assert.That(bus.Published.Any(p => p is UserInactiveEvent), Is.True);
+    }
+
     [Test]
     public async Task Handle_DeviceMismatch_LeaveNoOps_CallUntouched()
     {

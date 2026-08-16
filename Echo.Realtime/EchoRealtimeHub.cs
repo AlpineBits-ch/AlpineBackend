@@ -2,6 +2,7 @@ using Echo.Realtime.Devices;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Wolverine;
 
@@ -10,8 +11,15 @@ namespace Echo.Realtime;
 /// <summary>
 /// The single per-user realtime connection, terminated on the Echo (YARP) gateway pod.
 /// </summary>
+/// <param name="lifetime">
+/// Only ever asked one question, in <see cref="OnDisconnectedAsync"/>: is this socket closing
+/// because the client went away, or because we are?
+/// </param>
 [Authorize]
-public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) : Hub
+public class EchoRealtimeHub(
+    ILogger<EchoRealtimeHub> logger,
+    IMessageBus bus,
+    IHostApplicationLifetime lifetime) : Hub
 {
     /// <summary>How often (seconds) a live connection republishes a presence heartbeat.</summary>
     private const long PresenceHeartbeatIntervalSeconds = 30;
@@ -74,11 +82,16 @@ public class EchoRealtimeHub(ILogger<EchoRealtimeHub> logger, IMessageBus bus) :
     {
         var userId = Context.UserIdentifier;
         var deviceId = Context.Items.TryGetValue("DeviceId", out var value) ? value as string : null;
-        logger.LogInformation("Realtime client disconnected, connection {ConnectionId}, user {UserId}, device {DeviceId}",
-            Context.ConnectionId, userId, deviceId);
+
+        // Read here rather than by the handlers, because this is the only place that can know it.
+        var stopping = lifetime.ApplicationStopping.IsCancellationRequested;
+
+        logger.LogInformation(
+            "Realtime client disconnected, connection {ConnectionId}, user {UserId}, device {DeviceId}, serverStopping {Stopping}",
+            Context.ConnectionId, userId, deviceId, stopping);
 
         if (!string.IsNullOrWhiteSpace(userId))
-            await bus.PublishAsync(new UserDisconnected(userId, deviceId));
+            await bus.PublishAsync(new UserDisconnected(userId, deviceId, stopping));
 
         await base.OnDisconnectedAsync(exception);
     }

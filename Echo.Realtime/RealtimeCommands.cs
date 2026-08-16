@@ -7,7 +7,11 @@ namespace Echo.Realtime;
 
 public record UserConnected(string UserId, string? DeviceId = null);
 
-public record UserDisconnected(string UserId, string? DeviceId = null);
+/// <param name="ServerStopping">
+/// True when this socket closed because the gateway is shutting down, not because anything happened
+/// to the client.
+/// </param>
+public record UserDisconnected(string UserId, string? DeviceId = null, bool ServerStopping = false);
 
 public record PresenceHeartbeat(string UserId);
 

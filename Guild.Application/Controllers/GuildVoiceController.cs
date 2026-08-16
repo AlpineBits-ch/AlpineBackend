@@ -181,11 +181,18 @@ public class GuildVoiceController(
         if (participant is null) return NotFound();
 
         var device = await ResolveDeviceAsync(ct);
-        if (!IsVoiceDevice(participant.DeviceId, device.DeviceId)) return Conflict();
+        if (!IsVoiceDevice(participant.DeviceId, CallingDeviceId(device))) return Conflict();
 
         await VoiceReconciler.ClaimLivenessAsync(cache, UserId, Room(channelId), ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// The caller's device id as <see cref="IsVoiceDevice"/> wants it: null when they named no
+    /// device at all.
+    /// </summary>
+    private static string? CallingDeviceId(DeviceIdResult device) =>
+        device.WasProvided ? device.DeviceId : null;
 
     /// <summary>
     /// Whether <paramref name="callingDeviceId"/> is the device that holds this room's voice

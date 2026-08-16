@@ -382,8 +382,9 @@ its record and tell peers to drop you.
 
 **A dropped SignalR connection does not remove you from the room.** SignalR reconnects by itself,
 and losing the socket for a few seconds is not a departure - a disconnect only shortens your
-liveness to 45 seconds, and reconnecting restores it before your next heartbeat is even due. Two
-things follow for the client:
+liveness to 75 seconds, and reconnecting restores it before your next heartbeat is even due. The
+window is sized to outlast the reconnect ladder of the clients we ship, so a client that is still
+retrying is never swept while it retries. Two things follow for the client:
 
 - Do **not** tear down your PeerConnection or your media session because the hub connection
   dropped. They are independent: media rides its own transport, and rebuilding it on every blip is
@@ -391,8 +392,16 @@ things follow for the client:
 - **Do** send a heartbeat as soon as you reconnect, rather than waiting for the next tick of your
   30-second timer. That is also when you find out whether anything changed while you were away.
 
-If you stay gone past the grace window you are evicted by the sweep like any other silent client,
-and everyone is told.
+A disconnect caused by the *gateway* going away - a rollout, a pod recycle - opens no window at
+all. Every socket on the instance closes in the same second and none of those closures say anything
+about the clients behind them, so nothing is shortened and your ordinary 90-second liveness stands.
+
+**If you are evicted, you are told.** The sweep sends the evicted participant `Resync` with
+`reason: "roomGone"`, individually, and everyone still in the room `reason: "participantsEvicted"`.
+Handle the first the same way you handle any other `roomGone`: you are not in a room any more, stop
+treating yourself as joined, and rejoin through the authorised path if the user asks. Do not rely on
+noticing this some other way - before this existed, an evicted client had no signal at all and went
+on publishing into a room that had forgotten it, with every subsequent request answering 404.
 
 ---
 

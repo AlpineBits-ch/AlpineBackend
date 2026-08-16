@@ -32,6 +32,9 @@ public class UserDisconnectedHandler
             await hub.Clients.User(relationship.UserId).SendAsync("presence.UserOffline", cmd.UserId);
         }
 
+        // The presence work above repairs itself on the next connect.
+        if (cmd.ServerStopping) return;
+
         // VoiceHub.OnDisconnectedAsync: leave any active call.
         var callId = await cache.GetStringAsync($"user-call:{cmd.UserId}");
         if (callId is null) return;

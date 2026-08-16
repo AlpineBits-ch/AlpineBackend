@@ -161,6 +161,11 @@ public class GuildVoiceStateHandler
         var target = await voice.JoinAsync(
             Room(message.TargetChannelId), message.TargetUserId, moving.DeviceId, guildId);
 
+        // A move is the one way onto a roster that the moved client did not ask for, so it is also
+        // the one way on that does not run the controller's join path - which is where liveness is
+        // normally claimed.
+        await VoiceReconciler.ClaimLivenessAsync(cache, message.TargetUserId, Room(message.TargetChannelId));
+
         // One index write for what is one fact - a move.
         await activity.MoveParticipantAsync(
             guildId, message.ChannelId, message.TargetChannelId, message.TargetUserId);

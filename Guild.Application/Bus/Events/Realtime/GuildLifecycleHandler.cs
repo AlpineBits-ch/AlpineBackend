@@ -300,6 +300,10 @@ public class GuildLifecycleHandler
                 new { UserId = userId, GuildId = m.GuildId, Status = nameof(OnlineStatus.Offline) });
         }
 
+        // Everything above this line is presence, which is a claim about right now and repairs
+        // itself on the next connect.
+        if (message.ServerStopping) return;
+
         // Temporary membership, on the same grace-window principle as the voice work below and for
         // a stronger version of the same reason: a socket closing is not a departure, and here the
         // cost of pretending otherwise is a membership somebody has to be re-invited into rather

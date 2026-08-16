@@ -85,14 +85,15 @@ public class GuildVoiceDisconnectCleanupTests
         ((FakeHubClients)_hub.Clients).SentMessages;
 
     private Task HandleDisconnectAsync(
-        string userId, string? deviceId, IDistributedCache? cache = null, IDistributedLockService? locks = null)
+        string userId, string? deviceId, IDistributedCache? cache = null, IDistributedLockService? locks = null,
+        bool serverStopping = false)
     {
         var effectiveCache = cache ?? _cache;
         // No blocks: this suite is about voice cleanup, and the block filter only ever removes
         // presence recipients - of which the fake Redis reports none anyway.
         var blocks = PrivacyTestFactory.Blocks(new FakeInvokingMessageBus(), new FakeDistributedCache());
         return _handler.Handle(
-            new UserDisconnected(userId, deviceId), _context, _hydrate, effectiveCache,
+            new UserDisconnected(userId, deviceId, serverStopping), _context, _hydrate, effectiveCache,
             VoiceTestHarness.StoreFor(effectiveCache, locks ?? new FakeDistributedLockService()), _hub,
             blocks);
     }
@@ -154,6 +155,39 @@ public class GuildVoiceDisconnectCleanupTests
         // VoiceHeartbeatCleanupService evicts anyone without one on its next 60s sweep.
         Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.True,
             "the heartbeat belongs to the device that is in voice, not to the one that disconnected");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ 1b.
+
+    /// <summary>
+    /// A rollout closes every socket on the gateway in the same second, and each one arrives here
+    /// looking exactly like a client that left.
+    /// </summary>
+    [Test]
+    public async Task Disconnect_BecauseTheGatewayIsStopping_LeavesTheHeartbeatKeyUntouched()
+    {
+        SeedVoice(UserId, Participant(UserId, DesktopDevice));
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
+
+        await HandleDisconnectAsync(UserId, DesktopDevice, serverStopping: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.True);
+            Assert.That(HeartbeatTtl(), Is.Null,
+                "the key must be left exactly as the client last wrote it - rewriting it even to the "
+                + "full TTL would reset a window the client owns");
+        });
+    }
+
+    [Test]
+    public async Task Disconnect_BecauseTheGatewayIsStopping_LeavesTheParticipantInTheChannel()
+    {
+        SeedVoice(UserId, Participant(UserId, DesktopDevice));
+
+        await HandleDisconnectAsync(UserId, DesktopDevice, serverStopping: true);
+
+        Assert.That(await RosterAsync(), Does.Contain(UserId));
     }
 
     // ══════════════════════════════════════════════════════════════════════════ 2.

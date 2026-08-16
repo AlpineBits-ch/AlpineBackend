@@ -68,7 +68,10 @@ Server-side, each call participant tracks a single `activeDeviceId` - the device
 
 Behavior your client must handle:
 
-- **Accepting on device A while device B is still ringing**: device B receives `call.CallAccepted` (existing event, now includes `deviceId`) and must dismiss its local incoming-call UI - same as today, no new work needed, this already broadcasts to all your sessions.
+- **Accepting on device A while device B is still ringing**: device B receives **`call.CallAccepted { callId, userId, deviceId, call }`** and must dismiss its local incoming-call UI. It broadcasts to every participant's sessions, so the *caller* gets it too - and the caller should use it to stop their outgoing ringback. Do not wait for `call.ParticipantJoined` for that: that one fires only once the answering client has actually published a microphone, it is addressed only to people already in the voice room, and nothing repeats it. `call.CallAccepted` is the answer; `ParticipantJoined` is the media that follows it.
+  - `deviceId` is the device that answered, and may be absent for a client that sent no `X-Device-Id`.
+  - `call` is the full call entity (the same shape `call.IncomingCall` carries), so its own id field is `id`. Read the top-level `callId`, not `call.id`.
+  - Unlike the voice-room events, this one carries **no `instanceId`/`version` envelope** - it is a call-lifecycle event, not a room delta. Do not put it behind a version gate.
 - **Declining on device B after you already accepted on device A (race)**: device B receives a new event, **`call.CallDeviceDismissed { callId, deviceId }`**, sent *only to that device*. Treat it exactly like a locally-cancelled ring - dismiss the incoming-call UI, do **not** show "call ended," because it isn't. The call keeps running on device A.
 - **Declining on your only ringing device (normal case)**: unchanged - `call.CallDeclined` fires as today.
 - **Accepting on device B while already connected via device A** (e.g. you pick up on your laptop, then tap accept on your phone too): this is treated as a **device switch**, not two simultaneous connections. Device A receives **`call.CallDeviceTakeover { callId, oldDeviceId, newDeviceId }`** targeted only at it. On receipt, device A must immediately tear down its local WebRTC/audio session and show something like "You joined this call on another device" - it must **not** call `leave` itself, the server has already updated state.
@@ -100,7 +103,7 @@ Use this to pick the right UI copy ("Call declined" vs. "Call ended" vs. "Call t
 
 | Event | Target | When |
 |---|---|---|
-| `call.CallAccepted` | all of the user's devices | unchanged, now includes `deviceId` of the accepting device |
+| `call.CallAccepted` | all participants, all their devices | `{ callId, userId, deviceId, call }` - somebody answered. Stops the ring on their other devices *and* the caller's ringback |
 | `call.CallDeclined` | all participants | unchanged - the participant declined without being connected elsewhere |
 | `call.CallDeviceDismissed` | **NEW**, one specific device only | a stale decline arrived after that user was already connected elsewhere |
 | `call.CallDeviceTakeover` | **NEW**, one specific device only | that device's connection was just taken over by another of the user's devices |

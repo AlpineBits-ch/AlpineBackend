@@ -3,6 +3,7 @@ using Echo.Voice.Rooms;
 using System.Text.Json;
 using Echo.Realtime;
 using Echo.Realtime.Caching;
+using Echo.Realtime.Devices;
 using Echo.Realtime.Sfu;
 using Identity.Contracts.Bus.Request;
 using Identity.Contracts.Bus.Response;
@@ -40,6 +41,13 @@ public class CallEventHandlersTests
     }
 
     private FakeHubClients HubClients => (FakeHubClients)_hub.Clients;
+
+    /// <summary>Reads a property off an anonymous payload type.</summary>
+    private static object? Field(object? payload, string name) =>
+        payload?.GetType().GetProperty(name)?.GetValue(payload);
+
+    private object? PayloadOf(string method) =>
+        HubClients.SentMessages.LastOrDefault(m => m.Method == method).Args?.ElementAtOrDefault(0);
 
     private async Task SeedCall(Call call) =>
         await _cache.SetAsync(Call.GetCacheId(call.Id), System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(call)), new());
@@ -86,6 +94,80 @@ public class CallEventHandlersTests
         await CallAcceptedHandler.Handle(new CallAccepted { CallId = "call-1", UserId = "user-1" }, _hub, _cache, bus);
 
         Assert.That(HubClients.SentMessages.Any(m => m.Method == "call.CallAccepted"), Is.True);
+    }
+
+    /// <summary>
+    /// The event exists to stop every other device of the accepting user from ringing, and a client
+    /// can only do that if the payload names the call.
+    /// </summary>
+    [Test]
+    public async Task CallAccepted_NamesTheCallAndTheAcceptingDevice()
+    {
+        await SeedCall(new Call
+        {
+            Id = "call-1",
+            ConversationId = "conv-1",
+            CreatorId = "user-1",
+            Participants = [new CallParticipant { UserId = "user-1" }],
+        });
+        var bus = BusThatMustNotInvoke();
+
+        await CallAcceptedHandler.Handle(
+            new CallAccepted { CallId = "call-1", UserId = "user-1", DeviceId = "desktop-1" }, _hub, _cache, bus);
+
+        var payload = PayloadOf("call.CallAccepted");
+        Assert.Multiple(() =>
+        {
+            Assert.That(Field(payload, "callId"), Is.EqualTo("call-1"));
+            Assert.That(Field(payload, "deviceId"), Is.EqualTo("desktop-1"));
+        });
+    }
+
+    /// <summary>
+    /// The full entity is still carried, so a client can resolve who is now connected without a
+    /// round trip.
+    /// </summary>
+    [Test]
+    public async Task CallAccepted_StillCarriesTheWholeCall()
+    {
+        await SeedCall(new Call
+        {
+            Id = "call-1",
+            ConversationId = "conv-1",
+            CreatorId = "user-1",
+            Participants = [new CallParticipant { UserId = "user-1" }],
+        });
+        var bus = BusThatMustNotInvoke();
+
+        await CallAcceptedHandler.Handle(
+            new CallAccepted { CallId = "call-1", UserId = "user-1", DeviceId = "desktop-1" }, _hub, _cache, bus);
+
+        var call = (Call?)Field(PayloadOf("call.CallAccepted"), "call");
+        Assert.That(call?.ConversationId, Is.EqualTo("conv-1"));
+    }
+
+    /// <summary>
+    /// <c>"default"</c> is the shared bucket every client that sends no <c>X-Device-Id</c> lands
+    /// in, so naming it as the accepting device tells every one of them "that was you" - and each
+    /// keeps ringing, which is the exact failure this event exists to prevent.
+    /// </summary>
+    [Test]
+    public async Task CallAccepted_PlaceholderDeviceId_NamesNoDevice()
+    {
+        await SeedCall(new Call
+        {
+            Id = "call-1",
+            ConversationId = "conv-1",
+            CreatorId = "user-1",
+            Participants = [new CallParticipant { UserId = "user-1" }],
+        });
+        var bus = BusThatMustNotInvoke();
+
+        await CallAcceptedHandler.Handle(
+            new CallAccepted { CallId = "call-1", UserId = "user-1", DeviceId = DeviceIdentity.DefaultDeviceId },
+            _hub, _cache, bus);
+
+        Assert.That(Field(PayloadOf("call.CallAccepted"), "deviceId"), Is.Null);
     }
 
     // ══════════════════════════════════════════════════════════════════════════

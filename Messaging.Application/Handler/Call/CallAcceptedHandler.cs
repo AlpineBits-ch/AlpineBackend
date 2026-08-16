@@ -24,12 +24,21 @@ public class CallAcceptedHandler
             throw new Exception("Call not found, cannot end call");
         }
 
-        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId)).SendAsync("call.CallAccepted", call);
-
-        var cancelRecipientIds = CancelRecipientIds(call, @event.UserId);
         var acceptingDeviceId = !string.IsNullOrWhiteSpace(@event.DeviceId) && @event.DeviceId != DeviceIdentity.DefaultDeviceId
             ? @event.DeviceId
             : null;
+
+        // `callId` and `deviceId` at the top level, not just the entity.
+        await hubContext.Clients.Users(call.Participants.Select(p => p.UserId))
+            .SendAsync("call.CallAccepted", new
+            {
+                callId = call.Id,
+                userId = @event.UserId,
+                deviceId = acceptingDeviceId,
+                call,
+            });
+
+        var cancelRecipientIds = CancelRecipientIds(call, @event.UserId);
 
         if (cancelRecipientIds.Count > 0)
         {

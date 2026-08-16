@@ -12,6 +12,7 @@ using Social.Infrastructure.Persistence;
 using Social.Contracts.Bus.Integration.Events;
 using Social.Api.Services;
 using Microsoft.Extensions.Caching.Distributed;
+using Social.Api.Helpers;
 using Wolverine;
 
 namespace Social.Api.Controllers;
@@ -185,8 +186,16 @@ public partial class ProfileController(
         // settings are applied, activity is gated on ShareActivity, and a blocked reader gets the
         // minimal public projection - all inside the projection, so a field the viewer may not see
         // is absent from the body rather than present and ignored.
-        return Ok(await projection.ProjectAsync(profile, currentProfile.Id));
+        var projected = await projection.ProjectAsync(profile, currentProfile.Id);
+        var etag = ETagHelper.Compute(projected);
 
+        // private, never public: the body above is projected for this caller specifically.
+        Response.Headers.CacheControl = "private, max-age=0, must-revalidate";
+        Response.Headers.ETag = etag;
+
+        if (ETagHelper.Matches(Request.Headers.IfNoneMatch, etag)) return StatusCode(304);
+
+        return Ok(projected);
     }
     
     [Authorize]
@@ -218,6 +227,15 @@ public partial class ProfileController(
 
         // Same gate as GetAsync - the two routes differ only in how the subject is addressed, so
         // neither may be the lenient one.
-        return Ok(await projection.ProjectAsync(profile, currentProfile.Id));
+        var projected = await projection.ProjectAsync(profile, currentProfile.Id);
+        var etag = ETagHelper.Compute(projected);
+
+        // private, never public: the body above is projected for this caller specifically.
+        Response.Headers.CacheControl = "private, max-age=0, must-revalidate";
+        Response.Headers.ETag = etag;
+
+        if (ETagHelper.Matches(Request.Headers.IfNoneMatch, etag)) return StatusCode(304);
+
+        return Ok(projected);
     }
 }

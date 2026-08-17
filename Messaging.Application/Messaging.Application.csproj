@@ -52,7 +52,7 @@
       <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
       <!-- Link previews: Messaging decides which links to resolve and who may suppress the result,
            Unfurl answers "what does this URL look like". Contracts only - the fetching itself runs
-           in its own service, which is the point (docs/specs/message-previews.md §3). -->
+           in its own service, which is the point. -->
       <ProjectReference Include="..\Unfurl.Contracts\Unfurl.Contracts.csproj" />
       <ProjectReference Include="..\Identity.Contracts\Identity.Contracts.csproj" />
       <ProjectReference Include="..\Messaging.Contracts\Messaging.Contracts.csproj" />

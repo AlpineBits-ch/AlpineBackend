@@ -3,7 +3,7 @@
 **This file is the coordination point for three repos working in parallel.** Echo implements it;
 Alpine and venta-mobile code against it. Nobody changes a shape here without updating this file.
 
-Companion to `mls-hardening-plan.md`. Route-attribute style follows the existing code: Messaging
+Route-attribute style follows the existing code: Messaging
 uses `[WolverinePost("/api/v1/...")]` (leading slash), Identity uses
 `[WolverinePost("api/v1/...")]` (no leading slash).
 
@@ -193,7 +193,7 @@ loop is bounded in practice; this is not a hot path.
    cross-consumption in both directions. Without it, this class of bug is invisible until a user
    is mid-recovery.
 
-> **⚠ Open server-side blocker: the retrofit path (point 5) cannot currently succeed.**
+> **Open server-side blocker: the retrofit path (point 5) cannot currently succeed.**
 >
 > `PUT api/v1/backup/recovery-key` returns early on a same-version write:
 >
@@ -409,9 +409,9 @@ to hand. So admission is governed by an account-level **protection level**.
 | | `TrustedSignIn` (default) | `VerifiedDevices` (opt-in) |
 |---|---|---|
 | Admitting a new device | Automatic, on proof of the account master key | Automatic proof **plus** a human approving on an existing device |
-| Defends against a malicious or compromised **server** | ✅ | ✅ |
-| Defends against a network attacker | ✅ | ✅ |
-| Defends against someone who knows your **password** | ❌ | ✅ |
+| Defends against a malicious or compromised **server** | Yes | Yes |
+| Defends against a network attacker | Yes | Yes |
+| Defends against someone who knows your **password** | No | Yes |
 | Recovery if you lose every device | Password | Recovery code only - **no password reset can restore E2EE** |
 | Last-resort key package (reusable) | Permitted | **Disabled** - no forward-secrecy loss on join |
 | Cloud backup of engine state | Permitted | Requires the recovery code; off by default |
@@ -1592,8 +1592,7 @@ conversation being broken.
 >
 > Alpine has this in hand (relink now submits a join request, plus a launch-time admission sweep,
 > both unreleased at the time of writing); venta-mobile has `requestAccessWhereMissing` built but not
-> called at launch. Current state per repo lives in `mls-remaining-work.md` §2c - check there rather
-> than treating this paragraph as the status.
+> called at launch. Check the client repositories rather than treating this paragraph as the status.
 >
 > Server-side, a coverage *read* route now exists - see **§L.15**. It was blocked on the server being
 > unable to tell which device activated a generation, so any answer it gave reported the creator's own

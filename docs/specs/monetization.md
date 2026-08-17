@@ -1,8 +1,5 @@
 # Monetization: plans, entitlements, promotions and Stripe
 
-Status: **proposal.** Nothing in this document is built. No billing, entitlement, quota or Stripe
-concept exists anywhere in the tree today.
-
 The goal is a platform that pays for itself, where the thing a customer pays for lines up with the
 thing that costs money, and where a self-hoster never sees any of it.
 

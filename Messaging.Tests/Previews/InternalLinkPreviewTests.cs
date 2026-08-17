@@ -15,10 +15,7 @@ using Unfurl.Contracts.Bus;
 
 namespace Messaging.Tests.Previews;
 
-/// <summary>
-/// Server-generated cards for links that point back at this instance
-/// (docs/specs/message-previews.md, "Internal links").
-/// </summary>
+/// <summary>Server-generated cards for links that point back at this instance .</summary>
 [TestFixture]
 public class InternalLinkPreviewTests
 {

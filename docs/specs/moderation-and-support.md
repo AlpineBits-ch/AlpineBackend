@@ -254,16 +254,16 @@ token outlives a demotion:
 
 | | Moderator | Admin |
 |---|---|---|
-| Report queue, triage, dismiss | ✅ | ✅ |
-| Warn, suspend | ✅ | ✅ |
-| Ban, unban | ✅ | ✅ |
-| Appeals: review and decide | ✅ | ✅ |
-| Support tickets | ✅ | ✅ |
-| Instance numbers, user search | ✅ | ✅ |
-| Audit log | - | ✅ |
-| Act on another staff account | - | ✅ |
-| Promote and demote staff | - | ✅ |
-| Federation admin | - | ✅ |
+| Report queue, triage, dismiss | Yes | Yes |
+| Warn, suspend | Yes | Yes |
+| Ban, unban | Yes | Yes |
+| Appeals: review and decide | Yes | Yes |
+| Support tickets | Yes | Yes |
+| Instance numbers, user search | Yes | Yes |
+| Audit log | No | Yes |
+| Act on another staff account | No | Yes |
+| Promote and demote staff | No | Yes |
+| Federation admin | No | Yes |
 
 The split is deliberately shallow. A deeper permission model here would be guessing at an org chart
 this instance does not have; the meaningful line is "can see what other staff did" and "can act on

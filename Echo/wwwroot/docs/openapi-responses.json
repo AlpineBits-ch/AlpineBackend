@@ -37168,8 +37168,8 @@
         "file": "C:\\Users\\Domin\\RiderProjects\\Echo\\Messaging.Application\\Endpoints\\MessagingEndpoints.cs",
         "line": 459
       },
-      "summary": "Hides or restores this message\u0027s link previews (docs/specs/message-previews.md)",
-      "description": "Hides or restores this message\u0027s link previews (docs/specs/message-previews.md).  This is message state, not a per-viewer preference: the SUPPRESS_EMBEDS flag lives on the row every viewer reads, so dismissing a preview removes it for everyone who can see the message. That is Discord\u0027s behaviour and the point of the feature - the person who posted the link decides whether the card is shown.   Suppressing also clears the generated embeds rather than only hiding them. Embeds an \u003Ci\u003Eauthor\u003C/i\u003E wrote (a bot\u0027s rich card) are left in place and merely hidden by the flag, so unsuppressing restores them; a generated preview costs nothing to rebuild and should not sit in the row after someone asked for it to go."
+      "summary": "Hides or restores this message\u0027s link previews",
+      "description": "Hides or restores this message\u0027s link previews.  This is message state, not a per-viewer preference: the SUPPRESS_EMBEDS flag lives on the row every viewer reads, so dismissing a preview removes it for everyone who can see the message. That is Discord\u0027s behaviour and the point of the feature - the person who posted the link decides whether the card is shown.   Suppressing also clears the generated embeds rather than only hiding them. Embeds an \u003Ci\u003Eauthor\u003C/i\u003E wrote (a bot\u0027s rich card) are left in place and merely hidden by the flag, so unsuppressing restores them; a generated preview costs nothing to rebuild and should not sit in the row after someone asked for it to go."
     },
     {
       "project": "Messaging.Application",

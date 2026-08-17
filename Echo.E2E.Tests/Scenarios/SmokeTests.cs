@@ -61,7 +61,7 @@ public class SmokeTests
         await E2EAssert.HasStatusAsync(response, HttpStatusCode.Accepted, _stack.Identity, "Register failed");
 
         // The id is gone from the body on purpose: the same response has to cover an address that
-        // already has an account. See docs/specs/registration-contract-change.md.
+        // already has an account..
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.That(body.TryGetProperty("userId", out _), Is.False);
         Assert.That(body.GetProperty("status").GetString(), Is.EqualTo("verification_pending"));

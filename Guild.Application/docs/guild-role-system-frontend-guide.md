@@ -2,8 +2,7 @@
 
 This release reworks the guild role system end to end: the permission mask was split in two, twelve
 Discord permissions were added, per-channel denies actually work now, and roles gained the display
-metadata Discord has always had. See `docs/specs/guild-role-system-parity.md` for the review this
-came from.
+metadata Discord has always had.
 
 Read section 1 first. It is the change most likely to break a client silently, without an error.
 
@@ -24,9 +23,8 @@ Permissions serialize as a **single comma-separated string of member names**, no
 ```
 
 This is what a `[Flags]` enum does under the service's globally registered
-`JsonStringEnumConverter`. It was already true before this release; it is restated because the
-older `everyone-role-defaults-frontend-guide.md` discusses these values as decimal bit masks, which
-describes the underlying storage rather than what arrives over HTTP.
+`JsonStringEnumConverter`. Note that decimal bit masks describe the underlying storage rather than
+what arrives over HTTP.
 
 On the way in, both the string form and a numeric mask are accepted.
 

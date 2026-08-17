@@ -3,9 +3,6 @@
 Everything the client needs to build against the privacy workstream (`docs/specs/privacy.md`).
 Backend is done and tested; this is the client-side work.
 
-Registration changed shape too - that has its own document,
-[`registration-contract-change.md`](./registration-contract-change.md). Read this one first.
-
 ## Base URL and the path rule
 
 ```

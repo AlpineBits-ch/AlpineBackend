@@ -16,9 +16,7 @@ using MessageType = Messaging.Domain.Enums.MessageType;
 
 namespace Messaging.Application.Handler.Messages;
 
-/// <summary>
-/// Resolves the links in a message into previews (docs/specs/message-previews.md).
-/// </summary>
+/// <summary>Resolves the links in a message into previews.</summary>
 [NonTransactional]
 public class UnfurlLinksHandler
 {

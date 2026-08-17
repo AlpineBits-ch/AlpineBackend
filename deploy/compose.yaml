@@ -597,7 +597,7 @@ services:
       retries: 10
       start_period: 90s
 
-  # Link previews (docs/specs/message-previews.md). The only service that makes outbound HTTP
+  # Link previews. The only service that makes outbound HTTP
   # requests to hosts chosen by end users, which is exactly why it is its own container: its egress
   # can be firewalled independently, and a hostile page cannot reach the message store or the MLS
   # key material from here. It owns no data - unfurl_db holds Wolverine's envelopes and nothing

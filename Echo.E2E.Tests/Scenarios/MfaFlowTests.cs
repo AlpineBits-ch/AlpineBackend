@@ -36,8 +36,7 @@ public class MfaFlowTests
             await _stack.DisposeAsync();
     }
 
-    /// <summary>Registration answers 202 with a fixed body and no user id - see
-    /// docs/specs/registration-contract-change.md. Nothing here needed the id.</summary>
+    /// <summary>Registration answers 202 with a fixed body and no user id.</summary>
     private static async Task RegisterAsync(SpawnedServiceProcess identity, string username, string password)
     {
         var email = $"{username}-{Guid.NewGuid()}@example.com";

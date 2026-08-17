@@ -333,7 +333,7 @@ public class ProductCatalogConfiguration
                 : 50);
 }
 
-/// <summary>Link-preview generation (docs/specs/message-previews.md).</summary>
+/// <summary>Link-preview generation.</summary>
 public class UnfurlConfiguration
 {
     /// <summary>Master switch.</summary>

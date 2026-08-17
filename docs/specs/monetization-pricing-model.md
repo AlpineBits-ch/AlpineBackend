@@ -3,10 +3,10 @@
 Companion to [monetization.md](monetization.md), which left every number in §3.5 as a placeholder.
 This one puts numbers in them and shows the working.
 
-**Status: modelled, not measured.** Every figure below comes from the bitrate assumptions in
-`VoiceUsageRates` driven over modelled rosters, not from a Cloudflare invoice. WP-02 is built and
-will produce real numbers once deployed; **do not sign a price into a contract or a landing page
-until it has.** Two inputs in particular need confirming: the Cloudflare per-GB rate and the free
+**Modelled, not measured.** Every figure below comes from the bitrate assumptions in
+`VoiceUsageRates` driven over modelled rosters, not from a provider invoice. Usage metering will
+produce real numbers once deployed; **do not sign a price into a contract or a landing page until it
+has.** Two inputs in particular need confirming: the Cloudflare per-GB rate and the free
 allowance, and the real-world bitrate mix once simulcast layer selection is live.
 
 ---

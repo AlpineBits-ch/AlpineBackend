@@ -49,8 +49,7 @@ public class CrossServiceFlowTests
             registerResponse, System.Net.HttpStatusCode.Accepted, _stack.Identity, "Register failed");
 
         // Registration no longer returns the account id - it cannot, since the same response has to
-        // cover an address that already has an account
-        // (docs/specs/registration-contract-change.md).
+        // cover an address that already has an account .
         var tokenResponse = await _stack.Identity.Client.PostAsync("/connect/token", new FormUrlEncodedContent(
             new Dictionary<string, string>
             {

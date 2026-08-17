@@ -259,7 +259,7 @@ tests/
 
 | # | Step | The regression it catches |
 |---|------|---------------------------|
-| 1 | Register | The registration contract. See `docs/specs/registration-contract-change.md` - this endpoint has already changed shape once. |
+| 1 | Register | The registration contract - this endpoint has already changed shape once. |
 | 2 | Enter code | Verification end to end. Currently untested at every tier, and it has broken before (see the memo on the overwrite race). |
 | 3 | Log in | Token exchange against OpenIddict, `issuer`/`tokenEndpoint` wiring in `ApiConfigService`. |
 | 4 | Log out | Slot teardown, `ApiConfigService.reset()`, scoped OAuth storage cleanup. |

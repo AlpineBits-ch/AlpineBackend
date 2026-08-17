@@ -7,7 +7,7 @@ namespace Guild.Application.Bus.Consumers;
 
 /// <summary>
 /// Answers "which of these role ids may this message ping, and which need MentionEveryone" for a
-/// channel - the Guild half of R5/R19 in docs/specs/guild-role-system-parity.md.
+/// channel - the Guild half of the role-mention gate.
 /// </summary>
 public class ResolveRoleMentionsHandler
 {

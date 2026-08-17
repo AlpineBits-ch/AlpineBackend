@@ -162,7 +162,7 @@ public class MessageCreatedHandler
             });
         }
 
-        // Link previews (docs/specs/message-previews.md).
+        // Link previews.
         if (UnfurlDecision.ShouldUnfurlNew(
                 messageCreated.EncryptionState, messageCreated.Type,
                 messageCreated.EmbedsJson, messageCreated.Content))

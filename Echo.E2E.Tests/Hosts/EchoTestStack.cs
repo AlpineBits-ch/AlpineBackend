@@ -15,7 +15,7 @@ public sealed class EchoTestStack : IAsyncDisposable
     public SpawnedServiceProcess Federation { get; private set; } = null!;
     public SpawnedServiceProcess Import { get; private set; } = null!;
 
-    /// <summary>Link previews (docs/specs/message-previews.md).</summary>
+    /// <summary>Link previews.</summary>
     public SpawnedServiceProcess Unfurl { get; private set; } = null!;
 
     public SpawnedServiceProcess Gateway { get; private set; } = null!;

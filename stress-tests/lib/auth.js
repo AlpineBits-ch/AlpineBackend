@@ -46,9 +46,8 @@ export function registerUser(index) {
   );
 
   // 202 is the only success now, and it covers "already registered" too: the endpoint deliberately
-  // answers a taken address exactly as it answers a free one (see
-  // docs/specs/registration-contract-change.md), so re-running this against a seeded instance is
-  // idempotent by construction rather than by catching a duplicate status.
+  // answers a taken address exactly as it answers a free one, so re-running this against a seeded
+  // instance is idempotent by construction rather than by catching a duplicate status.
   //
   // The 400 branch is kept only for a username collision, which is still refused distinguishably -
   // for these fixed TestUser{i} names that means the account already exists.

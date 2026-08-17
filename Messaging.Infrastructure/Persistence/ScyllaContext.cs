@@ -398,7 +398,7 @@ public class ScyllaContext : IAsyncDisposable
         {
         }
 
-        // Message previews (docs/specs/message-previews.md).
+        // Message previews.
         try
         {
             await session.ExecuteAsync(new SimpleStatement(

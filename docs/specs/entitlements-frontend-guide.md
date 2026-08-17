@@ -3,11 +3,9 @@
 Everything a venta client needs to say "this worked, but you got less than you asked for, and here is
 who can change that" instead of failing silently or refusing outright.
 
-Applies to Alpine (desktop and web), venta-mobile and the bots portal. Design documents:
-[monetization.md](./monetization.md) sections 3.3 and 4, execution plan
-[monetization-implementation-plan.md](./monetization-implementation-plan.md) WP-09. The client-side
-survey this contract was written from is `docs/contracts/entitlements-client-requirements.md` in the
-Alpine repository.
+Applies to Alpine (desktop and web), venta-mobile and the bots portal. The design lives in
+[monetization.md](./monetization.md) sections 3.3 and 4. The client-side survey this contract was
+written from is `docs/contracts/entitlements-client-requirements.md` in the Alpine repository.
 
 ## URLs in this document
 

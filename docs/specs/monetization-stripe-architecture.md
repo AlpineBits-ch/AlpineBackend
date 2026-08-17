@@ -1,10 +1,6 @@
-# Stripe integration architecture (wave 6)
+# Stripe integration architecture
 
-Status: design, 2026-08-14. Supersedes the one-line summaries in
-`monetization-implementation-plan.md` §10 wherever the two differ, and records two deliberate
-departures from that section - see §12.
-
-This document exists because wave 6 is the first wave where a mistake costs money rather than
+This document exists because Stripe is where a mistake costs money rather than
 capacity, and because three of its decisions (who owns the price, what a subscription writes, and
 what a webhook is allowed to trust) are the kind that are cheap now and very expensive to reverse
 once real customers exist.

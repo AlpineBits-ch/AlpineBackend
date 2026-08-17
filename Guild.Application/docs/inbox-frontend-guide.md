@@ -1,11 +1,9 @@
 # Inbox - frontend integration guide
 
-Two tabs - **Unread** and **Mentions** - spanning every guild the caller is in. Backend work is
-done; this is what the client needs to build against it.
+Two tabs - **Unread** and **Mentions** - spanning every guild the caller is in.
 
-> **Already have a client running?** Read
-> [`inbox-client-migration.md`](./inbox-client-migration.md) first - there is one field that
-> silently changed value, and it is a two-minute fix.
+> **Already have a client running?** `readState.mentionCount` is still in the JSON but is now always
+> `0` - read mention counts from the inbox endpoints below instead. It is a two-minute fix.
 
 ## Base URL
 

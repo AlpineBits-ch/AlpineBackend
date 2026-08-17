@@ -1,6 +1,6 @@
 # Privacy - settings, consent, and data rights
 
-Status: **specification**, 2026-08-04. Covers Tier 0-2 of the privacy audit.
+Covers Tier 0-2 of the privacy audit.
 
 The audit that produced this found that Echo stores three privacy flags and a DM-filter setting,
 exposes them read-only, and enforces none of them. Everything below either makes an advertised
@@ -733,7 +733,7 @@ body** whether or not the address is taken, the `userId` is gone from the respon
 taken address creates nothing at all - no user row, no password hash, and no T1-10 consent record
 against an account the caller does not own. The account holder is mailed instead of the caller: a
 "someone tried to sign up with your address" notice, or the verification code they are missing if
-their own account is still unverified. Client migration: `docs/specs/registration-contract-change.md`.
+their own account is still unverified.
 
 Three things this one adds to the list above:
 

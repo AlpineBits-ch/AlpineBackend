@@ -1,7 +1,6 @@
 # Extending the pantry product catalog beyond food
 
-Status: phases 1-3 and 5-7 implemented 2026-08-08 (2,071 tests green). Phase 4 is a documented gap.
-Research measured 2026-08-08 against live data.
+Implemented, apart from the gap documented in §4. The research below was measured against live data.
 
 Frontend contract: `Guild.Application/docs/product-catalog-frontend-guide.md`.
 

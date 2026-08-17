@@ -8,9 +8,7 @@ using Echo.E2E.Tests.Support;
 
 namespace Echo.E2E.Tests.Scenarios;
 
-/// <summary>
-/// Link previews end to end (docs/specs/message-previews.md), against a real third-party origin.
-/// </summary>
+/// <summary>Link previews end to end, against a real third-party origin.</summary>
 [TestFixture]
 [Category("E2E")]
 public class LinkPreviewFlowTests

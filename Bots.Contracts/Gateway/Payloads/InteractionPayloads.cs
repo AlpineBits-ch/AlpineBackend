@@ -356,8 +356,7 @@ public static class EmbedTypes
     public const string Gifv = "gifv";
 
     /// <summary>
-    /// A link to something on this instance, resolved in-process rather than fetched
-    /// (docs/specs/message-previews.md, "Internal links").
+    /// A link to something on this instance, resolved in-process rather than fetched .
     /// </summary>
     public const string VentaInvite = "venta.invite";
 

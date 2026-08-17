@@ -2,7 +2,7 @@ namespace Guild.Contracts.Bus.Request;
 
 /// <summary>
 /// The public facts behind an invite code, for the card Messaging renders when somebody posts an
-/// invite link in a channel (docs/specs/message-previews.md, "Internal links").
+/// invite link in a channel.
 /// </summary>
 public class ResolveInviteCardRequest
 {

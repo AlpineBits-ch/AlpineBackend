@@ -110,7 +110,7 @@ public static class ProxyConfig
             Match = new RouteMatch { Path = "/api/webhooks/{webhookId}/{token}" }
         },
 
-        // Link preview media (docs/specs/message-previews.md).
+        // Link preview media.
         new RouteConfig
         {
             RouteId = "previews-route",

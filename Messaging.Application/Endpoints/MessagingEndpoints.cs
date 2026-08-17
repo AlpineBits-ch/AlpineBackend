@@ -274,10 +274,7 @@ public class MessagingEndpoints
         return Results.Created($"/api/v1/messaging/{message.Id}", message.ToFacet<Message, MessageDto>());
     }
 
-    /// <summary>
-    /// Strips the role ids this author is not entitled to ping (R5/R19 in
-    /// docs/specs/guild-role-system-parity.md).
-    /// </summary>
+    /// <summary>Strips the role ids this author is not entitled to ping.</summary>
     private static async Task<List<string>> GateRoleMentionsAsync(
         List<string> requested, string channelId, IMessageBus bus, Func<Task<bool>> mayMentionEveryone)
     {
@@ -436,9 +433,7 @@ public class MessagingEndpoints
         return Results.Accepted(value: new { messageId, content = dto.Content });
     }
 
-    /// <summary>
-    /// Hides or restores this message's link previews (docs/specs/message-previews.md).
-    /// </summary>
+    /// <summary>Hides or restores this message's link previews.</summary>
     [WolverinePatch("/api/v1/messaging/{messageId}/embeds")]
     public async Task<IResult> SuppressMessageEmbeds(string messageId, SuppressEmbedsDto dto,
         [NotBody] IMessageRepository repo, [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)

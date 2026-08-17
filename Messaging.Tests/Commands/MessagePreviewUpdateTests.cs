@@ -10,7 +10,7 @@ using Messaging.Tests.Helpers;
 namespace Messaging.Tests.Commands;
 
 /// <summary>
-/// The write half of link previews (docs/specs/message-previews.md): merge semantics for generated
+/// The write half of link previews: merge semantics for generated
 /// embeds, the stale-content guard, the suppression flag, and the "(edited)" distinction.
 /// </summary>
 [TestFixture]

@@ -1,5 +1,3 @@
-<!-- LEGAL REVIEW REQUIRED - DRAFT, NOT YET OPERATIVE -->
-
 # Downgrade and Data Policy
 
 Last updated: August 14, 2026

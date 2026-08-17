@@ -189,7 +189,20 @@ public class ConversationEndpoints
 
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return Results.Unauthorized();
-        
+
+        // A retried or double-tapped create must land in the room the caller is already in, not beside
+        // it. Checked before the profile and policy round trips: the caller is a member of whatever
+        // this matches, so there is no first-contact decision left to make.
+        var duplicate = await FindEquivalentConversationAsync(createDto, userId, ctx);
+        if (duplicate is not null)
+        {
+            // 302 rather than 200 so a client can tell nothing was created; deliberately without a
+            // Location header, since a redirect-following client would drop the body and reissue the
+            // POST as a GET.
+            return Results.Json(duplicate.ToFacet<Conversation, ConversationDto>(),
+                statusCode: StatusCodes.Status302Found);
+        }
+
         var response = await messageBus.InvokeAsync<GetProfileByUserIdResponse>(new GetProfileByUserIdRequest()
         {
             UserId = userId
@@ -313,6 +326,42 @@ public class ConversationEndpoints
         dto.UnreachableDevices = unreachableDevices;
 
         return Results.Ok(dto);
+    }
+
+    /// <summary>The local conversation this request would duplicate - same member set, same name,
+    /// same encryption state - or null when there is none.</summary>
+    private static async Task<Conversation?> FindEquivalentConversationAsync(
+        CreateConversationDto createDto, string callerUserId, MicroserviceContext ctx)
+    {
+        var memberIds = createDto.Members
+            .Select(m => m.UserId)
+            .Append(callerUserId)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        var query = ctx.Conversations
+            .AsNoTracking()
+            .Include(c => c.Members)
+            .Where(c => c.OriginInstanceId == null
+                        && c.EncryptionState == createDto.Encryption
+                        && c.Members.Count == memberIds.Count);
+
+        var name = string.IsNullOrWhiteSpace(createDto.Name) ? null : createDto.Name;
+        query = name is null
+            ? query.Where(c => c.Name == null || c.Name == "")
+            : query.Where(c => c.Name == name);
+
+        // One Any per member: a set comparison would not translate, and the count above closes it
+        // into exact equality.
+        foreach (var memberId in memberIds)
+            query = query.Where(c => c.Members.Any(m => m.UserId == memberId));
+
+        // The liveliest of them, matching DirectConversationResolver, because rows predating this
+        // check can already have messages in them.
+        return await query
+            .OrderByDescending(c => c.UpdatedAt)
+            .ThenByDescending(c => c.CreatedAt)
+            .FirstOrDefaultAsync();
     }
 
     /// <summary>Which participant devices got no Welcome.</summary>

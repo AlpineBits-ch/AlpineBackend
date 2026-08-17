@@ -650,6 +650,150 @@ public class ConversationEndpointsTests
     }
 
     // ══════════════════════════════════════════════════════════════════════════
+    // CreateConversation: duplicates
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Runs a create as user-1 and commits it, the way the Wolverine middleware would.</summary>
+    private async Task<IResult> Create(CreateConversationDto dto, FakeMessageBus? bus = null)
+    {
+        bus ??= FriendlyBus();
+        var result = await new ConversationEndpoints().CreateConversation(
+            dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
+            Coverage(bus), Http(), Policy(bus));
+        await _context.SaveChangesAsync();
+        return result;
+    }
+
+    private static CreateConversationDto PlainDto(string? name, params string[] memberUserIds) => new()
+    {
+        Encryption = ChannelEncryptionState.Plain,
+        Name = name,
+        Members = memberUserIds.Select(u => new CreateConversationMemberDto { UserId = u }).ToList(),
+    };
+
+    /// <summary>The id of a created (200) or matched (302) conversation.</summary>
+    private static string IdOf(IResult result) => result switch
+    {
+        Ok<ConversationDto> ok => ok.Value!.Id,
+        JsonHttpResult<ConversationDto> json => json.Value!.Id,
+        _ => throw new InvalidOperationException($"Not a conversation result: {result.GetType().Name}"),
+    };
+
+    [Test]
+    public async Task CreateConversation_SameMembersAndSettings_ReturnsTheExistingOne()
+    {
+        var first = await Create(PlainDto(null, "user-2"));
+        var second = await Create(PlainDto(null, "user-2"));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(second, Is.InstanceOf<JsonHttpResult<ConversationDto>>());
+            Assert.That(((JsonHttpResult<ConversationDto>)second).StatusCode, Is.EqualTo(StatusCodes.Status302Found));
+            Assert.That(IdOf(second), Is.EqualTo(IdOf(first)));
+            Assert.That(await _context.Conversations.CountAsync(), Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_SameMembersInAnotherOrder_ReturnsTheExistingOne()
+    {
+        // The member list is a set; the order the client happened to send it in is not a setting.
+        var first = await Create(PlainDto("Study group", "user-2", "user-3"));
+        var second = await Create(PlainDto("Study group", "user-3", "user-2"));
+
+        Assert.That(IdOf(second), Is.EqualTo(IdOf(first)));
+        Assert.That(await _context.Conversations.CountAsync(), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task CreateConversation_CallerListedAmongTheMembers_StillMatches()
+    {
+        var first = await Create(PlainDto(null, "user-2"));
+        var second = await Create(PlainDto(null, "user-2", "user-1"));
+
+        Assert.That(IdOf(second), Is.EqualTo(IdOf(first)));
+    }
+
+    [Test]
+    public async Task CreateConversation_DifferentName_CreatesASecondConversation()
+    {
+        var first = await Create(PlainDto("Study group", "user-2", "user-3"));
+        var second = await Create(PlainDto("Trip", "user-2", "user-3"));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(second, Is.InstanceOf<Ok<ConversationDto>>());
+            Assert.That(IdOf(second), Is.Not.EqualTo(IdOf(first)));
+            Assert.That(await _context.Conversations.CountAsync(), Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_DifferentMemberSet_CreatesASecondConversation()
+    {
+        var first = await Create(PlainDto(null, "user-2"));
+        var second = await Create(PlainDto(null, "user-2", "user-3"));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(IdOf(second), Is.Not.EqualTo(IdOf(first)));
+            Assert.That(await _context.Conversations.CountAsync(), Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_SameMembersButEncrypted_CreatesASecondConversation()
+    {
+        // A plain room and an encrypted one are not the same room, whoever is in them.
+        var first = await Create(PlainDto(null, "user-2"));
+        var second = await Create(EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }));
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(IdOf(second), Is.Not.EqualTo(IdOf(first)));
+            Assert.That(await _context.Conversations.CountAsync(), Is.EqualTo(2));
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_EncryptedDuplicate_KeepsTheGroupItAlreadyHas()
+    {
+        // The second attempt carries a group the existing conversation knows nothing about, so
+        // nothing of it may be written: a second generation would leave the room with two live
+        // groups, and the Welcomes are sealed to the one being discarded.
+        var bus = EncryptedCreationBus("device-2");
+
+        var first = await Create(EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [9] }), bus);
+
+        var retry = EncryptedDto(new DeviceWelcomeDto { DeviceId = "device-2", UserId = "user-2", Welcome = [7] });
+        retry.MlsGroupId = [7, 7, 7];
+        var second = await Create(retry, bus);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(IdOf(second), Is.EqualTo(IdOf(first)));
+            Assert.That(await _context.MlsGroupGenerations.CountAsync(), Is.EqualTo(1));
+            Assert.That(await _context.PendingWelcomes.CountAsync(), Is.EqualTo(1));
+            Assert.That((await _context.Conversations.SingleAsync()).MlsGroupId, Is.EqualTo(new byte[] { 1, 2, 3 }));
+        });
+    }
+
+    [Test]
+    public async Task CreateConversation_ConversationTheCallerHasLeft_IsNotMatched()
+    {
+        // Leaving drops the member row, so the caller is starting over rather than duplicating.
+        var first = await Create(PlainDto(null, "user-2"));
+        await new ConversationEndpoints().DeleteConversation(
+            IdOf(first), new FakeMessageBus(), TestPrincipal.ForUser("user-1"), _context);
+        await _context.SaveChangesAsync();
+
+        var second = await Create(PlainDto(null, "user-2"));
+
+        Assert.That(second, Is.InstanceOf<Ok<ConversationDto>>());
+        Assert.That(IdOf(second), Is.Not.EqualTo(IdOf(first)));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
     // AddConversationMember
     // ══════════════════════════════════════════════════════════════════════════
 

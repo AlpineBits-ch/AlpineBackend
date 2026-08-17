@@ -1,5 +1,3 @@
-using System.Text;
-using System.Xml;
 using Echo.Domain.Entities.Moderation;
 using Echo.Domain.Enums;
 using Echo.Persistence.Persistance;
@@ -100,55 +98,11 @@ public class StatusController(
             .Include(i => i.Updates)
             .ToListAsync(ct);
 
-        var baseUrl = SiteHost.BaseUrl(SiteHosting.StatusHost);
-        var updated = incidents.Count > 0 ? incidents.Max(i => i.UpdatedAt) : DateTimeOffset.UtcNow;
-
-        var builder = new StringBuilder();
-        await using (var writer = XmlWriter.Create(builder, new XmlWriterSettings { Async = false, Indent = true }))
-        {
-            writer.WriteStartDocument();
-            writer.WriteStartElement("feed", "http://www.w3.org/2005/Atom");
-
-            writer.WriteElementString("id", baseUrl + "/");
-            writer.WriteElementString("title", "venta platform status");
-            writer.WriteElementString("updated", updated.ToUniversalTime().ToString("o"));
-
-            writer.WriteStartElement("link");
-            writer.WriteAttributeString("rel", "alternate");
-            writer.WriteAttributeString("href", baseUrl + "/");
-            writer.WriteEndElement();
-
-            foreach (var incident in incidents)
-            {
-                var url = StatusSnapshotBuilder.IncidentUrl(incident.Reference);
-                var latest = incident.Updates.MaxBy(u => u.PostedAt);
-
-                writer.WriteStartElement("entry");
-                writer.WriteElementString("id", url);
-                writer.WriteElementString("title", incident.Title);
-                writer.WriteElementString("updated", incident.UpdatedAt.ToUniversalTime().ToString("o"));
-                writer.WriteElementString("published", incident.StartedAt.ToUniversalTime().ToString("o"));
-
-                writer.WriteStartElement("link");
-                writer.WriteAttributeString("rel", "alternate");
-                writer.WriteAttributeString("href", url);
-                writer.WriteEndElement();
-
-                // Plain text, not HTML.
-                writer.WriteStartElement("content");
-                writer.WriteAttributeString("type", "text");
-                writer.WriteString(latest?.Body ?? string.Empty);
-                writer.WriteEndElement();
-
-                writer.WriteEndElement();
-            }
-
-            writer.WriteEndElement();
-            writer.WriteEndDocument();
-        }
+        var feed = StatusFeed.Render(
+            incidents, SiteHost.BaseUrl(SiteHosting.StatusHost), DateTimeOffset.UtcNow);
 
         Cache();
-        return Content(builder.ToString(), "application/atom+xml; charset=utf-8");
+        return Content(feed, "application/atom+xml; charset=utf-8");
     }
 
     /// <summary>Retracted incidents leave every public read here, in one place, rather than in each

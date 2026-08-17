@@ -200,7 +200,8 @@ public sealed class VoiceReconciler(
 
         foreach (var participant in room.Participants)
         {
-            if (await cache.GetStringAsync(LivenessKey(participant.UserId), ct) is not null)
+            // Against this room, not against any room.
+            if (await cache.GetStringAsync(LivenessKey(participant.UserId), ct) == key.ToString())
                 return VoiceReapOutcome.Live;
         }
 

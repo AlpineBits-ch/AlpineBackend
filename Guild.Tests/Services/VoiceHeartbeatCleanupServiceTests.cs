@@ -295,6 +295,37 @@ public class VoiceHeartbeatCleanupServiceTests
         Assert.That(await RosterAsync(), Does.Not.Contain(Ghost));
     }
 
+    /// <summary>
+    /// A seat somebody left behind in this channel is not kept alive by their being live in a
+    /// different one.
+    /// </summary>
+    [Test]
+    public async Task Sweep_TakesASeatWhoseOwnerIsHeartbeatingForADifferentRoom()
+    {
+        SeedRoom(Ghost);
+        // What their client is really asserting: alive, in the channel they moved to.
+        _cache.SetEntry(
+            VoiceReconciler.LivenessKey(Ghost),
+            VoiceRoomKey.Channel("channel-they-moved-to").ToString());
+
+        await SweepAsync();
+
+        Assert.That(await RosterAsync(), Does.Not.Contain(Ghost));
+    }
+
+    /// <summary>The other direction, so the check above cannot be satisfied by evicting everybody:
+    /// a heartbeat naming this room still spares its owner.</summary>
+    [Test]
+    public async Task Sweep_KeepsASeatWhoseOwnerIsHeartbeatingForThisRoom()
+    {
+        SeedRoom(Live);
+        SeedHeartbeat(Live);
+
+        await SweepAsync();
+
+        Assert.That(await RosterAsync(), Does.Contain(Live));
+    }
+
     // ── Fixture plumbing ──────────────────────────────────────────────────────
 
     /// <summary>

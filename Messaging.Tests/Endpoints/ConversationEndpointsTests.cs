@@ -654,12 +654,12 @@ public class ConversationEndpointsTests
     // ══════════════════════════════════════════════════════════════════════════
 
     /// <summary>Runs a create as user-1 and commits it, the way the Wolverine middleware would.</summary>
-    private async Task<IResult> Create(CreateConversationDto dto, FakeMessageBus? bus = null)
+    private async Task<IResult> Create(CreateConversationDto dto, FakeMessageBus? bus = null, HttpContext? http = null)
     {
         bus ??= FriendlyBus();
         var result = await new ConversationEndpoints().CreateConversation(
             dto, allowPartialDeviceCoverage: false, bus, TestPrincipal.ForUser("user-1"), _context,
-            Coverage(bus), Http(), Policy(bus));
+            Coverage(bus), http ?? Http(), Policy(bus));
         await _context.SaveChangesAsync();
         return result;
     }
@@ -692,6 +692,19 @@ public class ConversationEndpointsTests
             Assert.That(IdOf(second), Is.EqualTo(IdOf(first)));
             Assert.That(await _context.Conversations.CountAsync(), Is.EqualTo(1));
         });
+    }
+
+    [Test]
+    public async Task CreateConversation_Duplicate_PointsAtTheExistingConversationRelatively()
+    {
+        // Absolute would have to guess the gateway's /api/v1/messaging prefix, which the service never
+        // sees; relative resolves against whichever base the caller used.
+        var first = await Create(PlainDto(null, "user-2"));
+
+        var http = Http();
+        await Create(PlainDto(null, "user-2"), http: http);
+
+        Assert.That(http.Response.Headers.Location.ToString(), Is.EqualTo($"conversations/{IdOf(first)}"));
     }
 
     [Test]

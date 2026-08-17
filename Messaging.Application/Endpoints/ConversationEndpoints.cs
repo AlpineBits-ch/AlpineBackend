@@ -196,9 +196,13 @@ public class ConversationEndpoints
         var duplicate = await FindEquivalentConversationAsync(createDto, userId, ctx);
         if (duplicate is not null)
         {
-            // 302 rather than 200 so a client can tell nothing was created; deliberately without a
-            // Location header, since a redirect-following client would drop the body and reissue the
-            // POST as a GET.
+            // Relative on purpose. The gateway rewrites /api/v1/messaging/{**} to /api/v1/{**} and
+            // forwards no prefix header, so the service cannot name its own public path; resolved
+            // against either base, this lands on the single-conversation GET.
+            http.Response.Headers.Location = $"conversations/{duplicate.Id}";
+
+            // 302 rather than 200 so a client can tell nothing was created. Nothing re-POSTs here:
+            // only 307 and 308 preserve the method across a redirect.
             return Results.Json(duplicate.ToFacet<Conversation, ConversationDto>(),
                 statusCode: StatusCodes.Status302Found);
         }

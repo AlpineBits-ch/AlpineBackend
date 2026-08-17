@@ -397,6 +397,28 @@ absence; never assume a key exists.
 - `birthday`, `activity` - gates are live, but **no data source is wired yet**, so these are always
   absent for now. Build for them; don't wait on them.
 
+### Mutual lists
+
+The embedded `mutualFriends` / `mutualServers` are a preview. The lists themselves have their own
+routes, so a profile read does not carry a thousand rows:
+
+```
+GET /api/v1/social/profiles/{profileId}/mutual-friends?limit=&cursor=
+GET /api/v1/social/profiles/{profileId}/mutual-servers
+```
+
+Both answer `{ "items": [...], "nextCursor": null }`.
+
+- `mutual-friends` is keyset-paged; pass `nextCursor` back as `?cursor=`. Rows carry `profileId`,
+  `userId`, `userName`, `avatarUrl` and `onlineStatus`, the last already projected so a Hidden
+  mutual reads as `Offline`. A malformed cursor is a `400`.
+- `mutual-servers` answers the whole intersection at once, capped at 200, and `nextCursor` is always
+  null. Rows carry `guildId` and `name`. Build the icon URL from `guildId`.
+- Both apply the same visibility gate the profile fields do and refuse with
+  `403 { "code": "not_visible" }`. Treat that as "hide the list", not as an error to report: the
+  only way to reach it is a count read before the subject tightened the setting.
+- Reading your own profile answers an empty page rather than your whole friend list.
+
 Friend requests (`POST /api/v1/social/relationships`) refuse with `403 { "code": "friend_request_policy" }`
 for *all* of: no such user, not discoverable, they blocked you, and their policy excludes you. That
 is deliberate - do not try to distinguish them, and show one neutral message.

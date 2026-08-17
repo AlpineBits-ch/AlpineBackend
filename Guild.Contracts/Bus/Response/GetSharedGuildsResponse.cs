@@ -13,4 +13,15 @@ public class SharedGuildsSummary
 
     /// <summary>Never empty - see <see cref="GetSharedGuildsResponse.Shared"/>.</summary>
     public ICollection<string> GuildIds { get; set; } = new List<string>();
+
+    /// <summary>The same guilds carrying their names, for callers that render the list.</summary>
+    public ICollection<SharedGuildEntry> Guilds { get; set; } = new List<SharedGuildEntry>();
+}
+
+/// <summary>One shared guild, named.</summary>
+public class SharedGuildEntry
+{
+    public string Id { get; set; } = null!;
+
+    public string? Name { get; set; }
 }

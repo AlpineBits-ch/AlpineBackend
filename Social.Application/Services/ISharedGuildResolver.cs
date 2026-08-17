@@ -24,23 +24,28 @@ public sealed class BusSharedGuildResolver(IMessageBus bus, ILogger<BusSharedGui
     public async Task<IReadOnlyList<MutualServerDto>> SharedGuildsAsync(
         string viewerUserId, string subjectUserId, CancellationToken token = default)
     {
-        var guildIds = await SharedGuildIdsAsync(viewerUserId, subjectUserId, token);
+        var summary = await SharedSummaryAsync(viewerUserId, subjectUserId, token);
+        if (summary is null) return [];
 
-        // Name is left null on purpose.
-        return guildIds.Select(id => new MutualServerDto { GuildId = id }).ToList();
+        // Guilds is the newer of the two fields; an older Guild build answers only GuildIds, and a
+        // nameless list still renders as icons.
+        if (summary.Guilds.Count > 0)
+            return summary.Guilds.Select(g => new MutualServerDto { GuildId = g.Id, Name = g.Name }).ToList();
+
+        return summary.GuildIds.Select(id => new MutualServerDto { GuildId = id }).ToList();
     }
 
     public async Task<bool> ShareAnyGuildAsync(string userA, string userB, CancellationToken token = default)
-        => (await SharedGuildIdsAsync(userA, userB, token)).Count > 0;
+        => (await SharedSummaryAsync(userA, userB, token))?.GuildIds.Count > 0;
 
-    private async Task<IReadOnlyList<string>> SharedGuildIdsAsync(
+    private async Task<SharedGuildsSummary?> SharedSummaryAsync(
         string userId, string otherUserId, CancellationToken token)
     {
         // Guild drops an id equal to UserId rather than answering it - the intersection of a user
         // with themselves is their entire guild list, which is the enumeration that contract
         // refuses to serve. Short-circuiting keeps that from costing a round trip to learn nothing.
         if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(otherUserId) || userId == otherUserId)
-            return [];
+            return null;
 
         GetSharedGuildsResponse? response;
         try
@@ -52,13 +57,12 @@ public sealed class BusSharedGuildResolver(IMessageBus bus, ILogger<BusSharedGui
         {
             logger.LogWarning(e,
                 "Shared-guild lookup failed; treating {UserId} and {OtherUserId} as sharing none", userId, otherUserId);
-            return [];
+            return null;
         }
 
         // A pair with no shared guilds is omitted from Shared rather than returned with an empty
         // list, so a missing entry *is* the answer and needs no separate "not found" branch.
-        var summary = response?.Shared?.FirstOrDefault(s => s.OtherUserId == otherUserId);
-        return summary?.GuildIds?.ToList() ?? [];
+        return response?.Shared?.FirstOrDefault(s => s.OtherUserId == otherUserId);
     }
 }
 

@@ -35,22 +35,50 @@ public class GetSharedGuildsHandler
 
         var blockView = await blocks.GetAsync([request.UserId]);
 
+        var visible = pairs
+            .Where(p => !blockView.AreBlocked(request.UserId, p.UserId))
+            .GroupBy(p => p.UserId, StringComparer.Ordinal)
+            .Select(group => new
+            {
+                OtherUserId = group.Key,
+                GuildIds = group
+                    .Select(p => p.GuildId)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToList(),
+            })
+            .ToList();
+
+        var names = await NamesByIdAsync(ctx, visible.SelectMany(s => s.GuildIds).Distinct(StringComparer.Ordinal).ToList());
+
         return new GetSharedGuildsResponse
         {
-            Shared = pairs
-                .Where(p => !blockView.AreBlocked(request.UserId, p.UserId))
-                .GroupBy(p => p.UserId, StringComparer.Ordinal)
-                .Select(group => new SharedGuildsSummary
+            Shared = visible
+                .Select(summary => new SharedGuildsSummary
                 {
-                    OtherUserId = group.Key,
-                    GuildIds = group
-                        .Select(p => p.GuildId)
-                        .Distinct(StringComparer.Ordinal)
-                        .OrderBy(id => id, StringComparer.Ordinal)
+                    OtherUserId = summary.OtherUserId,
+                    GuildIds = summary.GuildIds,
+                    Guilds = summary.GuildIds
+                        .Select(id => new SharedGuildEntry { Id = id, Name = names.GetValueOrDefault(id) })
                         .ToList(),
                 })
                 .ToList(),
         };
+    }
+
+    private static async Task<Dictionary<string, string?>> NamesByIdAsync(
+        MicroserviceContext ctx, IReadOnlyCollection<string> guildIds)
+    {
+        if (guildIds.Count == 0) return [];
+
+        var ids = guildIds.ToList();
+        var rows = await ctx.Guilds
+            .AsNoTracking()
+            .Where(g => ids.Contains(g.Id))
+            .Select(g => new { g.Id, g.Name })
+            .ToListAsync();
+
+        return rows.ToDictionary(r => r.Id, r => (string?)r.Name, StringComparer.Ordinal);
     }
 
     /// <summary>One user's guild ids.</summary>

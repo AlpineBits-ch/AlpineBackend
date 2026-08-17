@@ -36,7 +36,7 @@ public class GetSharedGuildsHandlerTests
         {
             _context.Guilds.Add(new Guild.Domain.Aggregates.Guild
             {
-                Id = guildId, Name = "g", OwnerId = "owner-1",
+                Id = guildId, Name = $"name-{guildId}", OwnerId = "owner-1",
                 CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
             });
         }
@@ -85,6 +85,29 @@ public class GetSharedGuildsHandlerTests
             Assert.That(summary.GuildIds, Does.Not.Contain(ViewerOnlyGuild));
             Assert.That(summary.GuildIds, Does.Not.Contain(SubjectOnlyGuild));
         });
+    }
+
+    [Test]
+    public async Task Handle_NamesEveryGuildItReturns()
+    {
+        var response = await RunAsync(ViewerId, [SubjectId]);
+
+        var guilds = response.Shared.Single().Guilds;
+        Assert.Multiple(() =>
+        {
+            Assert.That(guilds.Select(g => g.Id), Is.EquivalentTo(new[] { SharedGuildA, SharedGuildB }));
+            Assert.That(guilds.Select(g => g.Name),
+                Is.EquivalentTo(new[] { $"name-{SharedGuildA}", $"name-{SharedGuildB}" }));
+        });
+    }
+
+    [Test]
+    public async Task Handle_GuildsAndGuildIdsDescribeTheSameSet()
+    {
+        var response = await RunAsync(ViewerId, [SubjectId]);
+
+        var summary = response.Shared.Single();
+        Assert.That(summary.Guilds.Select(g => g.Id), Is.EqualTo(summary.GuildIds));
     }
 
     [Test]

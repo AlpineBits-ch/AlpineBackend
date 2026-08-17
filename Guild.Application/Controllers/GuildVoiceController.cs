@@ -97,10 +97,9 @@ public class GuildVoiceController(
             ChannelVoiceState.GetUserCacheKey(UserId),
             JsonSerializer.Serialize(new UserVoiceLocation { ChannelId = channelId, GuildId = guildId, DeviceId = deviceId }),
             CacheOptions, ct);
-        await cache.SetStringAsync(
-            VoiceReconciler.LivenessKey(UserId), Room(channelId).ToString(),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = VoiceReconciler.LivenessTtl },
-            ct);
+        // Under the device the roster has just recorded, because that is the one the sweep looks
+        // the claim up by - see VoiceReconciler.IsLiveInAsync.
+        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, deviceId, Room(channelId), ct);
 
         // Guild-wide presence fan-out.
         var onlineUserIds = await GetOnlineGuildMemberIdsAsync(guildId);
@@ -168,7 +167,10 @@ public class GuildVoiceController(
         var device = await ResolveDeviceAsync(ct);
         if (!IsVoiceDevice(participant.DeviceId, CallingDeviceId(device))) return Conflict();
 
-        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, Room(channelId), ct);
+        // Keyed on the roster's device rather than the caller's, which the check above has just
+        // established are the same one (or that the pairing cannot be established at all, in which
+        // case the roster's is still what the sweep will read).
+        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, participant.DeviceId, Room(channelId), ct);
         return NoContent();
     }
 
@@ -263,7 +265,8 @@ public class GuildVoiceController(
         var room = await voice.LeaveAsync(Room(channelId), userId, ct);
 
         await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId), ct);
-        await cache.RemoveAsync(VoiceReconciler.LivenessKey(userId), ct);
+        // The device the roster had for them, read before the leave removed the entry.
+        await VoiceReconciler.ReleaseLivenessAsync(cache, userId, before.Find(userId)?.DeviceId, ct);
 
         var guildId = room?.GuildId ?? before.GuildId ?? string.Empty;
         await activity.RemoveParticipantAsync(guildId, channelId, userId, ct);

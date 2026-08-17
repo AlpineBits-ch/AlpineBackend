@@ -88,13 +88,13 @@ public class CallVoiceLivenessTests
     /// <summary>The expiry currently recorded against the caller's liveness key, or null if there is
     /// no key.</summary>
     private TimeSpan? LivenessTtlOf(string userId) =>
-        _cache.OptionsFor(VoiceReconciler.LivenessKey(userId))?.AbsoluteExpirationRelativeToNow;
+        _cache.OptionsFor(VoiceReconciler.LivenessKey(userId, LiveDevice))?.AbsoluteExpirationRelativeToNow;
 
     /// <summary>Shortens the liveness key exactly the way <c>UserDisconnectedHandler</c> does when the
     /// socket carrying this participant's voice connection drops.</summary>
     private Task OpenDisconnectGraceAsync(string userId) =>
         _cache.SetStringAsync(
-            VoiceReconciler.LivenessKey(userId), VoiceRoomKey.Call(CallId).ToString(),
+            VoiceReconciler.LivenessKey(userId, LiveDevice), VoiceRoomKey.Call(CallId).ToString(),
             new DistributedCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = VoiceReconciler.DisconnectGraceTtl,
@@ -112,7 +112,7 @@ public class CallVoiceLivenessTests
             Assert.That(result, Is.InstanceOf<NoContentResult>(),
                 "the route asserts a fact and returns no body - there is nothing for the media "
                 + "process to parse");
-            Assert.That(_cache.Get(VoiceReconciler.LivenessKey(ParticipantId)), Is.Not.Null);
+            Assert.That(_cache.Get(VoiceReconciler.LivenessKey(ParticipantId, LiveDevice)), Is.Not.Null);
             Assert.That(LivenessTtlOf(ParticipantId), Is.EqualTo(VoiceReconciler.LivenessTtl),
                 "anything shorter and the sweep still takes them, just later");
         });
@@ -140,7 +140,7 @@ public class CallVoiceLivenessTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<NotFoundResult>());
-            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(OutsiderId)), Is.False,
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(OutsiderId, LiveDevice)), Is.False,
                 "a key for somebody the roster does not have would make the sweep spare a "
                 + "participant who does not exist");
         });

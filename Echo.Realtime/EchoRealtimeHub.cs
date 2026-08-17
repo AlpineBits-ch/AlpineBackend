@@ -146,8 +146,8 @@ public class EchoRealtimeHub(
     [HubMethodName("voice.Heartbeat")]
     public Task VoiceHeartbeat(string roomKind, string roomId, VoiceHeartbeatState state) =>
         string.Equals(roomKind, "call", StringComparison.OrdinalIgnoreCase)
-            ? bus.SendAsync(new CallVoiceReconcileCommand(Uid(), roomId, state)).AsTask()
-            : bus.SendAsync(new GuildVoiceReconcileCommand(Uid(), roomId, state)).AsTask();
+            ? bus.SendAsync(new CallVoiceReconcileCommand(Uid(), roomId, state, ResolveDeviceId())).AsTask()
+            : bus.SendAsync(new GuildVoiceReconcileCommand(Uid(), roomId, state, ResolveDeviceId())).AsTask();
 
     [HubMethodName("guild.voice.MuteChanged")]
     public Task GuildVoiceMuteChanged(GuildVoiceMuteCommand cmd) =>

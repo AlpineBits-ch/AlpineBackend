@@ -89,16 +89,21 @@ public class GuildVoiceLivenessTests
     private Task<IActionResult> AliveAsync(string userId, string? deviceId) =>
         ControllerFor(userId, deviceId).Alive(GuildId, ChannelId, CancellationToken.None);
 
+    /// <summary>The device the roster holds this channel's audio on, which is the one every claim is
+    /// keyed under - see <c>VoiceReconciler.LivenessKey</c>.</summary>
+    private static string KeyFor(string userId, string device = LiveDevice) =>
+        VoiceReconciler.LivenessKey(userId, device);
+
     /// <summary>The expiry currently recorded against the caller's liveness key, or null if there is
     /// no key.</summary>
     private TimeSpan? LivenessTtlOf(string userId) =>
-        _cache.OptionsFor(VoiceReconciler.LivenessKey(userId))?.AbsoluteExpirationRelativeToNow;
+        _cache.OptionsFor(KeyFor(userId))?.AbsoluteExpirationRelativeToNow;
 
     /// <summary>Shortens the liveness key exactly the way <c>GuildLifecycleHandler</c> does when the
     /// socket carrying this participant's voice connection drops.</summary>
     private Task OpenDisconnectGraceAsync(string userId) =>
         _cache.SetStringAsync(
-            VoiceReconciler.LivenessKey(userId), VoiceRoomKey.Channel(ChannelId).ToString(),
+            KeyFor(userId), VoiceRoomKey.Channel(ChannelId).ToString(),
             new DistributedCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = VoiceReconciler.DisconnectGraceTtl,
@@ -116,7 +121,7 @@ public class GuildVoiceLivenessTests
             Assert.That(result, Is.InstanceOf<NoContentResult>(),
                 "the route asserts a fact and returns no body - there is nothing for the media "
                 + "process to parse");
-            Assert.That(_cache.Get(VoiceReconciler.LivenessKey(ParticipantId)), Is.Not.Null);
+            Assert.That(_cache.Get(KeyFor(ParticipantId)), Is.Not.Null);
             Assert.That(LivenessTtlOf(ParticipantId), Is.EqualTo(VoiceReconciler.LivenessTtl),
                 "anything shorter and the sweep still takes them, just later");
         });
@@ -144,7 +149,7 @@ public class GuildVoiceLivenessTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<NotFoundResult>());
-            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(OutsiderId)), Is.False,
+            Assert.That(_cache.HasEntry(KeyFor(OutsiderId)), Is.False,
                 "a key for somebody the roster does not have would make the sweep spare a "
                 + "participant who does not exist");
         });

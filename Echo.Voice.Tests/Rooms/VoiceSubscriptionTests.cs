@@ -396,7 +396,7 @@ public class VoiceSubscriptionTests
             participant.JoinedAt = Start.UtcDateTime - TimeSpan.FromHours(1);
         await VoiceTestHarness.SeedRoomAsync(_h.Cache, room);
 
-        await _h.Cache.SetStringAsync(VoiceReconciler.LivenessKey("u01"), _key.ToString());
+        await _h.Cache.SetStringAsync(VoiceReconciler.LivenessKey("u01", "device-1"), _key.ToString());
 
         Assert.Multiple(async () =>
         {

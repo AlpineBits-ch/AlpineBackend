@@ -313,7 +313,7 @@ public class VoiceBackfillTests(string kind)
     {
         await _h.Reconciler.HeartbeatAsync(Alice, _key, InstanceOf(await _h.Rooms.LoadAsync(_key)), 0, null, null);
 
-        Assert.That(await _h.Cache.GetStringAsync(VoiceReconciler.LivenessKey(Alice)), Is.Not.Null,
+        Assert.That(await _h.Cache.GetStringAsync(VoiceReconciler.LivenessKey(Alice, null)), Is.Not.Null,
             "dropping liveness for a disagreement would let the sweep evict a healthy participant");
     }
 

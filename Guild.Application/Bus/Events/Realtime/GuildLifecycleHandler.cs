@@ -324,7 +324,7 @@ public class GuildLifecycleHandler
             if (DisconnectEndsVoiceConnection(location.DeviceId, message.DeviceId))
             {
                 await cache.RemoveAsync(ChannelVoiceState.GetUserCacheKey(userId));
-                await cache.RemoveAsync(VoiceReconciler.LivenessKey(userId));
+                await VoiceReconciler.ReleaseLivenessAsync(cache, userId, message.DeviceId);
             }
             return;
         }
@@ -338,13 +338,7 @@ public class GuildLifecycleHandler
             return;
 
         // Read-only, deliberately.
-        await cache.SetStringAsync(
-            VoiceReconciler.LivenessKey(userId),
-            roomKey.ToString(),
-            new DistributedCacheEntryOptions
-            {
-                AbsoluteExpirationRelativeToNow = VoiceReconciler.DisconnectGraceTtl
-            });
+        await VoiceReconciler.ShortenLivenessAsync(cache, userId, participant.DeviceId, roomKey);
     }
 
     // RestoreVoiceLivenessAsync used to live here.

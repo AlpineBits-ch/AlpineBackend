@@ -1,3 +1,4 @@
+using Echo.Realtime.Devices;
 using Echo.Voice.Usage;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
@@ -62,17 +63,78 @@ public sealed class VoiceReconciler(
     /// </summary>
     public static readonly TimeSpan DisconnectGraceTtl = TimeSpan.FromSeconds(75);
 
-    public static string LivenessKey(string userId) => $"voice:heartbeat:{userId}";
+    /// <summary>The liveness key for one device of one user.</summary>
+    public static string LivenessKey(string userId, string? deviceId) =>
+        $"voice:heartbeat:{userId}:{Device(deviceId)}";
+
+    /// <summary>The pre-per-device key, still read and written for one release.</summary>
+    public static string LegacyLivenessKey(string userId) => $"voice:heartbeat:{userId}";
+
+    private static string Device(string? deviceId) =>
+        string.IsNullOrWhiteSpace(deviceId) ? DeviceIdentity.DefaultDeviceId : deviceId;
 
     /// <summary>
-    /// Writes the one fact <c>VoiceHeartbeatCleanupService</c> reads: this user is still here, in
-    /// this room, as of now - good for a full <see cref="LivenessTtl"/>.
+    /// Writes the one fact <c>VoiceHeartbeatCleanupService</c> reads: this user is still here, on
+    /// this device, in this room, as of now - good for a full <see cref="LivenessTtl"/>.
     /// </summary>
-    public static Task ClaimLivenessAsync(
-        IDistributedCache cache, string userId, VoiceRoomKey key, CancellationToken ct = default) =>
-        cache.SetStringAsync(
-            LivenessKey(userId), key.ToString(),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = LivenessTtl }, ct);
+    public static async Task ClaimLivenessAsync(
+        IDistributedCache cache,
+        string userId,
+        string? deviceId,
+        VoiceRoomKey key,
+        CancellationToken ct = default)
+    {
+        var options = new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = LivenessTtl };
+        await cache.SetStringAsync(LivenessKey(userId, deviceId), key.ToString(), options, ct);
+        // See LegacyLivenessKey: for one release, so a sweep running the previous build can still
+        // see this claim.
+        await cache.SetStringAsync(LegacyLivenessKey(userId), key.ToString(), options, ct);
+    }
+
+    /// <summary>Drop a device's claim outright: this device is not in any room any more.</summary>
+    public static async Task ReleaseLivenessAsync(
+        IDistributedCache cache, string userId, string? deviceId, CancellationToken ct = default)
+    {
+        await cache.RemoveAsync(LivenessKey(userId, deviceId), ct);
+        await cache.RemoveAsync(LegacyLivenessKey(userId), ct);
+    }
+
+    /// <summary>
+    /// Shorten a device's claim to <see cref="DisconnectGraceTtl"/>: its socket closed, and whether
+    /// that becomes a departure is the sweep's decision one grace window later.
+    /// </summary>
+    public static async Task ShortenLivenessAsync(
+        IDistributedCache cache,
+        string userId,
+        string? deviceId,
+        VoiceRoomKey key,
+        CancellationToken ct = default)
+    {
+        var options = new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = DisconnectGraceTtl,
+        };
+        await cache.SetStringAsync(LivenessKey(userId, deviceId), key.ToString(), options, ct);
+        await cache.SetStringAsync(LegacyLivenessKey(userId), key.ToString(), options, ct);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="participant"/> has claimed liveness for <paramref name="key"/>.
+    /// </summary>
+    public static async Task<bool> IsLiveInAsync(
+        IDistributedCache cache,
+        VoiceParticipant participant,
+        VoiceRoomKey key,
+        CancellationToken ct = default)
+    {
+        var here = key.ToString();
+        var claimed = await cache.GetStringAsync(LivenessKey(participant.UserId, participant.DeviceId), ct);
+        if (claimed is not null) return claimed == here;
+
+        // Only when the per-device key is absent, which during a rolling deploy means the last claim
+        // was written by an instance that did not know about it yet.
+        return await cache.GetStringAsync(LegacyLivenessKey(participant.UserId), ct) == here;
+    }
 
     /// <summary>Processes one heartbeat.</summary>
     /// <param name="userId">Server-authoritative, taken from the hub context.</param>
@@ -85,6 +147,9 @@ public sealed class VoiceReconciler(
     /// <param name="claimedAudioTrack">
     /// The microphone track the client believes it has published.
     /// </param>
+    /// <param name="deviceId">
+    /// Which of the user's devices is asserting this, server-authoritative from the connection.
+    /// </param>
     public async Task<VoiceReconcileOutcome> HeartbeatAsync(
         string userId,
         VoiceRoomKey key,
@@ -92,11 +157,12 @@ public sealed class VoiceReconciler(
         long knownVersion,
         string? claimedMediaSessionId,
         string? claimedAudioTrack,
+        string? deviceId = null,
         CancellationToken ct = default)
     {
         // Liveness first and unconditionally: even a heartbeat about a room we disagree on proves
         // the client is alive, and dropping it would let the sweep evict a healthy participant.
-        await ClaimLivenessAsync(cache, userId, key, ct);
+        await ClaimLivenessAsync(cache, userId, deviceId, key, ct);
 
         var room = await rooms.LoadAsync(key, ct);
         if (room is null)
@@ -200,9 +266,9 @@ public sealed class VoiceReconciler(
 
         foreach (var participant in room.Participants)
         {
-            // Against this room, not against any room.
-            if (await cache.GetStringAsync(LivenessKey(participant.UserId), ct) == key.ToString())
-                return VoiceReapOutcome.Live;
+            // Against this room and this device, not against any claim the user has anywhere - see
+            // IsLiveInAsync.
+            if (await IsLiveInAsync(cache, participant, key, ct)) return VoiceReapOutcome.Live;
         }
 
         // Told before the roster is cleared, because the whole premise is that these clients have

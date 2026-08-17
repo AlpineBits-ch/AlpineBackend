@@ -109,8 +109,9 @@ public class GuildVoiceDisconnectCleanupTests
     }
 
     /// <summary>The lifetime the last write to the heartbeat key asked for.</summary>
-    private TimeSpan? HeartbeatTtl() =>
-        _cache.OptionsFor(VoiceReconciler.LivenessKey(UserId))?.AbsoluteExpirationRelativeToNow;
+    /// <param name="device">Which device's claim to read.</param>
+    private TimeSpan? HeartbeatTtl(string? device = DesktopDevice) =>
+        _cache.OptionsFor(VoiceReconciler.LivenessKey(UserId, device))?.AbsoluteExpirationRelativeToNow;
 
     // ══════════════════════════════════════════════════════════════════════════ 1.
 
@@ -146,13 +147,13 @@ public class GuildVoiceDisconnectCleanupTests
     public async Task Disconnect_FromADeviceThatIsNotInVoice_KeepsTheHeartbeatKeyAlive()
     {
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
-        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice), "1");
 
         await HandleDisconnectAsync(UserId, PhoneDevice);
 
         // Dropping the heartbeat key is a second, delayed kill: even with the roster entry intact,
         // VoiceHeartbeatCleanupService evicts anyone without one on its next 60s sweep.
-        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.True,
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice)), Is.True,
             "the heartbeat belongs to the device that is in voice, not to the one that disconnected");
     }
 
@@ -166,13 +167,13 @@ public class GuildVoiceDisconnectCleanupTests
     public async Task Disconnect_BecauseTheGatewayIsStopping_LeavesTheHeartbeatKeyUntouched()
     {
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
-        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice), "1");
 
         await HandleDisconnectAsync(UserId, DesktopDevice, serverStopping: true);
 
         Assert.Multiple(() =>
         {
-            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.True);
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice)), Is.True);
             Assert.That(HeartbeatTtl(), Is.Null,
                 "the key must be left exactly as the client last wrote it - rewriting it even to the "
                 + "full TTL would reset a window the client owns");
@@ -195,7 +196,7 @@ public class GuildVoiceDisconnectCleanupTests
     public async Task Disconnect_FromTheDeviceThatIsInVoice_LeavesTheParticipantInTheChannel()
     {
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
-        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice), "1");
 
         await HandleDisconnectAsync(UserId, DesktopDevice);
 
@@ -226,7 +227,7 @@ public class GuildVoiceDisconnectCleanupTests
         // shortening it is how a disconnect still leads to an eviction - just not instantly.
         Assert.Multiple(() =>
         {
-            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.True);
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice)), Is.True);
             Assert.That(HeartbeatTtl(), Is.EqualTo(VoiceReconciler.DisconnectGraceTtl));
         });
     }
@@ -255,7 +256,7 @@ public class GuildVoiceDisconnectCleanupTests
         Assert.Multiple(() =>
         {
             Assert.That(roster, Does.Contain(UserId));
-            Assert.That(HeartbeatTtl(), Is.EqualTo(VoiceReconciler.DisconnectGraceTtl));
+            Assert.That(HeartbeatTtl(device: null), Is.EqualTo(VoiceReconciler.DisconnectGraceTtl));
         });
     }
 
@@ -267,14 +268,14 @@ public class GuildVoiceDisconnectCleanupTests
         _cache.SetEntry(
             ChannelVoiceState.GetUserCacheKey(UserId),
             JsonSerializer.Serialize(new { ChannelId, GuildId, DeviceId = DesktopDevice }));
-        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId), "1");
+        _cache.SetEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice), "1");
 
         await HandleDisconnectAsync(UserId, DesktopDevice);
 
         Assert.Multiple(() =>
         {
             Assert.That(_cache.HasEntry(ChannelVoiceState.GetUserCacheKey(UserId)), Is.False);
-            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.False);
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice)), Is.False);
         });
     }
 
@@ -313,14 +314,14 @@ public class GuildVoiceDisconnectCleanupTests
         // The shape of the bug this whole section exists for.
         SeedVoice(UserId, Participant(UserId, DesktopDevice));
         await HandleDisconnectAsync(UserId, DesktopDevice);
-        _cache.Remove(VoiceReconciler.LivenessKey(UserId));
+        _cache.Remove(VoiceReconciler.LivenessKey(UserId, DesktopDevice));
 
         await HandleConnectAsync(UserId, DesktopDevice);
 
         var roster = await RosterAsync();
         Assert.Multiple(() =>
         {
-            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.False);
+            Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice)), Is.False);
             // Still on the roster, because only the sweep removes anybody - which is exactly why the
             // seat must not be given a fresh lease here.
             Assert.That(roster, Does.Contain(UserId));
@@ -334,7 +335,7 @@ public class GuildVoiceDisconnectCleanupTests
 
         // Someone who is not in voice must not acquire liveness by connecting: the sweep would then
         // find a heartbeat for a user it has no roster entry for, and the key would outlive nothing.
-        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId)), Is.False);
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(UserId, DesktopDevice)), Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════════ 4.

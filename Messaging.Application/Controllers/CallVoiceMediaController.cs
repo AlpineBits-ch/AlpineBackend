@@ -142,10 +142,7 @@ public class CallVoiceMediaController(
         var admission = await voice.AdmitAsync(Room(callId), UserId, device.DeviceId, guildId: null, ct);
 
         // Liveness is claimed here, not left to the first heartbeat.
-        await cache.SetStringAsync(
-            VoiceReconciler.LivenessKey(UserId), Room(callId).ToString(),
-            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = VoiceReconciler.LivenessTtl },
-            ct);
+        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, device.DeviceId, Room(callId), ct);
 
         await cache.SetStringAsync($"user-call:{UserId}", callId, CacheOptions, token: ct);
 
@@ -172,7 +169,9 @@ public class CallVoiceMediaController(
         var device = await ResolveDeviceAsync(ct);
         if (!IsVoiceDevice(participant.DeviceId, CallingDeviceId(device))) return Conflict();
 
-        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, Room(callId), ct);
+        // Keyed on the roster's device rather than the caller's, which the check above has just
+        // established are the same one.
+        await VoiceReconciler.ClaimLivenessAsync(cache, UserId, participant.DeviceId, Room(callId), ct);
         return NoContent();
     }
 

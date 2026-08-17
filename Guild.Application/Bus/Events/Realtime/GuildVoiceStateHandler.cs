@@ -43,7 +43,8 @@ public class GuildVoiceStateHandler
         reconciler.HeartbeatAsync(
             message.UserId, Room(message.ChannelId),
             message.State.KnownInstanceId, message.State.KnownVersion,
-            message.State.MediaSessionId, message.State.AudioTrackName);
+            message.State.MediaSessionId, message.State.AudioTrackName,
+            message.DeviceId);
 
     public async Task Handle(GuildVoiceMuteCommand message, VoiceRoomService voice, IMessageBus bus)
     {
@@ -164,7 +165,8 @@ public class GuildVoiceStateHandler
         // A move is the one way onto a roster that the moved client did not ask for, so it is also
         // the one way on that does not run the controller's join path - which is where liveness is
         // normally claimed.
-        await VoiceReconciler.ClaimLivenessAsync(cache, message.TargetUserId, Room(message.TargetChannelId));
+        await VoiceReconciler.ClaimLivenessAsync(
+            cache, message.TargetUserId, moving.DeviceId, Room(message.TargetChannelId));
 
         // One index write for what is one fact - a move.
         await activity.MoveParticipantAsync(

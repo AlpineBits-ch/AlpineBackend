@@ -192,7 +192,7 @@ public class CallParticipantAnnouncementTests
 
         // VoiceHeartbeatCleanupService sweeps both room kinds and evicts anyone with no heartbeat
         // key.
-        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId)), Is.True);
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId, CallerDevice)), Is.True);
     }
 
     [Test]
@@ -202,7 +202,7 @@ public class CallParticipantAnnouncementTests
         // roster, and must not create the appearance of a live participant.
         await OpenSecondaryConnectionAsync(CallerId, CallerDevice);
 
-        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId)), Is.False);
+        Assert.That(_cache.HasEntry(VoiceReconciler.LivenessKey(CallerId, CallerDevice)), Is.False);
     }
 
     [Test]

@@ -74,7 +74,13 @@ public class VoiceHeartbeatCleanupServiceTests
     /// <summary>Gives <paramref name="userId"/> a heartbeat, which is the whole difference between
     /// a participant and a ghost as far as the sweep is concerned.</summary>
     private void SeedHeartbeat(string userId) =>
-        _cache.SetEntry(VoiceReconciler.LivenessKey(userId), VoiceRoomKey.Channel(ChannelId).ToString());
+        // Under the device the roster carries for them, which is the one the sweep looks it up by.
+        _cache.SetEntry(
+            VoiceReconciler.LivenessKey(userId, DeviceOf(userId)),
+            VoiceRoomKey.Channel(ChannelId).ToString());
+
+    /// <summary>The device id <see cref="SeedRoom"/> puts on a participant.</summary>
+    private static string DeviceOf(string userId) => $"device-{userId}";
 
     private async Task<List<string>> RosterAsync()
     {
@@ -305,7 +311,7 @@ public class VoiceHeartbeatCleanupServiceTests
         SeedRoom(Ghost);
         // What their client is really asserting: alive, in the channel they moved to.
         _cache.SetEntry(
-            VoiceReconciler.LivenessKey(Ghost),
+            VoiceReconciler.LivenessKey(Ghost, DeviceOf(Ghost)),
             VoiceRoomKey.Channel("channel-they-moved-to").ToString());
 
         await SweepAsync();
@@ -320,6 +326,37 @@ public class VoiceHeartbeatCleanupServiceTests
     {
         SeedRoom(Live);
         SeedHeartbeat(Live);
+
+        await SweepAsync();
+
+        Assert.That(await RosterAsync(), Does.Contain(Live));
+    }
+
+    /// <summary>
+    /// A claim from one of the user's other devices does not vouch for this seat.
+    /// </summary>
+    [Test]
+    public async Task Sweep_TakesASeatWhoseOwnerIsHeartbeatingFromAnotherDevice()
+    {
+        SeedRoom(Ghost);
+        // Right user, right room, wrong device - the one that lost the takeover.
+        _cache.SetEntry(
+            VoiceReconciler.LivenessKey(Ghost, "device-they-switched-away-from"),
+            VoiceRoomKey.Channel(ChannelId).ToString());
+
+        await SweepAsync();
+
+        Assert.That(await RosterAsync(), Does.Not.Contain(Ghost));
+    }
+
+    /// <summary>A claim written before the per-device key existed still counts.</summary>
+    [Test]
+    public async Task Sweep_AcceptsAClaimWrittenBeforeThePerDeviceKeyExisted()
+    {
+        SeedRoom(Live);
+        _cache.SetEntry(
+            VoiceReconciler.LegacyLivenessKey(Live),
+            VoiceRoomKey.Channel(ChannelId).ToString());
 
         await SweepAsync();
 

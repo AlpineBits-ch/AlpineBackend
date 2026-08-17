@@ -158,10 +158,8 @@ public class VoiceHeartbeatCleanupService(
             {
                 if (participant.JoinedAt > joinCutoff) continue;
 
-                // Which room they claimed, not merely that they claimed one.
-                var heartbeat = await cache.GetStringAsync(
-                    VoiceReconciler.LivenessKey(participant.UserId), ct);
-                if (heartbeat != roomKey.ToString())
+                // Which room and which device claimed it, not merely that something did.
+                if (!await VoiceReconciler.IsLiveInAsync(cache, participant, roomKey, ct))
                     stale.Add(participant);
             }
 

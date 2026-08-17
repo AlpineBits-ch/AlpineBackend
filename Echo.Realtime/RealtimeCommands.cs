@@ -53,9 +53,13 @@ public record VoiceHeartbeatState(
 // Two records rather than one carrying a room kind, purely because Wolverine routes on the concrete
 // message type and these two go to different services.
 
-public record GuildVoiceReconcileCommand(string UserId, string ChannelId, VoiceHeartbeatState State);
+// DeviceId is server-authoritative, taken from the connection rather than the payload, and is what
+// the liveness claim is keyed on - see VoiceReconciler.LivenessKey.
+public record GuildVoiceReconcileCommand(
+    string UserId, string ChannelId, VoiceHeartbeatState State, string? DeviceId = null);
 
-public record CallVoiceReconcileCommand(string UserId, string CallId, VoiceHeartbeatState State);
+public record CallVoiceReconcileCommand(
+    string UserId, string CallId, VoiceHeartbeatState State, string? DeviceId = null);
 
 public record GuildVoiceMuteCommand(string UserId, string ChannelId, bool IsMuted);
 

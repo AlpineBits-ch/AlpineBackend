@@ -119,12 +119,9 @@ public class CreateMessageCommandHandler
             MentionsEveryone = command.MentionsEveryone,
             MentionsHere = command.MentionsHere,
             AuthorId = command.AuthorId,
-            Attachments = command.Attachments.Select(a => new MinimalAttachment
-            {
-                Id = a.Id,
-                ContentType = a.ContentType,
-                FileName = a.FileName,
-            }).ToList(),
+            // From the entity for the same reason as CreatedAt: a second projection off the command
+            // dropped ThumbnailUrl, and realtime clients render an image attachment straight off it.
+            Attachments = message.Attachments.ToList(),
             EncryptionState = encryptionState,
             Type = message.Type,
             SystemMessageVariant = message.SystemMessageVariant,

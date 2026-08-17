@@ -128,6 +128,39 @@ public class CreateMessageCommandTests
         });
     }
 
+    /// <summary>
+    /// Realtime clients render an image attachment straight off the event's ThumbnailUrl; there is
+    /// no DTO between the event and the SignalR frame. An empty one leaves the image blank until a
+    /// reload refetches the message over REST.
+    /// </summary>
+    [Test]
+    public async Task Handle_EventAttachmentsCarryTheThumbnail()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand();
+        command.Attachments.Add(new global::Messaging.Contracts.Bus.Commands.MinimalAttachmentContract
+        {
+            Id = "atac-1",
+            FileName = "image.png",
+            ContentType = "image/png",
+            ThumbnailUrl = "https://api.venta.gg/api/v1/messaging/attachments/atac-1/thumbnail",
+            ThumbnailId = "thumbs/atac-1.webp",
+        });
+
+        var (message, evt) = await handler.Handle(command, _repo, _context);
+
+        var attachment = evt.Attachments.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(attachment.Id, Is.EqualTo("atac-1"));
+            Assert.That(attachment.FileName, Is.EqualTo("image.png"));
+            Assert.That(attachment.ContentType, Is.EqualTo("image/png"));
+            Assert.That(attachment.ThumbnailUrl, Is.EqualTo("https://api.venta.gg/api/v1/messaging/attachments/atac-1/thumbnail"));
+            Assert.That(attachment.ThumbnailId, Is.EqualTo("thumbs/atac-1.webp"));
+            Assert.That(attachment.CreatedAt, Is.EqualTo(message.Attachments.Single().CreatedAt));
+        });
+    }
+
     [Test]
     public async Task Handle_InviteType_MapsToDomainInviteType()
     {

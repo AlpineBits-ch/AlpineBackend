@@ -63,6 +63,12 @@ public enum MessageType
 
     /// <summary>See Messaging.Domain.Enums.MessageType.VoiceChannelInvite.</summary>
     VoiceChannelInvite,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.GroupNameChanged.</summary>
+    GroupNameChanged,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.GroupIconChanged.</summary>
+    GroupIconChanged,
 }
 
 public record MinimalAttachmentContract

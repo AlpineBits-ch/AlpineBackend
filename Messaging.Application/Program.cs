@@ -113,6 +113,7 @@ builder.Services.AddLiveKit();
 builder.Services.AddWebPush();
 
 builder.Services.AddScoped<ConversationPermissionService>();
+builder.Services.AddScoped<ConversationIconService>();
 builder.Services.AddScoped<MlsJoinRequestService>();
 builder.Services.AddScoped<MlsDeviceCoverageService>();
 builder.Services.AddScoped<MlsGroupService>();

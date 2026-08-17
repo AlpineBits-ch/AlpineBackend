@@ -21,6 +21,12 @@ public enum MessageType
     /// between the two so the invitation survives the ring itself.
     /// </summary>
     VoiceChannelInvite,
+
+    /// <summary>A group conversation was renamed. Content is the new name, empty when it was cleared.</summary>
+    GroupNameChanged,
+
+    /// <summary>A group conversation's icon was replaced. Content is empty, or "removed" when it was cleared.</summary>
+    GroupIconChanged,
 }
 
 /// <summary>

@@ -1,6 +1,8 @@
 using System.Security.Claims;
+using System.Text;
 using System.Text.Json;
 using Domain;
+using Messaging.Contracts.Bus.Commands;
 using Echo.Realtime.Devices;
 using Facet.Extensions;
 using Identity.Contracts.Bus.Request;
@@ -23,6 +25,7 @@ using Social.Contracts.Bus.Integration.Response;
 using Social.Contracts.Dtos;
 using Wolverine;
 using Wolverine.Http;
+using ContractMessageType = Messaging.Contracts.Bus.Commands.MessageType;
 
 namespace Messaging.Application.Endpoints;
 
@@ -467,6 +470,66 @@ public class ConversationEndpoints
             CorrelationId = conversation.Id,
         });
     }
+
+    /// <summary>Longest group name accepted, matching the client's own counter.</summary>
+    public const int MaxConversationNameLength = 100;
+
+    /// <summary>Renames a group conversation, or clears the name so the member list titles it again.</summary>
+    [WolverinePatch("/api/v1/conversations/{id}")]
+    public static async Task<(IResult, ConversationUpdated?)> UpdateConversation(
+        string id,
+        UpdateConversationDto dto,
+        [NotBody] IMessageBus messageBus,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] MicroserviceContext ctx)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null) return (Results.Unauthorized(), null);
+
+        var conversation = await ctx.Conversations
+            .Include(c => c.Members)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (conversation is null) return (Results.NotFound(), null);
+        if (conversation.Members.All(m => m.UserId != userId)) return (Results.Forbid(), null);
+        if (conversation.Members.Count <= 2)
+            return (Results.BadRequest("Only a group conversation can be renamed."), null);
+
+        var name = string.IsNullOrWhiteSpace(dto.Name) ? null : dto.Name.Trim();
+        if (name is { Length: > MaxConversationNameLength })
+            return (Results.BadRequest($"A group name is at most {MaxConversationNameLength} characters."), null);
+
+        if (name == conversation.Name)
+            return (Results.Ok(conversation.ToFacet<Conversation, ConversationDto>()), null);
+
+        conversation.Name = name;
+        conversation.UpdatedAt = DateTime.UtcNow;
+
+        await WriteSystemMessageAsync(messageBus, conversation.Id, userId,
+            ContractMessageType.GroupNameChanged, name ?? string.Empty);
+
+        return (Results.Ok(conversation.ToFacet<Conversation, ConversationDto>()), new ConversationUpdated
+        {
+            ConversationId = conversation.Id,
+            CorrelationId = conversation.Id,
+            Name = conversation.Name,
+            IconUpdatedAt = conversation.IconUpdatedAt,
+        });
+    }
+
+    /// <summary>Leaves a notice in the group's own history, the way the call entries do.</summary>
+    internal static Task WriteSystemMessageAsync(
+        IMessageBus messageBus, string conversationId, string authorId,
+        ContractMessageType type, string content) =>
+        messageBus.InvokeAsync(new CreateMessageCommand
+        {
+            ConversationId = conversationId,
+            AuthorId = authorId,
+            AuthorIdType = Contracts.Bus.Commands.AuthorIdType.User,
+            Type = type,
+            Content = Encoding.UTF8.GetBytes(content),
+            Mentions = [],
+        });
 
     /// <summary>Mute or unmute a DM/group conversation for the caller.</summary>
     [WolverinePut("/api/v1/conversations/{id}/notification-settings")]

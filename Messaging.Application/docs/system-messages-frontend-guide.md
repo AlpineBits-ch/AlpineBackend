@@ -22,11 +22,12 @@ didn't exist:
 ```
 
 - **`type`** - string enum: `Message`, `Invite`, `GuildMemberJoin`, `GuildMemberLeave`, `CallEnded`,
-  `CallMissed`, `VoiceChannelInvite`. Ordinary chat messages are `Message` (the default - old
-  messages and every message a human/bot sends still come back this way, nothing to change for
-  those). The last three are conversation-only and are covered elsewhere: the call entries in the
-  voice guide, and `VoiceChannelInvite` in the voice-ring guide - it is a system message whose whole
-  content is a `venta.voice_invite` embed, so there is no variant set to write for it.
+  `CallMissed`, `VoiceChannelInvite`, `GroupNameChanged`, `GroupIconChanged`. Ordinary chat messages
+  are `Message` (the default - old messages and every message a human/bot sends still come back this
+  way, nothing to change for those). The last five are conversation-only and are covered elsewhere:
+  the call entries in the voice guide, `VoiceChannelInvite` in the voice-ring guide - it is a system
+  message whose whole content is a `venta.voice_invite` embed, so there is no variant set to write
+  for it - and the two group-edit notices in `group-conversation-editing-frontend-guide.md`.
 - **`systemMessageVariant`** - integer `0`-`9`, only set when `type` is not `Message`. The backend
   picks this randomly per-message. It's an index into a fixed set of ~10 copy variants **you own**
   - the backend never sends copy text for system messages, only the type + variant index + the

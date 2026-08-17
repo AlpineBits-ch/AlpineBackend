@@ -36,6 +36,8 @@ public class CreateMessageCommandHandler
             ContractMessageType.CallEnded => DomainMessageType.CallEnded,
             ContractMessageType.CallMissed => DomainMessageType.CallMissed,
             ContractMessageType.VoiceChannelInvite => DomainMessageType.VoiceChannelInvite,
+            ContractMessageType.GroupNameChanged => DomainMessageType.GroupNameChanged,
+            ContractMessageType.GroupIconChanged => DomainMessageType.GroupIconChanged,
             _ => DomainMessageType.Message,
         };
 

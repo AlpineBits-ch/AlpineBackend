@@ -38,6 +38,10 @@ public class Conversation : Aggregate<Conversation>, IPrefixedEntity
     /// <summary>Null for a locally-created conversation.</summary>
     public string? OriginInstanceId { get; set; }
 
+    /// <summary>When the group icon was last written, or null when there is none. Clients also read
+    /// it as the icon URL's cache key, which UpdatedAt cannot be: that moves on every message.</summary>
+    public DateTimeOffset? IconUpdatedAt { get; set; }
+
     public static Conversation Create(CreateConversationParams parameters)
     {
         if (parameters.Encryption == ChannelEncryptionState.Encrypted)

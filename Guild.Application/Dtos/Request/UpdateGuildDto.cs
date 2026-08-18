@@ -4,7 +4,11 @@ namespace Guild.Application.Dtos.Request;
 
 public class UpdateGuildDto
 {
-    public string Name { get; set; }
+    /// <summary>Null/omitted leaves the name alone, so a request that only flips a module cannot
+    /// blank it. A guild has to have a name, so there is no way to clear one.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>Null/omitted leaves the description alone; an empty string clears it.</summary>
     public string? Description { get; set; }
 
     /// <summary>Channel that receives join/leave system messages - Overview-style setting in

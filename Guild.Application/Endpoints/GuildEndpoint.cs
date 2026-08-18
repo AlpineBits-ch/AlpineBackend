@@ -137,8 +137,10 @@ public class GuildEndpoint
 
         if (await mfa.RequireAsync(id, user) is { } mfaRejection) return mfaRejection;
 
-        guild.Name = dto.Name;
-        guild.Description = dto.Description;
+        // Guarded like every other field on this PATCH: assigning unconditionally meant a request
+        // that only switched a module on sent no name and nulled the column.
+        if (!string.IsNullOrWhiteSpace(dto.Name)) guild.Name = dto.Name;
+        if (dto.Description is not null) guild.Description = dto.Description;
 
         if (dto.SystemChannelId is not null)
         {

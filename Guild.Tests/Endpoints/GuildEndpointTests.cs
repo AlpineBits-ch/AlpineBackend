@@ -302,6 +302,27 @@ public class GuildEndpointTests
         Assert.That(reloaded.Description, Is.EqualTo("New Desc"));
     }
 
+    /// <summary>A PATCH that only switches a module on used to send no name and null the column,
+    /// which the database refused - so turning a feature on failed outright.</summary>
+    [Test]
+    public async Task UpdateGuild_FeaturesOnly_LeavesTheNameAndDescriptionAlone()
+    {
+        await SeedManagerMember();
+
+        var result = await _endpoint.UpdateGuild(
+            GuildId, new UpdateGuildDto { Features = GuildFeaturePresets.Roleplay },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<GuildDto>>());
+        var reloaded = await _context.Guilds.AsNoTracking().FirstAsync(g => g.Id == GuildId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.Name, Is.EqualTo("Test Guild"));
+            Assert.That(reloaded.Features, Is.EqualTo(GuildFeaturePresets.Roleplay));
+        });
+    }
+
     [Test]
     public async Task UpdateGuild_ValidSystemChannel_UpdatesSystemChannelId()
     {

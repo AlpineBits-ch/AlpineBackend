@@ -46,13 +46,16 @@ public enum PersonaResolutionOutcome
 }
 
 /// <summary>The outcome of resolving a persona for one message.</summary>
+/// <param name="StickyPersonaId">Set when this send moved a Sticky channel's latched character,
+/// which nobody asked for and which a second device otherwise never hears about.</param>
 public sealed record PersonaResolution(
     PersonaResolutionOutcome Outcome,
     string Content,
     string? PersonaId = null,
     string? DisplayName = null,
     string? AvatarUrl = null,
-    string? Error = null);
+    string? Error = null,
+    string? StickyPersonaId = null);
 
 /// <summary>Everything the resolver needs about one send.</summary>
 public sealed class PersonaSendContext
@@ -353,8 +356,8 @@ public class PersonaService(IDistributedCache cache, MicroserviceContext ctx)
             if (await DenyReasonAsync(context.UserId, context.GuildId, chosen, requiresApproval) is { } denial)
                 return new PersonaResolution(PersonaResolutionOutcome.Forbidden, content, Error: denial);
 
-            await RememberStickyAsync(context, chosen.PersonaId);
-            return await ResolveAsync(context.GuildId, chosen, content);
+            var moved = await RememberStickyAsync(context, chosen.PersonaId);
+            return await ResolveAsync(context.GuildId, chosen, content, moved);
         }
 
         if (MatchProxy(usable, content) is { } match)
@@ -362,8 +365,8 @@ public class PersonaService(IDistributedCache cache, MicroserviceContext ctx)
             if (await DenyReasonAsync(context.UserId, context.GuildId, match.Persona, requiresApproval) is { } denial)
                 return new PersonaResolution(PersonaResolutionOutcome.Forbidden, content, Error: denial);
 
-            await RememberStickyAsync(context, match.Persona.PersonaId);
-            return await ResolveAsync(context.GuildId, match.Persona, match.Content);
+            var moved = await RememberStickyAsync(context, match.Persona.PersonaId);
+            return await ResolveAsync(context.GuildId, match.Persona, match.Content, moved);
         }
 
         var autoproxy = await ctx.Set<PersonaAutoproxyState>()
@@ -388,7 +391,8 @@ public class PersonaService(IDistributedCache cache, MicroserviceContext ctx)
     /// Builds the resolution and records that the persona has now spoken, which is what turns a
     /// later delete into a retire so that Message.PersonaId never dangles.
     /// </summary>
-    private async Task<PersonaResolution> ResolveAsync(string guildId, UsablePersona persona, string content)
+    private async Task<PersonaResolution> ResolveAsync(
+        string guildId, UsablePersona persona, string content, bool stickyMoved = false)
     {
         if (!persona.HasSpoken)
         {
@@ -402,19 +406,25 @@ public class PersonaService(IDistributedCache cache, MicroserviceContext ctx)
         }
 
         var name = string.IsNullOrWhiteSpace(persona.Tag) ? persona.Name : $"{persona.Name} {persona.Tag}";
-        return new PersonaResolution(PersonaResolutionOutcome.Resolved, content, persona.PersonaId, name, persona.AvatarUrl);
+
+        return new PersonaResolution(
+            PersonaResolutionOutcome.Resolved, content, persona.PersonaId, name, persona.AvatarUrl,
+            StickyPersonaId: stickyMoved ? persona.PersonaId : null);
     }
 
     /// <summary>Sticky autoproxy means "whoever spoke here last", so the send path is what records it.</summary>
-    private async Task RememberStickyAsync(PersonaSendContext context, string personaId)
+    /// <returns>True when the latched character actually moved.</returns>
+    private async Task<bool> RememberStickyAsync(PersonaSendContext context, string personaId)
     {
         var state = await ctx.Set<PersonaAutoproxyState>()
             .FirstOrDefaultAsync(a => a.ChannelId == context.ChannelId && a.UserId == context.UserId);
 
-        if (state is null || state.Mode != AutoproxyMode.Sticky || state.PersonaId == personaId) return;
+        if (state is null || state.Mode != AutoproxyMode.Sticky || state.PersonaId == personaId) return false;
 
         state.PersonaId = personaId;
         state.UpdatedAt = DateTimeOffset.UtcNow;
+
+        return true;
     }
 
     /// <summary>

@@ -119,4 +119,26 @@ public class PersonaMentionService(MicroserviceContext ctx, PersonaService perso
             .DistinctBy(t => (t.PersonaId, t.UserId))
             .ToList();
     }
+
+    /// <summary>
+    /// Who answers for each of these characters in this guild - the owner for a personal one, every
+    /// current grant holder for a shared one.
+    /// </summary>
+    /// <param name="guildId">The guild the characters are adopted into.</param>
+    /// <param name="personaIds">The characters to resolve.</param>
+    /// <returns>Players keyed by character, with characters nobody answers for absent.</returns>
+    public async Task<Dictionary<string, List<string>>> OwnersByPersonaAsync(
+        string guildId, IReadOnlyCollection<string> personaIds)
+    {
+        // authorId is empty rather than a real user: the resolver drops the author from its own
+        // results, and a nudge has no author to drop.
+        var targets = await ResolveAsync(guildId, string.Empty, personaIds);
+
+        return targets
+            .GroupBy(t => t.PersonaId, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(t => t.UserId).Distinct(StringComparer.Ordinal).ToList(),
+                StringComparer.Ordinal);
+    }
 }

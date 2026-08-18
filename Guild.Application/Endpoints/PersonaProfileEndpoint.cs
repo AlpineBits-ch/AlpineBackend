@@ -26,7 +26,7 @@ public class PersonaProfileEndpoint
     public async Task<IResult> UpsertAsync(string guildId, string personaId, UpsertPersonaProfileDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
         [NotBody] PersonaDisplayGuard displayGuard, [NotBody] PersonaPageService pages,
-        [NotBody] HouseholdChannelService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -58,6 +58,8 @@ public class PersonaProfileEndpoint
         var profile = await ctx.Set<PersonaGuildProfile>()
             .FirstOrDefaultAsync(p => p.GuildId == guildId && p.PersonaId == personaId);
 
+        var isAdoption = profile is null;
+
         if (profile is null)
         {
             var adopted = await ctx.Set<PersonaGuildProfile>()
@@ -88,7 +90,9 @@ public class PersonaProfileEndpoint
         await personas.InvalidateGuildAsync(guildId);
 
         var canSpeak = await CanSpeakAsync(personas, userId, guildId, personaId);
-        await BroadcastProfileAsync(realtime, profile, canSpeak);
+
+        if (isAdoption) await realtime.PersonaAdoptedAsync(persona, profile, canSpeak);
+        await realtime.ProfileChangedAsync(profile, canSpeak);
 
         return Results.Ok(await PersonaEndpoint.ToProfileDtoAsync(pages, persona, profile, canSpeak));
     }
@@ -100,7 +104,8 @@ public class PersonaProfileEndpoint
     [WolverineDelete("/api/v1/guilds/{guildId}/personas/{personaId}/profile")]
     public async Task<IResult> DeleteAsync(string guildId, string personaId,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -130,6 +135,7 @@ public class PersonaProfileEndpoint
         ctx.Set<PersonaGuildProfile>().Remove(profile);
 
         await personas.InvalidateGuildAsync(guildId);
+        await realtime.PersonaUnadoptedAsync(guildId, personaId);
 
         return Results.NoContent();
     }
@@ -138,7 +144,7 @@ public class PersonaProfileEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/personas/{personaId}/profile/submit")]
     public async Task<IResult> SubmitAsync(string guildId, string personaId,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] PersonaPageService pages, [NotBody] HouseholdChannelService realtime,
+        [NotBody] PersonaPageService pages, [NotBody] RoleplayRealtimeService realtime,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -157,6 +163,8 @@ public class PersonaProfileEndpoint
             .FirstOrDefaultAsync(p => p.GuildId == guildId && p.PersonaId == personaId);
         if (profile is null) return Results.NotFound();
 
+        var isResubmission = profile.ApprovalState == PersonaApprovalState.ChangesRequested;
+
         // An approved character stays approved through an edit - the pending revisions are what the
         // reviewer sees, and blocking speech on a typo fix is how approval queues become resented.
         try
@@ -169,7 +177,8 @@ public class PersonaProfileEndpoint
         }
 
         await personas.InvalidateGuildAsync(guildId);
-        await BroadcastProfileAsync(realtime, profile, canSpeak: false);
+        await realtime.ProfileChangedAsync(profile, canSpeak: false);
+        await realtime.ReviewRequestedAsync(persona, profile, isResubmission);
 
         return Results.Ok(await PersonaEndpoint.ToProfileDtoAsync(pages, persona, profile, canSpeak: false));
     }
@@ -179,7 +188,7 @@ public class PersonaProfileEndpoint
     public async Task<IResult> ApproveAsync(string guildId, string personaId,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
         [NotBody] PersonaPageService pages, [NotBody] AuditLogService auditLog,
-        [NotBody] HouseholdChannelService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -208,7 +217,8 @@ public class PersonaProfileEndpoint
         auditLog.Log(guildId, userId, AuditActionType.PersonaApproved, personaId, new { persona.Name });
 
         await personas.InvalidateGuildAsync(guildId);
-        await BroadcastProfileAsync(realtime, profile, canSpeak: !persona.IsRetired);
+        await realtime.ProfileChangedAsync(profile, canSpeak: !persona.IsRetired);
+        await realtime.ReviewCompletedAsync(persona, profile, userId, canSpeak: !persona.IsRetired);
 
         return Results.Ok(await PersonaEndpoint.ToProfileDtoAsync(pages, persona, profile, canSpeak: !persona.IsRetired));
     }
@@ -218,7 +228,7 @@ public class PersonaProfileEndpoint
     public async Task<IResult> RequestChangesAsync(string guildId, string personaId, RequestPersonaChangesDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
         [NotBody] PersonaPageService pages, [NotBody] AuditLogService auditLog,
-        [NotBody] HouseholdChannelService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -247,7 +257,8 @@ public class PersonaProfileEndpoint
         auditLog.Log(guildId, userId, AuditActionType.PersonaRejected, personaId, new { persona.Name, Reason = reason });
 
         await personas.InvalidateGuildAsync(guildId);
-        await BroadcastProfileAsync(realtime, profile, canSpeak: false);
+        await realtime.ProfileChangedAsync(profile, canSpeak: false);
+        await realtime.ReviewCompletedAsync(persona, profile, userId, canSpeak: false);
 
         return Results.Ok(await PersonaEndpoint.ToProfileDtoAsync(pages, persona, profile, canSpeak: false));
     }
@@ -333,7 +344,8 @@ public class PersonaProfileEndpoint
     [WolverinePut("/api/v1/guilds/{guildId}/channels/{channelId}/autoproxy")]
     public async Task<IResult> SetAutoproxyAsync(string guildId, string channelId, SetAutoproxyDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -377,6 +389,10 @@ public class PersonaProfileEndpoint
         }
 
         state.Set(dto.Mode, personaId);
+
+        // To the caller and nobody else: this is what the composer on their other device is
+        // drawing, and it says which character they are speaking as rather than which they own.
+        await realtime.AutoproxyChangedAsync(userId, guildId, channelId, state.Mode, state.PersonaId);
 
         return Results.Ok(new AutoproxyDto
         {
@@ -447,14 +463,4 @@ public class PersonaProfileEndpoint
 
         return profile.HasUnapprovedChanges(await pages.LatestRevisionNumberAsync(profile.WikiPageId));
     }
-
-    private static async Task BroadcastProfileAsync(
-        HouseholdChannelService realtime, PersonaGuildProfile profile, bool canSpeak) =>
-        await realtime.BroadcastGuildAsync(profile.GuildId, "guild.PersonaProfileChanged", new
-        {
-            profile.GuildId,
-            profile.PersonaId,
-            profile.ApprovalState,
-            CanSpeak = canSpeak,
-        });
 }

@@ -26,8 +26,8 @@ public class PersonaPageEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/personas/{personaId}/page")]
     public async Task<IResult> CreateAsync(string guildId, string personaId, CreatePersonaPageDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaPageService pages,
-        [NotBody] PersonaService personas, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] PersonaService personas, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -55,6 +55,7 @@ public class PersonaPageEndpoint
         var page = await pages.CreatePageAsync(persona!, profile, title, Blank(dto.CategoryId), userId);
 
         await personas.InvalidateGuildAsync(guildId);
+        await realtime.PageCreatedAsync(guildId, personaId, page);
 
         return Results.Ok(page.ToFacet<WikiPage, WikiPageDto>());
     }
@@ -67,7 +68,8 @@ public class PersonaPageEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/personas/{personaId}/page/pull")]
     public async Task<IResult> PullAsync(string guildId, string personaId, PullPersonaPageDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaPageService pages,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -91,7 +93,11 @@ public class PersonaPageEndpoint
             !await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki))
             return Results.Forbid();
 
-        return Results.Ok(await pages.PullAsync(persona!, profile, dto.Strategy, userId));
+        var pull = await pages.PullAsync(persona!, profile, dto.Strategy, userId);
+
+        await realtime.PagePulledAsync(guildId, dto.Strategy, pull);
+
+        return Results.Ok(pull);
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

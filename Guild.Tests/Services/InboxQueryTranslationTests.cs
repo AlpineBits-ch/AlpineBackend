@@ -146,4 +146,44 @@ public class InboxQueryTranslationTests
 
         Assert.That(sql, Does.Contain("SELECT"));
     }
+
+    /// <summary>Two nested correlated subqueries - a grant, and the role membership behind it -
+    /// which is the part most likely to stop translating.</summary>
+    [Test]
+    public void BuildSceneTurnQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildSceneTurnQuery(_context, "user-1", DateTimeOffset.UtcNow)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    [Test]
+    public void BuildPersonaReviewQuery_translates()
+    {
+        var sql = InboxTaskService.BuildPersonaReviewQuery(_context, "user-1").ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    [Test]
+    public void BuildPersonaChangesRequestedQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildPersonaChangesRequestedQuery(_context, "user-1")
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    [Test]
+    public void BuildGuildPersonaChangesRequestedQuery_translates()
+    {
+        var sql = InboxTaskService
+            .BuildGuildPersonaChangesRequestedQuery(_context, "user-1")
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
 }

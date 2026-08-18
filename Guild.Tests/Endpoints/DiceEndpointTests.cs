@@ -34,6 +34,8 @@ public class DiceEndpointTests
     private GuildPermissionService _permissions = null!;
     private PersonaService _personas = null!;
     private FakeInvokingMessageBus _bus = null!;
+    private FakeHubContext _hub = null!;
+    private RoleplayRealtimeService _realtime = null!;
     private DiceEndpoint _endpoint = null!;
     private Message _message = null!;
 
@@ -53,6 +55,13 @@ public class DiceEndpointTests
         _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _personas = new PersonaService(_cache, _context);
         _bus = new FakeInvokingMessageBus();
+        _hub = new FakeHubContext();
+        _realtime = RoleplayTestFactory.CreateRealtime(
+            _context, _permissions, _personas, _hub,
+            RedisTestFactory.CreateWithPresence(new MemberPresenceState
+            {
+                MemberId = MemberId, UserId = UserId, Status = "Online",
+            }));
         _message = Message.Create(new CreateMessageParams
         {
             Content = [],
@@ -121,7 +130,7 @@ public class DiceEndpointTests
 
     private Task<IResult> RollAsync(CreateDiceRollDto dto, params int[] faces) =>
         _endpoint.RollAsync(GuildId, ChannelId, dto, _permissions, _personas,
-            new QueueRoller(faces), _context, _bus, TestPrincipal.Create(UserId));
+            new QueueRoller(faces), _realtime, _context, _bus, TestPrincipal.Create(UserId));
 
     private CreateMessageCommand SentCommand() =>
         (CreateMessageCommand)_bus.Invoked.Single(m => m is CreateMessageCommand);
@@ -293,7 +302,7 @@ public class DiceEndpointTests
 
         var result = await _endpoint.RollAsync(GuildId, "chan-elsewhere",
             new CreateDiceRollDto { Expression = "1d20" }, _permissions, _personas,
-            new QueueRoller(9), _context, _bus, TestPrincipal.Create(UserId));
+            new QueueRoller(9), _realtime, _context, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<NotFound>());
     }

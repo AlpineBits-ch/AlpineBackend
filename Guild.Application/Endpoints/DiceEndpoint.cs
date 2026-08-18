@@ -35,6 +35,7 @@ public class DiceEndpoint
     /// <param name="permissionService">The permission resolver.</param>
     /// <param name="personas">Persona resolution, shared with the send path.</param>
     /// <param name="roller">Where the faces come from.</param>
+    /// <param name="realtime">The roleplay hub events.</param>
     /// <param name="ctx">The Guild database.</param>
     /// <param name="bus">The bus the message is created over.</param>
     /// <param name="user">The caller.</param>
@@ -42,7 +43,8 @@ public class DiceEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/channels/{channelId}/rolls")]
     public async Task<IResult> RollAsync(string guildId, string channelId, CreateDiceRollDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] IDieRoller roller, [NotBody] MicroserviceContext ctx, [NotBody] IMessageBus bus,
+        [NotBody] IDieRoller roller, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] IMessageBus bus,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -112,6 +114,8 @@ public class DiceEndpoint
         });
 
         ctx.Set<DiceRoll>().Add(roll);
+
+        await realtime.DiceRolledAsync(roll, outcome.Breakdown);
 
         return Results.Ok(ToDto(roll, outcome));
     }

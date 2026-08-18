@@ -17,6 +17,7 @@ public class ResolvePersonaForSendHandler
         ResolvePersonaForSendRequest request,
         PersonaService personas,
         GuildPermissionService permissionService,
+        RoleplayRealtimeService realtime,
         MicroserviceContext ctx)
     {
         var guildId = await ctx.Channels
@@ -57,6 +58,14 @@ public class ResolvePersonaForSendHandler
             PersonaId = request.PersonaId,
             Content = request.Content,
         });
+
+        // Sticky moves the latched character as play goes on, so the only way a second device finds
+        // out it is now speaking as somebody else is this.
+        if (resolution.StickyPersonaId is { } latched)
+        {
+            await realtime.AutoproxyChangedAsync(
+                request.UserId, guildId, request.ChannelId, AutoproxyMode.Sticky, latched);
+        }
 
         return resolution.Outcome switch
         {

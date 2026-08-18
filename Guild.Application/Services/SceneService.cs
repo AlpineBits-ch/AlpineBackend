@@ -1,5 +1,6 @@
 using Echo.Realtime;
 using Guild.Application.Dtos.Response;
+using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
@@ -26,6 +27,12 @@ public class SceneService(
 
     /// <summary>A turn has gone stale, addressed to whoever can do something about it.</summary>
     public const string NudgeEvent = "guild.SceneTurnNudge";
+
+    /// <summary>A scene was opened, with its cast and its out-of-character thread.</summary>
+    public const string CreatedEvent = "guild.SceneCreated";
+
+    /// <summary>A scene finished for good.</summary>
+    public const string ConcludedEvent = "guild.SceneConcluded";
 
     /// <summary>The scene's turn state, tracked so a caller can write to it.</summary>
     /// <param name="channelId">The scene channel.</param>
@@ -144,20 +151,9 @@ public class SceneService(
     /// <param name="guildId">The guild the scene is in.</param>
     /// <param name="personaIds">The characters to resolve.</param>
     /// <returns>Players keyed by character, with characters nobody answers for absent.</returns>
-    public async Task<Dictionary<string, List<string>>> OwnersByPersonaAsync(
-        string guildId, IReadOnlyCollection<string> personaIds)
-    {
-        // authorId is empty rather than a real user: the resolver drops the author from its own
-        // results, and a nudge has no author to drop.
-        var targets = await personaMentions.ResolveAsync(guildId, string.Empty, personaIds);
-
-        return targets
-            .GroupBy(t => t.PersonaId, StringComparer.Ordinal)
-            .ToDictionary(
-                group => group.Key,
-                group => group.Select(t => t.UserId).Distinct(StringComparer.Ordinal).ToList(),
-                StringComparer.Ordinal);
-    }
+    public Task<Dictionary<string, List<string>>> OwnersByPersonaAsync(
+        string guildId, IReadOnlyCollection<string> personaIds) =>
+        personaMentions.OwnersByPersonaAsync(guildId, personaIds);
 
     /// <summary>
     /// Hands the turn on because the character whose turn it was posted. This is what makes a scene
@@ -203,6 +199,47 @@ public class SceneService(
     /// <returns>True when a profile for the pair exists.</returns>
     public Task<bool> IsAdoptedAsync(string guildId, string personaId) =>
         ctx.Set<PersonaGuildProfile>().AnyAsync(p => p.GuildId == guildId && p.PersonaId == personaId);
+
+    /// <summary>
+    /// Tells the guild a scene was opened. The pair of <c>guild.ThreadCreated</c> events that go
+    /// out alongside say two threads appeared; this is the one that says a game started.
+    /// </summary>
+    /// <param name="scene">The scene's turn state.</param>
+    /// <param name="channel">The scene channel.</param>
+    public async Task BroadcastCreatedAsync(SceneState scene, Channel channel) =>
+        await BroadcastAsync(scene.GuildId, CreatedEvent, new
+        {
+            GuildId = scene.GuildId,
+            ChannelId = scene.ChannelId,
+            ParentChannelId = channel.ParentChannelId,
+            Name = channel.Name,
+            OocThreadId = scene.OocThreadId,
+            Status = scene.Status.ToString(),
+            ParticipantPersonaIds = scene.ParticipantPersonaIds,
+            TurnOrder = scene.TurnOrder,
+            CurrentTurnPersonaId = scene.CurrentTurnPersonaId,
+            TurnStartedAt = scene.TurnStartedAt,
+            TurnDeadlineAt = scene.TurnDeadlineAt,
+            TurnNumber = scene.TurnNumber,
+            TurnLengthHours = scene.TurnLengthHours,
+        });
+
+    /// <summary>
+    /// Tells the guild a scene finished. Conclusion is what a chronicle exports and what a client
+    /// stops nudging on, so it is its own event rather than a status field somebody has to diff.
+    /// </summary>
+    /// <param name="scene">The scene's turn state.</param>
+    public async Task BroadcastConcludedAsync(SceneState scene) =>
+        await BroadcastAsync(scene.GuildId, ConcludedEvent, new
+        {
+            GuildId = scene.GuildId,
+            ChannelId = scene.ChannelId,
+            Status = scene.Status.ToString(),
+            ConclusionNote = scene.ConclusionNote,
+            TurnNumber = scene.TurnNumber,
+            PostCount = scene.PostCount,
+            ConcludedAt = scene.UpdatedAt,
+        });
 
     /// <summary>Tells the guild the turn moved.</summary>
     /// <param name="scene">The scene's turn state.</param>

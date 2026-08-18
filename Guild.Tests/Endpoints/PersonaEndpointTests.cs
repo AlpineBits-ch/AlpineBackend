@@ -34,7 +34,7 @@ public class PersonaEndpointTests
     private PersonaPageService _pages = null!;
     private PersonaDisplayGuard _displayGuard = null!;
     private AuditLogService _auditLog = null!;
-    private HouseholdChannelService _realtime = null!;
+    private RoleplayRealtimeService _realtime = null!;
     private PersonaEndpoint _endpoint = null!;
     private PersonaProfileEndpoint _profiles = null!;
 
@@ -48,11 +48,8 @@ public class PersonaEndpointTests
         _pages = new PersonaPageService(_context);
         _displayGuard = new PersonaDisplayGuard(_context);
         _auditLog = new AuditLogService(_context);
-        _realtime = new HouseholdChannelService(
-            _context, _permissions,
-            new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance),
-            new ChannelAudienceService(_permissions, new MemoryCache(new MemoryCacheOptions())),
-            new FakeHubContext());
+        _realtime = RoleplayTestFactory.CreateRealtime(
+            _context, _permissions, _personas, new FakeHubContext());
         _endpoint = new PersonaEndpoint();
         _profiles = new PersonaProfileEndpoint();
     }
@@ -126,7 +123,7 @@ public class PersonaEndpointTests
 
     private Task<IResult> CreateGuildPersonaAsync(CreatePersonaDto dto) =>
         _endpoint.CreateForGuildAsync(GuildId, dto, _permissions, _personas, _displayGuard, _auditLog,
-            _pages, _context, TestPrincipal.Create(UserId));
+            _pages, _realtime, _context, TestPrincipal.Create(UserId));
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
     // The guild's cast
@@ -193,7 +190,7 @@ public class PersonaEndpointTests
     {
         var result = await _endpoint.CreateOwnAsync(
             new CreatePersonaDto { Name = "Mayor Cogsgrove", Pronouns = "he/him" },
-            _context, TestPrincipal.Create(UserId));
+            _realtime, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -208,7 +205,7 @@ public class PersonaEndpointTests
     {
         var result = await _endpoint.CreateOwnAsync(
             new CreatePersonaDto { Name = "Mayor", AvatarUrl = "https://tracker.example/pixel.png" },
-            _context, TestPrincipal.Create(UserId));
+            _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>(),
             "an arbitrary host is a tracking pixel on every message the character sends");
@@ -219,7 +216,7 @@ public class PersonaEndpointTests
     {
         var result = await _endpoint.CreateOwnAsync(
             new CreatePersonaDto { Name = new string('x', PersonaLimits.MaxNameLength + 1) },
-            _context, TestPrincipal.Create(UserId));
+            _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -230,7 +227,7 @@ public class PersonaEndpointTests
         await SeedGuildAsync();
         await SeedOwnPersonaAsync("mayor", "Mayor Cogsgrove", hasSpoken: true);
 
-        var result = await _endpoint.DeleteOwnAsync("mayor", _personas, _context, TestPrincipal.Create(UserId));
+        var result = await _endpoint.DeleteOwnAsync("mayor", _personas, _realtime, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var stored = await _context.Set<Persona>().FindAsync("mayor");
@@ -249,7 +246,7 @@ public class PersonaEndpointTests
         await SeedGuildAsync();
         await SeedOwnPersonaAsync("mayor", "Mayor Cogsgrove");
 
-        await _endpoint.DeleteOwnAsync("mayor", _personas, _context, TestPrincipal.Create(UserId));
+        await _endpoint.DeleteOwnAsync("mayor", _personas, _realtime, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         Assert.That(await _context.Set<Persona>().FindAsync("mayor"), Is.Null);
@@ -421,7 +418,7 @@ public class PersonaEndpointTests
 
         var result = await _endpoint.CreateGrantAsync(GuildId, "narrator",
             new CreatePersonaGrantDto { RoleId = RoleId, UserId = UserId },
-            _permissions, _personas, _auditLog, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _auditLog, _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -435,7 +432,7 @@ public class PersonaEndpointTests
 
         var result = await _endpoint.CreateGrantAsync(GuildId, "narrator",
             new CreatePersonaGrantDto { UserId = UserId },
-            _permissions, _personas, _auditLog, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _auditLog, _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<Conflict<string>>(),
             "widening who can reach a persona introduces a collision without any prefix being edited");
@@ -449,7 +446,7 @@ public class PersonaEndpointTests
 
         var result = await _endpoint.CreateGrantAsync(GuildId, "narrator",
             new CreatePersonaGrantDto { UserId = "not-a-member" },
-            _permissions, _personas, _auditLog, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _auditLog, _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -464,7 +461,7 @@ public class PersonaEndpointTests
 
         var result = await _profiles.SetAutoproxyAsync(GuildId, ChannelId,
             new SetAutoproxyDto { Mode = AutoproxyMode.Pinned },
-            _permissions, _personas, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -477,7 +474,7 @@ public class PersonaEndpointTests
 
         var result = await _profiles.SetAutoproxyAsync(GuildId, ChannelId,
             new SetAutoproxyDto { Mode = AutoproxyMode.Pinned, PersonaId = "narrator" },
-            _permissions, _personas, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
@@ -490,12 +487,12 @@ public class PersonaEndpointTests
 
         await _profiles.SetAutoproxyAsync(GuildId, ChannelId,
             new SetAutoproxyDto { Mode = AutoproxyMode.Pinned, PersonaId = "mayor" },
-            _permissions, _personas, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _realtime, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         await _profiles.SetAutoproxyAsync(GuildId, ChannelId,
             new SetAutoproxyDto { Mode = AutoproxyMode.Off },
-            _permissions, _personas, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _realtime, _context, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var state = _context.Set<PersonaAutoproxyState>().Single();
@@ -520,7 +517,7 @@ public class PersonaEndpointTests
 
         var result = await _profiles.SetAutoproxyAsync(GuildId, "chan-elsewhere",
             new SetAutoproxyDto { Mode = AutoproxyMode.Off },
-            _permissions, _personas, _context, TestPrincipal.Create(UserId));
+            _permissions, _personas, _realtime, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<NotFound>());
     }

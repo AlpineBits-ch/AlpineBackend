@@ -136,6 +136,8 @@ public class SceneEndpoint
             await AnnounceThreadAsync(hub, hydrate, bus, scene, channelId);
             await AnnounceThreadAsync(hub, hydrate, bus, ooc, channelId);
 
+            await scenes.BroadcastCreatedAsync(state, scene);
+
             return await OkAsync(scenes, state, scene);
         }
         catch (ValidationException validationException)
@@ -351,6 +353,8 @@ public class SceneEndpoint
         if (dto.TurnDeadlineAt.HasValue) state.TurnDeadlineAt = dto.TurnDeadlineAt.Value;
         if (dto.ConclusionNote is not null) state.ConclusionNote = dto.ConclusionNote;
 
+        var wasConcluded = state.Status == SceneStatus.Concluded;
+
         if (dto.Status is { } status) state.Status = status;
 
         // Starting a scene that nobody has the turn in is the one status change that has to do
@@ -367,6 +371,11 @@ public class SceneEndpoint
             new { Scene = true, state.Status, state.CurrentTurnPersonaId });
 
         await scenes.BroadcastUpdatedAsync(state);
+
+        // Only on the transition: a PATCH that touches the note of an already concluded scene is
+        // an edit to a chronicle, not a second ending.
+        if (!wasConcluded && state.Status == SceneStatus.Concluded)
+            await scenes.BroadcastConcludedAsync(state);
 
         return await OkAsync(scenes, state, channel);
     }

@@ -70,7 +70,7 @@ Channels with messages newer than the caller's read cursor, newest activity firs
         "guildIconThumbnailUrl": "/api/v1/guild/guilds/gild_01J…/icon/thumbnail",
         "categoryId": "cate_01J…",     // null when uncategorised
         "categoryName": "General",
-        "channelId": "chan_01J…",
+        "channelId": "chan_01J…",       // null only on a guild-scoped task row
         "channelName": "announcements",
         "channelType": 0,
         "parentChannelId": null,        // set for threads and forum posts
@@ -186,9 +186,10 @@ rather than two.
 
 ## `GET /api/v1/guild/inbox/tasks`
 
-Household items waiting on the caller, across every guild they are in: a chore due, a decision
-unvoted, a list item assigned to them, a bill about to fall due, a meal they are down to cook, an
-appliance that is broken or overdue a service.
+Things waiting on the caller, across every guild they are in: a chore due, a decision unvoted, a
+list item assigned to them, a bill about to fall due, a meal they are down to cook, an appliance
+that is broken or overdue a service - and, in a roleplay guild, a scene on your character's turn,
+a character waiting on your review, and a character a reviewer sent back to you.
 
 Separate from Unread because it answers a different question. A list channel holds no messages, so
 it can never be unread - which left the modules people most want reminding about with no inbox
@@ -199,9 +200,11 @@ presence at all.
   "tasks": [
     {
       // ChoreDue | DecisionVote | ListAssignment | BillDue | CookingToday | MaintenanceDue
+      // | SceneTurn | PersonaReview | PersonaChangesRequested
       "kind": "ChoreDue",
       "targetId": "choc_...",       // occurrence / decision / list item / bill / plan entry / asset
-      "breadcrumb": { /* same shape as Unread */ },
+                                    // / scene channel / persona
+      "breadcrumb": { /* same shape as Unread; channel fields null on a guild-scoped row */ },
       "title": "Bins",
       "subtitle": "Your turn",      // empty string, never null, when there is nothing to add
       "dueAt": "2026-08-06T18:00:00Z",
@@ -237,6 +240,32 @@ The three newest kinds, and the one thing worth knowing about each:
 `taskCount` on the summary above counts the same rows, so these three move the header badge.
 
 Full detail in [household-frontend-guide.md](./household-frontend-guide.md) §21.
+
+### The roleplay kinds
+
+- **`SceneTurn`** - an active scene whose turn belongs to a character you answer for: your own, or a
+  guild character you hold a grant on. `targetId` is the scene channel id, `title` the scene's name,
+  `subtitle` names the character, and `dueAt` is the turn deadline where the scene is on a clock.
+  Only `Active` scenes count - a paused one is not waiting on anybody.
+- **`PersonaReview`** - a character submitted for approval in a guild where you hold
+  `ApprovePersonas`. `targetId` is the persona id. Approved characters whose page has been edited
+  past what was signed off are also queue rows on
+  `GET /guilds/{guildId}/personas/pending`, but they are not counted here - resolving them costs a
+  page-revision lookup per character.
+- **`PersonaChangesRequested`** - one of your own characters sent back with a reason, which is the
+  `subtitle`. For a guild-owned character nobody owns it, so the row goes to whoever holds
+  `ManageAnyPersona` instead.
+
+**A guild-scoped row has no channel.** `breadcrumb.channelId`, `channelName` and `channelType` are
+`null` on `PersonaReview` and `PersonaChangesRequested`: an approval queue lives in a guild's cast
+rather than in any one channel. Every Unread group, every mention and every other task kind still
+carries all three. Render the breadcrumb line as `GUILD` alone when `channelId` is null.
+
+These rows do not have a push or an inbox event of their own. They appear and disappear on the
+roleplay hub events - `guild.SceneTurnChanged`, `guild.SceneTurnNudge`,
+`guild.PersonaReviewRequested` and `guild.PersonaReviewCompleted` - so refetch `/inbox/tasks` and
+`/inbox/summary` when one of those arrives. See
+[roleplay-realtime-frontend-guide.md](./roleplay-realtime-frontend-guide.md).
 
 ---
 

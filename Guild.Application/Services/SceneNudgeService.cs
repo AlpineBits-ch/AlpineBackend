@@ -24,7 +24,7 @@ public class SceneNudgeService(
     MicroserviceContext ctx,
     SceneService scenes,
     PersonaCastService cast,
-    GuildPermissionService permissions,
+    ModulePermissionHolderService holders,
     NotificationResolutionService notifications,
     IHubContext<EchoRealtimeHub> hub,
     IMessageBus bus,
@@ -149,12 +149,12 @@ public class SceneNudgeService(
         var players = owners.TryGetValue(current, out var found) ? found : [];
         var recipients = new HashSet<string>(players, StringComparer.Ordinal);
 
-        var holders = new List<string>();
+        var gameMasters = new List<string>();
         var isEscalation = scene.RecordNudge(now);
         if (isEscalation)
         {
-            holders = await ManageScenesHoldersAsync(scene.GuildId);
-            recipients.UnionWith(holders);
+            gameMasters = await holders.HoldersAsync(scene.GuildId, ModulePermissions.ManageScenes);
+            recipients.UnionWith(gameMasters);
         }
 
         if (recipients.Count == 0) return isEscalation;
@@ -176,7 +176,7 @@ public class SceneNudgeService(
 
         await PushAsync(scene, current, personaName, sceneName, players, escalatedCopy: false);
         await PushAsync(scene, current, personaName, sceneName,
-            holders.Except(players, StringComparer.Ordinal).ToList(), escalatedCopy: true);
+            gameMasters.Except(players, StringComparer.Ordinal).ToList(), escalatedCopy: true);
 
         return isEscalation;
     }
@@ -255,58 +255,4 @@ public class SceneNudgeService(
         return names;
     }
 
-    /// <summary>
-    /// Who to escalate to: the guild owner, plus whoever holds ManageScenes through a role. A
-    /// member-level allow overwrite is deliberately not searched for, because finding one means
-    /// reading every member row of the guild on a timer to serve a case nothing sets in bulk.
-    /// </summary>
-    private async Task<List<string>> ManageScenesHoldersAsync(string guildId)
-    {
-        var ownerId = await ctx.Guilds
-            .AsNoTracking()
-            .Where(g => g.Id == guildId)
-            .Select(g => g.OwnerId)
-            .FirstOrDefaultAsync();
-
-        // The mask is a [Flags] ulong stored as numeric, so the bit test happens here rather than in
-        // SQL; a guild has tens of roles, not thousands.
-        var roles = await ctx.Roles
-            .AsNoTracking()
-            .Where(r => r.GuildId == guildId)
-            .Select(r => new { r.Id, r.ModulePermissions })
-            .ToListAsync();
-
-        var roleIds = roles
-            .Where(r => (r.ModulePermissions & ModulePermissions.ManageScenes) == ModulePermissions.ManageScenes)
-            .Select(r => r.Id)
-            .ToList();
-
-        var candidates = new HashSet<string>(StringComparer.Ordinal);
-        if (!string.IsNullOrWhiteSpace(ownerId)) candidates.Add(ownerId);
-
-        if (roleIds.Count > 0)
-        {
-            var now = DateTimeOffset.UtcNow;
-            var fromRoles = await ctx.RoleMembers
-                .AsNoTracking()
-                .Where(rm => roleIds.Contains(rm.RoleId) && (rm.ExpiresAt == null || rm.ExpiresAt > now))
-                .Join(ctx.GuildMembers.AsNoTracking().Where(m => m.GuildId == guildId),
-                    rm => rm.MemberId, m => m.Id, (_, m) => m.UserId)
-                .Distinct()
-                .ToListAsync();
-
-            candidates.UnionWith(fromRoles);
-        }
-
-        var holders = new List<string>(candidates.Count);
-        foreach (var userId in candidates)
-        {
-            // Confirmed rather than inferred: the role grant says nothing about a member-level deny
-            // or about the module being switched off since.
-            if (await permissions.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageScenes))
-                holders.Add(userId);
-        }
-
-        return holders;
-    }
 }

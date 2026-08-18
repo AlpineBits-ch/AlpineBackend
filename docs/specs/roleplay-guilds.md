@@ -458,6 +458,14 @@ turnNumber, status`. `guild.SceneUpdated` fires when the cast, the order, the st
 changes and carries the rest of the state. A client that advances its own rail locally on seeing a
 post will drift; these are what it should follow instead.
 
+Two more bracket the scene's life. `guild.SceneCreated` carries `guildId, channelId,
+parentChannelId, name, oocThreadId, status, participantPersonaIds, turnOrder, currentTurnPersonaId,
+turnStartedAt, turnDeadlineAt, turnNumber, turnLengthHours` - the pair of `guild.ThreadCreated`
+events that go out alongside say two threads appeared, not that a game started. `guild.SceneConcluded`
+carries `guildId, channelId, status, conclusionNote, turnNumber, postCount, concludedAt` and fires
+once, on the transition; a later edit to a concluded scene's note is an edit to a chronicle and
+arrives as `guild.SceneUpdated` only.
+
 `SceneStatus` is a new `HasPostgresEnum`, so it needs a migration alongside `ChannelType.Scene`.
 
 The nudge is a hosted sweep in the shape of `ForumAutoArchiveService`, which already walks channels
@@ -1001,19 +1009,66 @@ tolerates a template it cannot parse. §4 calls this structurally the same thing
 
 ### 15.8 Realtime events
 
-Published on the existing guild hub, matching `guild.*` naming.
+Published on the existing guild hub, matching `guild.*` naming. Three audiences, and which one an
+event gets is a privacy decision rather than a performance one: the guild's present members for
+anything the cast route already serves to any member, the character's players plus the module's
+permission holders for a review or a grant, and one user for their own composer state.
 
-| Event | Payload |
-|---|---|
-| `guild.PersonaProfileChanged` | `guildId, personaId, approvalState, canSpeak` |
+| Event | Audience | Payload |
+|---|---|---|
+| `guild.PersonaCreated` | guild, or the owner for a personal character | `guildId?, personaId, scope, name, avatarUrl, pronouns, color, shortBio, isRetired, updatedAt` |
+| `guild.PersonaUpdated` | every guild it is adopted into, plus the owner | as above |
+| `guild.PersonaDeleted` | every guild it was adopted into, plus the owner | `guildId?, personaId, retired` |
+| `guild.PersonaAdopted` | guild | `guildId, personaId, name, avatarUrl, color, tag, wikiPageId, approvalState, canSpeak` |
+| `guild.PersonaProfileChanged` | guild | `guildId, personaId, approvalState, canSpeak` |
+| `guild.PersonaUnadopted` | guild | `guildId, personaId` |
+| `guild.PersonaReviewRequested` | ApprovePersonas holders, plus the character's players | `guildId, personaId, name, wikiPageId, approvalState, isResubmission, submittedAt` |
+| `guild.PersonaReviewCompleted` | same | `guildId, personaId, name, approvalState, approved, reviewedByUserId, reviewedAt, reason, canSpeak` |
+| `guild.PersonaGrantCreated` / `Deleted` | ManageAnyPersona holders, plus the grantee | `guildId, personaId, grantId, roleId, userId` |
+| `guild.PersonaPageCreated` | guild | `guildId, personaId, pageId, title, categoryId` |
+| `guild.PersonaPagePulled` | guild | `guildId, personaId, pageId, strategy, upstreamState, upstreamRevisionNumber, referenceRevisionNumber, conflictCount` |
+| `guild.DiceRolled` | whoever can see the channel | `guildId, channelId, rollId, messageId, rollerUserId?, personaId, expression, total, breakdown, reason, visibility, createdAt` |
+| `guild.AutoproxyChanged` | the caller alone | `guildId, channelId, mode, personaId` |
 
 `canSpeak` on the broadcast is the profile's own state - not retired, approval satisfied - and not a
 per-recipient answer. An earlier draft said "resolved for the calling user", which a guild-wide hub
 broadcast has no way to mean. Per-user grant resolution stays on the GET.
-| `guild.PersonaUpdated` | `guildId?, personaId, name, avatarUrl` |
+
+The reviewer's `reason` rides on `guild.PersonaReviewCompleted` and never on the guild-wide
+`guild.PersonaProfileChanged`: it is feedback for the character's players, not for the room. A grant
+is on the same footing, because who may speak as a character is what the gated grant list answers.
+`guild.DiceRolled` withholds `rollerUserId` when the roll went out in character.
 
 A persona message needs no new event. It arrives on the existing message-created event, which gains
 the display fields per §9.1.
+
+The scene events are in §5: `guild.SceneCreated`, `guild.SceneUpdated`, `guild.SceneTurnChanged`,
+`guild.SceneConcluded` and `guild.SceneTurnNudge`.
+
+Client reference: `Guild.Application/docs/roleplay-realtime-frontend-guide.md`.
+
+### 15.8.1 The inbox
+
+Three roleplay rows appear on the Waiting-on-you tab, as `InboxTaskKind` values alongside the
+household ones.
+
+| Kind | Who gets the row | `dueAt` |
+|---|---|---|
+| `SceneTurn` | whoever answers for the character on the clock in an `Active` scene | the turn deadline |
+| `PersonaReview` | ApprovePersonas holders, one row per `Submitted` profile | none |
+| `PersonaChangesRequested` | the owner of a sent-back personal character; ManageAnyPersona holders for a guild-owned one | none |
+
+An approval queue lives in a guild's cast rather than in any one channel, so
+`InboxBreadcrumbDto.channelId`, `channelName` and `channelType` are nullable and are null on those
+two kinds. Every unread group, every mention and every other task kind still carries all three.
+
+An approved profile whose page has been edited past what was signed off is a queue row on
+`GET /guilds/{guildId}/personas/pending` but is deliberately not an inbox row: resolving it costs a
+page-revision lookup per character, and the inbox spans every guild the caller is in.
+
+None of the three has an inbox event of its own. They appear and disappear on
+`guild.SceneTurnChanged`, `guild.SceneTurnNudge`, `guild.PersonaReviewRequested` and
+`guild.PersonaReviewCompleted`, which is what a client refetches on.
 
 ### 15.9 Errors
 
@@ -1034,19 +1089,12 @@ Two clients implemented §15 and hit the same edges. These are unbuilt, not unde
 the wrong shape: it mints an attachment bound to a message context. `POST /personas/{id}/avatar` is
 wanted, returning an instance-hosted URL the guard will accept.
 
-**Sticky autoproxy moves without telling anyone.** Under `Sticky` the send path writes the channel's
-persona back as play goes on, and §15.8 has no event for it, so a second device shows a stale
-"speaking as X" until something re-fetches. Either add `guild.AutoproxyChanged
-{ guildId, channelId, mode, personaId }`, or carry the resolved persona on the message-created event
-and let clients infer it.
-
 **The approval queue cannot be triaged.** `PersonaGuildProfileDto` has no `submittedAt`, so "waiting
 three days" is unrenderable and a queue cannot be ordered by age. There is also no count endpoint, so
-badging the review button costs a full list fetch.
-
-**`guild.PersonaUpdated` carries only `name` and `avatarUrl`**, so a colour, pronouns or bio change
-invalidates nothing. Both clients responded by dropping their whole persona cache on any such event,
-which works and wastes the event's precision.
+badging the review button costs a full list fetch. The inbox closes half of this - the queue is a
+`PersonaReview` row on `/inbox/tasks` and moves the header badge - but the profile DTO still has no
+timestamp of its own, and `guild.PersonaReviewRequested` carries `submittedAt` off the profile's
+`UpdatedAt`, which any later edit also moves.
 
 **Push cannot distinguish "no persona" from "a persona whose name is withheld".** A client that masks
 by default would hide ordinary senders; one that does not leaks the account behind a character onto a

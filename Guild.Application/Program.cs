@@ -159,6 +159,8 @@ builder.Services.AddScoped<PersonaMentionService>();
 builder.Services.AddScoped<PersonaCastService>();
 builder.Services.AddScoped<SceneService>();
 builder.Services.AddScoped<SceneNudgeService>();
+builder.Services.AddScoped<ModulePermissionHolderService>();
+builder.Services.AddScoped<RoleplayRealtimeService>();
 // Stateless and thread-safe: RandomNumberGenerator's static API needs nothing per request.
 builder.Services.AddSingleton<IDieRoller, SecureDieRoller>();
 builder.Services.AddScoped<HouseholdChannelService>();

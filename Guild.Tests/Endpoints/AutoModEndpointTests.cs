@@ -1,6 +1,7 @@
 using Guild.Application.Dtos.Request;
 using Guild.Application.Endpoints;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
@@ -28,6 +29,7 @@ public class AutoModEndpointTests
     private FakeDistributedCache _cache = null!;
     private GuildPermissionService _permissionService = null!;
     private AuditLogService _auditLog = null!;
+    private FakeMessageBus _bus = null!;
     private AutoModEndpoint _endpoint = null!;
 
     [SetUp]
@@ -37,6 +39,7 @@ public class AutoModEndpointTests
         _cache = new FakeDistributedCache();
         _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _auditLog = new AuditLogService(_context);
+        _bus = new FakeMessageBus();
         _endpoint = new AutoModEndpoint();
     }
 
@@ -123,7 +126,7 @@ public class AutoModEndpointTests
     public async Task UpdateConfig_Unauthenticated_ReturnsUnauthorized()
     {
         var result = await _endpoint.UpdateConfig(GuildId, new UpdateAutoModConfigDto { Enabled = false },
-            _permissionService, _context, _auditLog, TestPrincipal.CreateAnonymous());
+            _permissionService, _context, _auditLog, _bus, TestPrincipal.CreateAnonymous());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -132,7 +135,7 @@ public class AutoModEndpointTests
     {
         await SeedPlainMember();
         var result = await _endpoint.UpdateConfig(GuildId, new UpdateAutoModConfigDto { Enabled = false },
-            _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+            _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -143,7 +146,7 @@ public class AutoModEndpointTests
         await SeedManagerMember();
         var dto = new UpdateAutoModConfigDto { Enabled = true, MaxMessagesPerInterval = value, IntervalSeconds = 10 };
 
-        var result = await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+        var result = await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -155,7 +158,7 @@ public class AutoModEndpointTests
         await SeedManagerMember();
         var dto = new UpdateAutoModConfigDto { Enabled = true, MaxMessagesPerInterval = 5, IntervalSeconds = value };
 
-        var result = await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+        var result = await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
@@ -166,7 +169,7 @@ public class AutoModEndpointTests
         await SeedManagerMember();
         var dto = new UpdateAutoModConfigDto { Enabled = true, BlockedWords = ["foo", "  ", "bar"], MaxMessagesPerInterval = 4, IntervalSeconds = 8 };
 
-        var result = await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+        var result = await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<UpdateAutoModConfigDto>>());
@@ -189,7 +192,7 @@ public class AutoModEndpointTests
         await _context.SaveChangesAsync();
 
         var dto = new UpdateAutoModConfigDto { Enabled = true, BlockedWords = ["x"] };
-        await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+        await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var configCount = _context.Set<GuildAutoModConfig>().Count(c => c.GuildId == GuildId);
@@ -202,11 +205,38 @@ public class AutoModEndpointTests
     public async Task UpdateConfig_Valid_WritesAuditLogEntry()
     {
         await SeedManagerMember();
-        await _endpoint.UpdateConfig(GuildId, new UpdateAutoModConfigDto { Enabled = true }, _permissionService, _context, _auditLog, TestPrincipal.Create(UserId));
+        await _endpoint.UpdateConfig(GuildId, new UpdateAutoModConfigDto { Enabled = true }, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.GuildId == GuildId).ToList();
         Assert.That(entries, Has.Count.EqualTo(1));
         Assert.That(entries[0].ActionType, Is.EqualTo(AuditActionType.AutoModConfigUpdated));
+    }
+
+    [Test]
+    public async Task UpdateConfig_Valid_PublishesConfigChangedForEveryChannelOfTheGuild()
+    {
+        await SeedManagerMember();
+        _context.Channels.Add(new Channel { Id = "chan-1", GuildId = GuildId, Name = "general", Type = ChannelType.Text, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Channels.Add(new Channel { Id = "chan-2", GuildId = GuildId, Name = "off-topic", Type = ChannelType.Text, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        _context.Channels.Add(new Channel { Id = "other-guild-chan", GuildId = "guild-2", Name = "elsewhere", Type = ChannelType.Text, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow });
+        await _context.SaveChangesAsync();
+
+        await _endpoint.UpdateConfig(GuildId, new UpdateAutoModConfigDto { Enabled = false }, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
+
+        var published = _bus.Published.OfType<AutoModConfigChanged>().SingleOrDefault();
+        Assert.That(published, Is.Not.Null, "Messaging has to be told, or it keeps enforcing the old rules from its cache");
+        Assert.That(published!.ChannelIds, Is.EquivalentTo(new[] { "chan-1", "chan-2" }));
+    }
+
+    [Test]
+    public async Task UpdateConfig_Rejected_PublishesNothing()
+    {
+        await SeedManagerMember();
+        var dto = new UpdateAutoModConfigDto { Enabled = true, MaxMessagesPerInterval = 0, IntervalSeconds = 10 };
+
+        await _endpoint.UpdateConfig(GuildId, dto, _permissionService, _context, _auditLog, _bus, TestPrincipal.Create(UserId));
+
+        Assert.That(_bus.Published, Is.Empty);
     }
 }

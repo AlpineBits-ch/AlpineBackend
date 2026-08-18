@@ -42,7 +42,8 @@ public class PersonaEndpoint
     /// </summary>
     [WolverinePost("/api/v1/personas")]
     public async Task<IResult> CreateOwnAsync(CreatePersonaDto dto,
-        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -68,6 +69,8 @@ public class PersonaEndpoint
 
         ctx.Set<Persona>().Add(persona);
 
+        await realtime.PersonaCreatedAsync(persona);
+
         return Results.Ok(PersonaDto.From(persona));
     }
 
@@ -90,7 +93,7 @@ public class PersonaEndpoint
     [WolverinePatch("/api/v1/personas/{personaId}")]
     public async Task<IResult> UpdateOwnAsync(string personaId, UpdatePersonaDto dto,
         [NotBody] PersonaService personas, [NotBody] PersonaDisplayGuard displayGuard,
-        [NotBody] HouseholdChannelService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -104,7 +107,7 @@ public class PersonaEndpoint
         if (result is not null) return result;
 
         await personas.InvalidatePersonaAsync(persona.Id);
-        await BroadcastPersonaAsync(realtime, ctx, persona);
+        await realtime.PersonaUpdatedAsync(persona);
 
         return Results.Ok(PersonaDto.From(persona));
     }
@@ -115,8 +118,8 @@ public class PersonaEndpoint
     /// </summary>
     [WolverineDelete("/api/v1/personas/{personaId}")]
     public async Task<IResult> DeleteOwnAsync(string personaId,
-        [NotBody] PersonaService personas, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] PersonaService personas, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -127,7 +130,14 @@ public class PersonaEndpoint
 
         await personas.InvalidatePersonaAsync(persona.Id);
 
-        return Results.Ok(RemoveOrRetire(ctx, persona));
+        // Read before the row goes: a removed persona takes its profiles with it, so afterwards
+        // there is nothing left to say which guilds were rendering it.
+        var adopted = await AdoptedGuildIdsAsync(ctx, persona.Id);
+        var outcome = RemoveOrRetire(ctx, persona);
+
+        await realtime.PersonaDeletedAsync(persona, outcome.Retired, adopted);
+
+        return Results.Ok(outcome);
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
@@ -202,8 +212,8 @@ public class PersonaEndpoint
     public async Task<IResult> CreateForGuildAsync(string guildId, CreatePersonaDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
         [NotBody] PersonaDisplayGuard displayGuard, [NotBody] AuditLogService auditLog,
-        [NotBody] PersonaPageService pages, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] PersonaPageService pages, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -247,6 +257,9 @@ public class PersonaEndpoint
         auditLog.Log(guildId, userId, AuditActionType.PersonaCreated, persona.Id, new { persona.Name });
         await personas.InvalidateGuildAsync(guildId);
 
+        await realtime.PersonaCreatedAsync(persona);
+        await realtime.PersonaAdoptedAsync(persona, profile, canSpeak: false);
+
         return Results.Ok(await ToProfileDtoAsync(pages, persona, profile, canSpeak: false));
     }
 
@@ -255,7 +268,7 @@ public class PersonaEndpoint
     public async Task<IResult> UpdateForGuildAsync(string guildId, string personaId, UpdatePersonaDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
         [NotBody] PersonaDisplayGuard displayGuard, [NotBody] AuditLogService auditLog,
-        [NotBody] HouseholdChannelService realtime, [NotBody] MicroserviceContext ctx,
+        [NotBody] RoleplayRealtimeService realtime, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -273,7 +286,7 @@ public class PersonaEndpoint
 
         auditLog.Log(guildId, userId, AuditActionType.PersonaUpdated, persona.Id, new { persona.Name });
         await personas.InvalidateGuildAsync(guildId);
-        await BroadcastPersonaAsync(realtime, ctx, persona);
+        await realtime.PersonaUpdatedAsync(persona);
 
         return Results.Ok(PersonaDto.From(persona));
     }
@@ -282,8 +295,8 @@ public class PersonaEndpoint
     [WolverineDelete("/api/v1/guilds/{guildId}/personas/{personaId}")]
     public async Task<IResult> DeleteForGuildAsync(string guildId, string personaId,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] AuditLogService auditLog, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -295,11 +308,13 @@ public class PersonaEndpoint
             .FirstOrDefaultAsync(p => p.Id == personaId && p.Scope == PersonaScope.Guild && p.OwnerGuildId == guildId);
         if (persona is null) return Results.NotFound();
 
+        var adopted = await AdoptedGuildIdsAsync(ctx, persona.Id);
         var outcome = RemoveOrRetire(ctx, persona);
 
         auditLog.Log(guildId, userId, AuditActionType.PersonaDeleted, persona.Id,
             new { persona.Name, outcome.Retired });
         await personas.InvalidateGuildAsync(guildId);
+        await realtime.PersonaDeletedAsync(persona, outcome.Retired, adopted);
 
         return Results.Ok(outcome);
     }
@@ -330,8 +345,8 @@ public class PersonaEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/personas/{personaId}/grants")]
     public async Task<IResult> CreateGrantAsync(string guildId, string personaId, CreatePersonaGrantDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] AuditLogService auditLog, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -374,6 +389,7 @@ public class PersonaEndpoint
         auditLog.Log(guildId, userId, AuditActionType.PersonaGrantCreated, personaId,
             new { grant.RoleId, grant.UserId });
         await personas.InvalidateGuildAsync(guildId);
+        await realtime.GrantChangedAsync(RoleplayRealtimeService.GrantCreatedEvent, guildId, grant);
 
         return Results.Ok(PersonaGrantDto.From(grant));
     }
@@ -383,8 +399,8 @@ public class PersonaEndpoint
     [WolverineDelete("/api/v1/guilds/{guildId}/personas/{personaId}/grants/{grantId}")]
     public async Task<IResult> DeleteGrantAsync(string guildId, string personaId, string grantId,
         [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
-        [NotBody] AuditLogService auditLog, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user)
+        [NotBody] AuditLogService auditLog, [NotBody] RoleplayRealtimeService realtime,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -403,6 +419,7 @@ public class PersonaEndpoint
         auditLog.Log(guildId, userId, AuditActionType.PersonaGrantDeleted, personaId,
             new { grant.RoleId, grant.UserId });
         await personas.InvalidateGuildAsync(guildId);
+        await realtime.GrantChangedAsync(RoleplayRealtimeService.GrantDeletedEvent, guildId, grant);
 
         return Results.NoContent();
     }
@@ -515,29 +532,12 @@ public class PersonaEndpoint
             .ToListAsync();
     }
 
-    /// <summary>
-    /// guild.PersonaUpdated, on the guild hub, for every guild the persona is adopted into - the
-    /// name and avatar it renders under changed everywhere at once.
-    /// </summary>
-    private static async Task BroadcastPersonaAsync(
-        HouseholdChannelService realtime, MicroserviceContext ctx, Persona persona)
-    {
-        var guildIds = await ctx.Set<PersonaGuildProfile>()
+    /// <summary>Every guild currently rendering this persona.</summary>
+    private static Task<List<string>> AdoptedGuildIdsAsync(MicroserviceContext ctx, string personaId) =>
+        ctx.Set<PersonaGuildProfile>()
             .AsNoTracking()
-            .Where(p => p.PersonaId == persona.Id)
+            .Where(p => p.PersonaId == personaId)
             .Select(p => p.GuildId)
             .Distinct()
             .ToListAsync();
-
-        foreach (var guildId in guildIds)
-        {
-            await realtime.BroadcastGuildAsync(guildId, "guild.PersonaUpdated", new
-            {
-                GuildId = guildId,
-                PersonaId = persona.Id,
-                persona.Name,
-                persona.AvatarUrl,
-            });
-        }
-    }
 }

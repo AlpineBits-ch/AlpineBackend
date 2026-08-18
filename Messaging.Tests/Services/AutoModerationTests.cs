@@ -128,6 +128,44 @@ public class AutoModerationTests
         Assert.That(limited, Is.False);
     }
 
+    [Test]
+    public async Task IsRateLimited_BlockedAttempts_DoNotPushTheWindowOut()
+    {
+        var cache = new FakeDistributedCache();
+        for (var i = 0; i < 4; i++)
+            await AutoModeration.IsRateLimitedAsync("chan-1", "user-1", maxMessages: 3, intervalSeconds: 60, cache);
+
+        var afterTheBlock = cache.OptionsFor("automod:rate:chan-1:user-1")!.AbsoluteExpiration;
+        await AutoModeration.IsRateLimitedAsync("chan-1", "user-1", maxMessages: 3, intervalSeconds: 60, cache);
+
+        // A client that retries into the block would otherwise renew its own lockout forever.
+        Assert.That(cache.OptionsFor("automod:rate:chan-1:user-1")!.AbsoluteExpiration, Is.EqualTo(afterTheBlock));
+    }
+
+    [Test]
+    public async Task IsRateLimited_WindowAlreadyElapsed_StartsCountingAgain()
+    {
+        var cache = new FakeDistributedCache();
+        var longAgo = DateTimeOffset.UtcNow.AddHours(-1).ToUnixTimeSeconds();
+        cache.SetEntry("automod:rate:chan-1:user-1", $"{longAgo}:99");
+
+        var limited = await AutoModeration.IsRateLimitedAsync("chan-1", "user-1", maxMessages: 3, intervalSeconds: 10, cache);
+
+        Assert.That(limited, Is.False);
+    }
+
+    [Test]
+    public async Task IsRateLimited_ValueWithoutAWindow_IsTreatedAsAFreshWindow()
+    {
+        // What the previous format wrote: a bare count, with no idea when its window opened.
+        var cache = new FakeDistributedCache();
+        cache.SetEntry("automod:rate:chan-1:user-1", "99");
+
+        var limited = await AutoModeration.IsRateLimitedAsync("chan-1", "user-1", maxMessages: 3, intervalSeconds: 10, cache);
+
+        Assert.That(limited, Is.False);
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // CheckAsync - the bus/cache-dependent wrapper (config cache hit vs. miss)
     // ══════════════════════════════════════════════════════════════════════════

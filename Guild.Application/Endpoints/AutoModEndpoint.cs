@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Guild.Application.Endpoints;
@@ -36,7 +38,8 @@ public class AutoModEndpoint
 
     [WolverinePut("/api/v1/guilds/{guildId}/automod")]
     public async Task<IResult> UpdateConfig(string guildId, UpdateAutoModConfigDto dto, [NotBody] GuildPermissionService permissionService,
-        [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog, [NotBody] ClaimsPrincipal user)
+        [NotBody] MicroserviceContext ctx, [NotBody] AuditLogService auditLog, [NotBody] IMessageBus bus,
+        [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -61,6 +64,11 @@ public class AutoModEndpoint
         config.UpdatedAt = DateTimeOffset.UtcNow;
 
         auditLog.Log(guildId, userId, AuditActionType.AutoModConfigUpdated, guildId);
+
+        // Messaging enforces these rules from a cache it fills per channel, so without this a
+        // loosened limit keeps blocking sends for as long as that cache lives.
+        var channelIds = await ctx.Channels.Where(c => c.GuildId == guildId).Select(c => c.Id).ToListAsync();
+        await bus.PublishAsync(new AutoModConfigChanged { GuildId = guildId, ChannelIds = channelIds });
 
         return Results.Ok(dto);
     }

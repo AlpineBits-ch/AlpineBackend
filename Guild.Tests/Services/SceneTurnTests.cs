@@ -954,6 +954,75 @@ public class SceneTurnTests
         Assert.That(dto?.ConclusionNote, Is.EqualTo("The siege broke at dawn."));
     }
 
+    [Test]
+    public async Task Creating_AScene_AnnouncesItAsAGameRatherThanOnlyAsTwoThreads()
+    {
+        await SeedAsync();
+
+        await _endpoint.CreateAsync(GuildId, ChannelId,
+            new CreateSceneDto
+            {
+                Name = "The Siege of Blackwater", TurnLengthHours = 48,
+                TurnOrder = [PlayerPersonaId, OtherPersonaId],
+            },
+            _permissions, Watched(), _auditLog, _hydrate, _hub, _bus, _context,
+            TestPrincipal.Create(GameMasterId));
+
+        var sent = ((FakeHubClients)_hub.Clients).SentMessages
+            .Where(s => s.Method == SceneService.CreatedEvent)
+            .ToList();
+
+        Assert.That(sent, Has.Count.EqualTo(1));
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(sent[0].Args[0]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload, Does.Contain("OocThreadId"));
+            Assert.That(payload, Does.Contain(PlayerPersonaId));
+            Assert.That(payload, Does.Contain("The Siege of Blackwater"));
+        });
+    }
+
+    [Test]
+    public async Task Concluding_AScene_AnnouncesTheEndingOnce()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        var watched = Watched();
+
+        await _endpoint.UpdateAsync(GuildId, "scene-1",
+            new UpdateSceneDto { Status = SceneStatus.Concluded, ConclusionNote = "The siege broke at dawn." },
+            _permissions, watched, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        // A second PATCH on an already concluded scene edits a chronicle rather than ending it
+        // again.
+        await _endpoint.UpdateAsync(GuildId, "scene-1",
+            new UpdateSceneDto { ConclusionNote = "The siege broke at first light." },
+            _permissions, watched, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        var sent = ((FakeHubClients)_hub.Clients).SentMessages
+            .Where(s => s.Method == SceneService.ConcludedEvent)
+            .ToList();
+
+        Assert.That(sent, Has.Count.EqualTo(1));
+        Assert.That(
+            System.Text.Json.JsonSerializer.Serialize(sent[0].Args[0]),
+            Does.Contain("The siege broke at dawn."));
+    }
+
+    /// <summary>A scene service whose fan-out has somebody present to reach.</summary>
+    private SceneService Watched() =>
+        new(_context, new PersonaMentionService(_context, _personas), _cast,
+            new GuildHydrateService(
+                RedisTestFactory.CreateWithPresence(new MemberPresenceState
+                {
+                    MemberId = "memb-other", UserId = OtherPlayerId, Status = "Online",
+                }),
+                NullLogger<GuildHydrateService>.Instance),
+            _hub);
+
     // ══════════════════════════════════════════════════════════════════════ The nudge push
     // ══════════════════════════════════════════════════════════════════════
 
@@ -1127,7 +1196,8 @@ public class SceneTurnTests
             _hub, _bus, _context, TestPrincipal.Create(userId));
 
     private SceneNudgeService BuildNudges() =>
-        new(_context, _scenes, _cast, _permissions, new NotificationResolutionService(_context), _hub,
+        new(_context, _scenes, _cast, new ModulePermissionHolderService(_context, _permissions),
+            new NotificationResolutionService(_context), _hub,
             _bus, NullLogger<SceneNudgeService>.Instance);
 
     private List<string> Nudged() =>

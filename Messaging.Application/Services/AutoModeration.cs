@@ -12,6 +12,8 @@ namespace Messaging.Application.Services;
 /// Messaging caches it here to avoid a cross-service round trip on every single message send.</summary>
 public static class AutoModeration
 {
+    private static readonly TimeSpan ConfigCacheLifetime = TimeSpan.FromMinutes(5);
+
     private static string ConfigCacheKey(string channelId) => $"automod:config:{channelId}";
     private static string RateLimitKey(string channelId, string userId) => $"automod:rate:{channelId}:{userId}";
 
@@ -33,6 +35,11 @@ public static class AutoModeration
         return null;
     }
 
+    /// <summary>Drops the cached config for one channel, so the next send reads the guild's current
+    /// rules instead of the ones that were in force when the cache was filled.</summary>
+    public static Task EvictConfigAsync(string channelId, IDistributedCache cache) =>
+        cache.RemoveAsync(ConfigCacheKey(channelId));
+
     private static async Task<GetGuildAutoModConfigResponse?> GetConfigAsync(string channelId, IDistributedCache cache, IMessageBus bus)
     {
         var cacheKey = ConfigCacheKey(channelId);
@@ -43,7 +50,7 @@ public static class AutoModeration
 
         await cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(response), new DistributedCacheEntryOptions
         {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5),
+            AbsoluteExpirationRelativeToNow = ConfigCacheLifetime,
         });
 
         return response;
@@ -70,16 +77,36 @@ public static class AutoModeration
     public static async Task<bool> IsRateLimitedAsync(string channelId, string userId, int maxMessages, int intervalSeconds, IDistributedCache cache)
     {
         var key = RateLimitKey(channelId, userId);
-        var raw = await cache.GetStringAsync(key);
-        var count = (raw is null ? 0 : int.Parse(raw)) + 1;
+        var now = DateTimeOffset.UtcNow;
+        var (startedAt, previousCount) = ReadWindow(await cache.GetStringAsync(key), now, intervalSeconds);
+        var count = previousCount + 1;
 
-        // Fixed window, reset on every message in the burst - simple to reason about, and the
-        // practical difference from a true sliding window doesn't matter at spam-prevention scale.
-        await cache.SetStringAsync(key, count.ToString(), new DistributedCacheEntryOptions
+        // The window is anchored to its first message and the expiry never moves: a rejected send
+        // must not push it out, or a client that keeps retrying holds itself blocked indefinitely.
+        await cache.SetStringAsync(key, $"{startedAt.ToUnixTimeSeconds()}:{count}", new DistributedCacheEntryOptions
         {
-            AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(intervalSeconds),
+            AbsoluteExpiration = startedAt.AddSeconds(intervalSeconds),
         });
 
         return count > maxMessages;
+    }
+
+    /// <summary>The window the caller's message falls into - the stored one while it is still open,
+    /// a fresh one otherwise.</summary>
+    private static (DateTimeOffset StartedAt, int Count) ReadWindow(string? raw, DateTimeOffset now, int intervalSeconds)
+    {
+        var separator = raw?.IndexOf(':') ?? -1;
+        if (raw is not null && separator > 0
+            && long.TryParse(raw[..separator], out var startedAtUnix)
+            && int.TryParse(raw[(separator + 1)..], out var count))
+        {
+            var startedAt = DateTimeOffset.FromUnixTimeSeconds(startedAtUnix);
+
+            // A start in the future, or one whose interval has already elapsed, belongs to a window
+            // this message is not in - most likely because the guild shortened the interval.
+            if (startedAt <= now && startedAt.AddSeconds(intervalSeconds) > now) return (startedAt, count);
+        }
+
+        return (now, 0);
     }
 }

@@ -17,11 +17,18 @@ public class InboxBreadcrumbDto
     public string? CategoryId { get; init; }
     public string? CategoryName { get; init; }
 
-    public required string ChannelId { get; init; }
-    public required string ChannelName { get; init; }
+    /// <summary>
+    /// Null for a guild-scoped row, which is what an approval queue is: the character waiting on a
+    /// reviewer lives in the guild's cast rather than in any one channel. Every unread group and
+    /// every mention still carries one.
+    /// </summary>
+    public string? ChannelId { get; init; }
 
-    /// <summary>Mirrors Guild.Domain.Enums.ChannelType.</summary>
-    public required int ChannelType { get; init; }
+    public string? ChannelName { get; init; }
+
+    /// <summary>Mirrors Guild.Domain.Enums.ChannelType, and null wherever
+    /// <see cref="ChannelId"/> is.</summary>
+    public int? ChannelType { get; init; }
 
     /// <summary>Set for threads and forum posts, so the client can show the channel they live
     /// under.</summary>
@@ -138,6 +145,15 @@ public enum InboxTaskKind
 
     /// <summary>Something in the house that is broken or overdue a service.</summary>
     MaintenanceDue,
+
+    /// <summary>An active scene whose turn belongs to a character you answer for.</summary>
+    SceneTurn,
+
+    /// <summary>A character sitting in an approval queue you review.</summary>
+    PersonaReview,
+
+    /// <summary>One of your characters was sent back with a reason.</summary>
+    PersonaChangesRequested,
 }
 
 /// <summary>One thing waiting on the caller.</summary>

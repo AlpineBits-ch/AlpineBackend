@@ -31,15 +31,16 @@ public class InboxTaskService(
     /// <summary>Ceiling on the badge count, matching <see cref="InboxService.MaxSummaryCount"/>.</summary>
     public const int MaxSummaryCount = 99;
 
-    /// <summary>One candidate before feature and permission filtering.</summary>
+    /// <summary>One candidate before feature and permission filtering. The channel is null for a
+    /// guild-scoped row: an approval queue lives in a guild's cast rather than in a channel.</summary>
     internal sealed record TaskRow(
         InboxTaskKind Kind,
         string TargetId,
         string GuildId,
         string GuildName,
-        string ChannelId,
-        string ChannelName,
-        ChannelType ChannelType,
+        string? ChannelId,
+        string? ChannelName,
+        ChannelType? ChannelType,
         string? CategoryId,
         string? CategoryName,
         string Title,
@@ -93,6 +94,14 @@ public class InboxTaskService(
             .Take(CandidatesPerSource).ToListAsync();
         var maintenance = await BuildMaintenanceQuery(ctx, userId, now)
             .Take(CandidatesPerSource).ToListAsync();
+        var turns = await BuildSceneTurnQuery(ctx, userId, now)
+            .Take(CandidatesPerSource).ToListAsync();
+        var reviews = await BuildPersonaReviewQuery(ctx, userId)
+            .Take(CandidatesPerSource).ToListAsync();
+        var sentBack = await BuildPersonaChangesRequestedQuery(ctx, userId)
+            .Take(CandidatesPerSource).ToListAsync();
+        var guildSentBack = await BuildGuildPersonaChangesRequestedQuery(ctx, userId)
+            .Take(CandidatesPerSource).ToListAsync();
 
         // The one conversion the queries cannot do. See TaskRow's PlanDate.
         meals = meals
@@ -104,7 +113,8 @@ public class InboxTaskService(
 
         var rows = new List<TaskRow>(
             chores.Count + decisions.Count + assignments.Count
-            + bills.Count + meals.Count + maintenance.Count);
+            + bills.Count + meals.Count + maintenance.Count
+            + turns.Count + reviews.Count + sentBack.Count + guildSentBack.Count);
 
         rows.AddRange(await KeepVisibleAsync(userId, chores, GuildFeatures.Chores));
         rows.AddRange(await KeepVisibleAsync(userId, decisions, GuildFeatures.Decisions));
@@ -115,6 +125,15 @@ public class InboxTaskService(
         rows.AddRange(await KeepVisibleAsync(userId, bills, GuildFeatures.Ledger));
         rows.AddRange(await KeepVisibleAsync(userId, meals, GuildFeatures.Meals));
         rows.AddRange(await KeepVisibleAsync(userId, maintenance, GuildFeatures.Maintenance));
+
+        // A scene is a channel, so the same ViewChannel rule applies; the two approval rows are not,
+        // and are cut by the module permission the queue itself is gated on.
+        rows.AddRange(await KeepVisibleAsync(userId, turns, GuildFeatures.Scenes));
+        rows.AddRange(await KeepPermittedAsync(
+            userId, reviews, GuildFeatures.Personas, ModulePermissions.ApprovePersonas));
+        rows.AddRange(await KeepPermittedAsync(userId, sentBack, GuildFeatures.Personas));
+        rows.AddRange(await KeepPermittedAsync(
+            userId, guildSentBack, GuildFeatures.Personas, ModulePermissions.ManageAnyPersona));
 
         // Anything with a deadline sorts ahead of anything without, soonest first; the undated tail
         // falls back to age.
@@ -295,6 +314,163 @@ public class InboxTaskService(
                 0,
                 asset.CreatedAt);
 
+    /// <summary>
+    /// Scenes waiting on a character the caller answers for - their own, or one they hold a grant
+    /// on. The grant is read here rather than through PersonaService because that cache is keyed
+    /// per guild and the inbox spans every guild the caller is in.
+    /// </summary>
+    internal static IQueryable<TaskRow> BuildSceneTurnQuery(
+        MicroserviceContext ctx, string userId, DateTimeOffset now) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join scene in ctx.Set<SceneState>().AsNoTracking() on member.GuildId equals scene.GuildId
+            where scene.Status == SceneStatus.Active && scene.CurrentTurnPersonaId != null
+            join persona in ctx.Set<Persona>().AsNoTracking()
+                on scene.CurrentTurnPersonaId equals persona.Id
+            where !persona.IsRetired
+                  && ((persona.Scope == PersonaScope.User && persona.OwnerUserId == userId)
+                      || ctx.Set<PersonaGrant>().Any(g =>
+                          g.PersonaId == persona.Id
+                          && (g.UserId == userId
+                              || ctx.RoleMembers.Any(rm =>
+                                  rm.RoleId == g.RoleId
+                                  && rm.MemberId == member.Id
+                                  && (rm.ExpiresAt == null || rm.ExpiresAt > now)))))
+            join profile in ctx.Set<PersonaGuildProfile>().AsNoTracking()
+                on new { persona.Id, scene.GuildId } equals
+                   new { Id = profile.PersonaId, profile.GuildId }
+            join channel in ctx.Channels.AsNoTracking() on scene.ChannelId equals channel.Id
+            orderby scene.TurnDeadlineAt
+            select new TaskRow(
+                InboxTaskKind.SceneTurn,
+                scene.ChannelId,
+                channel.GuildId,
+                channel.Guild.Name,
+                channel.Id,
+                channel.Name,
+                channel.Type,
+                channel.CategoryId,
+                channel.Category != null ? channel.Category.Name : null,
+                channel.Name,
+                "Your turn as " + (profile.DisplayName ?? persona.Name),
+                scene.TurnDeadlineAt,
+                0,
+                scene.TurnStartedAt ?? scene.CreatedAt);
+
+    /// <summary>
+    /// Characters sitting in an approval queue. Approved profiles whose page has been edited past
+    /// what was signed off are a queue row too, but resolving that costs a revision lookup per
+    /// character, so the inbox counts first approvals and the queue route counts both.
+    /// </summary>
+    internal static IQueryable<TaskRow> BuildPersonaReviewQuery(MicroserviceContext ctx, string userId) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join profile in ctx.Set<PersonaGuildProfile>().AsNoTracking()
+                on member.GuildId equals profile.GuildId
+            where profile.ApprovalState == PersonaApprovalState.Submitted
+            join persona in ctx.Set<Persona>().AsNoTracking() on profile.PersonaId equals persona.Id
+            join guild in ctx.Guilds.AsNoTracking() on profile.GuildId equals guild.Id
+            orderby profile.UpdatedAt
+            select new TaskRow(
+                InboxTaskKind.PersonaReview,
+                profile.PersonaId,
+                guild.Id,
+                guild.Name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                profile.DisplayName ?? persona.Name,
+                "Waiting on your review",
+                null,
+                0,
+                profile.UpdatedAt);
+
+    /// <summary>The caller's own characters that a reviewer sent back.</summary>
+    internal static IQueryable<TaskRow> BuildPersonaChangesRequestedQuery(
+        MicroserviceContext ctx, string userId) =>
+        from profile in ctx.Set<PersonaGuildProfile>().AsNoTracking()
+            where profile.ApprovalState == PersonaApprovalState.ChangesRequested
+            join persona in ctx.Set<Persona>().AsNoTracking() on profile.PersonaId equals persona.Id
+            where persona.Scope == PersonaScope.User && persona.OwnerUserId == userId
+            join guild in ctx.Guilds.AsNoTracking() on profile.GuildId equals guild.Id
+            orderby profile.UpdatedAt
+            select new TaskRow(
+                InboxTaskKind.PersonaChangesRequested,
+                profile.PersonaId,
+                guild.Id,
+                guild.Name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                profile.DisplayName ?? persona.Name,
+                profile.ChangesRequestedReason ?? "Changes were requested",
+                null,
+                0,
+                profile.UpdatedAt);
+
+    /// <summary>
+    /// Guild-owned characters that were sent back. Nobody owns one, so it lands on whoever manages
+    /// characters here rather than on a player.
+    /// </summary>
+    internal static IQueryable<TaskRow> BuildGuildPersonaChangesRequestedQuery(
+        MicroserviceContext ctx, string userId) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join profile in ctx.Set<PersonaGuildProfile>().AsNoTracking()
+                on member.GuildId equals profile.GuildId
+            where profile.ApprovalState == PersonaApprovalState.ChangesRequested
+            join persona in ctx.Set<Persona>().AsNoTracking() on profile.PersonaId equals persona.Id
+            where persona.Scope == PersonaScope.Guild
+            join guild in ctx.Guilds.AsNoTracking() on profile.GuildId equals guild.Id
+            orderby profile.UpdatedAt
+            select new TaskRow(
+                InboxTaskKind.PersonaChangesRequested,
+                profile.PersonaId,
+                guild.Id,
+                guild.Name,
+                null,
+                null,
+                null,
+                null,
+                null,
+                profile.DisplayName ?? persona.Name,
+                profile.ChangesRequestedReason ?? "Changes were requested",
+                null,
+                0,
+                profile.UpdatedAt);
+
+    /// <summary>
+    /// Drops guild-scoped rows whose module has since been switched off, and rows addressed to a
+    /// permission the caller has since lost. Both are resolved once per guild rather than once per
+    /// row.
+    /// </summary>
+    private async Task<List<TaskRow>> KeepPermittedAsync(
+        string userId, List<TaskRow> rows, GuildFeatures feature, ModulePermissions? required = null)
+    {
+        if (rows.Count == 0) return rows;
+
+        var kept = new List<TaskRow>(rows.Count);
+
+        foreach (var group in rows.GroupBy(r => r.GuildId, StringComparer.Ordinal))
+        {
+            if (!await permissions.IsFeatureEnabledAsync(group.Key, feature)) continue;
+
+            if (required is { } module
+                && !await permissions.CanUserPerformActionOnGuildAsync(userId, group.Key, module))
+            {
+                continue;
+            }
+
+            kept.AddRange(group);
+        }
+
+        return kept;
+    }
+
     /// <summary>Drops rows whose module has since been switched off, and rows in channels the
     /// caller can no longer see. Both are resolved once per guild rather than once per row.</summary>
     private async Task<List<TaskRow>> KeepVisibleAsync(
@@ -308,12 +484,16 @@ public class InboxTaskService(
         {
             if (!await permissions.IsFeatureEnabledAsync(group.Key, feature)) continue;
 
-            var channelIds = group.Select(r => r.ChannelId).Distinct(StringComparer.Ordinal).ToList();
+            var channelIds = group
+                .Select(r => r.ChannelId)
+                .OfType<string>()
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
 
             var visible = await permissions.FilterChannelsWithPermissionAsync(
                 userId, group.Key, channelIds, Permissions.ViewChannel);
 
-            kept.AddRange(group.Where(r => visible.Contains(r.ChannelId)));
+            kept.AddRange(group.Where(r => r.ChannelId is not null && visible.Contains(r.ChannelId)));
         }
 
         return kept;
@@ -333,7 +513,7 @@ public class InboxTaskService(
             CategoryName = row.CategoryName,
             ChannelId = row.ChannelId,
             ChannelName = row.ChannelName,
-            ChannelType = (int)row.ChannelType,
+            ChannelType = (int?)row.ChannelType,
         },
         Title = row.Title,
         Subtitle = row.Subtitle,

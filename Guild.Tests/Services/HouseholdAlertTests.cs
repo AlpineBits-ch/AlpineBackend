@@ -101,8 +101,7 @@ public class HouseholdAlertTests
 
     private HouseholdAlertService BuildAlerts(HomeStatusService? homeStatus = null)
     {
-        var notifier = new HouseholdNotifier(
-            _context, new NotificationResolutionService(_context), _hub, _bus);
+        var notifier = new HouseholdNotifier(new NotificationResolutionService(_context), _hub, _bus);
 
         return new HouseholdAlertService(
             _context, notifier, _permissions,
@@ -743,7 +742,7 @@ public class HouseholdAlertTests
 
         var alerts = new HouseholdAlertService(
             _context,
-            new HouseholdNotifier(_context, new NotificationResolutionService(_context), _hub, new ThrowingMessageBus()),
+            new HouseholdNotifier(new NotificationResolutionService(_context), _hub, new ThrowingMessageBus()),
             _permissions,
             new HomeStatusService(RedisTestFactory.CreateWithHomeStatus(GuildId)),
             NullLogger<HouseholdAlertService>.Instance);

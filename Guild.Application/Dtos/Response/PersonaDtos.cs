@@ -34,6 +34,28 @@ public class PersonaDto
     };
 }
 
+/// <summary>
+/// A character as everybody in the guild sees it: enough to draw it, and nothing about who plays
+/// it. This is what travels alongside a scene's cast and a mention token so neither costs a lookup
+/// per row.
+/// </summary>
+public class PersonaCastMemberDto
+{
+    public string PersonaId { get; set; } = null!;
+
+    /// <summary>The per-guild display name, falling back to the character's own.</summary>
+    public string Name { get; set; } = null!;
+
+    public string? AvatarUrl { get; set; }
+    public string? Color { get; set; }
+    public string? Pronouns { get; set; }
+
+    /// <summary>The per-guild tag appended to the rendered name, where the guild sets one.</summary>
+    public string? Tag { get; set; }
+
+    public bool IsRetired { get; set; }
+}
+
 /// <summary>How one persona is set up inside one guild.</summary>
 public class PersonaGuildProfileDto
 {

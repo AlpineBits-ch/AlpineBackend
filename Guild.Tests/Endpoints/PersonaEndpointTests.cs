@@ -129,6 +129,63 @@ public class PersonaEndpointTests
             _pages, _context, TestPrincipal.Create(UserId));
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
+    // The guild's cast
+
+    [Test]
+    public async Task ListCast_NamesEverybodysCharactersAndNobodysPlayer()
+    {
+        await SeedGuildAsync();
+        await SeedOwnPersonaAsync("mayor", "Mayor Cogsgrove");
+
+        // Somebody else's character: the one thing the caller's own persona list cannot name, and
+        // the one a scene's turn order is full of.
+        _context.Set<Persona>().Add(new Persona
+        {
+            Id = "guard", Scope = PersonaScope.User, OwnerUserId = "user-2", Name = "Town Guard",
+            Color = "#4F8A6B", CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        _context.Set<PersonaGuildProfile>().Add(new PersonaGuildProfile
+        {
+            Id = "profile-guard", PersonaId = "guard", GuildId = GuildId, DisplayName = "The Guard",
+            ApprovalState = PersonaApprovalState.Approved,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.ListCastAsync(
+            GuildId, _permissions, new PersonaCastService(_context), _context,
+            TestPrincipal.Create(UserId));
+
+        var cast = (result as Ok<List<PersonaCastMemberDto>>)?.Value;
+        var serialized = System.Text.Json.JsonSerializer.Serialize(cast);
+
+        Assert.That(cast, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(cast!.Select(c => c.PersonaId), Is.EquivalentTo(new[] { "mayor", "guard" }));
+            Assert.That(cast.Single(c => c.PersonaId == "guard").Name, Is.EqualTo("The Guard"),
+                "the per-guild override is what that guild reads");
+            Assert.That(cast.Single(c => c.PersonaId == "guard").Color, Is.EqualTo("#4F8A6B"));
+            Assert.That(serialized, Does.Not.Contain("user-2"),
+                "a cast list must not say who is behind a character");
+        });
+    }
+
+    [Test]
+    public async Task ListCast_WithoutThePersonasModule_IsForbidden()
+    {
+        await SeedGuildAsync(features: GuildFeatures.Wiki);
+
+        var result = await _endpoint.ListCastAsync(
+            GuildId, _permissions, new PersonaCastService(_context), _context,
+            TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     // Account-level personas
 
     [Test]

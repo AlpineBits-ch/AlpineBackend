@@ -250,6 +250,37 @@ public class NotificationResolutionService(MicroserviceContext ctx)
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Which of these users may be sent a phone notification about something in this channel:
+    /// whoever has not muted it and still has mobile push on.
+    /// </summary>
+    /// <param name="guildId">The guild the notification is about.</param>
+    /// <param name="channelId">The channel it came from, or null for a guild-scoped one.</param>
+    /// <param name="userIds">The candidate recipients.</param>
+    /// <returns>The subset that may be pushed to.</returns>
+    public async Task<List<string>> PushableUserIdsAsync(
+        string guildId, string? channelId, IReadOnlyCollection<string> userIds)
+    {
+        if (userIds.Count == 0) return [];
+
+        var members = await ctx.GuildMembers.AsNoTracking()
+            .Where(m => m.GuildId == guildId && userIds.Contains(m.UserId))
+            .Select(m => new { m.Id, m.UserId })
+            .ToListAsync();
+
+        if (members.Count == 0) return [];
+
+        // Without a channel there is nothing to resolve overrides against, so the guild-level
+        // settings are the whole chain - which is what ResolveForChannelAsync degrades to when the
+        // channel lookup misses.
+        var resolved = await ResolveForChannelAsync(channelId ?? "", members.Select(m => m.Id).ToList());
+
+        return members
+            .Where(m => resolved.TryGetValue(m.Id, out var setting) && !setting.IsMuted && setting.MobilePush)
+            .Select(m => m.UserId)
+            .ToList();
+    }
+
     /// <summary>Single-member convenience for the settings endpoints, which show a member what
     /// their own effective level is.</summary>
     public async Task<ResolvedNotification> ResolveForChannelAsync(string channelId, string memberId)

@@ -190,7 +190,7 @@ public class AbsenceServiceTests
         _hub);
 
     private ChoreAlertService BuildChoreAlerts() => new(
-        new HouseholdNotifier(_context, new NotificationResolutionService(_context), _hub, _bus),
+        new HouseholdNotifier(new NotificationResolutionService(_context), _hub, _bus),
         _permissions,
         NullLogger<ChoreAlertService>.Instance);
 

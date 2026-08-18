@@ -335,8 +335,7 @@ public class HouseholdHardeningTests
     {
         var hub = new FakeHubContext();
         var bus = new FakeMessageBus();
-        var notifier = new HouseholdNotifier(
-            _context, new NotificationResolutionService(_context), hub, bus);
+        var notifier = new HouseholdNotifier(new NotificationResolutionService(_context), hub, bus);
 
         return (new ChoreReminderService(_context, notifier, NullLogger<ChoreReminderService>.Instance), hub, bus);
     }

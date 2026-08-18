@@ -34,6 +34,21 @@ public class SceneState
 
     public string? CurrentTurnPersonaId { get; set; }
 
+    /// <summary>When the current turn opened. A deadline on its own cannot say how much of a turn is
+    /// spent, which is the clock every client draws.</summary>
+    public DateTimeOffset? TurnStartedAt { get; set; }
+
+    /// <summary>Which turn the scene is on, counting from one. "Turn 47" is what makes a scene read
+    /// as a game rather than as a chat.</summary>
+    public int TurnNumber { get; set; }
+
+    /// <summary>How many messages the scene has seen, so a concluded campaign can say what it was
+    /// worth.</summary>
+    public int PostCount { get; set; }
+
+    /// <summary>The closing line a GM writes when ending a scene.</summary>
+    public string? ConclusionNote { get; set; }
+
     /// <summary>When the current turn goes stale. Null means this scene is not on a clock and is
     /// never nudged.</summary>
     public DateTimeOffset? TurnDeadlineAt { get; set; }
@@ -125,11 +140,48 @@ public class SceneState
         TurnDeadlineAt = next is not null && TurnLengthHours is > 0
             ? now.AddHours(TurnLengthHours.Value)
             : null;
+        TurnStartedAt = next is not null ? now : null;
+        if (next is not null) TurnNumber++;
         NudgeCount = 0;
         LastNudgedAt = null;
         UpdatedAt = now;
 
         return next;
+    }
+
+    /// <summary>
+    /// Opens the first turn of a scene that has not had one, which is what starting a scene has to
+    /// do or nothing is ever nudged.
+    /// </summary>
+    /// <param name="unavailable">Characters whose players have declared an absence covering now.</param>
+    /// <param name="now">The instant the scene started.</param>
+    /// <returns>The character the turn opened on, or null when the whole rotation is away.</returns>
+    public string? StartTurn(IReadOnlyCollection<string> unavailable, DateTimeOffset now)
+    {
+        var next = NextTurn(null, unavailable);
+        CurrentTurnPersonaId = next;
+        if (next is null) return null;
+
+        TakeTurn(next, now);
+
+        // Left alone when the scene is not on a clock: a deadline set by hand is the GM's, and
+        // starting the scene is not a reason to drop it.
+        if (TurnLengthHours is > 0) TurnDeadlineAt = now.AddHours(TurnLengthHours.Value);
+
+        return next;
+    }
+
+    /// <summary>Hands the turn to a named character, for the cases the rotation cannot express.</summary>
+    /// <param name="personaId">The character taking the turn.</param>
+    /// <param name="now">The instant the turn opened.</param>
+    public void TakeTurn(string personaId, DateTimeOffset now)
+    {
+        CurrentTurnPersonaId = personaId;
+        TurnStartedAt = now;
+        TurnNumber++;
+        NudgeCount = 0;
+        LastNudgedAt = null;
+        UpdatedAt = now;
     }
 
     /// <summary>Drops a character from the cast, and hands the turn on when it was theirs.</summary>

@@ -156,6 +156,7 @@ builder.Services.AddScoped<PersonaService>();
 builder.Services.AddScoped<PersonaPageService>();
 builder.Services.AddScoped<PersonaDisplayGuard>();
 builder.Services.AddScoped<PersonaMentionService>();
+builder.Services.AddScoped<PersonaCastService>();
 builder.Services.AddScoped<SceneService>();
 builder.Services.AddScoped<SceneNudgeService>();
 // Stateless and thread-safe: RandomNumberGenerator's static API needs nothing per request.

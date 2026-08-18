@@ -1,8 +1,6 @@
 using Echo.Realtime;
 using Guild.Contracts.Bus.Events;
-using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 using Wolverine;
 
 namespace Guild.Application.Services;
@@ -12,7 +10,6 @@ namespace Guild.Application.Services;
 /// phone if they have nothing open.
 /// </summary>
 public class HouseholdNotifier(
-    MicroserviceContext ctx,
     NotificationResolutionService notifications,
     IHubContext<EchoRealtimeHub> hub,
     IMessageBus bus)
@@ -49,7 +46,7 @@ public class HouseholdNotifier(
             Data = data,
         });
 
-        var eligible = await FilterToPushableAsync(guildId, channelId, recipients);
+        var eligible = await notifications.PushableUserIdsAsync(guildId, channelId, recipients);
         if (eligible.Count == 0) return [];
 
         await bus.PublishAsync(new HouseholdPushRequested
@@ -68,31 +65,5 @@ public class HouseholdNotifier(
         });
 
         return eligible;
-    }
-
-    /// <summary>
-    /// Drops anyone who has muted this guild or channel, or turned mobile push off.
-    /// </summary>
-    private async Task<List<string>> FilterToPushableAsync(
-        string guildId, string? channelId, IReadOnlyCollection<string> userIds)
-    {
-        var members = await ctx.GuildMembers.AsNoTracking()
-            .Where(m => m.GuildId == guildId && userIds.Contains(m.UserId))
-            .Select(m => new { m.Id, m.UserId })
-            .ToListAsync();
-
-        if (members.Count == 0) return [];
-
-        var memberIds = members.Select(m => m.Id).ToList();
-
-        // Without a channel there is nothing to resolve overrides against, so the guild-level
-        // settings are the whole chain - which is what ResolveForChannelAsync degrades to when the
-        // channel lookup misses.
-        var resolved = await notifications.ResolveForChannelAsync(channelId ?? "", memberIds);
-
-        return members
-            .Where(m => resolved.TryGetValue(m.Id, out var setting) && !setting.IsMuted && setting.MobilePush)
-            .Select(m => m.UserId)
-            .ToList();
     }
 }

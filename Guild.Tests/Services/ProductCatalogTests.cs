@@ -75,7 +75,7 @@ public class ProductCatalogTests
 
         var alerts = new HouseholdAlertService(
             _context,
-            new HouseholdNotifier(_context, new NotificationResolutionService(_context), _hub, _bus),
+            new HouseholdNotifier(new NotificationResolutionService(_context), _hub, _bus),
             _permissions,
             new HomeStatusService(RedisTestFactory.CreateWithHomeStatus(GuildId)),
             NullLogger<HouseholdAlertService>.Instance);

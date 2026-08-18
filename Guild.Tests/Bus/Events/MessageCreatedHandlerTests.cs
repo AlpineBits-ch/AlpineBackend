@@ -177,7 +177,7 @@ public class MessageCreatedHandlerTests
             message, _hub, hydrate, _context, _cache, _bus,
             NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience,
             blockCache, privacy, mentions,
-            new SceneService(_context, mentions, hydrate, _hub));
+            new SceneService(_context, mentions, new PersonaCastService(_context), hydrate, _hub));
     }
 
     /// <summary>Every recipient across the chunked index commands.</summary>

@@ -104,8 +104,7 @@ public class PantryExpiryServiceTests
 
     private PantryExpiryService Build()
     {
-        var notifier = new HouseholdNotifier(
-            _context, new NotificationResolutionService(_context), _hub, _bus);
+        var notifier = new HouseholdNotifier(new NotificationResolutionService(_context), _hub, _bus);
 
         var alerts = new HouseholdAlertService(
             _context, notifier, _permissions,

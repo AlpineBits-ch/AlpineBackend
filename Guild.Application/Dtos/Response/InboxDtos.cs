@@ -85,8 +85,15 @@ public class InboxMentionDto
     public required string MessageId { get; init; }
     public required DateTimeOffset CreatedAt { get; init; }
 
-    /// <summary>`Direct`, `Here`, `Everyone` or `Role`. Direct wins when several apply.</summary>
+    /// <summary>`Direct`, `Here`, `Everyone`, `Role` or `Persona`. Direct wins when several
+    /// apply.</summary>
     public required string Kind { get; init; }
+
+    /// <summary>
+    /// For a `Persona` mention, which of the caller's characters was named, so the row can say who
+    /// was pinged. The character only - who plays it is never on this wire.
+    /// </summary>
+    public string? PersonaId { get; init; }
 
     /// <summary>Set for role pings, so the client can show which role was named.</summary>
     public string? RoleId { get; init; }

@@ -245,4 +245,61 @@ public class PushContentPrivacyTests
             await context.DisposeAsync();
         }
     }
+
+    // ── The scene turn push, which names a character or nobody ────────────────
+
+    private static ScenePushPayload ScenePush(
+        string personaName = "Mayor Cogsgrove", bool personaHidden = false, params string[] hideFor) => new()
+    {
+        GuildId = "guild-1",
+        ChannelId = "chan-1",
+        PersonaId = "pers_mayor",
+        PersonaName = personaName,
+        PersonaHidden = personaHidden,
+        SceneName = "The Siege of Blackwater",
+        HideContentForUserIds = hideFor.ToHashSet(StringComparer.Ordinal),
+    };
+
+    [Test]
+    public void SceneTurnPush_RendersUnderTheCharactersName()
+    {
+        var data = ScenePushService.BuildData(ScenePush(), "user-2");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(data["title"], Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(data["authorDisplayName"], Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(data["personaId"], Is.EqualTo("pers_mayor"));
+            Assert.That(data["personaHidden"], Is.EqualTo("0"));
+        });
+    }
+
+    [Test]
+    public void SceneTurnPush_WithNoNameToSend_MasksTheCharacter()
+    {
+        // The account behind the character is never the fallback: that is the disclosure the whole
+        // persona push path exists to prevent.
+        var data = ScenePushService.BuildData(ScenePush(personaName: "", personaHidden: true), "user-2");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(data["title"], Is.EqualTo(ScenePushService.MaskedPersonaName));
+            Assert.That(data["personaHidden"], Is.EqualTo("1"));
+            Assert.That(data["personaId"], Is.EqualTo("pers_mayor"), "the character still routes");
+        });
+    }
+
+    [Test]
+    public void SceneTurnPush_HidingContent_KeepsOnlyTheRoutingIds()
+    {
+        var data = ScenePushService.BuildData(ScenePush(hideFor: "user-2"), "user-2");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(data["title"], Is.EqualTo(ScenePushService.HiddenContentTitle));
+            Assert.That(data.ContainsKey("personaId"), Is.False);
+            Assert.That(data.ContainsKey("sceneName"), Is.False);
+            Assert.That(data["channelId"], Is.EqualTo("chan-1"));
+        });
+    }
 }

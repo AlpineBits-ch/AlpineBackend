@@ -174,6 +174,28 @@ public class PersonaEndpoint
         return Results.Ok(dtos.OrderBy(d => d.Persona?.Name).ToList());
     }
 
+    /// <summary>
+    /// Every character this guild has adopted, as everybody sees them. The list above answers "what
+    /// may I speak as", which is the composer's question; drawing a scene's turn order, a cast
+    /// picker or a mention token is about other players' characters, and this is what names them.
+    /// </summary>
+    [WolverineGet("/api/v1/guilds/{guildId}/personas/cast")]
+    public async Task<IResult> ListCastAsync(string guildId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] PersonaCastService cast,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        bool includeRetired = false)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        // Membership only: a character's name and avatar are already on every message it has sent,
+        // and nothing here says who plays it.
+        if (await PersonaGate.CheckMembershipAsync(permissionService, ctx, guildId, userId) is { } denied)
+            return denied;
+
+        return Results.Ok(await cast.ListAsync(guildId, includeRetired));
+    }
+
     /// <summary>Creates a persona owned by the guild - a Narrator, a town guard, a recurring
     /// antagonist - which a grant then lets a role or a person speak as.</summary>
     [WolverinePost("/api/v1/guilds/{guildId}/personas")]

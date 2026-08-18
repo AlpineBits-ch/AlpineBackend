@@ -160,7 +160,7 @@ public class MessageCreatedPrivacyTests
     /// <summary>These tests seed no scene, so this only has to satisfy the handler's signature -
     /// the turn-advance branch never runs.</summary>
     private SceneService Scenes(GuildHydrateService hydrate) =>
-        new(_context, PersonaMentions(), hydrate, _hub);
+        new(_context, PersonaMentions(), new PersonaCastService(_context), hydrate, _hub);
 
     private static UserPrivacySettingsSummary[] EveryonePermissive() =>
     [

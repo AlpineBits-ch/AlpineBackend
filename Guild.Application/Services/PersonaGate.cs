@@ -36,10 +36,16 @@ public static class PersonaGate
 
     /// <summary>The module and membership halves alone, for routes whose permission depends on
     /// whether the caller owns the persona.</summary>
+    /// <param name="permissions">The permission resolver.</param>
+    /// <param name="ctx">The Guild database.</param>
+    /// <param name="guildId">The guild the route is scoped to.</param>
+    /// <param name="userId">The caller.</param>
+    /// <param name="feature">The module that owns the route, which defaults to personas.</param>
     public static async Task<IResult?> CheckMembershipAsync(
-        GuildPermissionService permissions, MicroserviceContext ctx, string guildId, string userId)
+        GuildPermissionService permissions, MicroserviceContext ctx, string guildId, string userId,
+        GuildFeatures feature = GuildFeatures.Personas)
     {
-        if (!await permissions.IsFeatureEnabledAsync(guildId, GuildFeatures.Personas))
+        if (!await permissions.IsFeatureEnabledAsync(guildId, feature))
             return Results.Forbid();
 
         return await ctx.GuildMembers.AnyAsync(m => m.GuildId == guildId && m.UserId == userId)

@@ -571,7 +571,11 @@ public class WikiEndpoint
         if (guild.Kind == GuildKind.Household)
         {
             return Results.Json(
-                new { error = "wiki_publication_not_available", message = "A household's wiki cannot be published publicly." },
+                new WikiPublicationErrorDto
+                {
+                    Error = WikiPublicationErrors.NotAvailable,
+                    Message = "A household's wiki cannot be published publicly.",
+                },
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
@@ -633,14 +637,32 @@ public class WikiEndpoint
 
         if (dto.Published)
         {
+            // Both refusals are fixable by the caller, so they name the fix in a code a client can
+            // branch on rather than in prose it would have to match on.
             if (!WikiPublication.MayBePublished(page))
-                return Results.BadRequest("A page marked private inside the guild cannot be published publicly.");
+            {
+                return Results.Json(
+                    new WikiPublicationErrorDto
+                    {
+                        Error = WikiPublicationErrors.PagePrivate,
+                        Message = "A page marked private inside the guild cannot be published publicly.",
+                    },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
 
             // The column is capped at 2048 characters and validated nowhere else, and the comment on
             // it only claims covers point at uploaded storage. On a public page an arbitrary cover
             // is a per-visitor beacon aimed at an address the page author chose.
             if (!WikiPublication.IsInstanceHosted(page.CoverUrl, InstanceMediaHosts))
-                return Results.BadRequest("A published page's cover image must be hosted on this instance.");
+            {
+                return Results.Json(
+                    new WikiPublicationErrorDto
+                    {
+                        Error = WikiPublicationErrors.CoverNotHosted,
+                        Message = "A published page's cover image must be hosted on this instance.",
+                    },
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
 
             page.PublishedAt ??= DateTimeOffset.UtcNow;
         }

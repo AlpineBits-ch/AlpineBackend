@@ -1,4 +1,5 @@
 using Echo.Realtime;
+using Guild.Application.Dtos.Response;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
@@ -13,6 +14,7 @@ namespace Guild.Application.Services;
 public class SceneService(
     MicroserviceContext ctx,
     PersonaMentionService personaMentions,
+    PersonaCastService cast,
     GuildHydrateService hydrate,
     IHubContext<EchoRealtimeHub> hub)
 {
@@ -42,8 +44,32 @@ public class SceneService(
     public async Task<HashSet<string>> UnavailablePersonasAsync(
         string guildId, IReadOnlyCollection<string> personaIds, DateTimeOffset at)
     {
-        var unavailable = new HashSet<string>(StringComparer.Ordinal);
-        if (personaIds.Count == 0) return unavailable;
+        var (away, unplayable) = await SplitAvailabilityAsync(guildId, personaIds, at);
+
+        away.UnionWith(unplayable);
+        return away;
+    }
+
+    /// <summary>
+    /// Which of these characters are being stepped over because their players said so, as opposed to
+    /// because nobody answers for them.
+    /// </summary>
+    /// <param name="guildId">The guild the scene is in.</param>
+    /// <param name="personaIds">The characters to check.</param>
+    /// <param name="at">The instant to judge the absences at.</param>
+    /// <returns>The characters every player of whom has declared an absence covering that instant.</returns>
+    public async Task<HashSet<string>> AwayPersonasAsync(
+        string guildId, IReadOnlyCollection<string> personaIds, DateTimeOffset at) =>
+        (await SplitAvailabilityAsync(guildId, personaIds, at)).Away;
+
+    /// <summary>The two reasons a character cannot take a turn, kept apart because only one of them
+    /// is something a client may say out loud.</summary>
+    private async Task<(HashSet<string> Away, HashSet<string> Unplayable)> SplitAvailabilityAsync(
+        string guildId, IReadOnlyCollection<string> personaIds, DateTimeOffset at)
+    {
+        var away = new HashSet<string>(StringComparer.Ordinal);
+        var unplayable = new HashSet<string>(StringComparer.Ordinal);
+        if (personaIds.Count == 0) return (away, unplayable);
 
         var owners = await OwnersByPersonaAsync(guildId, personaIds);
 
@@ -54,7 +80,7 @@ public class SceneService(
             .Where(a => a.GuildId == guildId && a.StartAt <= at && a.EndAt > at)
             .ToListAsync();
 
-        var away = absences
+        var absent = absences
             .Where(a => a.Covers(at))
             .Select(a => a.UserId)
             .ToHashSet(StringComparer.Ordinal);
@@ -65,14 +91,50 @@ public class SceneService(
             // holiday - it has been retired, or was never adopted into this guild.
             if (!owners.TryGetValue(personaId, out var players) || players.Count == 0)
             {
-                unavailable.Add(personaId);
+                unplayable.Add(personaId);
                 continue;
             }
 
-            if (players.All(away.Contains)) unavailable.Add(personaId);
+            if (players.All(absent.Contains)) away.Add(personaId);
         }
 
-        return unavailable;
+        return (away, unplayable);
+    }
+
+    /// <summary>
+    /// The cast as a client draws it: each character's name, avatar and colour, plus whether the
+    /// rotation is currently stepping over it. Denormalized deliberately - a scene renders other
+    /// players' characters, and none of them can be resolved from the caller's own persona list.
+    /// </summary>
+    /// <param name="scene">The scene's turn state.</param>
+    /// <param name="at">The instant to judge absences at.</param>
+    /// <returns>One entry per participant, in cast order.</returns>
+    public async Task<List<SceneParticipantDto>> ParticipantsAsync(SceneState scene, DateTimeOffset at)
+    {
+        var participants = scene.ParticipantPersonaIds;
+        if (participants.Count == 0) return [];
+
+        var away = await AwayPersonasAsync(scene.GuildId, participants, at);
+        var rendered = await cast.ResolveAsync(scene.GuildId, participants);
+
+        return participants
+            .Select(personaId =>
+            {
+                var member = rendered.GetValueOrDefault(personaId);
+                return new SceneParticipantDto
+                {
+                    PersonaId = personaId,
+                    Name = member?.Name ?? "",
+                    AvatarUrl = member?.AvatarUrl,
+                    Color = member?.Color,
+                    Tag = member?.Tag,
+                    IsRetired = member?.IsRetired ?? false,
+                    IsAway = away.Contains(personaId),
+                    IsCurrentTurn = string.Equals(
+                        scene.CurrentTurnPersonaId, personaId, StringComparison.Ordinal),
+                };
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -152,7 +214,11 @@ public class SceneService(
             ChannelId = scene.ChannelId,
             PreviousPersonaId = previousPersonaId,
             CurrentTurnPersonaId = scene.CurrentTurnPersonaId,
+            // The clock is drawn from both ends, so an event that moved the turn carries both or the
+            // receiving client has to guess when this one opened.
+            TurnStartedAt = scene.TurnStartedAt,
             TurnDeadlineAt = scene.TurnDeadlineAt,
+            TurnNumber = scene.TurnNumber,
             Status = scene.Status.ToString(),
         });
 
@@ -167,7 +233,11 @@ public class SceneService(
             ParticipantPersonaIds = scene.ParticipantPersonaIds,
             TurnOrder = scene.TurnOrder,
             CurrentTurnPersonaId = scene.CurrentTurnPersonaId,
+            TurnStartedAt = scene.TurnStartedAt,
             TurnDeadlineAt = scene.TurnDeadlineAt,
+            TurnNumber = scene.TurnNumber,
+            PostCount = scene.PostCount,
+            ConclusionNote = scene.ConclusionNote,
             OocThreadId = scene.OocThreadId,
         });
 

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Endpoints;
@@ -340,7 +341,7 @@ public class PublicWikiEndpointTests
             GuildId, page.Id, new SetWikiPagePublicationDto { Published = true },
             _permissionService, _context, TestPrincipal.Create(UserId), new AuditLogService(_context));
 
-        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        AssertRefusedWith(result, WikiPublicationErrors.PagePrivate);
     }
 
     /// <summary>An off-instance cover is a per-visitor beacon aimed wherever its author chose.</summary>
@@ -362,7 +363,7 @@ public class PublicWikiEndpointTests
             GuildId, page.Id, new SetWikiPagePublicationDto { Published = true },
             _permissionService, _context, TestPrincipal.Create(UserId), new AuditLogService(_context));
 
-        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        AssertRefusedWith(result, WikiPublicationErrors.CoverNotHosted);
     }
 
     /// <summary>A household may not claim a slug in the first place.</summary>
@@ -449,5 +450,21 @@ public class PublicWikiEndpointTests
         var result = await _wiki.GetWikiPage(GuildId, page.Id, _permissionService, _context, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<Ok<WikiPageDto>>());
+    }
+
+    /// <summary>Asserts the refusal a client actually branches on, rather than only that it failed -
+    /// a code nobody checks is the same as prose.</summary>
+    private static void AssertRefusedWith(IResult result, string expectedCode)
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<IStatusCodeHttpResult>());
+            Assert.That(((IStatusCodeHttpResult)result).StatusCode, Is.EqualTo(StatusCodes.Status400BadRequest));
+
+            var body = (result as IValueHttpResult)?.Value as WikiPublicationErrorDto;
+            Assert.That(body, Is.Not.Null, "the refusal must carry a parseable body");
+            Assert.That(body!.Error, Is.EqualTo(expectedCode));
+            Assert.That(body.Message, Is.Not.Empty);
+        });
     }
 }

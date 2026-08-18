@@ -1,3 +1,4 @@
+using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
@@ -11,8 +12,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Guild.Tests.Services;
 
 /// <summary>
-/// That the Mentions tab is subject to <see cref="Permissions.ReadMessageHistory"/>, not only to
-/// <see cref="Permissions.ViewChannel"/>.
+/// What the Mentions tab may show - it is subject to <see cref="Permissions.ReadMessageHistory"/>,
+/// not only to <see cref="Permissions.ViewChannel"/> - and what it may name.
 /// </summary>
 [TestFixtureSource(typeof(GuildContextProviders))]
 public class InboxMentionHistoryTests(IGuildContextProvider provider)
@@ -25,6 +26,7 @@ public class InboxMentionHistoryTests(IGuildContextProvider provider)
     private const string EveryoneRoleId = "role-everyone";
     private const string PingedRoleId = "role-team";
     private const string MessageId = "mesg-1";
+    private const string PersonaMessageId = "mesg-2";
 
     private MicroserviceContext _context = null!;
     private GuildPermissionService _permissions = null!;
@@ -113,11 +115,68 @@ public class InboxMentionHistoryTests(IGuildContextProvider provider)
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>A character adopted into the guild, and one indexed mention of it.</summary>
+    private async Task SeedPersonaMentionAsync(string personaId, string ownerUserId)
+    {
+        _context.Set<Persona>().Add(new Persona
+        {
+            Id = personaId, Scope = PersonaScope.User, OwnerUserId = ownerUserId, Name = "Mayor Cogsgrove",
+            CreatedAt = Now, UpdatedAt = Now,
+        });
+
+        _context.Set<PersonaGuildProfile>().Add(new PersonaGuildProfile
+        {
+            Id = $"pgpf-{personaId}", PersonaId = personaId, GuildId = GuildId,
+            ApprovalState = PersonaApprovalState.Approved, CreatedAt = Now, UpdatedAt = Now,
+        });
+
+        await _context.SaveChangesAsync();
+
+        _bus.SetResponse<GetUserMentionsRequest>(new GetUserMentionsResponse
+        {
+            Mentions =
+            [
+                new UserMentionEntry
+                {
+                    UserId = UserId, CreatedAt = SentAt, MessageId = PersonaMessageId,
+                    ContextId = ChannelId, GuildId = GuildId, ChannelId = ChannelId,
+                    AuthorId = OwnerId, Kind = PersonaMentionService.MentionKindName,
+                },
+            ],
+        });
+
+        _bus.SetResponse<GetMessageRequest>(new GetMessageResponse
+        {
+            Message = new MessageSummary
+            {
+                Id = PersonaMessageId, CreatedAt = SentAt, AuthorId = OwnerId, ChannelId = ChannelId,
+                Content = System.Text.Encoding.UTF8.GetBytes($"<@{personaId}> your move"),
+            },
+        });
+    }
+
+    private async Task<InboxMentionDto> PersonaMentionAsync()
+    {
+        var page = await MentionsAsync();
+        return page.Mentions.Single(m => m.MessageId == PersonaMessageId);
+    }
+
+    private async Task<InboxMentionPageDto> MentionsAsync()
+    {
+        var service = new InboxMentionService(
+            _context, new NotificationResolutionService(_context), _permissions,
+            new PersonaMentionService(_context, new PersonaService(new FakeDistributedCache(), _context)),
+            _bus, NullLogger<InboxMentionService>.Instance);
+
+        return await service.GetMentionsAsync(UserId, new MentionFilter(), 25, null);
+    }
+
     private async Task<int> MentionCountAsync()
     {
         var service = new InboxMentionService(
-            _context, new NotificationResolutionService(_context), _permissions, _bus,
-            NullLogger<InboxMentionService>.Instance);
+            _context, new NotificationResolutionService(_context), _permissions,
+            new PersonaMentionService(_context, new PersonaService(new FakeDistributedCache(), _context)),
+            _bus, NullLogger<InboxMentionService>.Instance);
 
         var page = await service.GetMentionsAsync(UserId, new MentionFilter(), 25, null);
         return page.Mentions.Count;
@@ -172,5 +231,34 @@ public class InboxMentionHistoryTests(IGuildContextProvider provider)
         await SeedAsync(deniedOnChannel: Permissions.ViewChannel);
 
         Assert.That(await MentionCountAsync(), Is.Zero);
+    }
+
+    // ── Persona mentions ──────────────────────────────────────────────────────
+
+    [Test]
+    public async Task APersonaMention_SaysWhichCharacterWasPinged()
+    {
+        await SeedAsync();
+        await SeedPersonaMentionAsync("pers_mayor", ownerUserId: UserId);
+
+        var mention = await PersonaMentionAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mention.Kind, Is.EqualTo(PersonaMentionService.MentionKindName));
+            Assert.That(mention.PersonaId, Is.EqualTo("pers_mayor"));
+        });
+    }
+
+    [Test]
+    public async Task ACharacterSomebodyElseAnswersFor_IsNotNamed()
+    {
+        await SeedAsync();
+        await SeedPersonaMentionAsync("pers_mayor", ownerUserId: OwnerId);
+
+        var mention = await PersonaMentionAsync();
+
+        Assert.That(mention.PersonaId, Is.Null,
+            "naming a character the caller does not answer for would say who is behind it");
     }
 }

@@ -115,6 +115,12 @@ to this audience, or be a distinct mention kind that notifies the owner without 
 second is correct. `ChannelBroadcastMention` and `BroadcastMentionKind` are the nearest existing
 shape to copy.
 
+The Mentions tab says which character was pinged: `InboxMentionDto.personaId` alongside
+`kind: "Persona"`. It is read back out of the message body rather than stored on the index row -
+that is where the mention was resolved from in the first place, it costs no schema change to a
+cross-service index, and a grant lost since then simply stops matching. Only characters that reach
+the caller are named, so the field can never disclose somebody else's character, let alone its owner.
+
 **Turn state is per-persona.** §5 orders scenes by persona, but `MemberAbsence.UserId` is a user, so
 the nudge path needs a persona-to-owner resolution step. It is one lookup, but it has to exist.
 
@@ -342,7 +348,11 @@ SceneState
     ParticipantPersonaIds
     TurnOrder
     CurrentTurnPersonaId?
+    TurnStartedAt?                 // the other end of the clock a client draws
     TurnDeadlineAt?
+    TurnNumber                     // "turn 47" is what makes a scene read as a game
+    PostCount
+    ConclusionNote?
     Status : Open | Active | Paused | Concluded
     OocThreadId?
 ```
@@ -391,22 +401,68 @@ permission), gated on `GuildFeatures.Scenes`:
 | Verb | Route | Permission |
 |---|---|---|
 | POST | `/api/v1/guilds/{guildId}/channels/{channelId}/scenes` | `ManageScenes`. Creates the scene thread and its OOC companion |
+| GET | `/api/v1/guilds/{guildId}/scenes` | Membership, then `ViewChannel` per scene. `waitingOnMe`, `includeConcluded`, `includeArchived`, `limit` |
 | GET | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}` | `ViewChannel` |
-| PATCH | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}` | `ManageScenes`. Status, deadline, turn order |
+| PATCH | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}` | `ManageScenes`. Status, deadline, turn order, conclusion note |
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/participants` | `ManageScenes` |
 | DELETE | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/participants/{personaId}` | `ManageScenes` |
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/advance` | `ManageScenes`, or the persona whose turn it is |
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/skip` | `ManageScenes` |
+| POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/nudge` | `ManageScenes`. Chases the current turn now, ignoring the grace period and quiet hours |
+
+"Is the game waiting on me" is the headline question of the whole feature, so it is one request:
+`waitingOnMe` filters to scenes whose turn belongs to a character the caller may speak as, resolved
+from the set `PersonaService` already caches per (user, guild) and drops when a grant is revoked.
+Each row carries the scene's name, status, the character on the clock with its name and avatar, both
+ends of the clock, the turn number and the size of the cast, so a list needs no second call per row.
+
+The same shape deliberately does not go on `ChannelDto`. That DTO is a `Facet` over the `Channel`
+entity, and scene state is a side table by §5's own argument, so badging a sidebar row would mean
+either columns on `Channel` or a join on every channel-list fetch of every guild - paid by every
+instance that has no scenes at all. A client that wants sidebar badges reads the scene list once and
+keys it by channel id; the realtime events below keep it current.
+
+A scene's cast travels with its display data: `SceneDto.participants[]` carries each character's
+name, avatar, colour and tag, plus `isAway` and `isCurrentTurn`. A scene renders other players'
+characters, and the persona list at §15.2 answers a different question - what the caller may speak
+as - so without this a turn order is a column of ids. §15.2's cast route is the same data for a
+guild rather than for one scene.
+
+`awayPersonaIds` says which of the cast the rotation is stepping over because their players declared
+an absence, so a skip renders as deliberate rather than as a bug. It names characters and carries no
+dates and no note: an absence's window and note are the member's, and pairing either with a character
+would map that character to a member on the absence board. In a scene with one participant that
+inference is available anyway from the fact that the single character is being stepped over; the
+field does not make it worse, and hiding it there would only make honest scenes render worse.
 
 The turn advances on its own when the persona whose turn it is posts in the scene, which is what
 makes this feel like play rather than administration. `/turn/advance` exists for the case where
 somebody passes without posting.
+
+Two hub events keep every other participant's rail honest, both addressed to the guild's present
+members the way the rest of the guild's events are. `guild.SceneTurnChanged` fires wherever the turn
+moves - the automatic advance on a post included, which is the case that matters - and carries
+`guildId, channelId, previousPersonaId, currentTurnPersonaId, turnStartedAt, turnDeadlineAt,
+turnNumber, status`. `guild.SceneUpdated` fires when the cast, the order, the status or the clock
+changes and carries the rest of the state. A client that advances its own rail locally on seeing a
+post will drift; these are what it should follow instead.
 
 `SceneStatus` is a new `HasPostgresEnum`, so it needs a migration alongside `ChannelType.Scene`.
 
 The nudge is a hosted sweep in the shape of `ForumAutoArchiveService`, which already walks channels
 on a timer for a due-date condition. It resolves the persona to its owner (§2.1), checks
 `MemberAbsence.Covers`, and escalates to whoever holds `ManageScenes` after a second miss.
+
+The nudge leaves the hub and goes to the phone. `guild.SceneTurnNudge` carries
+`guildId, channelId, sceneName, personaId, turnStartedAt, turnDeadlineAt, turnNumber, nudgeCount,
+escalated` - a reminder about a game somebody had forgotten has to name the game, and the GM
+escalation reads differently enough from the player nudge to need the flag. Alongside it Guild
+publishes `SceneTurnPushRequested`, which Messaging turns into FCM: one copy for whoever answers for
+the character, one for the escalation holders. The push renders under the character's name and never
+the account's - the same rule a persona message's push already follows - and where the character
+cannot be named it sets `personaHidden` and masks rather than falling back to the account. Recipients
+go through the same mute and mobile-push resolution every other push producer uses, and a guild
+inside its quiet hours has the whole nudge held for a later pass rather than its push dropped.
 
 ---
 
@@ -817,12 +873,19 @@ A user-scoped persona is global, so it is not under `/guilds`.
 | Verb | Route | Permission |
 |---|---|---|
 | GET | `/api/v1/guilds/{guildId}/personas` | `UsePersonas`. Everything the caller may speak as here: their own adopted personas plus granted guild-scoped ones |
+| GET | `/api/v1/guilds/{guildId}/personas/cast` | Membership. Every character the guild has adopted, as `PersonaCastMemberDto[]`: `personaId, name, avatarUrl, color, pronouns, tag, isRetired`, and nothing about who plays them |
 | POST | `/api/v1/guilds/{guildId}/personas` | `ManageAnyPersona`. Creates `Scope = Guild` |
 | PATCH | `/api/v1/guilds/{guildId}/personas/{personaId}` | `ManageAnyPersona` |
 | DELETE | `/api/v1/guilds/{guildId}/personas/{personaId}` | `ManageAnyPersona` |
 | GET | `/api/v1/guilds/{guildId}/personas/{personaId}/grants` | `ManageAnyPersona` |
 | POST | `/api/v1/guilds/{guildId}/personas/{personaId}/grants` | `ManageAnyPersona`. Body carries exactly one of `roleId` or `userId` |
 | DELETE | `/api/v1/guilds/{guildId}/personas/{personaId}/grants/{grantId}` | `ManageAnyPersona` |
+
+The two GETs answer different questions and neither substitutes for the other: the first is the
+composer's ("what may I speak as"), the second is everybody else's ("what is this character called").
+Rendering a turn order, a cast picker or a `<@pers_...>` token is the second question, so it is
+served as denormalized display data rather than as a lookup per row - the same reasoning that puts
+`authorDisplayName` on a message.
 
 ### 15.3 Adoption, overrides and approval
 

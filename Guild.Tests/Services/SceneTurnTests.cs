@@ -2,6 +2,7 @@ using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Endpoints;
 using Guild.Application.Services;
+using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
@@ -31,12 +32,16 @@ public class SceneTurnTests
     private const string PlayerPersonaId = "pers_mayor";
     private const string OtherPersonaId = "pers_guard";
 
+    private const string GuildPersonaId = "pers_chorus";
+
     private TestGuildContext _context = null!;
     private FakeDistributedCache _cache = null!;
     private FakeHubContext _hub = null!;
     private FakeInvokingMessageBus _bus = null!;
     private GuildPermissionService _permissions = null!;
     private GuildHydrateService _hydrate = null!;
+    private PersonaService _personas = null!;
+    private PersonaCastService _cast = null!;
     private SceneService _scenes = null!;
     private SceneEndpoint _endpoint = null!;
     private AuditLogService _auditLog = null!;
@@ -50,8 +55,10 @@ public class SceneTurnTests
         _bus = new FakeInvokingMessageBus();
         _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
         _hydrate = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
+        _personas = new PersonaService(_cache, _context);
+        _cast = new PersonaCastService(_context);
         _scenes = new SceneService(
-            _context, new PersonaMentionService(_context, new PersonaService(_cache, _context)), _hydrate, _hub);
+            _context, new PersonaMentionService(_context, _personas), _cast, _hydrate, _hub);
         _endpoint = new SceneEndpoint();
         _auditLog = new AuditLogService(_context);
     }
@@ -146,20 +153,22 @@ public class SceneTurnTests
 
     /// <summary>An active scene with the three characters in rotation and the turn on the Mayor.</summary>
     private async Task<SceneState> SeedSceneAsync(
-        string? currentTurn = PlayerPersonaId, DateTimeOffset? deadline = null)
+        string? currentTurn = PlayerPersonaId, DateTimeOffset? deadline = null,
+        string sceneChannelId = "scene-1", List<string>? cast = null, bool archived = false)
     {
         var now = DateTimeOffset.UtcNow;
 
         _context.Channels.Add(new Channel
         {
-            Id = "scene-1", GuildId = GuildId, Name = "The Siege of Blackwater", Type = ChannelType.Scene,
-            ParentChannelId = ChannelId, CreatedByUserId = GameMasterId, CreatedAt = now, UpdatedAt = now,
+            Id = sceneChannelId, GuildId = GuildId, Name = "The Siege of Blackwater", Type = ChannelType.Scene,
+            ParentChannelId = ChannelId, CreatedByUserId = GameMasterId, IsArchived = archived,
+            CreatedAt = now, UpdatedAt = now,
         });
 
         var state = SceneState.Create(new CreateSceneStateParams
         {
-            ChannelId = "scene-1", GuildId = GuildId, TurnLengthHours = 48,
-            ParticipantPersonaIds = [PlayerPersonaId, OtherPersonaId, GmPersonaId],
+            ChannelId = sceneChannelId, GuildId = GuildId, TurnLengthHours = 48,
+            ParticipantPersonaIds = cast ?? [PlayerPersonaId, OtherPersonaId, GmPersonaId],
         });
 
         state.Status = SceneStatus.Active;
@@ -170,6 +179,33 @@ public class SceneTurnTests
         await _context.SaveChangesAsync();
 
         return state;
+    }
+
+    /// <summary>A guild-owned character the given player holds a grant on.</summary>
+    private async Task SeedGrantedGuildPersonaAsync(string userId)
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        _context.Set<Persona>().Add(new Persona
+        {
+            Id = GuildPersonaId, Scope = PersonaScope.Guild, OwnerGuildId = GuildId, Name = "The Chorus",
+            CreatedAt = now, UpdatedAt = now,
+        });
+
+        _context.Set<PersonaGuildProfile>().Add(new PersonaGuildProfile
+        {
+            Id = $"profile-{GuildPersonaId}", PersonaId = GuildPersonaId, GuildId = GuildId,
+            ApprovalState = PersonaApprovalState.Approved, CreatedAt = now, UpdatedAt = now,
+        });
+
+        _context.Set<PersonaGrant>().Add(new PersonaGrant
+        {
+            Id = "grant-chorus", PersonaId = GuildPersonaId, UserId = userId,
+            CreatedAt = now, UpdatedAt = now,
+        });
+
+        await _context.SaveChangesAsync();
+        await _personas.InvalidateGuildAsync(GuildId);
     }
 
     private async Task AbsentAsync(string userId, DateTimeOffset from, DateTimeOffset to)
@@ -556,15 +592,478 @@ public class SceneTurnTests
         });
     }
 
+    // ══════════════════════════════════════════════════════════════════════ The list
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task List_WaitingOnMe_ReturnsOnlyTheScenesWhoseTurnIsMine()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+        await SeedSceneAsync(currentTurn: OtherPersonaId, sceneChannelId: "scene-2");
+
+        var mine = await ListAsync(PlayerId, waitingOnMe: true);
+        var all = await ListAsync(PlayerId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(mine!.Scenes.Select(s => s.ChannelId), Is.EqualTo(new[] { "scene-1" }).AsCollection);
+            Assert.That(mine.Scenes[0].IsWaitingOnMe, Is.True);
+            Assert.That(all!.Scenes.Select(s => s.ChannelId), Is.EquivalentTo(new[] { "scene-1", "scene-2" }));
+            Assert.That(all.Scenes.Single(s => s.ChannelId == "scene-2").IsWaitingOnMe, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task List_CarriesEnoughToRenderARowWithoutASecondCall()
+    {
+        await SeedAsync();
+        var deadline = DateTimeOffset.UtcNow.AddHours(6);
+        await SeedSceneAsync(deadline: deadline);
+
+        var row = (await ListAsync(PlayerId))!.Scenes.Single();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(row.Name, Is.EqualTo("The Siege of Blackwater"));
+            Assert.That(row.Status, Is.EqualTo(SceneStatus.Active));
+            Assert.That(row.CurrentTurnPersonaId, Is.EqualTo(PlayerPersonaId));
+            Assert.That(row.TurnDeadlineAt, Is.EqualTo(deadline));
+            Assert.That(row.ParticipantCount, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task List_RevokingAGrantTakesTheSceneOutOfWaitingOnMe()
+    {
+        await SeedAsync();
+        await SeedGrantedGuildPersonaAsync(PlayerId);
+        await SeedSceneAsync(currentTurn: GuildPersonaId, cast: [GuildPersonaId, PlayerPersonaId]);
+
+        var before = await ListAsync(PlayerId, waitingOnMe: true);
+
+        _context.Set<PersonaGrant>().RemoveRange(_context.Set<PersonaGrant>());
+        await _context.SaveChangesAsync();
+        await _personas.InvalidateGuildAsync(GuildId);
+
+        var after = await ListAsync(PlayerId, waitingOnMe: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(before!.Scenes, Has.Count.EqualTo(1));
+            Assert.That(after!.Scenes, Is.Empty, "the shared character is no longer the caller's to speak as");
+        });
+    }
+
+    [Test]
+    public async Task List_LeavesOutArchivedAndConcludedScenesUnlessAsked()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(sceneChannelId: "scene-archived", archived: true);
+
+        var concluded = await SeedSceneAsync(sceneChannelId: "scene-concluded");
+        concluded.Status = SceneStatus.Concluded;
+        await _context.SaveChangesAsync();
+
+        var listed = await ListAsync(PlayerId);
+        var everything = await ListAsync(PlayerId, includeConcluded: true, includeArchived: true);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(listed!.Scenes, Is.Empty);
+            Assert.That(everything!.Scenes.Select(s => s.ChannelId),
+                Is.EquivalentTo(new[] { "scene-archived", "scene-concluded" }));
+        });
+    }
+
+    [Test]
+    public async Task List_WithoutTheScenesModule_IsForbidden()
+    {
+        await SeedAsync(GuildFeatures.Personas | GuildFeatures.Threads);
+        await SeedSceneAsync();
+
+        var result = await _endpoint.ListAsync(
+            GuildId, _permissions, _personas, _cast, _context, TestPrincipal.Create(PlayerId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task List_IsForbiddenToSomebodyWhoIsNotInTheGuild()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        var result = await _endpoint.ListAsync(
+            GuildId, _permissions, _personas, _cast, _context, TestPrincipal.Create("user-stranger"));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public void List_TheQueryCompilesToSqlOnTheRealProvider()
+    {
+        // InMemory cannot fail on LINQ Npgsql would refuse, and this query joins, orders on a null
+        // test and counts a Postgres array column.
+        using var postgres = new PostgresGuildContext();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(
+                SceneEndpoint.BuildListQuery(postgres, GuildId, null, false, false).ToQueryString(),
+                Does.Contain("SELECT"));
+
+            Assert.That(
+                SceneEndpoint.BuildListQuery(postgres, GuildId, [PlayerPersonaId], false, false).ToQueryString(),
+                Does.Contain("SELECT"));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Absence on the wire
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Scene_NamesTheCharactersItIsSteppingOverAndNeverTheirPlayers()
+    {
+        await SeedAsync();
+        var now = DateTimeOffset.UtcNow;
+        await SeedSceneAsync();
+        await AbsentAsync(OtherPlayerId, now.AddDays(-1), now.AddDays(3));
+
+        var result = await _endpoint.GetAsync(
+            GuildId, "scene-1", _permissions, _scenes, _context, TestPrincipal.Create(PlayerId));
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+        var serialized = System.Text.Json.JsonSerializer.Serialize(dto);
+
+        Assert.That(dto, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto!.AwayPersonaIds, Is.EqualTo(new[] { OtherPersonaId }).AsCollection);
+            Assert.That(serialized, Does.Not.Contain(OtherPlayerId),
+                "who plays the Guard is exactly what an away flag must not disclose");
+        });
+    }
+
+    [Test]
+    public async Task Scene_DoesNotCallACharacterNobodyAnswersForAway()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(cast: [PlayerPersonaId, "pers_orphan"]);
+
+        var away = await _scenes.AwayPersonasAsync(
+            GuildId, ["pers_orphan"], DateTimeOffset.UtcNow);
+
+        var unavailable = await _scenes.UnavailablePersonasAsync(
+            GuildId, ["pers_orphan"], DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(away, Is.Empty, "unplayable is not the same statement as on holiday");
+            Assert.That(unavailable, Does.Contain("pers_orphan"));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ The cast on the wire
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Scene_CarriesTheCastsDisplayDataSoOtherPlayersCharactersCanBeDrawn()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        var result = await _endpoint.GetAsync(
+            GuildId, "scene-1", _permissions, _scenes, _context, TestPrincipal.Create(PlayerId));
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+
+        Assert.That(dto, Is.Not.Null);
+        var guard = dto!.Participants.Single(p => p.PersonaId == OtherPersonaId);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.Participants.Select(p => p.PersonaId),
+                Is.EqualTo(dto.ParticipantPersonaIds).AsCollection);
+            Assert.That(guard.Name, Is.EqualTo("Town Guard"),
+                "a scene renders other players' characters, which nothing else in the API names");
+            Assert.That(dto.Participants.Single(p => p.PersonaId == PlayerPersonaId).IsCurrentTurn, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task List_NamesTheCharacterOnTheClock()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        var row = (await ListAsync(OtherPlayerId))!.Scenes.Single();
+
+        Assert.That(row.CurrentTurnName, Is.EqualTo("Mayor Cogsgrove"));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ The clock
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Turn_RecordsWhenItOpenedAndWhichTurnItIs()
+    {
+        await SeedAsync();
+        var now = DateTimeOffset.UtcNow;
+        var state = await SeedSceneAsync();
+
+        await _scenes.AdvanceOnPostAsync(state, PlayerPersonaId, now);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(state.TurnStartedAt, Is.EqualTo(now));
+            Assert.That(state.TurnNumber, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Turn_MovingTellsTheRoomWhenItOpenedAndWhenItIsDue()
+    {
+        await SeedAsync();
+        var state = await SeedSceneAsync();
+
+        // The fan-out is addressed to whoever is present in the guild, as every other guild event
+        // is, so there has to be somebody there to receive it.
+        var watched = new SceneService(
+            _context, new PersonaMentionService(_context, _personas), _cast,
+            new GuildHydrateService(
+                RedisTestFactory.CreateWithPresence(new MemberPresenceState
+                {
+                    MemberId = "memb-other", UserId = OtherPlayerId, Status = "Online",
+                }),
+                NullLogger<GuildHydrateService>.Instance),
+            _hub);
+
+        await watched.AdvanceOnPostAsync(state, PlayerPersonaId, DateTimeOffset.UtcNow);
+
+        var sent = ((FakeHubClients)_hub.Clients).SentMessages
+            .Where(s => s.Method == SceneService.TurnChangedEvent)
+            .ToList();
+
+        Assert.That(sent, Has.Count.EqualTo(1), "every participant's rail is stale without this");
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(sent[0].Args[0]);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(payload, Does.Contain("TurnStartedAt"));
+            Assert.That(payload, Does.Contain("TurnNumber"));
+            Assert.That(payload, Does.Contain(OtherPersonaId));
+        });
+    }
+
+    [Test]
+    public async Task Starting_AScene_OpensTheFirstTurnOnTheClock()
+    {
+        await SeedAsync();
+        var state = await SeedSceneAsync(currentTurn: null);
+        state.Status = SceneStatus.Open;
+        await _context.SaveChangesAsync();
+
+        var result = await _endpoint.UpdateAsync(
+            GuildId, "scene-1", new UpdateSceneDto { Status = SceneStatus.Active },
+            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+
+        Assert.That(dto, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto!.CurrentTurnPersonaId, Is.EqualTo(PlayerPersonaId));
+            Assert.That(dto.TurnStartedAt, Is.Not.Null);
+            Assert.That(dto.TurnNumber, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task Concluding_ASceneKeepsTheClosingLine()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        var result = await _endpoint.UpdateAsync(
+            GuildId, "scene-1",
+            new UpdateSceneDto { Status = SceneStatus.Concluded, ConclusionNote = "The siege broke at dawn." },
+            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+
+        Assert.That(dto?.ConclusionNote, Is.EqualTo("The siege broke at dawn."));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ The nudge push
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task ManualNudge_ChasesTheTurnWithoutWaitingForTheSweep()
+    {
+        await SeedAsync();
+        // No deadline at all, so the sweep would never pick this scene up.
+        await SeedSceneAsync();
+
+        var result = await _endpoint.NudgeTurnAsync(
+            GuildId, "scene-1", _permissions, _scenes, BuildNudges(), _context,
+            TestPrincipal.Create(GameMasterId));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<SceneDto>>());
+            Assert.That(Nudged(), Does.Contain(PlayerId));
+            Assert.That(_bus.Published.OfType<SceneTurnPushRequested>().Single().SceneName,
+                Is.EqualTo("The Siege of Blackwater"),
+                "a nudge for a game somebody had forgotten has to name the game");
+        });
+    }
+
+    [Test]
+    public async Task ManualNudge_IsGameMasterOnly()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        var result = await _endpoint.NudgeTurnAsync(
+            GuildId, "scene-1", _permissions, _scenes, BuildNudges(), _context,
+            TestPrincipal.Create(PlayerId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task Nudge_PushesUnderTheCharactersNameAndNotTheAccount()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(deadline: DateTimeOffset.UtcNow.AddHours(-1));
+
+        await BuildNudges().SendDueNudgesAsync();
+
+        var push = _bus.Published.OfType<SceneTurnPushRequested>().Single();
+        var serialized = System.Text.Json.JsonSerializer.Serialize(
+            new { push.PersonaId, push.AuthorDisplayName, push.SceneName, push.PersonaHidden });
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(push.UserIds, Is.EqualTo(new[] { PlayerId }).AsCollection);
+            Assert.That(push.PersonaId, Is.EqualTo(PlayerPersonaId));
+            Assert.That(push.AuthorDisplayName, Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(push.PersonaHidden, Is.False);
+            Assert.That(push.Escalated, Is.False);
+            Assert.That(serialized, Does.Not.Contain(PlayerId),
+                "the payload names the character; the account is only ever an address");
+        });
+    }
+
+    [Test]
+    public async Task Nudge_MasksACharacterItCannotName()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(deadline: DateTimeOffset.UtcNow.AddHours(-1));
+
+        // Un-adopted here, so there is no per-guild name to send. The push masks rather than
+        // reaching for the account behind the character.
+        var named = await _cast.ResolveAsync(GuildId, ["pers_stranger"]);
+
+        Assert.That(named.ContainsKey("pers_stranger"), Is.False);
+    }
+
+    [Test]
+    public async Task Nudge_EscalatesToTheGameMasterUnderItsOwnCopy()
+    {
+        await SeedAsync();
+        var now = DateTimeOffset.UtcNow;
+        var state = await SeedSceneAsync(deadline: now.AddHours(-1));
+
+        state.NudgeCount = 1;
+        state.LastNudgedAt = now.AddHours(-25);
+        await _context.SaveChangesAsync();
+
+        await BuildNudges().SendDueNudgesAsync();
+
+        var pushes = _bus.Published.OfType<SceneTurnPushRequested>().ToList();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(pushes.Single(p => !p.Escalated).UserIds, Is.EqualTo(new[] { PlayerId }).AsCollection);
+            Assert.That(pushes.Single(p => p.Escalated).UserIds, Does.Contain(GameMasterId));
+            Assert.That(pushes.Single(p => p.Escalated).UserIds, Does.Not.Contain(PlayerId));
+        });
+    }
+
+    [Test]
+    public async Task Nudge_HoldsThePushUntilTheGuildIsOutOfItsQuietHours()
+    {
+        await SeedAsync();
+        var now = DateTimeOffset.UtcNow;
+        await SeedSceneAsync(deadline: now.AddHours(-1));
+
+        // A window covering the whole day, so the pass is inside it whenever this test runs.
+        _context.GuildQuietHoursConfigs.Add(new GuildQuietHoursConfig
+        {
+            GuildId = GuildId, Enabled = true, StartMinuteLocal = 0, EndMinuteLocal = 1439,
+            TimeZoneId = "UTC", UpdatedAt = now,
+        });
+
+        await _context.SaveChangesAsync();
+
+        var outcome = await BuildNudges().SendDueNudgesAsync();
+        var state = await _context.Set<SceneState>().AsNoTracking().FirstAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome.Deferred, Is.EqualTo(1));
+            Assert.That(outcome.Nudged, Is.Zero);
+            Assert.That(_bus.Published.OfType<SceneTurnPushRequested>(), Is.Empty);
+            Assert.That(state.NudgeCount, Is.Zero, "nothing was recorded, so the next pass chases it");
+        });
+    }
+
+    [Test]
+    public async Task Nudge_SendsNoPushToSomebodyWhoTurnedMobilePushOff()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(deadline: DateTimeOffset.UtcNow.AddHours(-1));
+
+        _context.GuildNotificationSettings.Add(new GuildNotificationSetting
+        {
+            Id = "gnst-player", MemberId = "memb-player", Level = NotificationLevel.AllMessages,
+            MobilePush = false, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await _context.SaveChangesAsync();
+
+        var outcome = await BuildNudges().SendDueNudgesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(outcome.Nudged, Is.EqualTo(1), "the hub event still goes out");
+            Assert.That(_bus.Published.OfType<SceneTurnPushRequested>(), Is.Empty);
+        });
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Helpers
     // ══════════════════════════════════════════════════════════════════════
+
+    private async Task<SceneListDto?> ListAsync(
+        string userId, bool waitingOnMe = false, bool includeConcluded = false, bool includeArchived = false)
+    {
+        var result = await _endpoint.ListAsync(
+            GuildId, _permissions, _personas, _cast, _context, TestPrincipal.Create(userId),
+            waitingOnMe, includeConcluded, includeArchived);
+
+        return (result as Ok<SceneListDto>)?.Value;
+    }
 
     private Task<IResult> CreateAsync(CreateSceneDto dto, string userId = GameMasterId) =>
         _endpoint.CreateAsync(GuildId, ChannelId, dto, _permissions, _scenes, _auditLog, _hydrate,
             _hub, _bus, _context, TestPrincipal.Create(userId));
 
     private SceneNudgeService BuildNudges() =>
-        new(_context, _scenes, _permissions, _hub, NullLogger<SceneNudgeService>.Instance);
+        new(_context, _scenes, _cast, _permissions, new NotificationResolutionService(_context), _hub,
+            _bus, NullLogger<SceneNudgeService>.Instance);
 
     private List<string> Nudged() =>
         ((FakeHubClients)_hub.Clients).RecipientsOf(SceneService.NudgeEvent);

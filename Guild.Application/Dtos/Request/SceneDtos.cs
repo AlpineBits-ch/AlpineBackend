@@ -46,6 +46,9 @@ public class UpdateSceneDto
     /// <summary>Hands the turn to a named character outright, for the cases the rotation cannot
     /// express.</summary>
     public string? CurrentTurnPersonaId { get; set; }
+
+    /// <summary>The closing line for a scene being concluded, which is otherwise dropped.</summary>
+    public string? ConclusionNote { get; set; }
 }
 
 /// <summary>Adds one character to a scene's cast.</summary>

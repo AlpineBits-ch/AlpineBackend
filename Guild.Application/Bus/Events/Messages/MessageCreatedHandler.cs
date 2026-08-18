@@ -60,13 +60,18 @@ public class MessageCreatedHandler
             message.ChannelId, message.CreatedAt, message.MessageId, context);
 
         // The turn moving on its own is what makes a scene feel like play rather than
-        // administration. Two comparisons on a row this handler already has decide it, so the
+        // administration. One comparison on a row this handler already has decides it, so the
         // instance's whole message flow pays nothing for scenes it does not have.
-        if (channel is { Type: ChannelType.Scene } && !string.IsNullOrWhiteSpace(message.PersonaId))
+        if (channel is { Type: ChannelType.Scene })
         {
             var scene = await scenes.GetAsync(message.ChannelId);
             if (scene is not null)
+            {
+                // Every message counts, not only the ones that moved the turn: "412 posts over two
+                // months" is what a concluded scene has to say about itself.
+                scene.PostCount++;
                 await scenes.AdvanceOnPostAsync(scene, message.PersonaId, message.CreatedAt);
+            }
         }
 
         // Bots.Application can't join the SignalR/Redis backplane the hub broadcast above rides

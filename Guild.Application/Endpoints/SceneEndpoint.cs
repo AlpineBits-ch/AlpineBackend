@@ -25,6 +25,11 @@ namespace Guild.Application.Endpoints;
 [Authorize]
 public class SceneEndpoint
 {
+    /// <summary>Scenes per page of the list route.</summary>
+    public const int DefaultListSize = 50;
+
+    public const int MaxListSize = 200;
+
     /// <summary>Opens a scene under a text channel, with its out-of-character companion thread.</summary>
     [WolverinePost("/api/v1/guilds/{guildId}/channels/{channelId}/scenes")]
     public async Task<IResult> CreateAsync(string guildId, string channelId, CreateSceneDto dto,
@@ -108,7 +113,7 @@ public class SceneEndpoint
             await AnnounceThreadAsync(hub, hydrate, bus, scene, channelId);
             await AnnounceThreadAsync(hub, hydrate, bus, ooc, channelId);
 
-            return Results.Ok(SceneDto.From(state, scene));
+            return await OkAsync(scenes, state, scene);
         }
         catch (ValidationException validationException)
         {
@@ -118,6 +123,150 @@ public class SceneEndpoint
 
             return Results.ValidationProblem(errors);
         }
+    }
+
+    /// <summary>
+    /// The guild's scenes, so "is the game waiting on me" is one request rather than one per scene.
+    /// </summary>
+    [WolverineGet("/api/v1/guilds/{guildId}/scenes")]
+    public async Task<IResult> ListAsync(string guildId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] PersonaService personas,
+        [NotBody] PersonaCastService cast, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user,
+        bool waitingOnMe = false, bool includeConcluded = false, bool includeArchived = false,
+        int? limit = null)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        // Membership, not ManageScenes: reading the list is what a player does, and the per-channel
+        // ViewChannel check below is what actually decides which scenes they see.
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        var take = Math.Clamp(limit ?? DefaultListSize, 1, MaxListSize);
+
+        // The set PersonaService already caches per (user, guild) and drops when a grant is revoked,
+        // rather than a second answer to "who may speak as this".
+        var mine = (await personas.GetUsablePersonasAsync(userId, guildId))
+            .Where(p => !p.IsRetired)
+            .Select(p => p.PersonaId)
+            .ToList();
+
+        if (waitingOnMe && mine.Count == 0)
+            return Results.Ok(new SceneListDto { Scenes = [], Truncated = false });
+
+        var rows = await BuildListQuery(
+                ctx, guildId, waitingOnMe ? mine : null, includeArchived, includeConcluded)
+            .Take(take + 1)
+            .ToListAsync();
+
+        var truncated = rows.Count > take;
+        var mineSet = mine.ToHashSet(StringComparer.Ordinal);
+        var scenes = new List<SceneListItemDto>(Math.Min(rows.Count, take));
+
+        // One lookup for the whole page: the character on the clock is what a row draws, and it is
+        // usually somebody else's.
+        var onTheClock = await cast.ResolveAsync(guildId, rows
+            .Where(row => row.CurrentTurnPersonaId is not null)
+            .Select(row => row.CurrentTurnPersonaId!)
+            .Distinct(StringComparer.Ordinal)
+            .ToList());
+
+        // ViewChannel is resolved per scene after the page is cut, so a caller who cannot see one of
+        // them gets a short page rather than somebody else's scene.
+        foreach (var row in rows.Take(take))
+        {
+            if (!await permissionService.CanUserPerformActionAsync(
+                    userId, row.ChannelId, Permissions.ViewChannel))
+            {
+                continue;
+            }
+
+            var current = row.CurrentTurnPersonaId is null
+                ? null
+                : onTheClock.GetValueOrDefault(row.CurrentTurnPersonaId);
+
+            scenes.Add(new SceneListItemDto
+            {
+                ChannelId = row.ChannelId,
+                Name = row.Name,
+                ParentChannelId = row.ParentChannelId,
+                Status = row.Status,
+                CurrentTurnPersonaId = row.CurrentTurnPersonaId,
+                CurrentTurnName = current?.Name,
+                CurrentTurnAvatarUrl = current?.AvatarUrl,
+                CurrentTurnColor = current?.Color,
+                TurnStartedAt = row.TurnStartedAt,
+                TurnDeadlineAt = row.TurnDeadlineAt,
+                TurnNumber = row.TurnNumber,
+                PostCount = row.PostCount,
+                IsWaitingOnMe = row.CurrentTurnPersonaId is not null
+                                && mineSet.Contains(row.CurrentTurnPersonaId),
+                ParticipantCount = row.ParticipantCount,
+                OocThreadId = row.OocThreadId,
+                NudgeCount = row.NudgeCount,
+                UpdatedAt = row.UpdatedAt,
+            });
+        }
+
+        return Results.Ok(new SceneListDto { Scenes = scenes, Truncated = truncated });
+    }
+
+    /// <summary>One scene as the list route reads it, before permissions and display data.</summary>
+    internal sealed record SceneListRow(
+        string ChannelId, string Name, string? ParentChannelId, SceneStatus Status,
+        string? CurrentTurnPersonaId, DateTimeOffset? TurnStartedAt, DateTimeOffset? TurnDeadlineAt,
+        int TurnNumber, int PostCount, int NudgeCount, int ParticipantCount, string? OocThreadId,
+        DateTimeOffset UpdatedAt);
+
+    /// <summary>
+    /// The scene list's query, extracted so the translation harness can prove it compiles to SQL -
+    /// EF InMemory cannot fail on LINQ Npgsql would refuse.
+    /// </summary>
+    internal static IQueryable<SceneListRow> BuildListQuery(
+        MicroserviceContext ctx, string guildId, IReadOnlyCollection<string>? waitingOnPersonaIds,
+        bool includeArchived, bool includeConcluded)
+    {
+        var query = ctx.Set<SceneState>()
+            .AsNoTracking()
+            .Where(s => s.GuildId == guildId)
+            .Join(ctx.Channels.AsNoTracking(), s => s.ChannelId, c => c.Id,
+                (s, c) => new { State = s, Channel = c });
+
+        if (!includeArchived) query = query.Where(row => !row.Channel.IsArchived);
+        if (!includeConcluded) query = query.Where(row => row.State.Status != SceneStatus.Concluded);
+
+        if (waitingOnPersonaIds is not null)
+        {
+            var mine = waitingOnPersonaIds.ToList();
+            query = query.Where(row => row.State.CurrentTurnPersonaId != null
+                                       && mine.Contains(row.State.CurrentTurnPersonaId));
+        }
+
+        // Scenes on a clock first, soonest due at the top; everything else by recency, which is
+        // where a scene waiting on a GM to start it lands.
+        return query
+            .OrderBy(row => row.State.TurnDeadlineAt == null)
+            .ThenBy(row => row.State.TurnDeadlineAt)
+            .ThenByDescending(row => row.State.UpdatedAt)
+            .Select(row => new SceneListRow(
+                row.State.ChannelId,
+                row.Channel.Name,
+                row.Channel.ParentChannelId,
+                row.State.Status,
+                row.State.CurrentTurnPersonaId,
+                row.State.TurnStartedAt,
+                row.State.TurnDeadlineAt,
+                row.State.TurnNumber,
+                row.State.PostCount,
+                row.State.NudgeCount,
+                row.State.ParticipantPersonaIds.Count,
+                row.State.OocThreadId,
+                row.State.UpdatedAt));
     }
 
     /// <summary>One scene, its cast and whose turn it is.</summary>
@@ -138,7 +287,7 @@ public class SceneEndpoint
         var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
         if (found is null) return Results.NotFound();
 
-        return Results.Ok(SceneDto.From(found.Value.State, found.Value.Channel));
+        return await OkAsync(scenes, found.Value.State, found.Value.Channel);
     }
 
     /// <summary>Sets a scene's status, its clock or its turn order.</summary>
@@ -172,13 +321,12 @@ public class SceneEndpoint
             if (!state.ParticipantPersonaIds.Contains(dto.CurrentTurnPersonaId, StringComparer.Ordinal))
                 return Results.BadRequest("That persona is not in this scene.");
 
-            state.CurrentTurnPersonaId = dto.CurrentTurnPersonaId;
-            state.NudgeCount = 0;
-            state.LastNudgedAt = null;
+            state.TakeTurn(dto.CurrentTurnPersonaId, now);
         }
 
         if (dto.TurnLengthHours.HasValue) state.TurnLengthHours = dto.TurnLengthHours.Value;
         if (dto.TurnDeadlineAt.HasValue) state.TurnDeadlineAt = dto.TurnDeadlineAt.Value;
+        if (dto.ConclusionNote is not null) state.ConclusionNote = dto.ConclusionNote;
 
         if (dto.Status is { } status) state.Status = status;
 
@@ -187,10 +335,7 @@ public class SceneEndpoint
         if (state.Status == SceneStatus.Active && state.CurrentTurnPersonaId is null)
         {
             var unavailable = await scenes.UnavailablePersonasAsync(guildId, state.Rotation, now);
-            state.CurrentTurnPersonaId = state.NextTurn(null, unavailable);
-            state.TurnDeadlineAt = state.CurrentTurnPersonaId is not null && state.TurnLengthHours is > 0
-                ? now.AddHours(state.TurnLengthHours.Value)
-                : state.TurnDeadlineAt;
+            state.StartTurn(unavailable, now);
         }
 
         state.UpdatedAt = now;
@@ -200,7 +345,7 @@ public class SceneEndpoint
 
         await scenes.BroadcastUpdatedAsync(state);
 
-        return Results.Ok(SceneDto.From(state, channel));
+        return await OkAsync(scenes, state, channel);
     }
 
     /// <summary>Adds a character to the cast.</summary>
@@ -238,7 +383,7 @@ public class SceneEndpoint
 
         await scenes.BroadcastUpdatedAsync(state);
 
-        return Results.Ok(SceneDto.From(state, channel));
+        return await OkAsync(scenes, state, channel);
     }
 
     /// <summary>Removes a character from the cast, handing the turn on when it was theirs.</summary>
@@ -266,7 +411,7 @@ public class SceneEndpoint
         if (wasTheirTurn) await scenes.BroadcastTurnAsync(state, personaId);
         await scenes.BroadcastUpdatedAsync(state);
 
-        return Results.Ok(SceneDto.From(state, channel));
+        return await OkAsync(scenes, state, channel);
     }
 
     /// <summary>
@@ -303,7 +448,7 @@ public class SceneEndpoint
 
         await scenes.AdvanceAsync(state, DateTimeOffset.UtcNow);
 
-        return Results.Ok(SceneDto.From(state, channel));
+        return await OkAsync(scenes, state, channel);
     }
 
     /// <summary>Skips a turn that has gone quiet. GM only - passing your own turn is
@@ -328,12 +473,46 @@ public class SceneEndpoint
 
         await scenes.AdvanceAsync(state, DateTimeOffset.UtcNow);
 
-        return Results.Ok(SceneDto.From(state, channel));
+        return await OkAsync(scenes, state, channel);
+    }
+
+    /// <summary>
+    /// Chases the current turn now. The sweep runs every quarter hour and holds a nudge through the
+    /// guild's quiet hours; a GM looking at a stalled scene should not have to wait for either.
+    /// </summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/nudge")]
+    public async Task<IResult> NudgeTurnAsync(string guildId, string sceneChannelId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneNudgeService nudges, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await Gate(permissionService, ctx, guildId, userId) is { } denied) return denied;
+
+        var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
+        if (found is null) return Results.NotFound();
+
+        var (channel, state) = found.Value;
+
+        if (!await nudges.NudgeNowAsync(state, DateTimeOffset.UtcNow))
+            return Results.BadRequest("There is no turn to chase in this scene.");
+
+        return await OkAsync(scenes, state, channel);
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>The scene as clients read it, cast and absences included.</summary>
+    private static async Task<IResult> OkAsync(SceneService scenes, SceneState state, Channel channel)
+    {
+        var participants = await scenes.ParticipantsAsync(state, DateTimeOffset.UtcNow);
+
+        return Results.Ok(SceneDto.From(state, channel, participants));
+    }
 
     private static Task<IResult?> Gate(
         GuildPermissionService permissions, MicroserviceContext ctx, string guildId, string userId) =>

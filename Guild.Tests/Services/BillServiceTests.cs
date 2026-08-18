@@ -198,7 +198,7 @@ public class BillServiceTests
 
     private BillAlertService BuildAlerts() =>
         new(_context,
-            new HouseholdNotifier(_context, new NotificationResolutionService(_context), _hub, _bus),
+            new HouseholdNotifier(new NotificationResolutionService(_context), _hub, _bus),
             _ledger, _permissions, NullLogger<BillAlertService>.Instance);
 
     private BillService Build() =>

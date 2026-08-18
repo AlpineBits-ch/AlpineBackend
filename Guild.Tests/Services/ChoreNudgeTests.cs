@@ -149,7 +149,7 @@ public class ChoreNudgeTests
         _hub);
 
     private ChoreAlertService BuildChoreAlerts() => new(
-        new HouseholdNotifier(_context, new NotificationResolutionService(_context), _hub, _bus),
+        new HouseholdNotifier(new NotificationResolutionService(_context), _hub, _bus),
         _permissions,
         NullLogger<ChoreAlertService>.Instance);
 
@@ -488,7 +488,7 @@ public class ChoreNudgeTests
         var occurrence = await AddOccurrenceAsync("anna");
 
         var alerts = new ChoreAlertService(
-            new HouseholdNotifier(_context, new NotificationResolutionService(_context), _hub,
+            new HouseholdNotifier(new NotificationResolutionService(_context), _hub,
                 new ThrowingMessageBus()),
             _permissions,
             NullLogger<ChoreAlertService>.Instance);

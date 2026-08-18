@@ -25,6 +25,7 @@ public class InboxMentionService(
     MicroserviceContext ctx,
     NotificationResolutionService notifications,
     GuildPermissionService permissions,
+    PersonaMentionService personaMentions,
     IMessageBus bus,
     ILogger<InboxMentionService> logger)
 {
@@ -282,6 +283,7 @@ public class InboxMentionService(
             .ToDictionaryAsync(r => r.Id, r => r.Name, StringComparer.Ordinal);
 
         var messages = await LoadMessagesAsync(userId, page);
+        var personas = await ResolvePersonaMentionsAsync(userId, page, messages);
 
         var rendered = new List<InboxMentionDto>(page.Count);
 
@@ -318,6 +320,7 @@ public class InboxMentionService(
                 MessageId = candidate.MessageId,
                 CreatedAt = candidate.CreatedAt,
                 Kind = candidate.Kind,
+                PersonaId = personas.GetValueOrDefault(candidate.MessageId),
                 RoleId = candidate.RoleId,
                 RoleName = candidate.RoleId is not null ? roleNames.GetValueOrDefault(candidate.RoleId) : null,
                 AuthorId = candidate.AuthorId,
@@ -328,6 +331,59 @@ public class InboxMentionService(
         }
 
         return rendered;
+    }
+
+    /// <summary>
+    /// Which character each persona mention on the page named, keyed by message. Read back out of
+    /// the body rather than stored per row: that is where the mention was resolved from in the first
+    /// place, and a grant lost since then simply stops matching.
+    /// </summary>
+    private async Task<Dictionary<string, string>> ResolvePersonaMentionsAsync(
+        string userId, List<Candidate> page, Dictionary<string, InboxMessageDto> messages)
+    {
+        var resolved = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        var rows = page
+            .Where(c => c.Kind == PersonaMentionService.MentionKindName && c.GuildId is not null)
+            .ToList();
+
+        if (rows.Count == 0) return resolved;
+
+        var named = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach (var candidate in rows)
+        {
+            if (!messages.TryGetValue(candidate.MessageId, out var message)) continue;
+
+            var ids = PersonaMentionService.Parse(message.Content);
+            if (ids.Count > 0) named[candidate.MessageId] = ids;
+        }
+
+        foreach (var group in rows.GroupBy(c => c.GuildId!, StringComparer.Ordinal))
+        {
+            var ids = group
+                .SelectMany(c => named.GetValueOrDefault(c.MessageId, []))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            if (ids.Count == 0) continue;
+
+            // Narrowed to the characters that reach the caller, so the row can only ever name one of
+            // their own - a character somebody else in the message answers for is not disclosed.
+            var mine = (await personaMentions.ResolveAsync(group.Key, string.Empty, ids))
+                .Where(t => string.Equals(t.UserId, userId, StringComparison.Ordinal))
+                .Select(t => t.PersonaId)
+                .ToHashSet(StringComparer.Ordinal);
+
+            foreach (var candidate in group)
+            {
+                var match = named.GetValueOrDefault(candidate.MessageId, [])
+                    .FirstOrDefault(mine.Contains);
+
+                if (match is not null) resolved[candidate.MessageId] = match;
+            }
+        }
+
+        return resolved;
     }
 
     private async Task<Dictionary<string, InboxMessageDto>> LoadMessagesAsync(string userId, List<Candidate> page)

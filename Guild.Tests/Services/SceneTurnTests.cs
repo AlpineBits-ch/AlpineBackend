@@ -939,6 +939,66 @@ public class SceneTurnTests
     }
 
     [Test]
+    public async Task Update_WithACastThatNamesANewCharacter_AddsThemAndTakesTheTurnOrder()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(cast: [PlayerPersonaId, OtherPersonaId]);
+
+        var result = await _endpoint.UpdateAsync(
+            GuildId, "scene-1",
+            new UpdateSceneDto
+            {
+                ParticipantPersonaIds = [PlayerPersonaId, OtherPersonaId, GmPersonaId],
+                TurnOrder = [PlayerPersonaId, GmPersonaId, OtherPersonaId],
+            },
+            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+
+        Assert.That(dto, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto!.ParticipantPersonaIds, Does.Contain(GmPersonaId));
+            Assert.That(dto.TurnOrder, Is.EqualTo(new[] {PlayerPersonaId, GmPersonaId, OtherPersonaId}));
+        });
+    }
+
+    [Test]
+    public async Task Update_WithACastThatDropsTheCharacterOnTheClock_HandsTheTurnOn()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(cast: [PlayerPersonaId, OtherPersonaId]);
+
+        var result = await _endpoint.UpdateAsync(
+            GuildId, "scene-1",
+            new UpdateSceneDto {ParticipantPersonaIds = [OtherPersonaId]},
+            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+
+        Assert.That(dto, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto!.ParticipantPersonaIds, Is.EqualTo(new[] {OtherPersonaId}));
+            Assert.That(dto.CurrentTurnPersonaId, Is.EqualTo(OtherPersonaId));
+        });
+    }
+
+    [Test]
+    public async Task Update_WithACastNamingAnUnadoptedPersona_IsRefused()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(cast: [PlayerPersonaId, OtherPersonaId]);
+
+        var result = await _endpoint.UpdateAsync(
+            GuildId, "scene-1",
+            new UpdateSceneDto {ParticipantPersonaIds = [PlayerPersonaId, OtherPersonaId, "pers_nobody"]},
+            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+
+        Assert.That(result, Is.Not.InstanceOf<Ok<SceneDto>>());
+    }
+
+    [Test]
     public async Task Concluding_ASceneKeepsTheClosingLine()
     {
         await SeedAsync();

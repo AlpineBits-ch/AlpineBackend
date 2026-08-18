@@ -403,7 +403,7 @@ permission), gated on `GuildFeatures.Scenes`:
 | POST | `/api/v1/guilds/{guildId}/channels/{channelId}/scenes` | `ManageScenes`. Creates the scene thread and its OOC companion |
 | GET | `/api/v1/guilds/{guildId}/scenes` | Membership, then `ViewChannel` per scene. `waitingOnMe`, `includeConcluded`, `includeArchived`, `limit` |
 | GET | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}` | `ViewChannel` |
-| PATCH | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}` | `ManageScenes`. Status, deadline, turn order, conclusion note |
+| PATCH | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}` | `ManageScenes`. Status, deadline, cast, turn order, conclusion note. The cast is applied first, so one call can add a character and put them in the rotation |
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/participants` | `ManageScenes` |
 | DELETE | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/participants/{personaId}` | `ManageScenes` |
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/advance` | `ManageScenes`, or the persona whose turn it is |

@@ -45,6 +45,10 @@ public class UpdateSceneDto
 
     public Optional<int> TurnLengthHours { get; set; }
 
+    /// <summary>Replaces the cast. Characters it drops leave the scene, and the turn is handed on
+    /// when it was theirs. Applied before <see cref="TurnOrder"/> is checked against it.</summary>
+    public List<string>? ParticipantPersonaIds { get; set; }
+
     /// <summary>Replaces the rotation. Every entry must already be in the cast.</summary>
     public List<string>? TurnOrder { get; set; }
 

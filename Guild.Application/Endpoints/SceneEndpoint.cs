@@ -333,6 +333,30 @@ public class SceneEndpoint
         var (channel, state) = found.Value;
         var now = DateTimeOffset.UtcNow;
 
+        if (dto.ParticipantPersonaIds is not null)
+        {
+            var cast = dto.ParticipantPersonaIds.Distinct(StringComparer.Ordinal).ToList();
+
+            foreach (var personaId in cast.Except(state.ParticipantPersonaIds, StringComparer.Ordinal))
+            {
+                if (!await scenes.IsAdoptedAsync(guildId, personaId))
+                    return Fault("persona_not_adopted", $"Persona '{personaId}' has not been adopted into this guild.");
+
+                state.ParticipantPersonaIds.Add(personaId);
+
+                // Matches the add-participant route: a cast change that leaves an explicit rotation
+                // untouched would put somebody in the scene who never gets a turn.
+                if (dto.TurnOrder is null && state.TurnOrder.Count > 0) state.TurnOrder.Add(personaId);
+            }
+
+            var leaving = state.ParticipantPersonaIds.Except(cast, StringComparer.Ordinal).ToList();
+            if (leaving.Count > 0)
+            {
+                var unavailable = await scenes.UnavailablePersonasAsync(guildId, state.Rotation, now);
+                foreach (var personaId in leaving) state.RemoveParticipant(personaId, unavailable, now);
+            }
+        }
+
         if (dto.TurnOrder is not null)
         {
             if (dto.TurnOrder.Except(state.ParticipantPersonaIds, StringComparer.Ordinal).Any())

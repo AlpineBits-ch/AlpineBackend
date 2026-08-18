@@ -29,13 +29,19 @@ public class MessageDraft : BaseEntity<MessageDraft>, IPrefixedEntity
     /// the text - losing it is what forces somebody to go and find the post again.</summary>
     public string? InReplyTo { get; set; }
 
+    /// <summary>Files already uploaded for this draft. Ids only: the rows live in Attachments, and
+    /// losing them here would cost the author the transfer, not just the sentence.</summary>
+    public List<string> Attachments { get; set; } = [];
+
     /// <summary>Replaces the stored body wholesale.</summary>
     /// <param name="content">The new body.</param>
     /// <param name="inReplyTo">The new reply target, or null to clear it.</param>
-    public void Replace(string content, string? inReplyTo)
+    /// <param name="attachments">The files the draft now carries.</param>
+    public void Replace(string content, string? inReplyTo, List<string>? attachments = null)
     {
         Content = content;
         InReplyTo = inReplyTo;
+        Attachments = attachments ?? [];
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
@@ -45,10 +51,12 @@ public class MessageDraft : BaseEntity<MessageDraft>, IPrefixedEntity
     /// <param name="conversationId">The conversation, or null for a channel draft.</param>
     /// <param name="content">The body as typed.</param>
     /// <param name="inReplyTo">The message being replied to, or null.</param>
+    /// <param name="attachments">Files already uploaded for it.</param>
     /// <returns>The new draft.</returns>
     /// <exception cref="ArgumentException">Neither or both of the two context ids were supplied.</exception>
     public static MessageDraft Create(
-        string userId, string? channelId, string? conversationId, string content, string? inReplyTo)
+        string userId, string? channelId, string? conversationId, string content, string? inReplyTo,
+        List<string>? attachments = null)
     {
         var contextId = (channelId, conversationId) switch
         {
@@ -70,6 +78,7 @@ public class MessageDraft : BaseEntity<MessageDraft>, IPrefixedEntity
             ConversationId = string.IsNullOrEmpty(conversationId) ? null : conversationId,
             Content = content,
             InReplyTo = inReplyTo,
+            Attachments = attachments ?? [],
         };
     }
 }

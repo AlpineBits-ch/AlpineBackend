@@ -99,7 +99,8 @@ public class MessageDraftEndpoints
 
         // An empty box is not a draft. Clients save on a debounce, so the delete has to be the same
         // call as the save or clearing the composer would leave the old text behind on every device.
-        if (string.IsNullOrEmpty(dto.Content))
+        // An attachment with no text still counts: the upload is what would be lost.
+        if (string.IsNullOrEmpty(dto.Content) && dto.Attachments.Count == 0)
         {
             if (existing is not null) ctx.MessageDrafts.Remove(existing);
 
@@ -116,7 +117,8 @@ public class MessageDraftEndpoints
                 isConversation ? null : contextId,
                 isConversation ? contextId : null,
                 dto.Content,
-                dto.InReplyTo);
+                dto.InReplyTo,
+                dto.Attachments);
 
             ctx.MessageDrafts.Add(existing);
         }
@@ -124,7 +126,7 @@ public class MessageDraftEndpoints
         {
             // Replaced wholesale rather than appended, and there is no history: the client owns the
             // text and the server holds only its latest state.
-            existing.Replace(dto.Content, dto.InReplyTo);
+            existing.Replace(dto.Content, dto.InReplyTo, dto.Attachments);
         }
 
         await NotifyAsync(hub, userId, DraftUpdatedEvent, MessageDraftDto.From(existing, dto.SenderDeviceId));

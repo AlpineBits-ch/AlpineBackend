@@ -44,6 +44,58 @@ public class MessageDraftEndpointsTests
     // ══════════════════════════════════════════════════════════════════════════ upsert
 
     [Test]
+    public async Task Uploaded_files_are_stored_with_the_draft()
+    {
+        await UpsertAsync(ChannelId, "a scene with a map", attachments: ["atac_1", "atac_2"]);
+
+        var stored = await _context.MessageDrafts.SingleAsync();
+
+        Assert.That(stored.Attachments, Is.EqualTo(new[] { "atac_1", "atac_2" }),
+            "the upload is the part of a draft that cost the author something");
+    }
+
+    /// <summary>An empty box normally deletes the draft. A file in it is still worth keeping.</summary>
+    [Test]
+    public async Task An_attachment_with_no_text_is_still_a_draft()
+    {
+        var result = await UpsertAsync(ChannelId, string.Empty, attachments: ["atac_1"]);
+
+        var stored = await _context.MessageDrafts.SingleOrDefaultAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<MessageDraftDto>>());
+            Assert.That(stored, Is.Not.Null);
+            Assert.That(stored!.Attachments, Is.EqualTo(new[] { "atac_1" }));
+        });
+    }
+
+    [Test]
+    public async Task Clearing_the_files_off_a_draft_leaves_nothing_behind()
+    {
+        await UpsertAsync(ChannelId, "words", attachments: ["atac_1"]);
+        await UpsertAsync(ChannelId, "words");
+
+        var stored = await _context.MessageDrafts.SingleAsync();
+
+        Assert.That(stored.Attachments, Is.Empty, "replaced wholesale, the way the body is");
+    }
+
+    [Test]
+    public async Task An_empty_draft_with_no_files_is_still_discarded()
+    {
+        await UpsertAsync(ChannelId, "words", attachments: ["atac_1"]);
+
+        var result = await UpsertAsync(ChannelId, string.Empty);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<NoContent>());
+            Assert.That(_context.MessageDrafts.Any(), Is.False);
+        });
+    }
+
+    [Test]
     public async Task A_first_save_stores_the_body_and_the_reply_target()
     {
         var result = await UpsertAsync(ChannelId, "the first half of a long scene", inReplyTo: "mesg_1");
@@ -270,7 +322,7 @@ public class MessageDraftEndpointsTests
 
     private async Task<IResult> UpsertAsync(
         string contextId, string content, string? inReplyTo = null, string? deviceId = null,
-        bool allowed = true, string userId = UserId)
+        bool allowed = true, string userId = UserId, List<string>? attachments = null)
     {
         var bus = new FakeMessageBus(msg => msg switch
         {
@@ -283,7 +335,11 @@ public class MessageDraftEndpointsTests
 
         var result = await MessageDraftEndpoints.UpsertDraft(
             contextId,
-            new UpsertMessageDraftDto { Content = content, InReplyTo = inReplyTo, SenderDeviceId = deviceId },
+            new UpsertMessageDraftDto
+            {
+                Content = content, InReplyTo = inReplyTo, SenderDeviceId = deviceId,
+                Attachments = attachments ?? [],
+            },
             _context, TestPrincipal.ForUser(userId), bus, _permissions, _hub);
 
         // The Wolverine transactional middleware commits this in production; a direct call has to.

@@ -8,6 +8,7 @@ namespace Messaging.Application.Dtos.Response;
 /// <param name="ConversationId">Set for a conversation draft, null otherwise.</param>
 /// <param name="Content">The body as it was last saved.</param>
 /// <param name="InReplyTo">The message being replied to, or null.</param>
+/// <param name="Attachments">Files already uploaded for it, ids only.</param>
 /// <param name="UpdatedAt">When the body was last written.</param>
 /// <param name="DeviceId">Which device wrote it, so a client can recognise its own echo.</param>
 public sealed record MessageDraftDto(
@@ -16,6 +17,7 @@ public sealed record MessageDraftDto(
     string? ConversationId,
     string Content,
     string? InReplyTo,
+    IReadOnlyList<string> Attachments,
     DateTimeOffset UpdatedAt,
     string? DeviceId = null)
 {
@@ -29,6 +31,7 @@ public sealed record MessageDraftDto(
         draft.ConversationId,
         draft.Content,
         draft.InReplyTo,
+        draft.Attachments,
         draft.UpdatedAt,
         deviceId);
 }

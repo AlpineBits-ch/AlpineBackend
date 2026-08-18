@@ -19,7 +19,8 @@ public class UpsertChannelFromSyncHandler
         UpsertChannelFromSyncCommand command,
         MicroserviceContext ctx,
         AuditLogService auditLog,
-        GuildPermissionService permissionService)
+        GuildPermissionService permissionService,
+        ChannelPrivacyService channelPrivacy)
     {
         if (command.IsCategory)
         {
@@ -77,7 +78,6 @@ public class UpsertChannelFromSyncHandler
                 Name = command.Name,
                 Description = channel.Description ?? "",
                 IsAgeRestricted = command.IsAgeRestricted,
-                IsPrivate = channel.IsPrivate,
                 SlowModeSeconds = command.SlowModeSeconds,
             });
             channel.Position = command.Position;
@@ -90,6 +90,10 @@ public class UpsertChannelFromSyncHandler
         }
 
         await ApplyOverwritesAsync(ctx, command.Overwrites, categoryId: null, channelId: channel.Id);
+
+        // The overwrites above are the access control; IsPrivate is a reading of them, so it is
+        // taken after they land rather than carried across from Discord separately.
+        await channelPrivacy.SyncFlagAsync(channel.Id);
         auditLog.Log(command.GuildId, "discord-sync", AuditActionType.GuildSyncedFromDiscord, channel.Id,
             new { Entity = "Channel", command.Name });
 

@@ -142,6 +142,7 @@ builder.Services.AddScoped<GuildPermissionService>();
 // new ViewChannel filtering off the per-message hot path.
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<ChannelAudienceService>();
+builder.Services.AddScoped<ChannelPrivacyService>();
 builder.Services.AddScoped<GuildThumbnailService>();
 builder.Services.AddScoped<GuildEmojiService>();
 builder.Services.AddScoped<RoleIconService>();

@@ -83,7 +83,7 @@ public class ChannelEndpointTests
     public async Task CreateChannel_Unauthenticated_ReturnsUnauthorized()
     {
         var result = await _endpoint.CreateChannel(GuildId, new CreateChannelDto { Name = "c", Type = ChannelType.Text },
-            _permissionService, _context, _hub, _hydrateService, _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.CreateAnonymous());
+            _permissionService, _context, _hub, _hydrateService, new ChannelPrivacyService(_context), _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.CreateAnonymous());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
@@ -92,7 +92,7 @@ public class ChannelEndpointTests
     {
         await SeedManagerMember();
         var result = await _endpoint.CreateChannel(GuildId, new CreateChannelDto { Name = "c", Type = ChannelType.Thread },
-            _permissionService, _context, _hub, _hydrateService, _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
+            _permissionService, _context, _hub, _hydrateService, new ChannelPrivacyService(_context), _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
@@ -104,7 +104,7 @@ public class ChannelEndpointTests
         await _context.SaveChangesAsync();
 
         var result = await _endpoint.CreateChannel(GuildId, new CreateChannelDto { Name = "c", Type = ChannelType.Text },
-            _permissionService, _context, _hub, _hydrateService, _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
+            _permissionService, _context, _hub, _hydrateService, new ChannelPrivacyService(_context), _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -114,7 +114,7 @@ public class ChannelEndpointTests
         await SeedManagerMember();
 
         var result = await _endpoint.CreateChannel(GuildId, new CreateChannelDto { Name = "new-channel", Type = ChannelType.Text, Position = 2 },
-            _permissionService, _context, _hub, _hydrateService, _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
+            _permissionService, _context, _hub, _hydrateService, new ChannelPrivacyService(_context), _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
@@ -128,7 +128,7 @@ public class ChannelEndpointTests
         await SeedManagerMember();
 
         var result = await _endpoint.CreateChannel(GuildId, new CreateChannelDto { Name = "forum", Type = ChannelType.Forum },
-            _permissionService, _context, _hub, _hydrateService, _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
+            _permissionService, _context, _hub, _hydrateService, new ChannelPrivacyService(_context), _bus, NullLogger<ChannelEndpoint>.Instance, TestPrincipal.Create(UserId));
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
     }
@@ -194,14 +194,14 @@ public class ChannelEndpointTests
     [Test]
     public async Task UpdateChannel_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.UpdateChannelAsync("nonexistent", new UpdateChannelDto { Name = "x" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.CreateAnonymous());
+        var result = await _endpoint.UpdateChannelAsync("nonexistent", new UpdateChannelDto { Name = "x" }, _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.CreateAnonymous());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task UpdateChannel_DoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.UpdateChannelAsync("nonexistent", new UpdateChannelDto { Name = "x" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.UpdateChannelAsync("nonexistent", new UpdateChannelDto { Name = "x" }, _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -212,7 +212,7 @@ public class ChannelEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         var channel = await SeedChannel();
 
-        var result = await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = "x" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        var result = await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = "x" }, _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -223,7 +223,7 @@ public class ChannelEndpointTests
         var channel = await SeedChannel();
 
         var result = await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = "renamed", Description = "new desc", SlowModeSeconds = 5 },
-            _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+            _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());

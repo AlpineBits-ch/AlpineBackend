@@ -41,7 +41,7 @@ public class ChannelSyncHandlersTests
     /// reflect uncommitted Added/Modified entities in a plain LINQ query).</summary>
     private async Task<UpsertChannelFromSyncResponse> Upsert(UpsertChannelFromSyncCommand command)
     {
-        var response = await UpsertChannelFromSyncHandler.Handle(command, _context, _auditLog, _permissionService);
+        var response = await UpsertChannelFromSyncHandler.Handle(command, _context, _auditLog, _permissionService, new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
         return response;
     }

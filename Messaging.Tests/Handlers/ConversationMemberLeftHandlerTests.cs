@@ -1,4 +1,5 @@
 using Messaging.Application.Handler.Conversation;
+using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Conversation;
 using Messaging.Tests.Helpers;
@@ -25,6 +26,9 @@ public class ConversationMemberLeftHandlerTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
+    private ConversationPermissionService Permissions() => new(_context, _cache);
+
+
     private static ConversationMember MakeMember(string id, string userId, string conversationId) => new()
     {
         Id = id,
@@ -47,7 +51,7 @@ public class ConversationMemberLeftHandlerTests
 
         await ConversationMemberLeftHandler.Handle(
             new ConversationMemberRemoved { ConversationId = "conv-1", UserId = "user-a", HasLeft = true },
-            _context, _cache, _hub);
+            _context, _cache, _hub, Permissions());
 
         var hubClients = (FakeHubClients)_hub.Clients;
         Assert.That(hubClients.SentMessages, Has.Count.EqualTo(1));
@@ -67,6 +71,6 @@ public class ConversationMemberLeftHandlerTests
 
         Assert.DoesNotThrowAsync(() => ConversationMemberLeftHandler.Handle(
             new ConversationMemberRemoved { ConversationId = "conv-1", UserId = "user-a", HasLeft = true },
-            _context, _cache, _hub));
+            _context, _cache, _hub, Permissions()));
     }
 }

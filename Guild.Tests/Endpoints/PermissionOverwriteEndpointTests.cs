@@ -92,7 +92,7 @@ public class PermissionOverwriteEndpointTests
     [Test]
     public async Task SetChannelRoleOverwrite_Unauthenticated_ReturnsUnauthorized()
     {
-        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync("nonexistent", "nonexistent", new SetPermissionOverwriteDto(), _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _mfa);
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync("nonexistent", "nonexistent", new SetPermissionOverwriteDto(), _context, TestPrincipal.CreateAnonymous(), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
         Assert.That(evt, Is.Null);
     }
@@ -100,7 +100,7 @@ public class PermissionOverwriteEndpointTests
     [Test]
     public async Task SetChannelRoleOverwrite_ChannelDoesNotExist_ReturnsNotFound()
     {
-        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync("nonexistent", "nonexistent", new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync("nonexistent", "nonexistent", new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -108,7 +108,7 @@ public class PermissionOverwriteEndpointTests
     public async Task SetChannelRoleOverwrite_LacksManagePermissions_ReturnsForbid()
     {
         var channel = await SeedManagerAndChannel(managerPermissions: Permissions.None);
-        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -117,7 +117,7 @@ public class PermissionOverwriteEndpointTests
     {
         var channel = await SeedManagerAndChannel();
         var dto = new SetPermissionOverwriteDto { AllowPermissions = Permissions.BanMembers };
-        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -127,7 +127,7 @@ public class PermissionOverwriteEndpointTests
         var channel = await SeedManagerAndChannel();
         var dto = new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel, DenyPermissions = Permissions.SendMessages };
 
-        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelPermissionDto>>());
@@ -145,7 +145,7 @@ public class PermissionOverwriteEndpointTests
         var channel = await SeedManagerAndChannel(Permissions.ManagePermissions);
         var dto = new SetPermissionOverwriteDto { DenyPermissions = Permissions.SendMessages };
 
-        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -169,7 +169,7 @@ public class PermissionOverwriteEndpointTests
 
         var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(
             channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
 
         Assert.Multiple(() =>
         {
@@ -182,7 +182,7 @@ public class PermissionOverwriteEndpointTests
     public async Task SetChannelRoleOverwrite_Valid_WritesAuditLogEntry()
     {
         var channel = await SeedManagerAndChannel();
-        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.ActionType == AuditActionType.ChannelPermissionChanged).ToList();
@@ -196,10 +196,10 @@ public class PermissionOverwriteEndpointTests
         // (CanGrantPermissionsAsync clamps AllowPermissions to what the actor's own base
         // permissions include) - ManagePermissions alone only implies ViewChannel.
         var channel = await SeedManagerAndChannel(managerPermissions: Permissions.ManagePermissions | Permissions.SendMessages);
-        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
-        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.SendMessages }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.SendMessages }, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var overwrites = _context.Set<ChannelPermission>().Where(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId).ToList();
@@ -229,7 +229,7 @@ public class PermissionOverwriteEndpointTests
             DenyModulePermissions = ModulePermissions.CreateWikiPages,
         };
 
-        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var body = ((Ok<Guild.Application.Dtos.Response.ChannelPermissionDto>)result).Value!;
@@ -261,7 +261,7 @@ public class PermissionOverwriteEndpointTests
         var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(
             channel.Id, TargetRoleId,
             new SetPermissionOverwriteDto { DenyPermissions = Permissions.SendMessages },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var stored = await _context.Set<ChannelPermission>().AsNoTracking().SingleAsync(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId);
@@ -297,7 +297,7 @@ public class PermissionOverwriteEndpointTests
                 AllowModulePermissions = ModulePermissions.None,
                 DenyModulePermissions = ModulePermissions.None,
             },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var stored = await _context.Set<ChannelPermission>().AsNoTracking().SingleAsync(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId);
@@ -316,7 +316,7 @@ public class PermissionOverwriteEndpointTests
 
         await _endpoint.SetChannelRoleOverwriteAsync(
             channel.Id, TargetRoleId, new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var stored = await _context.Set<ChannelPermission>().AsNoTracking().SingleAsync(p => p.ChannelId == channel.Id && p.RoleId == TargetRoleId);
@@ -331,7 +331,7 @@ public class PermissionOverwriteEndpointTests
         var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(
             channel.Id, TargetRoleId,
             new SetPermissionOverwriteDto { AllowModulePermissions = ModulePermissions.DeleteWikiPages },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -352,7 +352,7 @@ public class PermissionOverwriteEndpointTests
         var (result, evt) = await _endpoint.SetChannelRoleOverwriteAsync(
             channel.Id, TargetRoleId,
             new SetPermissionOverwriteDto { DenyModulePermissions = ModulePermissions.DeleteWikiPages },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -374,7 +374,7 @@ public class PermissionOverwriteEndpointTests
         var (result, _) = await _endpoint.SetChannelRoleOverwriteAsync(
             channel.Id, TargetRoleId,
             new SetPermissionOverwriteDto { AllowModulePermissions = ModulePermissions.CheckOffListItems },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -398,7 +398,7 @@ public class PermissionOverwriteEndpointTests
                 AllowModulePermissions = ModulePermissions.ViewWiki,
                 DenyModulePermissions = ModulePermissions.CreateWikiPages,
             },
-            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         var self = await _context.GuildMembers
@@ -436,7 +436,7 @@ public class PermissionOverwriteEndpointTests
     public async Task DeleteChannelRoleOverwrite_DoesNotExist_ReturnsNotFound()
     {
         var channel = await SeedManagerAndChannel();
-        var (result, _) = await _endpoint.DeleteChannelRoleOverwriteAsync(channel.Id, TargetRoleId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.DeleteChannelRoleOverwriteAsync(channel.Id, TargetRoleId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -444,10 +444,10 @@ public class PermissionOverwriteEndpointTests
     public async Task DeleteChannelRoleOverwrite_Valid_RemovesOverwrite()
     {
         var channel = await SeedManagerAndChannel();
-        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        await _endpoint.SetChannelRoleOverwriteAsync(channel.Id, TargetRoleId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
-        var (result, evt) = await _endpoint.DeleteChannelRoleOverwriteAsync(channel.Id, TargetRoleId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, evt) = await _endpoint.DeleteChannelRoleOverwriteAsync(channel.Id, TargetRoleId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<NoContent>());
@@ -463,7 +463,7 @@ public class PermissionOverwriteEndpointTests
     public async Task SetCategoryMemberOverwrite_CategoryDoesNotExist_ReturnsNotFound()
     {
         await SeedManagerAndChannel();
-        var (result, _) = await _endpoint.SetCategoryMemberOverwriteAsync("nonexistent", TargetMemberId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.SetCategoryMemberOverwriteAsync("nonexistent", TargetMemberId, new SetPermissionOverwriteDto(), _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -476,7 +476,7 @@ public class PermissionOverwriteEndpointTests
         await _context.SaveChangesAsync();
 
         var dto = new SetPermissionOverwriteDto { AllowPermissions = Permissions.ViewChannel };
-        var (result, evt) = await _endpoint.SetCategoryMemberOverwriteAsync(category.Id, TargetMemberId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, evt) = await _endpoint.SetCategoryMemberOverwriteAsync(category.Id, TargetMemberId, dto, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         await _context.SaveChangesAsync();
 
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelPermissionDto>>());
@@ -492,7 +492,7 @@ public class PermissionOverwriteEndpointTests
         _context.Categories.Add(category);
         await _context.SaveChangesAsync();
 
-        var (result, _) = await _endpoint.DeleteCategoryMemberOverwriteAsync(category.Id, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa);
+        var (result, _) = await _endpoint.DeleteCategoryMemberOverwriteAsync(category.Id, TargetMemberId, _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 }

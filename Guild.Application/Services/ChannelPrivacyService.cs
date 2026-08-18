@@ -1,0 +1,132 @@
+using Guild.Domain.Aggregates;
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
+using Guild.Domain.Events.Permission;
+using Guild.Persistence.Persistence;
+using Microsoft.EntityFrameworkCore;
+
+namespace Guild.Application.Services;
+
+/// <summary>
+/// Keeps <see cref="Channel.IsPrivate"/> and the channel's @everyone ViewChannel overwrite saying
+/// the same thing. The flag was display-only until this existed: nothing in
+/// <see cref="GuildPermissionService"/> read it, so a channel a client had marked private stayed
+/// readable by the whole guild.
+/// </summary>
+public class ChannelPrivacyService(MicroserviceContext ctx)
+{
+    /// <summary>
+    /// Writes <paramref name="isPrivate"/> onto the channel and syncs the @everyone overwrite to
+    /// match.
+    /// </summary>
+    /// <param name="channel">The channel being created or updated, already tracked.</param>
+    /// <param name="isPrivate">The requested state, or null to leave both untouched.</param>
+    /// <returns>The invalidation event to publish, or null when nothing changed.</returns>
+    public async Task<ChannelPermissionChanged?> ApplyAsync(Channel channel, bool? isPrivate)
+    {
+        if (isPrivate is not { } wanted) return null;
+
+        var everyoneRoleId = await ctx.Roles
+            .AsNoTracking()
+            .Where(r => r.GuildId == channel.GuildId && r.Type == RoleType.Everyone)
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync();
+
+        // A guild with no @everyone role has nothing to deny, so the flag would be a claim the
+        // permission model cannot back. Refuse to record it rather than record it falsely.
+        if (everyoneRoleId is null) return null;
+
+        var existing = await ctx.Set<ChannelPermission>()
+            .FirstOrDefaultAsync(p =>
+                p.ChannelId == channel.Id && p.CategoryId == null &&
+                p.RoleId == everyoneRoleId && p.MemberId == null);
+
+        var deny = existing?.DenyPermissions ?? Permissions.None;
+        var allow = existing?.AllowPermissions ?? Permissions.None;
+
+        var newDeny = wanted ? deny | Permissions.ViewChannel : deny & ~Permissions.ViewChannel;
+
+        // A private channel cannot also carry an @everyone allow of the bit it denies, and the
+        // resolution order applies allow last - so leaving it would undo the deny outright.
+        var newAllow = wanted ? allow & ~Permissions.ViewChannel : allow;
+
+        channel.IsPrivate = wanted;
+
+        if (newDeny == deny && newAllow == allow) return null;
+
+        if (existing is not null) ctx.Set<ChannelPermission>().Remove(existing);
+
+        // Nothing left to say once ViewChannel is out of both masks - a row of all-None would only
+        // slow the resolver down.
+        var stillMeaningful = newDeny != Permissions.None || newAllow != Permissions.None ||
+                              (existing?.AllowModulePermissions ?? ModulePermissions.None) != ModulePermissions.None ||
+                              (existing?.DenyModulePermissions ?? ModulePermissions.None) != ModulePermissions.None;
+
+        if (stillMeaningful)
+        {
+            var now = DateTimeOffset.UtcNow;
+
+            // AllowPermissions/DenyPermissions are init-only, so a change is remove + re-add.
+            ctx.Set<ChannelPermission>().Add(new ChannelPermission
+            {
+                Id = ChannelPermission.GenerateId(),
+                ChannelId = channel.Id,
+                CategoryId = null,
+                RoleId = everyoneRoleId,
+                MemberId = null,
+                AllowPermissions = newAllow,
+                DenyPermissions = newDeny,
+                AllowModulePermissions = existing?.AllowModulePermissions ?? ModulePermissions.None,
+                DenyModulePermissions = existing?.DenyModulePermissions ?? ModulePermissions.None,
+                CreatedAt = existing?.CreatedAt ?? now,
+                UpdatedAt = now,
+            });
+        }
+
+        return new ChannelPermissionChanged { GuildId = channel.GuildId, RoleId = everyoneRoleId };
+    }
+
+    /// <summary>
+    /// The reverse direction: re-derives <see cref="Channel.IsPrivate"/> from the @everyone
+    /// overwrite, so editing that overwrite directly cannot leave the flag lying.
+    /// </summary>
+    /// <param name="channelId">The channel whose overwrite just changed.</param>
+    /// <param name="roleId">The role the changed overwrite targets.</param>
+    public async Task SyncFlagFromOverwriteAsync(string? channelId, string? roleId)
+    {
+        if (string.IsNullOrWhiteSpace(channelId) || string.IsNullOrWhiteSpace(roleId)) return;
+
+        var guildId = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.Id == channelId)
+            .Select(c => c.GuildId)
+            .FirstOrDefaultAsync();
+
+        if (guildId is null) return;
+
+        var isEveryone = await ctx.Roles
+            .AsNoTracking()
+            .AnyAsync(r => r.Id == roleId && r.GuildId == guildId && r.Type == RoleType.Everyone);
+
+        if (isEveryone) await SyncFlagAsync(channelId);
+    }
+
+    /// <summary>
+    /// Re-reads the flag off whatever @everyone overwrite the channel currently carries, for
+    /// callers that rewrote the overwrites wholesale rather than one role at a time.
+    /// </summary>
+    /// <param name="channelId">The channel to bring back into agreement with itself.</param>
+    public async Task SyncFlagAsync(string channelId)
+    {
+        var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
+        if (channel is null) return;
+
+        var denied = await ctx.Set<ChannelPermission>()
+            .AsNoTracking()
+            .AnyAsync(p => p.ChannelId == channelId && p.CategoryId == null && p.MemberId == null &&
+                           p.Role.GuildId == channel.GuildId && p.Role.Type == RoleType.Everyone &&
+                           (p.DenyPermissions & Permissions.ViewChannel) == Permissions.ViewChannel);
+
+        if (channel.IsPrivate != denied) channel.IsPrivate = denied;
+    }
+}

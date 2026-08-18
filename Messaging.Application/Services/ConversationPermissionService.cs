@@ -32,14 +32,29 @@ public class ConversationPermissionService(MicroserviceContext ctx, IDistributed
         return isMember;
     }
     
+    /// <summary>
+    /// Drops a user's cached membership set, for when they stop being a member. Nothing below
+    /// re-reads the database while a positive entry stands, so a removal that skips this leaves the
+    /// former member reading the conversation until the entry expires.
+    /// </summary>
+    /// <param name="userId">The user whose membership changed.</param>
+    public async Task InvalidateAsync(string userId)
+    {
+        if (string.IsNullOrEmpty(userId)) return;
+        await cache.RemoveAsync(CacheId(userId));
+    }
+
+    private static string CacheId(string userId) => "messaging:conversation-permissions:" + userId;
+
     public  async Task<UserConversationPermissions> GetPermissionsForUser(string userId, bool rebuild = false)
 
     {
-        var cacheId = "messaging:conversation-permissions:" + userId;
         if (string.IsNullOrEmpty(userId))
         {
             throw new ArgumentException("User ID is required", nameof(userId));
         }
+
+        var cacheId = CacheId(userId);
         
         var cachedData = await cache.GetAsync(cacheId);
 

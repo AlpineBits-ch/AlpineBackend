@@ -1,5 +1,6 @@
 using Federation.Contracts.Materialization.Conversation;
 using Messaging.Application.Bus.Federation;
+using Messaging.Application.Services;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
 using Messaging.Tests.Helpers;
@@ -21,6 +22,9 @@ public class ConversationMaterializationHandlersTests
 
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
+
+    private ConversationPermissionService Permissions() => new(_context, new FakeDistributedCache());
+
 
     private static ConversationMember MakeMember(string id, string userId, string conversationId) => new()
     {
@@ -154,7 +158,7 @@ public class ConversationMaterializationHandlersTests
             UserId = "user-3",
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None);
+        await ConversationMaterializationHandlers.Handle(message, _context, Permissions(), CancellationToken.None);
 
         Assert.That(_context.Members.Any(m => m.ConversationId == "conv-1" && m.UserId == "user-3"), Is.False);
     }
@@ -171,7 +175,7 @@ public class ConversationMaterializationHandlersTests
             UserId = "ghost",
         };
 
-        Assert.DoesNotThrowAsync(() => ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None));
+        Assert.DoesNotThrowAsync(() => ConversationMaterializationHandlers.Handle(message, _context, Permissions(), CancellationToken.None));
     }
 
     // ══════════════════════════════════════════════════════════════════════════

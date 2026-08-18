@@ -84,6 +84,43 @@ public class MemberProjectionShapeTests
             + "list out into a cartesian join and leaks domain entities into the response.");
     }
 
+    /// <summary>
+    /// A read state is per-channel "what this member has read and when". The member list is other
+    /// people's rows, so carrying it there published everyone's reading activity to everyone, plus
+    /// the ids of channels the caller cannot see.
+    /// </summary>
+    [Test]
+    public void MemberProjection_DoesNotCarryReadStates()
+    {
+        var reached = AccessedMembers(MemberDto.Projection)
+            .Any(m => m.Name == nameof(GuildMember.ReadStates) || m.DeclaringType == typeof(ReadState));
+
+        Assert.That(reached, Is.False,
+            "MemberDto projects read states again. They belong to the reader alone - SelfMemberDto "
+            + "serves them on GET /guilds/{guildId}/me.");
+    }
+
+    [Test]
+    public void MemberDto_ExposesNoReadStateProperty()
+    {
+        var property = typeof(MemberDto).GetProperties()
+            .FirstOrDefault(p => p.Name == nameof(GuildMember.ReadStates));
+
+        Assert.That(property, Is.Null);
+    }
+
+    /// <summary>The caller's own read states still have to reach them somewhere.</summary>
+    [Test]
+    public void SelfMemberProjection_StillCarriesReadStates()
+    {
+        var reached = AccessedMembers(SelfMemberDto.Projection)
+            .Any(m => m.Name == nameof(GuildMember.ReadStates));
+
+        Assert.That(reached, Is.True,
+            "SelfMemberDto no longer projects the caller's own read states, so nothing serves unread "
+            + "state at all.");
+    }
+
     [Test]
     public void NeitherProjection_TouchesPublicKeys()
     {

@@ -459,4 +459,59 @@ public class ConversationPermissionServiceTests
         Assert.That(result, Is.False);
     }
 
+
+    // ══════════════════════════════════════════════════════════════════════════ InvalidateAsync
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>A positive entry is trusted without a database read, so a removal that does not
+    /// drop it leaves the former member reading the conversation until the TTL expires.</summary>
+    [Test]
+    public async Task InvalidateAsync_AfterRemoval_StopsTheCacheVouchingForAFormerMember()
+    {
+        var member = MakeMember("m-1", UserId, ConversationId);
+        _context.Members.Add(member);
+        await _context.SaveChangesAsync();
+
+        Assert.That(await _service.HasPermission(UserId, ConversationId), Is.True, "precondition");
+
+        _context.Members.Remove(member);
+        await _context.SaveChangesAsync();
+
+        Assert.That(await _service.HasPermission(UserId, ConversationId), Is.True,
+            "the stale positive entry is exactly the bug - it still vouches before invalidation");
+
+        await _service.InvalidateAsync(UserId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _cache.GetAsync(CacheKey(UserId)), Is.Null);
+            Assert.That(await _service.HasPermission(UserId, ConversationId), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task InvalidateAsync_WithNoCachedEntry_DoesNotThrow()
+    {
+        Assert.DoesNotThrowAsync(() => _service.InvalidateAsync("nobody"));
+    }
+
+    [Test]
+    public async Task InvalidateAsync_LeavesOtherUsersEntriesAlone()
+    {
+        _context.Members.AddRange(
+            MakeMember("m-1", UserId, ConversationId),
+            MakeMember("m-2", "user-2", ConversationId));
+        await _context.SaveChangesAsync();
+
+        await _service.HasPermission(UserId, ConversationId);
+        await _service.HasPermission("user-2", ConversationId);
+
+        await _service.InvalidateAsync(UserId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _cache.GetAsync(CacheKey(UserId)), Is.Null);
+            Assert.That(await _cache.GetAsync(CacheKey("user-2")), Is.Not.Null);
+        });
+    }
 }

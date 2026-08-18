@@ -1,4 +1,5 @@
 using Federation.Contracts.Materialization.Conversation;
+using Messaging.Application.Services;
 using Messaging.Domain.Aggregates;
 using Messaging.Domain.Entities;
 using Messaging.Infrastructure.Persistence;
@@ -61,7 +62,8 @@ public class ConversationMaterializationHandlers
         await db.SaveChangesAsync(ct);
     }
 
-    public static async Task Handle(FederatedConversationMemberLeftReceived message, MicroserviceContext db, CancellationToken ct)
+    public static async Task Handle(FederatedConversationMemberLeftReceived message, MicroserviceContext db,
+        ConversationPermissionService conversationPermissions, CancellationToken ct)
     {
         var member = await db.Members.FirstOrDefaultAsync(
             m => m.ConversationId == message.ConversationId && m.UserId == message.UserId, ct);
@@ -69,6 +71,9 @@ public class ConversationMaterializationHandlers
 
         db.Members.Remove(member);
         await db.SaveChangesAsync(ct);
+
+        // See ConversationMemberLeftHandler - the read side trusts a positive cache entry.
+        await conversationPermissions.InvalidateAsync(message.UserId);
     }
 
     public static async Task Handle(FederatedConversationDeletedReceived message, MicroserviceContext db, CancellationToken ct)

@@ -21,64 +21,64 @@ public class PermissionOverwriteEndpoint
         string channelId, string roleId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, channelId: channelId, roleId: roleId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, dto, channelId: channelId, roleId: roleId);
 
     [WolverinePut("/api/v1/channels/{channelId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> SetChannelMemberOverwriteAsync(
         string channelId, string memberId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, channelId: channelId, memberId: memberId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, dto, channelId: channelId, memberId: memberId);
 
     [WolverinePut("/api/v1/categories/{categoryId}/permissions/roles/{roleId}")]
     public Task<(IResult, ChannelPermissionChanged?)> SetCategoryRoleOverwriteAsync(
         string categoryId, string roleId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, categoryId: categoryId, roleId: roleId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, dto, categoryId: categoryId, roleId: roleId);
 
     [WolverinePut("/api/v1/categories/{categoryId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> SetCategoryMemberOverwriteAsync(
         string categoryId, string memberId, SetPermissionOverwriteDto dto,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, dto, categoryId: categoryId, memberId: memberId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => UpsertAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, dto, categoryId: categoryId, memberId: memberId);
 
     [WolverineDelete("/api/v1/channels/{channelId}/permissions/roles/{roleId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteChannelRoleOverwriteAsync(
         string channelId, string roleId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelId: channelId, roleId: roleId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, channelId: channelId, roleId: roleId);
 
     [WolverineDelete("/api/v1/channels/{channelId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteChannelMemberOverwriteAsync(
         string channelId, string memberId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelId: channelId, memberId: memberId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, channelId: channelId, memberId: memberId);
 
     [WolverineDelete("/api/v1/categories/{categoryId}/permissions/roles/{roleId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteCategoryRoleOverwriteAsync(
         string categoryId, string roleId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, categoryId: categoryId, roleId: roleId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, categoryId: categoryId, roleId: roleId);
 
     [WolverineDelete("/api/v1/categories/{categoryId}/permissions/members/{memberId}")]
     public Task<(IResult, ChannelPermissionChanged?)> DeleteCategoryMemberOverwriteAsync(
         string categoryId, string memberId,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
         [NotBody] GuildPermissionService permissionService, [NotBody] AuditLogService auditLog,
-        [NotBody] MfaElevationService mfa)
-        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, categoryId: categoryId, memberId: memberId);
+        [NotBody] MfaElevationService mfa, [NotBody] ChannelPrivacyService channelPrivacy)
+        => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, categoryId: categoryId, memberId: memberId);
 
     /// <summary>Validates the overwrite's target.</summary>
     private static async Task<IResult?> EnsureTargetIsInGuildAndOutrankedAsync(
@@ -118,7 +118,7 @@ public class PermissionOverwriteEndpoint
 
     private static async Task<(IResult, ChannelPermissionChanged?)> UpsertAsync(
         MicroserviceContext ctx, ClaimsPrincipal user, GuildPermissionService permissionService, AuditLogService auditLog,
-        MfaElevationService mfa, SetPermissionOverwriteDto dto, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
+        MfaElevationService mfa, ChannelPrivacyService channelPrivacy, SetPermissionOverwriteDto dto, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
@@ -184,6 +184,9 @@ public class PermissionOverwriteEndpoint
         };
         ctx.Set<ChannelPermission>().Add(overwrite);
 
+        // See RemoveAsync - the flag follows the overwrite, in both directions.
+        await channelPrivacy.SyncFlagFromOverwriteAsync(channelId, roleId);
+
         auditLog.Log(guildId, userId, AuditActionType.ChannelPermissionChanged, channelId ?? categoryId,
             new { ChannelId = channelId, CategoryId = categoryId, RoleId = roleId, MemberId = memberId });
 
@@ -216,7 +219,7 @@ public class PermissionOverwriteEndpoint
 
     private static async Task<(IResult, ChannelPermissionChanged?)> RemoveAsync(
         MicroserviceContext ctx, ClaimsPrincipal user, GuildPermissionService permissionService, AuditLogService auditLog,
-        MfaElevationService mfa, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
+        MfaElevationService mfa, ChannelPrivacyService channelPrivacy, string? channelId = null, string? categoryId = null, string? roleId = null, string? memberId = null)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
@@ -241,6 +244,10 @@ public class PermissionOverwriteEndpoint
         if (existing is null) return (Results.NotFound(), null);
 
         ctx.Set<ChannelPermission>().Remove(existing);
+
+        // Channel.IsPrivate is now a reading of this overwrite rather than a separate claim, so
+        // clearing the @everyone ViewChannel deny has to clear the flag with it.
+        await channelPrivacy.SyncFlagFromOverwriteAsync(channelId, roleId);
 
         auditLog.Log(guildId, userId, AuditActionType.ChannelPermissionChanged, channelId ?? categoryId,
             new { ChannelId = channelId, CategoryId = categoryId, RoleId = roleId, MemberId = memberId, Removed = true });

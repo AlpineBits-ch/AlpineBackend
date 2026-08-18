@@ -1010,4 +1010,84 @@ public class MessageCreatedHandlerTests
 
         Assert.That(IndexedRecipients(), Is.Empty);
     }
+
+    // ══════════════════════════════════════════════════════════════════════ Push and ViewChannel
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>The push carries the message body, so it answers to ViewChannel like the
+    /// broadcast does - the candidate set behind it is the whole membership.</summary>
+    [Test]
+    public async Task Push_SkipsAMemberDeniedViewChannel()
+    {
+        await SeedGuildAsync(memberCount: 2, guildDefault: NotificationLevel.AllMessages);
+
+        _context.ChannelPermissions.Add(new ChannelPermission
+        {
+            Id = "chpr-view", ChannelId = ChannelId, RoleId = null, MemberId = "memb-2",
+            AllowPermissions = Permissions.None,
+            DenyPermissions = Permissions.ViewChannel | Permissions.ReadMessageHistory,
+            CreatedAt = Now, UpdatedAt = Now,
+        });
+        await _context.SaveChangesAsync();
+
+        await RunAsync(Message());
+
+        Assert.That(PushedUserIds(), Is.EqualTo(new[] { "user-1" }).AsCollection);
+    }
+
+    /// <summary>A deny on the category the channel sits in reaches the push the same way.</summary>
+    [Test]
+    public async Task Push_SkipsAMemberDeniedViewChannelOnTheCategory()
+    {
+        await SeedGuildAsync(memberCount: 2, guildDefault: NotificationLevel.AllMessages);
+
+        _context.Categories.Add(new Category
+        {
+            Id = "ctgy-1", GuildId = GuildId, Name = "private", CreatedAt = Now, UpdatedAt = Now,
+        });
+        _context.Channels.Single(c => c.Id == ChannelId).CategoryId = "ctgy-1";
+        _context.ChannelPermissions.Add(new ChannelPermission
+        {
+            Id = "chpr-cat", ChannelId = null, CategoryId = "ctgy-1", RoleId = null, MemberId = "memb-2",
+            AllowPermissions = Permissions.None,
+            DenyPermissions = Permissions.ViewChannel,
+            CreatedAt = Now, UpdatedAt = Now,
+        });
+        await _context.SaveChangesAsync();
+
+        await RunAsync(Message());
+
+        Assert.That(PushedUserIds(), Is.EqualTo(new[] { "user-1" }).AsCollection);
+    }
+
+    /// <summary>Being named does not get you past the channel gate either.</summary>
+    [Test]
+    public async Task Push_SkipsADirectlyMentionedMemberWhoCannotSeeTheChannel()
+    {
+        await SeedGuildAsync(memberCount: 2, guildDefault: NotificationLevel.OnlyMentions);
+
+        _context.ChannelPermissions.Add(new ChannelPermission
+        {
+            Id = "chpr-mention", ChannelId = ChannelId, RoleId = null, MemberId = "memb-2",
+            AllowPermissions = Permissions.None,
+            DenyPermissions = Permissions.ViewChannel,
+            CreatedAt = Now, UpdatedAt = Now,
+        });
+        await _context.SaveChangesAsync();
+
+        await RunAsync(Message(mentions: ["user-1", "user-2"]));
+
+        Assert.That(PushedUserIds(), Is.EqualTo(new[] { "user-1" }).AsCollection);
+    }
+
+    /// <summary>The ordinary case still reaches everyone, so the filter is not simply denying.</summary>
+    [Test]
+    public async Task Push_ReachesEveryMemberWhoCanSeeTheChannel()
+    {
+        await SeedGuildAsync(memberCount: 3, guildDefault: NotificationLevel.AllMessages);
+
+        await RunAsync(Message());
+
+        Assert.That(PushedUserIds(), Is.EquivalentTo(new[] { "user-1", "user-2", "user-3" }));
+    }
 }

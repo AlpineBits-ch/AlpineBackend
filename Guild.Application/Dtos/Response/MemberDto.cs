@@ -17,7 +17,13 @@ public enum OnlineStatus
 }
 
 /// <summary>A member as seen by other members.</summary>
-[Facet(typeof(GuildMember), nameof(GuildMember.Guild), nameof(GuildMember.RoleMembers), NestedFacets = [typeof(FlatInviteDto), typeof(FlatChannelPermissionDto), typeof(ReadStateDto)], MaxDepth = 1)]
+/// <remarks>
+/// ReadStates is excluded: it is per-channel "what this member has read and when", which is a self
+/// concern and is served on SelfMemberDto by GET guilds/{guildId}/me. Projecting it here published
+/// every member's reading activity - and the ids of channels the caller cannot see - to every other
+/// member, and cost a collection join on every page of the member list.
+/// </remarks>
+[Facet(typeof(GuildMember), nameof(GuildMember.Guild), nameof(GuildMember.RoleMembers), nameof(GuildMember.ReadStates), NestedFacets = [typeof(FlatInviteDto), typeof(FlatChannelPermissionDto)], MaxDepth = 1)]
 public partial class MemberDto
 {
     public OnlineStatus Status { get; set; }

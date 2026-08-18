@@ -130,16 +130,18 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
         public string Name { get; init; } = null!;
         public string? Description { get; init; }
         public bool IsAgeRestricted { get; init; }
-        public bool IsPrivate { get; init; }
         public int SlowModeSeconds { get; init; }
     }
 
+    /// <summary>
+    /// IsPrivate is not settable here: it is only meaningful alongside the @everyone ViewChannel
+    /// overwrite that enforces it, so ChannelPrivacyService owns both halves.
+    /// </summary>
     public void Update(UpdateChannelParams @params)
     {
         Name = @params.Name;
         Description = @params.Description;
         IsAgeRestricted = @params.IsAgeRestricted;
-        IsPrivate = @params.IsPrivate;
         SlowModeSeconds = @params.SlowModeSeconds;
 
         new ChannelValidator().ValidateAndThrow(this);

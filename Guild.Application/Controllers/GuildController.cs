@@ -1,5 +1,4 @@
 ﻿using System.Security.Claims;
-using System.Text.Json;
 using Facet.Extensions;
 using Facet.Extensions.EFCore;
 using Guild.Application.Dtos.Response;
@@ -47,7 +46,14 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             .AsNoTracking()
             .ToListAsync();
 
-        return Ok(guilds.SelectFacets<Domain.Aggregates.Guild, GuildDto>());
+        var dtos = guilds.SelectFacets<Domain.Aggregates.Guild, GuildDto>().ToList();
+
+        // Same filter GetGuild applies, per guild: one cached permission read each, then a lookup
+        // per channel.
+        foreach (var dto in dtos)
+            dto.Channels = await VisibleChannelsAsync(userId, dto.Id, dto.Channels);
+
+        return Ok(dtos);
     }
 
     [HttpGet("{id}")]
@@ -76,6 +82,8 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         var dto = guild.ToFacet<Domain.Aggregates.Guild, GuildDto>();
         dto.FeatureResolution = GuildFeatureResolutionDto.From(
             await permissionService.GetGuildFeatureResolutionAsync(id));
+
+        dto.Channels = await VisibleChannelsAsync(userId, id, dto.Channels);
 
         return Ok(dto);
     }
@@ -113,7 +121,6 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         }
         
         var guildMembers = await ctx.GuildMembers
-            .Include(m => m.ReadStates)
             .Where(m => m.GuildId == id)
             .Where(m => m.SearchValue.Contains(search.ToUpperInvariant()))
             .OrderBy(m => m.CreatedAt)
@@ -126,10 +133,6 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         foreach (var member in guildMembers)
         {
             member.Profile = profiles.FirstOrDefault(p => p.UserId == member.UserId);
-            if(member.UserId == userId)
-            {
-                member.ReadStates = [];
-            }
         }
         
         return Ok(guildMembers);
@@ -154,7 +157,6 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         var members = await ctx.GuildMembers
             .Where(m => m.GuildId == id)
             .OrderBy(m => m.CreatedAt)
-            .Include(m => m.ReadStates)
             .Take(take).Skip(skip)
             .ToFacetsAsync<GuildMember, MemberDto>();
     
@@ -163,8 +165,6 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             members.Select(m => m.Id)
         );
         
-        logger.LogInformation("Presence map data: {PresenceMap}", presenceMap);
-
         // One privacy read for the whole page rather than one per member: ShareActivity gates the
         // activity half of every row below, and the cache is Redis-backed.
         var memberUserIds = members.Select(m => m.UserId).Distinct(StringComparer.Ordinal).ToList();
@@ -221,13 +221,9 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             member.RoleMembers = roleAssignmentsByMember[member.Id]
                 .Select(x => new MemberRoleAssignmentDto { Role = x.Role })
                 .ToList();
-            if(member.UserId == userId)
-            {
-                member.ReadStates = [];
-            }
         }
 
-        logger.LogInformation("Guild members loaded for guild {GuildId} with {Count} members, with {Data}", id, members.Count, JsonSerializer.Serialize(members));
+        logger.LogInformation("Guild members loaded for guild {GuildId} with {Count} members", id, members.Count);
 
         return Ok(members);
     }
@@ -308,8 +304,32 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
             return NotFound();
         }
         var guildDto = guild.ToFacet<Domain.Aggregates.Guild, GuildDto>();
-        return Ok(guildDto.Channels);
+        return Ok(await VisibleChannelsAsync(userId, guildId, guildDto.Channels));
 
+    }
+
+    /// <summary>
+    /// Drops the channels this caller may not see. The guild-level gate both callers apply reads
+    /// base permissions only, so on its own it hands a member the name and id of every restricted
+    /// channel in the guild.
+    /// </summary>
+    /// <param name="userId">The caller.</param>
+    /// <param name="guildId">The guild the channels belong to.</param>
+    /// <param name="channels">Every channel of that guild, already projected.</param>
+    /// <returns>The subset holding ViewChannel.</returns>
+    private async Task<List<ChannelDto>> VisibleChannelsAsync(
+        string userId, string guildId, IEnumerable<ChannelDto> channels)
+    {
+        var all = channels.ToList();
+        if (all.Count == 0) return all;
+
+        // One resolved permission set for the whole page - see
+        // GuildPermissionService.FilterChannelsWithPermissionAsync, which reads the caller's cached
+        // entry once and answers every channel off it rather than per channel.
+        var visible = await permissionService.FilterChannelsWithPermissionAsync(
+            userId, guildId, all.Select(c => c.Id).ToList(), Permissions.ViewChannel);
+
+        return all.Where(c => visible.Contains(c.Id)).ToList();
     }
     
     

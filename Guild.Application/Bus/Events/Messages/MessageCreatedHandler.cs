@@ -108,7 +108,7 @@ public class MessageCreatedHandler
         await PushMentionAddedAsync(message, cachedGuildId, mentioned, hub);
 
         await PublishPushRecipientsAsync(message, cachedGuildId, presence, mentioned, context, notificationService, bus,
-            blockView, privacySettings);
+            blockView, privacySettings, audience);
     }
 
     /// <summary>A mentioned member.</summary>
@@ -309,7 +309,8 @@ public class MessageCreatedHandler
         NotificationResolutionService notificationService,
         IMessageBus bus,
         BlockView blockView,
-        PrivacySettingsCache privacySettings)
+        PrivacySettingsCache privacySettings,
+        ChannelAudienceService audience)
     {
         // Everyone who could conceivably be notified: whoever the message named, plus whoever's
         // settings say "tell me about everything" - that case is precisely what the mention set
@@ -364,6 +365,14 @@ public class MessageCreatedHandler
             if (settings.ShouldNotify(isDirectMention, isRoleMention, isEveryoneMention))
                 recipients.Add(candidate.UserId);
         }
+
+        if (recipients.Count == 0) return;
+
+        // The candidate set is guild-wide - at the AllMessages default it is the whole membership -
+        // but the push carries the message body, so it has to answer to ViewChannel exactly as the
+        // realtime broadcast above does. Last, on the set the cheap filters have already cut down,
+        // and against the same 10-second decision cache the broadcast just populated.
+        recipients = await audience.FilterToViewersAsync(message.ChannelId, recipients);
 
         if (recipients.Count == 0) return;
 

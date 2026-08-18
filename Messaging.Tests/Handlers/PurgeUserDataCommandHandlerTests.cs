@@ -1,5 +1,6 @@
 using Identity.Contracts.Bus.Commands;
 using Messaging.Application.Handler.Account;
+using Messaging.Application.Services;
 using Messaging.Domain.Entities;
 using Messaging.Tests.Helpers;
 
@@ -22,6 +23,9 @@ public class PurgeUserDataCommandHandlerTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
+    private ConversationPermissionService Permissions() => new(_context, new FakeDistributedCache());
+
+
     private static ConversationMember MakeMember(string id, string userId, string conversationId) => new()
     {
         Id = id,
@@ -43,7 +47,7 @@ public class PurgeUserDataCommandHandlerTests
             MakeMember("m-3", "user-b", "conv-1"));
         await _context.SaveChangesAsync();
 
-        var response = await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        var response = await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context, Permissions());
         await _context.SaveChangesAsync();
 
         var remaining = _context.Members.ToList();
@@ -70,7 +74,7 @@ public class PurgeUserDataCommandHandlerTests
         _context.Members.Add(member);
         await _context.SaveChangesAsync();
 
-        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context, Permissions());
         await _context.SaveChangesAsync();
 
         Assert.That(_context.MemberDevices.Any(), Is.False);
@@ -79,7 +83,7 @@ public class PurgeUserDataCommandHandlerTests
     [Test]
     public async Task Handle_UserHasNoMemberships_ReturnsResponseWithoutError()
     {
-        var response = await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "ghost" }, _context);
+        var response = await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "ghost" }, _context, Permissions());
 
         Assert.Multiple(() =>
         {
@@ -132,7 +136,7 @@ public class PurgeUserDataCommandHandlerTests
         SeedJoinRequest("user-b", "conv-1");
         await _context.SaveChangesAsync();
 
-        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context, Permissions());
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -159,7 +163,7 @@ public class PurgeUserDataCommandHandlerTests
         }));
         await _context.SaveChangesAsync();
 
-        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context, Permissions());
         await _context.SaveChangesAsync();
 
         // A commit is not the sender's property; it is a link in the group's history.
@@ -186,7 +190,7 @@ public class PurgeUserDataCommandHandlerTests
         }));
         await _context.SaveChangesAsync();
 
-        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context);
+        await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = "user-a" }, _context, Permissions());
         await _context.SaveChangesAsync();
 
         // Nobody is left to be forked off, and nothing left to read.

@@ -253,7 +253,7 @@ public class GuildMfaRequirementTests
         var (result, _) = await new PermissionOverwriteEndpoint().SetChannelRoleOverwriteAsync(
             ChannelId, TargetRoleId,
             new SetPermissionOverwriteDto { DenyPermissions = Permissions.SendMessages },
-            _context, PasswordOnly(UserId), _permissionService, _auditLog, _mfa);
+            _context, PasswordOnly(UserId), _permissionService, _auditLog, _mfa , new ChannelPrivacyService(_context));
 
         AssertIsMfaRejection(result);
         Assert.That(await _context.Set<ChannelPermission>().CountAsync(), Is.Zero);

@@ -37,6 +37,7 @@ public class ChannelEndpoint
             [NotBody] MicroserviceContext ctx,
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
+        [NotBody] ChannelPrivacyService channelPrivacy,
         [NotBody] IMessageBus bus,
         [NotBody] ILogger<ChannelEndpoint> logger,
         [NotBody] ClaimsPrincipal user)
@@ -70,7 +71,12 @@ public class ChannelEndpoint
             });
         
             ctx.Channels.Add(channel);
-        
+
+            // Writes the @everyone ViewChannel deny that makes the flag mean something. No cache
+            // invalidation needed on create - nobody can hold a resolved entry for a channel that
+            // did not exist a moment ago.
+            await channelPrivacy.ApplyAsync(channel, dto.IsPrivate);
+
             var presence = await guildHydrateService.GetGuildPresenceAsync(guildId);
 
             await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ChannelCreated", new
@@ -163,6 +169,7 @@ public class ChannelEndpoint
         [NotBody] IHubContext<EchoRealtimeHub> hub,
         [NotBody] GuildHydrateService guildHydrateService,
         [NotBody] AuditLogService auditLog,
+        [NotBody] ChannelPrivacyService channelPrivacy,
         [NotBody] IMessageBus bus,
         [NotBody] ClaimsPrincipal user)
     {
@@ -183,7 +190,6 @@ public class ChannelEndpoint
                 Name = dto.Name,
                 Description = dto.Description,
                 IsAgeRestricted = dto.IsAgeRestricted,
-                IsPrivate = dto.IsPrivate,
                 SlowModeSeconds = dto.SlowModeSeconds,
             });
         }
@@ -195,6 +201,12 @@ public class ChannelEndpoint
 
             return Results.ValidationProblem(errors);
         }
+
+        // Toggling privacy rewrites the @everyone overwrite, which every member's cached permission
+        // set was resolved against - so it has to invalidate them the way the overwrite endpoint
+        // does, or the guild keeps reading a channel that is now private for up to the cache TTL.
+        if (await channelPrivacy.ApplyAsync(channel, dto.IsPrivate) is { } privacyChanged)
+            await bus.PublishAsync(privacyChanged);
 
         // Slowmode is read from a 15-minute cache on Messaging's send path; without this an
         // operator turning slowmode off would watch it keep rejecting messages for a quarter hour.

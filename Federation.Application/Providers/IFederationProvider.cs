@@ -10,8 +10,8 @@ public interface IFederationProvider
     Task ShutdownAsync(CancellationToken cancellationToken);
 
     // Messaging
-    Task SendMessageAsync(string channelId, string messageId, byte[] content, string senderId, CancellationToken cancellationToken);
-    Task EditMessageAsync(string channelId, string messageId, byte[] content, string senderId, CancellationToken cancellationToken);
+    Task SendMessageAsync(string channelId, string messageId, byte[] content, string senderId, FederatedAuthorDisplay author, CancellationToken cancellationToken);
+    Task EditMessageAsync(string channelId, string messageId, byte[] content, string senderId, FederatedAuthorDisplay author, CancellationToken cancellationToken);
     Task DeleteMessageAsync(string channelId, string messageId, string senderId, CancellationToken cancellationToken);
     Task AddReactionAsync(string channelId, string messageId, string reaction, string senderId, CancellationToken cancellationToken);
     Task RemoveReactionAsync(string channelId, string messageId, string reaction, string senderId, CancellationToken cancellationToken);

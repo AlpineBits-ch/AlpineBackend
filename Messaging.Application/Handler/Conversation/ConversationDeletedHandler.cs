@@ -13,6 +13,13 @@ public class ConversationDeletedHandler
         MicroserviceContext ctx, IDistributedCache cache, IHubContext<EchoRealtimeHub> hubContext)
     {
         var conversationMembers = await ctx.Members.Where(m => m.ConversationId == conversationDeleted.ConversationId).AsNoTracking().ToListAsync();
+
+        // Drafts carry no foreign key to the conversation, so nothing cascades them away.
+        var drafts = await ctx.MessageDrafts
+            .Where(d => d.ContextId == conversationDeleted.ConversationId)
+            .ToListAsync();
+        ctx.MessageDrafts.RemoveRange(drafts);
+
         await hubContext.Clients.Users(conversationMembers.Select(m => m.UserId)).SendAsync("conversation.ConversationDeleted", conversationDeleted);
     }
 }

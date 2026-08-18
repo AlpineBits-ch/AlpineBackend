@@ -84,7 +84,8 @@ public class GuildEndpoint
     
     [WolverineDelete("/api/v1/guilds/{id}")]
     public async Task<IResult> DeleteGuild(string id, [NotBody] MicroserviceContext ctx,
-        [NotBody] ClaimsPrincipal user, [NotBody] IHubContext<EchoRealtimeHub> hub)
+        [NotBody] ClaimsPrincipal user, [NotBody] IHubContext<EchoRealtimeHub> hub,
+        [NotBody] PersonaService personas)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -101,6 +102,10 @@ public class GuildEndpoint
             .Where(m => m.GuildId == id)
             .Select(m => m.UserId)
             .ToListAsync();
+
+        // The profiles cascade with the guild but Persona.HomeProfileId carries no foreign key, so
+        // without this sweep a character adopted here keeps pointing at a row that is about to go.
+        await personas.RepointHomesForDeletedGuildAsync(id);
 
         ctx.Guilds.Remove(guild);
         await ctx.SaveChangesAsync();

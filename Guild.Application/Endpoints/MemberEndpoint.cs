@@ -461,6 +461,14 @@ public class MemberEndpoint
 
         ctx.GuildMembers.Remove(member);
 
+        // The profile and its approval deliberately survive leaving, so rejoining does not mean
+        // resubmitting a character; the autoproxy state does not, because it points at a channel
+        // the leaver can no longer see.
+        var autoproxy = await ctx.Set<PersonaAutoproxyState>()
+            .Where(a => a.GuildId == guildId && a.UserId == userId)
+            .ToListAsync();
+        ctx.Set<PersonaAutoproxyState>().RemoveRange(autoproxy);
+
         // Same stale-permission-cache reason as the ban path above.
         await permissionService.InvalidateUserPermissionsCacheAsync(guildId, userId);
 

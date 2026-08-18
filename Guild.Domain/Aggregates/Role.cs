@@ -148,6 +148,15 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         HouseholdEveryonePermissions;
 
     /// <summary>
+    /// What @everyone additionally gets in a roleplay guild. Kept out of <see
+    /// cref="DefaultEveryoneModulePermissions"/> deliberately: the RemapModulePermissionBits
+    /// migration is asserted to reproduce that constant exactly, and it cannot produce a bit that
+    /// did not exist when it ran. Speaking as a character is also the point of the guild kind, so
+    /// granting it here rather than everywhere costs nothing.
+    /// </summary>
+    public const ModulePermissions RoleplayEveryoneModulePermissions = ModulePermissions.UsePersonas;
+
+    /// <summary>
     /// What an ordinary member of a shared household can do: participate in every module, moderate
     /// none of it.
     /// </summary>
@@ -207,7 +216,8 @@ public class Role : Aggregate<Role>, IPrefixedEntity
         ModulePermissions = externalModule | ExternalEveryoneModuleBaseline;
     }
 
-    public static Role CreateEveryoneRole(string guildId, string memberId)
+    /// <param name="kind">Decides the module grants that only make sense for one guild kind.</param>
+    public static Role CreateEveryoneRole(string guildId, string memberId, GuildKind kind = GuildKind.Community)
     {
         var roleId = GenerateId();
 
@@ -230,7 +240,9 @@ public class Role : Aggregate<Role>, IPrefixedEntity
                 MemberId = memberId
             }],
             Permissions = DefaultEveryonePermissions,
-            ModulePermissions = DefaultEveryoneModulePermissions,
+            ModulePermissions = kind == GuildKind.Roleplay
+                ? DefaultEveryoneModulePermissions | RoleplayEveryoneModulePermissions
+                : DefaultEveryoneModulePermissions,
         };
 
         return role;

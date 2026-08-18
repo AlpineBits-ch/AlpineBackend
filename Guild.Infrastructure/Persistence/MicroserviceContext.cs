@@ -28,6 +28,14 @@ public class MicroserviceContext : DbContext
     public DbSet<WikiPageWatcher> WikiPageWatchers { get; set; }
     public DbSet<WikiComment> WikiComments { get; set; }
 
+    // ── Roleplay ─────────────────────────────────────────────────────────────
+    public DbSet<Persona> Personas { get; set; }
+    public DbSet<PersonaGuildProfile> PersonaGuildProfiles { get; set; }
+    public DbSet<PersonaGrant> PersonaGrants { get; set; }
+    public DbSet<PersonaAutoproxyState> PersonaAutoproxyStates { get; set; }
+    public DbSet<SceneState> SceneStates { get; set; }
+    public DbSet<DiceRoll> DiceRolls { get; set; }
+
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
     public DbSet<GuildAuditLogEntry> AuditLogEntries { get; set; }
     public DbSet<GuildBan> GuildBans { get; set; }
@@ -120,6 +128,10 @@ public class MicroserviceContext : DbContext
             options.MapEnum<BillStatus>();
             options.MapEnum<ExpenseCategory>();
             options.MapEnum<AssetStatus>();
+            options.MapEnum<PersonaScope>();
+            options.MapEnum<PersonaApprovalState>();
+            options.MapEnum<AutoproxyMode>();
+            options.MapEnum<SceneStatus>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -425,6 +437,13 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             wikiBuilder.HasIndex(w => w.GuildId).IsUnique();
+
+            // The public slug is a hostname-level identifier, so the database is where uniqueness is
+            // decided - the publish endpoint's "is it taken" query races two guilds claiming the
+            // same name at once. Filtered, because unpublished is the overwhelming majority.
+            wikiBuilder.HasIndex(w => w.PublishedSlug)
+                .IsUnique()
+                .HasFilter("published_slug IS NOT NULL");
         });
 
         modelBuilder.Entity<WikiPage>(pageBuilder =>
@@ -437,10 +456,34 @@ public class MicroserviceContext : DbContext
             pageBuilder.Property(p => p.Tags)
                 .HasColumnType("text[]");
 
+            // Real jsonb, not text: this column only ever lives in Postgres, so unlike
+            // Message.EmbedsJson it does not have to be storable anywhere else.
+            pageBuilder.Property(p => p.InfoboxJson)
+                .HasColumnType("jsonb");
+
             pageBuilder.HasOne<Domain.Aggregates.Guild>()
                 .WithMany()
                 .HasForeignKey(p => p.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            // Unlinks the page rather than deleting it - the prose outlives the persona row.
+            pageBuilder.HasOne<Persona>()
+                .WithMany()
+                .HasForeignKey(p => p.PersonaId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // One character, one page per guild. Filtered, because every ordinary page has a null
+            // persona and an unfiltered index would treat them all as colliding.
+            pageBuilder.HasIndex(p => new { p.GuildId, p.PersonaId })
+                .IsUnique()
+                .HasFilter("persona_id IS NOT NULL");
+        });
+
+        modelBuilder.Entity<WikiRevision>(revisionBuilder =>
+        {
+            revisionBuilder.Property(r => r.InfoboxJson)
+                .HasColumnType("jsonb");
         });
 
         modelBuilder.Entity<WikiCategory>(categoryBuilder =>
@@ -449,6 +492,9 @@ public class MicroserviceContext : DbContext
                 .WithMany()
                 .HasForeignKey(c => c.GuildId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            categoryBuilder.Property(c => c.InfoboxTemplateJson)
+                .HasColumnType("jsonb");
         });
 
         // Reactions hang off WikiPage by foreign key with no navigation property on the page. That
@@ -493,6 +539,169 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             commentBuilder.HasIndex(c => new { c.PageId, c.CreatedAt });
+        });
+
+        // Personas hang off Guild by foreign key and never off GuildMember - see
+        // docs/specs/roleplay-guilds.md §2. A second row per (user, guild) in the member table
+        // would make permission resolution return an arbitrary one, silently.
+        modelBuilder.Entity<Persona>(personaBuilder =>
+        {
+            personaBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.OwnerGuildId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The guild's shared cast, and half of the union the proxy-prefix check walks.
+            personaBuilder.HasIndex(x => new { x.OwnerGuildId, x.OwnerUserId });
+
+            // The account-level list, and the purge on account deletion. Filtered because a
+            // guild-scoped persona has no owning user at all.
+            personaBuilder.HasIndex(x => x.OwnerUserId)
+                .HasFilter("owner_user_id IS NOT NULL");
+        });
+
+        modelBuilder.Entity<PersonaGuildProfile>(profileBuilder =>
+        {
+            profileBuilder.HasOne<Persona>()
+                .WithMany()
+                .HasForeignKey(x => x.PersonaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            profileBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting the character page leaves the adoption and its approval standing.
+            profileBuilder.HasOne<WikiPage>()
+                .WithMany()
+                .HasForeignKey(x => x.WikiPageId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Adoption is idempotent; two rows would make "which overrides apply here" a coin flip.
+            profileBuilder.HasIndex(x => new { x.PersonaId, x.GuildId }).IsUnique();
+
+            // The approval queue.
+            profileBuilder.HasIndex(x => new { x.GuildId, x.ApprovalState });
+
+            // The send path's prefix resolution, and the collision check that shares it.
+            profileBuilder.HasIndex(x => new { x.GuildId, x.ProxyPrefix })
+                .HasFilter("proxy_prefix IS NOT NULL");
+        });
+
+        modelBuilder.Entity<PersonaGrant>(grantBuilder =>
+        {
+            grantBuilder.HasOne<Persona>()
+                .WithMany()
+                .HasForeignKey(x => x.PersonaId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting the role takes the grant with it, which is what "stops being selectable
+            // immediately" means.
+            grantBuilder.HasOne<Domain.Aggregates.Role>()
+                .WithMany()
+                .HasForeignKey(x => x.RoleId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Granting twice is a no-op rather than a duplicate, on either shape. That exactly one
+            // of the two ids is set is enforced by PersonaGrant.Create, the only way to build one.
+            grantBuilder.HasIndex(x => new { x.PersonaId, x.RoleId })
+                .IsUnique()
+                .HasFilter("role_id IS NOT NULL");
+
+            grantBuilder.HasIndex(x => new { x.PersonaId, x.UserId })
+                .IsUnique()
+                .HasFilter("user_id IS NOT NULL");
+        });
+
+        modelBuilder.Entity<PersonaAutoproxyState>(autoproxyBuilder =>
+        {
+            autoproxyBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            autoproxyBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A retired or deleted persona leaves the row behind resolving to nothing, rather than
+            // pointing at an id that is gone.
+            autoproxyBuilder.HasOne<Persona>()
+                .WithMany()
+                .HasForeignKey(x => x.PersonaId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The send path reads this on every message with no explicit persona on it.
+            autoproxyBuilder.HasIndex(x => new { x.UserId, x.ChannelId }).IsUnique();
+
+            // Leaving a guild clears the whole set in one delete.
+            autoproxyBuilder.HasIndex(x => new { x.UserId, x.GuildId });
+        });
+
+        // A side table rather than six more columns on Channel: Channel.cs earns the forum columns
+        // their place by each being a sort key or a filter on the forum listing, and none of these
+        // is - two of them are arrays.
+        modelBuilder.Entity<SceneState>(sceneBuilder =>
+        {
+            sceneBuilder.HasKey(x => x.ChannelId);
+
+            sceneBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithOne()
+                .HasForeignKey<SceneState>(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            sceneBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting the companion thread leaves the scene standing with nothing linked, rather
+            // than a pointer at a channel that is gone.
+            sceneBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.OocThreadId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // The one question the stale-turn sweep asks: which scenes are being played and overdue.
+            sceneBuilder.HasIndex(x => new { x.Status, x.TurnDeadlineAt });
+        });
+
+        modelBuilder.Entity<DiceRoll>(diceBuilder =>
+        {
+            diceBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            diceBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // A retired character keeps its rolls; a deleted one leaves them attributed to the
+            // account that rolled, which is the field moderation reads anyway.
+            diceBuilder.HasOne<Persona>()
+                .WithMany()
+                .HasForeignKey(x => x.PersonaId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // An integer rather than a Postgres enum: adding a HasPostgresEnum member later needs a
+            // migration in front of it or the service crashes at startup, and per-recipient
+            // visibility is exactly the change that will add members here.
+            diceBuilder.Property(x => x.Visibility).HasConversion<int>();
+
+            // The message is the key: one message is one roll.
+            diceBuilder.HasIndex(x => x.MessageId).IsUnique();
+
+            diceBuilder.HasIndex(x => new { x.ChannelId, x.CreatedAt });
         });
 
         modelBuilder.Entity<GuildAuditLogEntry>(auditLogBuilder =>

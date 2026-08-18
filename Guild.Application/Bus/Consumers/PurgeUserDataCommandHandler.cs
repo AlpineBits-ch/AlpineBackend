@@ -1,3 +1,5 @@
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Identity.Contracts.Bus.Commands;
 using Identity.Contracts.Bus.Response;
@@ -54,6 +56,33 @@ public class PurgeUserDataCommandHandler
             .Where(p => p.UserId == command.UserId)
             .ToListAsync();
         ctx.GuildDirectMessagePreferences.RemoveRange(directMessagePreferences);
+
+        // Personas are keyed the same way and survive leaving a guild for the same reason, so they
+        // need the same explicit removal. The denormalised name and avatar stay on historic
+        // messages, as with any other author display data.
+        var personas = await ctx.Set<Persona>()
+            .Where(p => p.Scope == PersonaScope.User && p.OwnerUserId == command.UserId)
+            .ToListAsync();
+        var personaIds = personas.Select(p => p.Id).ToList();
+
+        var profiles = await ctx.Set<PersonaGuildProfile>()
+            .Where(p => personaIds.Contains(p.PersonaId))
+            .ToListAsync();
+        ctx.Set<PersonaGuildProfile>().RemoveRange(profiles);
+
+        // Both halves: the grants this user's personas carried, and the grants naming this user on
+        // somebody else's guild persona.
+        var grants = await ctx.Set<PersonaGrant>()
+            .Where(g => personaIds.Contains(g.PersonaId) || g.UserId == command.UserId)
+            .ToListAsync();
+        ctx.Set<PersonaGrant>().RemoveRange(grants);
+
+        var autoproxy = await ctx.Set<PersonaAutoproxyState>()
+            .Where(a => a.UserId == command.UserId)
+            .ToListAsync();
+        ctx.Set<PersonaAutoproxyState>().RemoveRange(autoproxy);
+
+        ctx.Set<Persona>().RemoveRange(personas);
 
         return new PurgeUserDataCommandResponse
         {

@@ -15,6 +15,7 @@ using Messaging.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
 using Social.Contracts.Dtos;
@@ -271,7 +272,8 @@ public class PrivacyEnforcementEndpointTests
                 Attachments = (attachmentIds ?? []).ToList(),
             },
             ScyllaContext.CreateDebug(), TestPrincipal.ForUser(authorId), _context, bus, _cache, mls,
-            privacy.Policy, privacy.Content);
+            privacy.Policy, privacy.Content,
+            new MessageLengthPolicy(bus, _cache, NullLogger<MessageLengthPolicy>.Instance));
     }
 
     [Test]

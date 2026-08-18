@@ -60,6 +60,8 @@ public class GuildEndpointTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
+    private PersonaService Personas() => new(_cache, _context);
+
     private static Guild.Domain.Aggregates.Guild MakeGuild(string ownerId = OwnerId, string id = GuildId) => new()
     {
         Id = id, OwnerId = ownerId, Name = "Test Guild",
@@ -132,14 +134,14 @@ public class GuildEndpointTests
     [Test]
     public async Task DeleteGuild_Unauthenticated_ReturnsUnauthorized()
     {
-        var result = await _endpoint.DeleteGuild(GuildId, _context, TestPrincipal.CreateAnonymous(), _hub);
+        var result = await _endpoint.DeleteGuild(GuildId, _context, TestPrincipal.CreateAnonymous(), _hub, Personas());
         Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
     }
 
     [Test]
     public async Task DeleteGuild_DoesNotExist_ReturnsNotFound()
     {
-        var result = await _endpoint.DeleteGuild("nonexistent", _context, TestPrincipal.Create(UserId), _hub);
+        var result = await _endpoint.DeleteGuild("nonexistent", _context, TestPrincipal.Create(UserId), _hub, Personas());
         Assert.That(result, Is.InstanceOf<NotFound>());
     }
 
@@ -149,7 +151,7 @@ public class GuildEndpointTests
         _context.Guilds.Add(MakeGuild());
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.DeleteGuild(GuildId, _context, TestPrincipal.Create(UserId), _hub);
+        var result = await _endpoint.DeleteGuild(GuildId, _context, TestPrincipal.Create(UserId), _hub, Personas());
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
@@ -160,7 +162,7 @@ public class GuildEndpointTests
         _context.GuildMembers.Add(new GuildMember { Id = MemberId, GuildId = GuildId, UserId = UserId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{UserId}#{GuildId}" });
         await _context.SaveChangesAsync();
 
-        var result = await _endpoint.DeleteGuild(GuildId, _context, TestPrincipal.Create(OwnerId), _hub);
+        var result = await _endpoint.DeleteGuild(GuildId, _context, TestPrincipal.Create(OwnerId), _hub, Personas());
 
         Assert.That(result, Is.InstanceOf<NoContent>());
         Assert.That(await _context.Guilds.AsNoTracking().AnyAsync(g => g.Id == GuildId), Is.False, "DeleteGuild commits manually");

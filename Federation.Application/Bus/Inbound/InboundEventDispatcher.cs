@@ -34,8 +34,8 @@ public static class InboundEventDispatcher
 
         object? command = @event switch
         {
-            MessageCreated e => new FederatedMessageCreatedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId, Content = e.Content },
-            MessageEdited e => new FederatedMessageEditedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId, Content = e.Content },
+            MessageCreated e => new FederatedMessageCreatedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId, Content = e.Content, AuthorDisplayName = e.AuthorDisplayName, AuthorAvatarUrl = e.AuthorAvatarUrl, AuthorIdType = e.AuthorIdType },
+            MessageEdited e => new FederatedMessageEditedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId, Content = e.Content, AuthorDisplayName = e.AuthorDisplayName, AuthorAvatarUrl = e.AuthorAvatarUrl, AuthorIdType = e.AuthorIdType },
             MessageDeleted e => new FederatedMessageDeletedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId },
             MessageReactionAdded e => new FederatedMessageReactionAddedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId, Emoji = e.Emoji },
             MessageReactionRemoved e => new FederatedMessageReactionRemovedReceived { EventId = e.EventId, OriginInstanceId = originInstanceId, SenderId = senderId, ChannelId = Strip(e.ChannelId), MessageId = e.MessageId, Emoji = e.Emoji },

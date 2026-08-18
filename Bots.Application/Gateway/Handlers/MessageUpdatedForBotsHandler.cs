@@ -23,12 +23,6 @@ public class MessageUpdatedForBotsHandler
         if (botUserIds.Count == 0) return;
 
         var authorResponse = await bus.InvokeAsync<GetUserByIdResponse>(new GetUserByIdRequest { UserId = message.AuthorId });
-        var author = new DiscordUserPayload
-        {
-            Id = message.AuthorId,
-            Username = authorResponse.User?.UserName ?? message.AuthorId,
-            Bot = authorResponse.User?.IsBot ?? false,
-        };
 
         var payload = new MessageCreatePayload
         {
@@ -36,13 +30,16 @@ public class MessageUpdatedForBotsHandler
             ChannelId = message.ChannelId,
             GuildId = message.GuildId,
             Content = Encoding.UTF8.GetString(message.Content),
-            Author = author,
             Timestamp = DateTimeOffset.UtcNow,
             Embeds = DeserializeEmbeds(message.EmbedsJson),
             Flags = message.Flags,
             // Null when the author never edited the text.
             EditedTimestamp = message.EditedAt,
         };
+
+        DiscordAuthorMapper.Apply(payload, new DiscordAuthorSource(
+            message.AuthorIdType, message.AuthorId, message.AuthorDisplayName, message.AuthorAvatarUrl,
+            message.PersonaId, authorResponse.User?.UserName, authorResponse.User?.IsBot ?? false));
 
         foreach (var botUserId in botUserIds)
         {

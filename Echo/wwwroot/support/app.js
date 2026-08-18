@@ -133,6 +133,38 @@
 
     addEventListener('popstate', () => show(location.pathname.replace(/^\//, ''), false));
 
+    // ── Reporting a published wiki page ─────────────────────────────────────
+
+    /**
+     * The wiki host has no account, no session and no script of its own, so its "Report this page"
+     * link carries the address in the query string. Without it a report arrives saying "a wiki
+     * page" and there is nothing a moderator can act on.
+     */
+    const reportedPage = (() => {
+        const raw = new URLSearchParams(location.search).get('wiki');
+        if (!raw) return null;
+
+        // Same shape the slug itself is minted under: lowercase, digits, single hyphens. Anything
+        // else came from a hand-edited link rather than from a page.
+        const parts = raw.split('/').filter(Boolean);
+        if (!parts.length || parts.length > 2) return null;
+        if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(parts[0])) return null;
+
+        const host = location.hostname.replace(/^[^.]+\./, 'wiki.');
+        const url = `${location.protocol}//${parts[0]}.${host}${parts[1] ? `/${parts[1]}` : ''}`;
+
+        return { address: parts.join('/'), url };
+    })();
+
+    if (reportedPage) {
+        $('#contact-about-ref').textContent = reportedPage.url;
+        $('#contact-about').classList.remove('hidden');
+
+        $('#c-category').value = 'Safety';
+        $('#c-subject').value = `Published wiki page: ${reportedPage.address}`;
+        $('#c-body').placeholder = 'What is wrong with this page?';
+    }
+
     // ── Contact ─────────────────────────────────────────────────────────────
 
     $('#contact-form').addEventListener('submit', async event => {
@@ -142,13 +174,19 @@
         const result = $('#contact-result');
         busy(button, true);
 
+        // In the body rather than in a field of its own: the ticket record has no column for it,
+        // and the console reads the address back out of the text a moderator is reading anyway.
+        const body = reportedPage
+            ? `Reported page: ${reportedPage.url}\n\n${$('#c-body').value}`
+            : $('#c-body').value;
+
         try {
             const payload = await call('POST', `${API}/tickets`, {
                 body: {
                     email: $('#c-email').value.trim(),
                     subject: $('#c-subject').value.trim(),
                     category: $('#c-category').value,
-                    body: $('#c-body').value,
+                    body,
                 },
             });
 

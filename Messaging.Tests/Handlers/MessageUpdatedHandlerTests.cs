@@ -156,6 +156,37 @@ public class MessageUpdatedHandlerTests
         });
     }
 
+    /// <summary>An edit never re-resolves the persona, so the identity the message was sent under
+    /// has to survive the round trip out to Guild.</summary>
+    [Test]
+    public async Task Handle_ChannelMessage_ForwardsThePersonaIdentity()
+    {
+        var handler = new MessageUpdatedHandler();
+        var evt = new MessageUpdated
+        {
+            MessageId = "msg-1",
+            ChannelId = "chan-1",
+            AuthorId = "author-1",
+            Content = "content"u8.ToArray(),
+            AuthorIdType = global::Messaging.Domain.Enums.AuthorIdType.Persona,
+            PersonaId = "pers_cogsgrove",
+            AuthorDisplayName = "Mayor Cogsgrove",
+            AuthorAvatarUrl = "https://api.venta.gg/avatars/cogsgrove.png",
+        };
+
+        await handler.Handle(evt, _hub, _context, _bus);
+
+        var forwarded = (MessageUpdatedForChannel)_bus.Sent[0];
+        Assert.Multiple(() =>
+        {
+            Assert.That(forwarded.AuthorIdType, Is.EqualTo(AuthorIdType.Persona));
+            Assert.That(forwarded.PersonaId, Is.EqualTo("pers_cogsgrove"));
+            Assert.That(forwarded.AuthorDisplayName, Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(forwarded.AuthorAvatarUrl, Is.EqualTo("https://api.venta.gg/avatars/cogsgrove.png"));
+            Assert.That(forwarded.AuthorId, Is.EqualTo("author-1"));
+        });
+    }
+
     [Test]
     public async Task Handle_NeitherConversationNorChannel_NoFanOut()
     {

@@ -15,6 +15,19 @@ public enum MessageType
     Invite,
     GuildMemberJoin,
     GuildMemberLeave,
+
+    /// <summary>A server-rolled dice expression, whose structured result rides on EmbedsJson.</summary>
+    DiceRoll,
+}
+
+/// <summary>Mirrors Messaging.Domain.Enums.AuthorIdType so a consumer can tell a persona or webhook
+/// post apart from a real user without refetching the message.</summary>
+public enum AuthorIdType
+{
+    User,
+    Bot,
+    Webhook,
+    Persona,
 }
 
 public class MessageCreatedForChannel
@@ -48,6 +61,17 @@ public class MessageCreatedForChannel
     public MessageType Type { get; set; } = MessageType.Message;
     public int? SystemMessageVariant { get; set; }
 
+    /// <summary>Per-message author name override, set for webhook executions and persona posts.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    /// <summary>Avatar to render alongside AuthorDisplayName.</summary>
+    public string? AuthorAvatarUrl { get; set; }
+
+    /// <summary>The persona that spoke, or null - AuthorId stays the real account either way.</summary>
+    public string? PersonaId { get; set; }
+
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
+
     public ICollection<MinimalAttachmentForChannel> Attachments { get; set; } = new List<MinimalAttachmentForChannel>();
 }
 
@@ -74,6 +98,17 @@ public class MessageUpdatedForChannel
 
     /// <summary>Whether the author caused this update.</summary>
     public bool IsAuthorEdit { get; set; } = true;
+
+    /// <summary>Per-message author name override, set for webhook executions and persona posts.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    /// <summary>Avatar to render alongside AuthorDisplayName.</summary>
+    public string? AuthorAvatarUrl { get; set; }
+
+    /// <summary>The persona that spoke, or null - AuthorId stays the real account either way.</summary>
+    public string? PersonaId { get; set; }
+
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
 }
 
 

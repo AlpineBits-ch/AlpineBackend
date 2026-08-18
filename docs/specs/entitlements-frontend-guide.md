@@ -290,10 +290,19 @@ degradation banner are driven by the same two values.
 | `storage.guild_quota_bytes` | numeric | guild | Total bytes a guild may hold |
 | `guild.emoji_slots` | numeric | guild | Custom emoji |
 | `guild.bots_installed` | numeric | guild | Installed bots |
+| `guild.message_max_length` | numeric | guild | Characters in one message posted in a guild channel |
 | `guild.vanity_url` | flag | guild | Vanity invite. See §11.5 |
 | `guild.audit_log_days` | numeric | guild | Audit log window. See §11.3 |
 | `user.upload_max_bytes` | numeric | user | Largest upload where no guild is involved |
+| `user.message_max_length` | numeric | user | Characters in one message where no guild is involved |
 | `user.max_devices` | numeric | user | Registered devices |
+
+Both message-length keys are counted in text elements rather than bytes or UTF-16 units, so a
+Cyrillic or CJK post costs what it reads as. Messaging clamps whatever they resolve to at 15,000
+characters, which no plan and no operator ceiling raises, and a context with nothing configured
+lands on that ceiling rather than on zero. Over-length sends and edits answer `413` with
+`{"error": "message_too_long", "maxLength", "length", "entitlement"}`, where `entitlement` is the
+§4 denial body.
 
 **Paired means the effective value is the lower of the two sides.** A guild snapshot's
 `voice.video_ceiling` is what the guild will distribute; your own is what you are allowed to publish;

@@ -22,6 +22,22 @@ public enum GuildFeatures : ulong
     Wiki            = 1ul << 10,
     Events          = 1ul << 11,
 
+    // ── Roleplay ─────────────────────────────────────────────────────────────
+
+    /// <summary>Characters people write as, with per-guild overrides and proxying. Needs
+    /// <see cref="Wiki"/> for the character pages, which GuildFeatures has no way to declare - the
+    /// Roleplay preset carries both instead.</summary>
+    Personas        = 1ul << 12,
+
+    /// <summary>Scene threads with a participant list, turn order and a stale-turn nudge.</summary>
+    Scenes          = 1ul << 13,
+
+    /// <summary>Server-rolled dice, recorded rather than trusted.</summary>
+    Dice            = 1ul << 14,
+
+    /// <summary>Exporting a concluded scene or a whole campaign as something readable.</summary>
+    Chronicle       = 1ul << 15,
+
     // ── Household / shared living ────────────────────────────────────────────
     Lists           = 1ul << 20,
     Chores          = 1ul << 21,
@@ -78,12 +94,25 @@ public static class GuildFeaturePresets
         GuildFeatures.Moderation | GuildFeatures.Onboarding | GuildFeatures.Events |
         GuildFeatures.Lists | GuildFeatures.Ledger | GuildFeatures.Decisions;
 
+    /// <summary>Wiki is not optional here - character pages are wiki pages - and neither is
+    /// Presence, because every AbsenceEndpoint route gates on it and a stale-turn nudge has to
+    /// know who declared a holiday.</summary>
+    /// <summary>Chronicle is deliberately absent: its bit is reserved but nothing implements it
+    /// yet, and a feature flag is what clients gate their UI on. It joins this preset when it
+    /// ships, not before.</summary>
+    public const GuildFeatures Roleplay =
+        GuildFeatures.VoiceChannels | GuildFeatures.Threads | GuildFeatures.Forums |
+        GuildFeatures.Moderation | GuildFeatures.Wiki | GuildFeatures.Events |
+        GuildFeatures.Presence | GuildFeatures.Personas | GuildFeatures.Scenes |
+        GuildFeatures.Dice;
+
     public static GuildFeatures For(GuildKind kind) => kind switch
     {
         GuildKind.Household => Household,
         GuildKind.Team => Team,
         GuildKind.Study => Study,
         GuildKind.Event => Event,
+        GuildKind.Roleplay => Roleplay,
         _ => Community,
     };
 }

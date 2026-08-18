@@ -130,7 +130,8 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.PinnedAt, cm => cm.WithName("pinned_at"))
                 .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id"))
                 .Column(m => m.Flags, cm => cm.WithName("flags"))
-                .Column(m => m.EditedAt, cm => cm.WithName("edited_at")));
+                .Column(m => m.EditedAt, cm => cm.WithName("edited_at"))
+                .Column(m => m.PersonaId, cm => cm.WithName("persona_id")));
 
         config.Define(
             new Map<PinnedMessage>()
@@ -412,6 +413,18 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD edited_at timestamp;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // Which character the message was spoken as; "persona_id" sorts between "mls_sequence_number"
+        // and "pinned_at", so it carries the same alphabetical hazard as the columns above and is
+        // safe only because Message.SelectColumns pins the read order.
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD persona_id text;"));
         }
         catch (InvalidQueryException)
         {

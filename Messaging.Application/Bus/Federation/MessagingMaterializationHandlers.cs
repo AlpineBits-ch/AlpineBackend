@@ -11,6 +11,20 @@ namespace Messaging.Application.Bus.Federation;
 /// <summary>Materializes remote channel-message federation events.</summary>
 public class MessagingMaterializationHandlers
 {
+    /// <summary>
+    /// A federated persona is display data, not an entity: the name and avatar that arrived are
+    /// stored and rendered, and PersonaId stays null because a remote instance's persona row is not
+    /// resolvable here. The wire contract carries no persona id at all, so there is nothing to
+    /// assign by mistake.
+    /// </summary>
+    private static AuthorIdType MapAuthorIdType(FederatedAuthorIdType type) => type switch
+    {
+        FederatedAuthorIdType.Bot => AuthorIdType.Bot,
+        FederatedAuthorIdType.Webhook => AuthorIdType.Webhook,
+        FederatedAuthorIdType.Persona => AuthorIdType.Persona,
+        _ => AuthorIdType.User,
+    };
+
     public static async Task Handle(FederatedMessageCreatedReceived message, IMessageRepository repository, IMessageBus bus, CancellationToken ct)
     {
         var existing = await repository.GetMessageAsync(message.MessageId);
@@ -27,6 +41,9 @@ public class MessagingMaterializationHandlers
             Type = MessageType.Message,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
+            AuthorDisplayName = message.AuthorDisplayName,
+            AuthorAvatarUrl = message.AuthorAvatarUrl,
+            AuthorIdType = MapAuthorIdType(message.AuthorIdType),
         };
         await repository.CreateMessageAsync(created);
 
@@ -39,6 +56,11 @@ public class MessagingMaterializationHandlers
             // Off the row that was just written, so the federated path denormalizes the same
             // timestamp downstream as the local one does.
             CreatedAt = created.CreatedAt,
+            // Same reason the timestamp comes off the row: without these the receiving instance's
+            // own realtime fan-out and push render the raw federated id instead of the character.
+            AuthorDisplayName = created.AuthorDisplayName,
+            AuthorAvatarUrl = created.AuthorAvatarUrl,
+            AuthorIdType = created.AuthorIdType,
             Attachments = [],
         });
     }
@@ -71,6 +93,12 @@ public class MessagingMaterializationHandlers
             EditedAt = existing.EditedAt,
             // True: the (remote) author changed the text.
             IsAuthorEdit = true,
+            // Off the stored row for the same reason as the embeds above - the edit carries no
+            // identity, and dropping these would strip the character off a federated message.
+            AuthorIdType = existing.AuthorIdType,
+            AuthorDisplayName = existing.AuthorDisplayName,
+            AuthorAvatarUrl = existing.AuthorAvatarUrl,
+            PersonaId = existing.PersonaId,
         });
     }
 

@@ -37,7 +37,14 @@ public enum ChannelType
     Meals,
 
     /// <summary>The house's appliances and their service history.</summary>
-    Maintenance
+    Maintenance,
+
+    // ── Roleplay ─────────────────────────────────────────────────────────────
+
+    /// <summary>A thread variant carrying a participant list and a turn order in
+    /// <c>SceneState</c>. Appended rather than filed next to <see cref="Thread"/> so no existing
+    /// type's ordinal moves.</summary>
+    Scene
 }
 
 public static class ChannelTypeExtensions
@@ -54,4 +61,17 @@ public static class ChannelTypeExtensions
         ChannelType.List or ChannelType.Chores or ChannelType.Ledger or
         ChannelType.Pantry or ChannelType.Decisions or ChannelType.Meals or
         ChannelType.Maintenance;
+
+    /// <summary>Channel types that behave as a thread: a free-text title, a parent channel, a
+    /// creator and an archive flag. A scene the thread code did not recognise would be missing from
+    /// thread lists, never auto-archive and escape ManageOwnThreads/ManageAnyThread, so every
+    /// thread-side check goes through this rather than naming one member and eventually missing the
+    /// other.</summary>
+    public static bool IsThreadShaped(this ChannelType type) =>
+        type is ChannelType.Thread or ChannelType.Scene;
+
+    /// <summary>The same set as <see cref="IsThreadShaped"/> in the one form EF can translate: an
+    /// extension method inside a <c>Where</c> cannot be, and spelling the pair out at each query is
+    /// how the second member gets missed.</summary>
+    public static readonly ChannelType[] ThreadShaped = [ChannelType.Thread, ChannelType.Scene];
 }

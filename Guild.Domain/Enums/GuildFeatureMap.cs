@@ -54,6 +54,16 @@ public static class GuildFeatureMap
 
         (GuildFeatures.Maintenance,
             ModulePermissions.LogMaintenance | ModulePermissions.ManageMaintenance),
+
+        (GuildFeatures.Personas,
+            ModulePermissions.UsePersonas | ModulePermissions.ManageAnyPersona |
+            ModulePermissions.ApprovePersonas),
+
+        (GuildFeatures.Scenes, ModulePermissions.ManageScenes),
+
+        (GuildFeatures.Dice, ModulePermissions.RollDice | ModulePermissions.RollHidden),
+
+        (GuildFeatures.Chronicle, ModulePermissions.ExportChronicle),
     ];
 
     /// <summary>The capabilities the type comment lists as ungated by design, as data.</summary>
@@ -153,6 +163,9 @@ public static class GuildFeatureMap
         ChannelType.Announcement => GuildFeatures.Announcements,
         ChannelType.Ticket => GuildFeatures.Tickets,
         ChannelType.Thread => GuildFeatures.Threads,
+        // Deliberately not folded into the Threads arm: a scene is thread-shaped everywhere the
+        // thread code looks at it, but it is the Scenes module that pays for it.
+        ChannelType.Scene => GuildFeatures.Scenes,
         ChannelType.List => GuildFeatures.Lists,
         ChannelType.Chores => GuildFeatures.Chores,
         ChannelType.Ledger => GuildFeatures.Ledger,

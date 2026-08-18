@@ -150,16 +150,35 @@ The request body is a `SignedFederationEvent`:
 
 ### Signature
 
-The signature is an Ed25519 signature over the UTF-8 JSON serialization of `payload`. The sender
-signs with its private key; the receiver verifies against the sender's registered public key.
+The signature is an Ed25519 signature over **the exact bytes of the `payload` member as they appear
+in the request body**. The sender signs with its private key; the receiver verifies against the
+sender's registered public key.
 
 Signing steps:
 1. Set `payload.Host` = sender's instance URL
 2. Set `payload.ProtocolVersion` = `"venta/v0.1"`
-3. Serialize `payload` to UTF-8 JSON
-4. Sign the bytes with Ed25519 (NSec `SignatureAlgorithm.Ed25519`, raw key format)
+3. Serialize `payload` to UTF-8 JSON once, and keep those bytes
+4. Sign those bytes with Ed25519 (NSec `SignatureAlgorithm.Ed25519`, raw key format)
+5. Write the envelope with the signed bytes embedded verbatim (`SignedFederationEvent.ToWireBytes`)
 
-Verification: reject the event if `IsValid(instance)` returns false.
+Verification: slice the `payload` value straight out of the received body
+(`SignedFederationEvent.TryParse`) and verify the signature over that slice. Reject the event if
+`IsValid(instance)` returns false.
+
+Nothing verifies a re-serialization of the deserialized payload, and the type makes it hard to
+start: a `SignedFederationEvent` can only be produced by signing or by parsing a body, so the bytes
+it verifies always come from one of those two. Re-serializing loses whatever fields the receiver's
+build has no property for and adds the nulls and enum defaults `System.Text.Json` writes for the
+ones it does, which is why any additive wire field used to break verification between instances on
+different versions - the defect this rule exists to prevent, not a style preference.
+
+The consequences that follow from signing bytes:
+
+- The payload's JSON is opaque in flight. A relay that reformats, reorders or re-encodes it
+  invalidates the signature even though the object is unchanged. There are no such relays in the
+  protocol; the gateway forwards bodies unmodified.
+- Unknown fields are covered. A receiver ignores a field it has no type for, but cannot have it
+  rewritten in flight, which a re-serializing verifier could not have detected.
 
 ---
 
@@ -167,12 +186,15 @@ Verification: reject the event if `IsValid(instance)` returns false.
 
 The receiver applies checks in this order:
 
-1. Deserialize body - 400 on malformed JSON
+1. Buffer the raw body and slice out the `payload` bytes - 400 on malformed JSON
 2. Look up `payload.Host` in registered instances - 400 if unknown
 3. Check instance status is `Active` - 403 otherwise
-4. Verify Ed25519 signature - 400 on invalid signature
+4. Verify Ed25519 signature over the sliced bytes - 400 on invalid signature
 5. Check `payload.ProtocolVersion == "venta/v0.1"` - exception if mismatched
 6. Pass to `IFederationProvider.HandleInboundEventAsync`
+
+The endpoint takes `HttpContext` rather than a model-bound body, because a body that has already
+been deserialized cannot produce the bytes the signature covers.
 
 ---
 
@@ -448,7 +470,7 @@ nothing calls it proactively yet.
 
 ## Security considerations
 
-- **Signing**: Ed25519, per-event, over the full payload. Verified against the sender's
+- **Signing**: Ed25519, per-event, over the payload's wire bytes. Verified against the sender's
   registered public key on every inbound event.
 - **Replay protection**: relies on `EventId` uniqueness (a `FederatedEventRecord` with that id
   already `Applied` is a no-op). There is no timestamp-window check - a captured, valid signed
@@ -484,6 +506,29 @@ handshake time - there is no negotiation. A future `venta/v0.2` would need eithe
 
 Neither exists yet; this is a deliberate simplicity choice for the current single-version
 protocol, not an oversight, but should be revisited before an actual `v0.2` needs to ship.
+
+### Mixed-version instances
+
+Verifying received bytes instead of a re-serialization did not change the wire format and did not
+bump `ProtocolVersion`, deliberately: the envelope is the same `{"Payload":{...},"Signature":"..."}`
+it always was, and the signed bytes are the same bytes a pre-fix sender signed. A version bump would
+have made the fix itself an incompatible rollout, which is the exact problem it exists to remove.
+So there is nothing to negotiate and no second verification path keyed off the version:
+
+| Sender | Receiver | Result |
+|---|---|---|
+| Fixed | Fixed | Verifies, including fields the receiver has no type for |
+| Pre-fix | Fixed | Verifies, including fields the receiver has no type for |
+| Fixed | Pre-fix | Verifies as long as every field in the payload exists on the receiver's build |
+| Pre-fix | Pre-fix | Unchanged, same condition |
+
+The bottom two rows are the residual, and it cannot be closed from this side: a pre-fix receiver
+drops the field before it checks the signature, so **an instance still running the old verifier
+cannot accept a payload carrying a field its build does not know**. Adding a new wire field
+therefore requires partners to be on the fixed verifier first, and that upgrade is itself
+compatible in both directions. There is no fallback that accepts a re-serialization when the byte
+check fails: it would accept a body whose unknown fields were rewritten in flight, since those are
+exactly the bytes a re-serialization discards.
 
 ---
 

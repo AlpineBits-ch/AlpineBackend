@@ -27,6 +27,9 @@ public enum MessageType
 
     /// <summary>A group conversation's icon was replaced. Content is empty, or "removed" when it was cleared.</summary>
     GroupIconChanged,
+
+    /// <summary>A server-rolled dice expression and its result.</summary>
+    DiceRoll,
 }
 
 /// <summary>

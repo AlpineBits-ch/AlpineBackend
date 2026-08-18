@@ -205,13 +205,19 @@ public class EveryoneBackfillTests
             }
 
             var mapped = ModulePermissionBitRemap.Mapping.Select(m => m.Member).ToHashSet();
-            var declared = Enum.GetNames<ModulePermissions>()
-                .Where(n => n != nameof(ModulePermissions.None))
+
+            // Only the bits that existed when the remap ran. The table is the frozen contract
+            // between the two enums for one historical migration, and the file says it must not be
+            // edited afterwards - so a member added at bit 24 or above is correctly absent from it,
+            // and requiring a row would force exactly the edit that comment forbids.
+            var declaredAtRemapTime = Enum.GetValues<ModulePermissions>()
+                .Where(p => p != ModulePermissions.None && (ulong)p < 1ul << 24)
+                .Select(p => p.ToString())
                 .ToHashSet();
 
-            Assert.That(declared.Except(mapped), Is.Empty,
-                "every module permission must have a row in the remap table");
-            Assert.That(mapped.Except(declared), Is.Empty,
+            Assert.That(declaredAtRemapTime.Except(mapped), Is.Empty,
+                "every module permission that existed at remap time must have a row in the table");
+            Assert.That(mapped.Except(declaredAtRemapTime), Is.Empty,
                 "the remap table must not name a permission that no longer exists");
         });
     }

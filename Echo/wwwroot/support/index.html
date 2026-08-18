@@ -68,6 +68,17 @@
 
         <div id="contact-result"></div>
 
+        <!-- Filled in when somebody arrived from the "Report this page" link on a published wiki
+             page. That host has no account, no session and no script, so the address it was about
+             travels in the query string or not at all. -->
+        <div id="contact-about" class="notice info hidden">
+          <i data-icon="info-circle"></i>
+          <div class="grow">
+            <span>You are reporting a published wiki page:</span>
+            <span class="ref" id="contact-about-ref"></span>
+          </div>
+        </div>
+
         <form id="contact-form" autocomplete="on">
           <div class="field">
             <label for="c-email">Your email address</label>

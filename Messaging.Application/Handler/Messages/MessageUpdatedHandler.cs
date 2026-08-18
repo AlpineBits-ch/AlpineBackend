@@ -7,6 +7,8 @@ using Messaging.Infrastructure.Persistence;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
+using DomainAuthorIdType = Messaging.Domain.Enums.AuthorIdType;
+using ChannelAuthorIdType = Guild.Contracts.Bus.Events.AuthorIdType;
 
 namespace Messaging.Application.Handler.Messages;
 
@@ -49,6 +51,18 @@ public class MessageUpdatedHandler
                 Flags = messageUpdated.Flags,
                 EditedAt = messageUpdated.EditedAt,
                 IsAuthorEdit = messageUpdated.IsAuthorEdit,
+                // Same reason as on the created event: clients re-render from this payload, so
+                // omitting the overrides would drop the character off an edited message.
+                AuthorIdType = messageUpdated.AuthorIdType switch
+                {
+                    DomainAuthorIdType.Bot => ChannelAuthorIdType.Bot,
+                    DomainAuthorIdType.Webhook => ChannelAuthorIdType.Webhook,
+                    DomainAuthorIdType.Persona => ChannelAuthorIdType.Persona,
+                    _ => ChannelAuthorIdType.User,
+                },
+                AuthorDisplayName = messageUpdated.AuthorDisplayName,
+                AuthorAvatarUrl = messageUpdated.AuthorAvatarUrl,
+                PersonaId = messageUpdated.PersonaId,
             });
         }
 

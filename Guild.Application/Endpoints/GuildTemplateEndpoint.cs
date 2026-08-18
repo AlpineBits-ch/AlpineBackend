@@ -60,7 +60,7 @@ public class GuildTemplateEndpoint
                     Position = c.Position,
                     Overwrites = overwrites.ForCategory(c.Id),
                     Channels = c.Channels
-                        .Where(ch => ch.Type != ChannelType.Thread && ch.Type != ChannelType.Ticket)
+                        .Where(ch => !ch.Type.IsThreadShaped() && ch.Type != ChannelType.Ticket)
                         .OrderBy(ch => ch.Position)
                         .Select(ch => new TemplateChannel
                         {
@@ -70,9 +70,10 @@ public class GuildTemplateEndpoint
                         .ToList(),
                 })
                 .ToList(),
-            // Excludes Thread (needs a parent) and Ticket (no behaviour behind it yet).
+            // Excludes the thread-shaped types (they need a parent, and a scene would carry turn
+            // state a template has nowhere to put) and Ticket (no behaviour behind it yet).
             UncategorizedChannels = guild.Channels
-                .Where(ch => ch.CategoryId is null && ch.Type != ChannelType.Thread && ch.Type != ChannelType.Ticket)
+                .Where(ch => ch.CategoryId is null && !ch.Type.IsThreadShaped() && ch.Type != ChannelType.Ticket)
                 .OrderBy(ch => ch.Position)
                 .Select(ch => new TemplateChannel
                 {

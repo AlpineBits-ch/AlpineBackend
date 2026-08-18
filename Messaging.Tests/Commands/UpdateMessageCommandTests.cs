@@ -136,6 +136,43 @@ public class UpdateMessageCommandTests
         });
     }
 
+    /// <summary>Editing a persona message keeps the identity it was sent under - the handler reads
+    /// it back off the row rather than re-resolving anything.</summary>
+    [Test]
+    public async Task Handle_PersonaMessage_EventKeepsTheSentIdentity()
+    {
+        var message = Message.Create(new CreateMessageParams
+        {
+            Content = "original"u8.ToArray(),
+            ChannelId = "chan-1",
+            AuthorId = "author-1",
+            AuthorIdType = global::Messaging.Domain.Enums.AuthorIdType.Persona,
+            PersonaId = "pers_cogsgrove",
+            AuthorDisplayName = "Mayor Cogsgrove",
+            AuthorAvatarUrl = "https://api.venta.gg/avatars/cogsgrove.png",
+        });
+        await _context.Messages.AddAsync(message);
+        await _context.SaveChangesAsync();
+        _context.ChangeTracker.Clear();
+
+        var handler = new UpdateMessageCommandHandler();
+        var (_, evt) = await handler.Handle(new UpdateMessageCommand
+        {
+            MessageId = message.Id,
+            RequestingAuthorId = "author-1",
+            Content = "edited"u8.ToArray(),
+        }, _repo);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt!.AuthorIdType, Is.EqualTo(global::Messaging.Domain.Enums.AuthorIdType.Persona));
+            Assert.That(evt.PersonaId, Is.EqualTo("pers_cogsgrove"));
+            Assert.That(evt.AuthorDisplayName, Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(evt.AuthorAvatarUrl, Is.EqualTo("https://api.venta.gg/avatars/cogsgrove.png"));
+            Assert.That(evt.AuthorId, Is.EqualTo("author-1"));
+        });
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Patch semantics: null
     // leaves the field alone, an empty array clears it
 

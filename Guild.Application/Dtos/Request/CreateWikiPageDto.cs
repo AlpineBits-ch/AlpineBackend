@@ -17,4 +17,8 @@ public class CreateWikiPageDto
 
     /// <summary>URL of an already-uploaded cover image.</summary>
     public string? CoverUrl { get; set; }
+
+    /// <summary>The structured half of the page - a character's stat block, say. Opaque JSON to
+    /// every consumer except the infobox renderer.</summary>
+    public string? InfoboxJson { get; set; }
 }

@@ -24,20 +24,21 @@ public class MessageCreatedHandler
     public async Task Handle(MessageCreatedForChannel message, IHubContext<EchoRealtimeHub> hub, GuildHydrateService service,
         MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger,
         NotificationResolutionService notificationService, ChannelAudienceService audience,
-        BlockCache blocks, PrivacySettingsCache privacySettings)
+        BlockCache blocks, PrivacySettingsCache privacySettings, PersonaMentionService personaMentions,
+        SceneService scenes)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
         string guildId;
         if (string.IsNullOrWhiteSpace(cachedGuildId))
         {
-           var channel =  context.Channels.Where(c => c.Id == message.ChannelId).Select(c => c.GuildId).FirstOrDefault();
-           if (channel is null)
+           var owningGuildId =  context.Channels.Where(c => c.Id == message.ChannelId).Select(c => c.GuildId).FirstOrDefault();
+           if (owningGuildId is null)
            {
                logger.LogWarning($"Channel with ID {message.ChannelId} not found in context");
                return;
            }
-           guildId = channel;
+           guildId = owningGuildId;
            cachedGuildId = guildId;
            await cache.SetStringAsync(channelKey, guildId);
         }
@@ -55,7 +56,18 @@ public class MessageCreatedHandler
 
         await hub.Clients.Users(broadcastIds).SendAsync("guild.MessageCreated", message);
 
-        await TouchChannelActivityAsync(message.ChannelId, message.CreatedAt, message.MessageId, context);
+        var channel = await TouchChannelActivityAsync(
+            message.ChannelId, message.CreatedAt, message.MessageId, context);
+
+        // The turn moving on its own is what makes a scene feel like play rather than
+        // administration. Two comparisons on a row this handler already has decide it, so the
+        // instance's whole message flow pays nothing for scenes it does not have.
+        if (channel is { Type: ChannelType.Scene } && !string.IsNullOrWhiteSpace(message.PersonaId))
+        {
+            var scene = await scenes.GetAsync(message.ChannelId);
+            if (scene is not null)
+                await scenes.AdvanceOnPostAsync(scene, message.PersonaId, message.CreatedAt);
+        }
 
         // Bots.Application can't join the SignalR/Redis backplane the hub broadcast above rides
         // on, so it gets its own event - carrying the GuildId this handler just resolved, since
@@ -71,13 +83,18 @@ public class MessageCreatedHandler
             EmbedsJson = message.EmbedsJson,
             Type = message.Type,
             SystemMessageVariant = message.SystemMessageVariant,
+            AuthorIdType = message.AuthorIdType,
+            AuthorDisplayName = message.AuthorDisplayName,
+            AuthorAvatarUrl = message.AuthorAvatarUrl,
+            PersonaId = message.PersonaId,
         });
 
         // One cache read decides every pair in this fan-out: the author's block state lists both
         // directions, and every question below is "author versus one recipient".
         var blockView = await blocks.GetAsync([message.AuthorId]);
 
-        var mentioned = await ResolveMentionedMembersAsync(message, cachedGuildId, presence, viewerIds, context, blockView);
+        var mentioned = await ResolveMentionedMembersAsync(
+            message, cachedGuildId, presence, viewerIds, context, blockView, personaMentions);
 
         await RecordBroadcastMentionsAsync(message, context);
 
@@ -96,15 +113,20 @@ public class MessageCreatedHandler
     private sealed record MentionedMembers(
         List<MentionedMember> Direct,
         HashSet<string> ByRole,
-        List<MentionedMember> Here)
+        List<MentionedMember> Here,
+        List<MentionedMember> ByPersona)
     {
-        /// <summary>Everyone individually named by this message - what goes in the index.</summary>
-        public IEnumerable<MentionedMember> Indexable => Direct.Concat(Here).DistinctBy(m => m.UserId, StringComparer.Ordinal);
+        /// <summary>Everyone individually named by this message - what goes in the index. The order
+        /// is the precedence: named outright beats named through a character, which beats being
+        /// swept up by an @here.</summary>
+        public IEnumerable<MentionedMember> Indexable =>
+            Direct.Concat(ByPersona).Concat(Here).DistinctBy(m => m.UserId, StringComparer.Ordinal);
     }
 
     /// <summary>
     /// Resolves who this message mentioned - direct @user, members holding an @role-mentioned role,
-    /// the whole guild (@everyone), or the people actually present (@here).
+    /// the whole guild (@everyone), the people actually present (@here), or whoever answers for a
+    /// character it named.
     /// </summary>
     private static async Task<MentionedMembers> ResolveMentionedMembersAsync(
         MessageCreatedForChannel message,
@@ -112,11 +134,13 @@ public class MessageCreatedHandler
         IReadOnlyCollection<MemberPresenceState> presence,
         IReadOnlyCollection<string> viewerIds,
         MicroserviceContext context,
-        BlockView blockView)
+        BlockView blockView,
+        PersonaMentionService personaMentions)
     {
         var direct = new List<MentionedMember>();
         var byRole = new HashSet<string>(StringComparer.Ordinal);
         var here = new List<MentionedMember>();
+        var byPersona = new List<MentionedMember>();
 
         bool Reaches(string userId) => !blockView.AreBlocked(message.AuthorId, userId);
 
@@ -159,7 +183,32 @@ public class MessageCreatedHandler
                 .Select(p => new MentionedMember(p.MemberId, p.UserId)));
         }
 
-        return new MentionedMembers(direct, byRole, here);
+        // A persona mention is read out of the body rather than off a recipient list, so the wire
+        // never carries the owner's id and an unpatched consumer cannot resolve one. Ciphertext has
+        // no body to read, which is the same exclusion previews and search already make.
+        IReadOnlyList<string> personaIds =
+            message.EncryptionState == Guild.Contracts.Bus.Events.MessageEncryptionState.Plain
+                ? PersonaMentionService.Parse(message.Content)
+                : [];
+
+        if (personaIds.Count > 0)
+        {
+            var reachedUserIds = (await personaMentions.ResolveAsync(guildId, message.AuthorId, personaIds))
+                .Select(t => t.UserId)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            byPersona.AddRange((await context.GuildMembers
+                    .AsNoTracking()
+                    .Where(m => m.GuildId == guildId
+                                && reachedUserIds.Contains(m.UserId)
+                                && m.UserId != message.AuthorId)
+                    .Select(m => new MentionedMember(m.Id, m.UserId))
+                    .ToListAsync())
+                .Where(m => Reaches(m.UserId)));
+        }
+
+        return new MentionedMembers(direct, byRole, here, byPersona);
     }
 
     /// <summary>Whether a presence entry counts as "here".</summary>
@@ -176,7 +225,7 @@ public class MessageCreatedHandler
         var recipients = mentioned.Indexable.ToList();
         if (recipients.Count == 0) return;
 
-        var directUserIds = mentioned.Direct.Select(m => m.UserId).ToHashSet(StringComparer.Ordinal);
+        var kindOf = KindResolver(mentioned);
 
         foreach (var chunk in recipients.Chunk(IndexMentionsCommand.MaxRecipients))
         {
@@ -189,18 +238,26 @@ public class MessageCreatedHandler
                 ChannelId = message.ChannelId,
                 AuthorId = message.AuthorId,
                 Recipients = chunk
-                    .Select(m => new MentionRecipient
-                    {
-                        UserId = m.UserId,
-                        // Direct wins when both apply - being named outright is the more specific
-                        // fact, and it is the one the client renders differently.
-                        Kind = directUserIds.Contains(m.UserId)
-                            ? nameof(MentionKind.Direct)
-                            : nameof(MentionKind.Here),
-                    })
+                    .Select(m => new MentionRecipient { UserId = m.UserId, Kind = kindOf(m.UserId) })
                     .ToList(),
             });
         }
+    }
+
+    /// <summary>
+    /// Which kind one recipient's index row carries. Direct wins when several apply - being named
+    /// outright is the more specific fact, and it is the one the client renders differently.
+    /// </summary>
+    private static Func<string, string> KindResolver(MentionedMembers mentioned)
+    {
+        var directUserIds = mentioned.Direct.Select(m => m.UserId).ToHashSet(StringComparer.Ordinal);
+        var personaUserIds = mentioned.ByPersona.Select(m => m.UserId).ToHashSet(StringComparer.Ordinal);
+
+        return userId => directUserIds.Contains(userId)
+            ? nameof(MentionKind.Direct)
+            : personaUserIds.Contains(userId)
+                ? PersonaMentionService.MentionKindName
+                : nameof(MentionKind.Here);
     }
 
     /// <summary>
@@ -212,11 +269,14 @@ public class MessageCreatedHandler
         MentionedMembers mentioned,
         IHubContext<EchoRealtimeHub> hub)
     {
-        var directUserIds = mentioned.Direct.Select(m => m.UserId).ToHashSet(StringComparer.Ordinal);
         var recipients = mentioned.Indexable.ToList();
         if (recipients.Count == 0) return;
 
-        foreach (var group in recipients.GroupBy(r => directUserIds.Contains(r.UserId)))
+        var kindOf = KindResolver(mentioned);
+
+        // Addressed to the recipients of one kind at a time, so nobody is told who else a character
+        // reached.
+        foreach (var group in recipients.GroupBy(r => kindOf(r.UserId), StringComparer.Ordinal))
         {
             await hub.Clients.Users(group.Select(r => r.UserId).ToList()).SendAsync("inbox.MentionAdded", new
             {
@@ -225,7 +285,7 @@ public class MessageCreatedHandler
                 GuildId = guildId,
                 ConversationId = (string?)null,
                 AuthorId = message.AuthorId,
-                Kind = group.Key ? nameof(MentionKind.Direct) : nameof(MentionKind.Here),
+                Kind = group.Key,
                 CreatedAt = message.CreatedAt,
             });
         }
@@ -252,6 +312,7 @@ public class MessageCreatedHandler
         var namedMemberIds = mentioned.Direct.Select(m => m.MemberId)
             .Concat(mentioned.ByRole)
             .Concat(mentioned.Here.Select(m => m.MemberId))
+            .Concat(mentioned.ByPersona.Select(m => m.MemberId))
             .ToHashSet(StringComparer.Ordinal);
 
         var candidates = await notificationService.NotifiableCandidatesAsync(
@@ -268,7 +329,12 @@ public class MessageCreatedHandler
         var resolved = await notificationService.ResolveForChannelAsync(
             message.ChannelId, candidates.Select(c => c.MemberId).ToList());
 
-        var directMemberIds = mentioned.Direct.Select(m => m.MemberId).ToHashSet(StringComparer.Ordinal);
+        // Being called by your character's name is as direct as being called by your own, so a
+        // persona mention answers to the same OnlyMentions setting rather than a new one.
+        var directMemberIds = mentioned.Direct.Concat(mentioned.ByPersona)
+            .Select(m => m.MemberId)
+            .ToHashSet(StringComparer.Ordinal);
+
         var hereMemberIds = mentioned.Here.Select(m => m.MemberId).ToHashSet(StringComparer.Ordinal);
 
         var recipients = new List<string>();
@@ -346,13 +412,14 @@ public class MessageCreatedHandler
 
     /// <summary>
     /// Denormalizes the head of the channel onto its row: when it last saw activity, which message
-    /// was last, and how many there have been.
+    /// was last, and how many there have been. Returns the channel so the caller does not read it
+    /// twice.
     /// </summary>
-    private static async Task TouchChannelActivityAsync(
+    private static async Task<Guild.Domain.Aggregates.Channel?> TouchChannelActivityAsync(
         string channelId, DateTimeOffset messageCreatedAt, string messageId, MicroserviceContext context)
     {
         var channel = await context.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
-        if (channel is null) return;
+        if (channel is null) return null;
 
         channel.LastActivityAt = messageCreatedAt;
         channel.LastMessageId = messageId;
@@ -360,8 +427,10 @@ public class MessageCreatedHandler
 
         // Slides against the stored window, not against the previous deadline - the duration is
         // fixed for the post's lifetime, only the deadline moves.
-        if (channel.Type == ChannelType.Thread && channel.AutoArchiveMinutes is > 0)
+        if (channel.Type.IsThreadShaped() && channel.AutoArchiveMinutes is > 0)
             channel.AutoArchiveAt = messageCreatedAt.AddMinutes(channel.AutoArchiveMinutes.Value);
+
+        return channel;
     }
 
     /// <summary>

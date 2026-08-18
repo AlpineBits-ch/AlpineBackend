@@ -11,6 +11,7 @@ public class CreateWikiCategoryParams
     public string Name { get; init; }
     public int Position { get; init; } = 0;
     public string? ParentCategoryId { get; init; }
+    public string? InfoboxTemplateJson { get; init; }
 }
 
 public class WikiCategory : Aggregate<WikiCategory>, IPrefixedEntity
@@ -21,6 +22,10 @@ public class WikiCategory : Aggregate<WikiCategory>, IPrefixedEntity
     public string Name { get; set; }
     public int Position { get; set; }
     public string? ParentCategoryId { get; set; }
+
+    /// <summary>The field list, types and required flags every page in this category renders its
+    /// infobox from - structurally the same thing GuildOnboardingPrompt already does.</summary>
+    public string? InfoboxTemplateJson { get; set; }
 
     public static WikiCategory Create(CreateWikiCategoryParams @params)
     {
@@ -35,6 +40,7 @@ public class WikiCategory : Aggregate<WikiCategory>, IPrefixedEntity
             Name = @params.Name,
             Position = @params.Position,
             ParentCategoryId = @params.ParentCategoryId,
+            InfoboxTemplateJson = @params.InfoboxTemplateJson,
         };
         category.AddDomainEvent(new WikiCategoryCreated { CategoryId = id, GuildId = @params.GuildId, ParentCategoryId = @params.ParentCategoryId });
         return category;

@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.Http;
+using MessagingAuthorIdType = Messaging.Contracts.Bus.Commands.AuthorIdType;
 
 namespace Guild.Application.Endpoints;
 
@@ -112,7 +113,7 @@ public class ThreadEndpoint
                     Content = Encoding.UTF8.GetBytes(dto.Content),
                     ChannelId = thread.Id,
                     AuthorId = userId,
-                    AuthorIdType = AuthorIdType.User,
+                    AuthorIdType = MessagingAuthorIdType.User,
                     Mentions = [],
                 });
             }
@@ -161,7 +162,7 @@ public class ThreadEndpoint
         // a genuine pre-existing bug this fixes rather than works around.
         var threads = await ctx.Channels
             .AsNoTracking()
-            .Where(c => c.ParentChannelId == channelId && c.Type == ChannelType.Thread)
+            .Where(c => c.ParentChannelId == channelId && ChannelTypeExtensions.ThreadShaped.Contains(c.Type))
             .OrderByDescending(c => c.CreatedAt)
             .Take(50)
             .Select(c => new ChannelDto
@@ -193,7 +194,10 @@ public class ThreadEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var thread = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == threadId && c.Type == ChannelType.Thread);
+        // Scenes archive through here too: a scene the archive route did not recognise would escape
+        // ManageOwnThreads and ManageAnyThread entirely.
+        var thread = await ctx.Channels.FirstOrDefaultAsync(
+            c => c.Id == threadId && ChannelTypeExtensions.ThreadShaped.Contains(c.Type));
         if (thread is null) return Results.NotFound();
 
         var requiredPermission = thread.CreatedByUserId == userId

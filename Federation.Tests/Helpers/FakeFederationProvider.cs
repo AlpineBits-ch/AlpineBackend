@@ -18,15 +18,20 @@ public class FakeFederationProvider : IFederationProvider
     public Task InitializeAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     public Task ShutdownAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public Task SendMessageAsync(string channelId, string messageId, byte[] content, string senderId, CancellationToken cancellationToken)
+    /// <summary>The display identity of every SendMessageAsync/EditMessageAsync call, in order.</summary>
+    public List<FederatedAuthorDisplay> AuthorDisplays { get; } = new();
+
+    public Task SendMessageAsync(string channelId, string messageId, byte[] content, string senderId, FederatedAuthorDisplay author, CancellationToken cancellationToken)
     {
         Calls.Add(new Call(nameof(SendMessageAsync), channelId, messageId, senderId));
+        AuthorDisplays.Add(author);
         return Task.CompletedTask;
     }
 
-    public Task EditMessageAsync(string channelId, string messageId, byte[] content, string senderId, CancellationToken cancellationToken)
+    public Task EditMessageAsync(string channelId, string messageId, byte[] content, string senderId, FederatedAuthorDisplay author, CancellationToken cancellationToken)
     {
         Calls.Add(new Call(nameof(EditMessageAsync), channelId, messageId, senderId));
+        AuthorDisplays.Add(author);
         return Task.CompletedTask;
     }
 

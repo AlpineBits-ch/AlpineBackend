@@ -112,6 +112,9 @@ builder.Services.AddLiveKit();
 // Web Push, for the browser client: a named HTTP client plus the sender that resolves it.
 builder.Services.AddWebPush();
 
+// The message-length ceiling, resolved from the sending context's plan on every send and edit.
+builder.Services.AddScoped<MessageLengthPolicy>();
+
 builder.Services.AddScoped<ConversationPermissionService>();
 builder.Services.AddScoped<ConversationIconService>();
 builder.Services.AddScoped<MlsJoinRequestService>();

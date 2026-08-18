@@ -22,6 +22,8 @@ using Wolverine.Attributes;
 using Message = FirebaseAdmin.Messaging.Message;
 using DomainMessageType = Messaging.Domain.Enums.MessageType;
 using ChannelMessageType = Guild.Contracts.Bus.Events.MessageType;
+using DomainAuthorIdType = Messaging.Domain.Enums.AuthorIdType;
+using ChannelAuthorIdType = Guild.Contracts.Bus.Events.AuthorIdType;
 
 namespace Messaging.Application.Handler.Messages;
 
@@ -98,8 +100,10 @@ public class MessageCreatedHandler
                     ContextId = messageCreated.ConversationId,
                     ConversationId = messageCreated.ConversationId,
                     AuthorId = messageCreated.AuthorId,
-                    SenderName = profile.Profile?.UserName ?? "New message",
-                    SenderAvatarUrl = profile.Profile?.AvatarUrl,
+                    // The message's own override wins: pushing a persona message under the account
+                    // name tells every recipient's lock screen who plays the character.
+                    SenderName = PushSenderName(messageCreated.AuthorDisplayName, profile.Profile?.UserName),
+                    SenderAvatarUrl = PushSenderAvatarUrl(messageCreated.AuthorAvatarUrl, profile.Profile?.AvatarUrl),
                     IsEncrypted = messageCreated.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted,
                     Content = messageCreated.Content,
                     MlsGeneration = messageCreated.MlsGeneration,
@@ -146,9 +150,22 @@ public class MessageCreatedHandler
                     DomainMessageType.Invite => ChannelMessageType.Invite,
                     DomainMessageType.GuildMemberJoin => ChannelMessageType.GuildMemberJoin,
                     DomainMessageType.GuildMemberLeave => ChannelMessageType.GuildMemberLeave,
+                    DomainMessageType.DiceRoll => ChannelMessageType.DiceRoll,
                     _ => ChannelMessageType.Message,
                 },
                 SystemMessageVariant = messageCreated.SystemMessageVariant,
+                // Guild's realtime and bot fan-out render from these; without them a persona
+                // message reaches connected clients with no character on it.
+                AuthorIdType = messageCreated.AuthorIdType switch
+                {
+                    DomainAuthorIdType.Bot => ChannelAuthorIdType.Bot,
+                    DomainAuthorIdType.Webhook => ChannelAuthorIdType.Webhook,
+                    DomainAuthorIdType.Persona => ChannelAuthorIdType.Persona,
+                    _ => ChannelAuthorIdType.User,
+                },
+                AuthorDisplayName = messageCreated.AuthorDisplayName,
+                AuthorAvatarUrl = messageCreated.AuthorAvatarUrl,
+                PersonaId = messageCreated.PersonaId,
                 Attachments = messageCreated.Attachments.Select(a => new MinimalAttachmentForChannel()
                 {
                     Id = a.Id,
@@ -174,6 +191,24 @@ public class MessageCreatedHandler
             });
         }
     }
+    /// <summary>The name a push notification renders the sender under.</summary>
+    /// <param name="authorDisplayName">The message's own display override, if it carries one.</param>
+    /// <param name="profileUserName">The author account's username.</param>
+    /// <returns>The override where there is one, otherwise the account name.</returns>
+    public static string PushSenderName(string? authorDisplayName, string? profileUserName) =>
+        Override(authorDisplayName) ?? profileUserName ?? "New message";
+
+    /// <summary>The avatar a push notification renders the sender under.</summary>
+    /// <param name="authorAvatarUrl">The message's own avatar override, if it carries one.</param>
+    /// <param name="profileAvatarUrl">The author account's avatar.</param>
+    /// <returns>The override where there is one, otherwise the account avatar.</returns>
+    public static string? PushSenderAvatarUrl(string? authorAvatarUrl, string? profileAvatarUrl) =>
+        Override(authorAvatarUrl) ?? profileAvatarUrl;
+
+    /// <summary>A per-message display override, or null when the message carries none.</summary>
+    private static string? Override(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value;
+
     /// <summary>
     /// Whether this message exists because the server wrote it, rather than because its author sent
     /// it.

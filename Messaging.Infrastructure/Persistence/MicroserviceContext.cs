@@ -29,6 +29,9 @@ public class MicroserviceContext : DbContext
     /// <summary>Single-row sweep position for T2-22's DM retention job.</summary>
     public DbSet<DmRetentionCursor> DmRetentionCursors { get; set; }
 
+    /// <summary>Unsent message bodies, one row per author per context.</summary>
+    public DbSet<MessageDraft> MessageDrafts { get; set; }
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
         var env = Env.Database;
@@ -92,6 +95,22 @@ public class MicroserviceContext : DbContext
             // Nothing but the inherited Id/CreatedAt/UpdatedAt plus the position columns; there is
             // deliberately no index and no FK.
             cursorBuilder.Property(c => c.LastUserId).IsRequired();
+        });
+
+        modelBuilder.Entity<MessageDraft>(draftBuilder =>
+        {
+            // One draft per author per context, enforced in the database rather than by the upsert
+            // reading first: two devices of the same person save on every keystroke, and last write
+            // wins only works if there is exactly one row for them to race over.
+            draftBuilder.HasIndex(d => new { d.UserId, d.ContextId }).IsUnique();
+
+            // The only other read is "everything this account has typed", for the purge.
+            draftBuilder.HasIndex(d => d.UserId);
+
+            // No foreign key to Conversation on purpose: a channel draft has no row here to point
+            // at, and a single nullable FK covering half the table buys nothing that the purge and
+            // the conversation-delete handler do not already do explicitly.
+            draftBuilder.Property(d => d.Content).IsRequired();
         });
 
         modelBuilder.Entity<MessageSearchEntry>(searchBuilder =>

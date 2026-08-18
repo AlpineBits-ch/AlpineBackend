@@ -150,8 +150,17 @@ public class MessageCreatedPrivacyTests
 
         return _handler.Handle(
             message, _hub, hydrate, _context, _cache, _bus,
-            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blockCache, privacy);
+            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blockCache, privacy,
+            PersonaMentions(), Scenes(hydrate));
     }
+
+    private PersonaMentionService PersonaMentions() =>
+        new(_context, new PersonaService(_cache, _context));
+
+    /// <summary>These tests seed no scene, so this only has to satisfy the handler's signature -
+    /// the turn-advance branch never runs.</summary>
+    private SceneService Scenes(GuildHydrateService hydrate) =>
+        new(_context, PersonaMentions(), hydrate, _hub);
 
     private static UserPrivacySettingsSummary[] EveryonePermissive() =>
     [
@@ -264,7 +273,8 @@ public class MessageCreatedPrivacyTests
 
         await _handler.Handle(
             Message(mentions: [BlockerUserId, PeerUserId]), _hub, hydrate, _context, _cache, _bus,
-            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blocks, privacy);
+            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blocks, privacy,
+            PersonaMentions(), Scenes(hydrate));
 
         Assert.Multiple(() =>
         {
@@ -349,7 +359,8 @@ public class MessageCreatedPrivacyTests
 
         await _handler.Handle(
             Message(), _hub, hydrate, _context, _cache, _bus,
-            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blocks, privacy);
+            NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blocks, privacy,
+            PersonaMentions(), Scenes(hydrate));
 
         Assert.Multiple(() =>
         {

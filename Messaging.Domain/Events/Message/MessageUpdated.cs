@@ -1,4 +1,5 @@
 ﻿using Domain;
+using Messaging.Domain.Enums;
 
 namespace Messaging.Domain.Events.Message;
 
@@ -25,4 +26,16 @@ public class MessageUpdated : DomainEvent
 
     /// <summary>Whether the author caused this update.</summary>
     public bool IsAuthorEdit { get; set; } = true;
+
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
+
+    /// <summary>Per-message author name override - see Entities.Message.AuthorDisplayName.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    /// <summary>Per-message author avatar override - see Entities.Message.AuthorAvatarUrl.</summary>
+    public string? AuthorAvatarUrl { get; set; }
+
+    /// <summary>Which character the message was spoken as - see Entities.Message.PersonaId. An edit
+    /// never re-resolves it, so this is whatever the message was sent under.</summary>
+    public string? PersonaId { get; set; }
 }

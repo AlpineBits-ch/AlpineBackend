@@ -10,6 +10,9 @@
     <ItemGroup>
         <PackageReference Include="ChatAIze.PerfectEmail" Version="0.4.0" />
         <PackageReference Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
+        <!-- The public wiki renders user-authored markdown here rather than in the browser. Declared
+             explicitly, not leaned on transitively through Messaging.Domain: this is the sanitiser. -->
+        <PackageReference Include="Markdig" Version="1.3.2" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="10.0.10" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />

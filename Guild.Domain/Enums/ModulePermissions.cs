@@ -104,6 +104,32 @@ public enum ModulePermissions : ulong
     /// <summary>Add, edit and delete the assets themselves - service intervals, warranty dates,
     /// the plumber's number - and remove anyone's log entry.</summary>
     ManageMaintenance       = 1ul << 23,
+
+    // ── Roleplay ─────────────────────────────────────────────────────────────
+
+    /// <summary>Speak as a persona in this guild, and adopt one into it.</summary>
+    UsePersonas             = 1ul << 24,
+
+    /// <summary>Create, edit and delete the guild's own shared personas, and edit anyone's profile
+    /// here. There is deliberately no ManageOwnPersonas beside it: editing your own global persona
+    /// is an account capability, not a per-guild one, and a user in zero roleplay guilds holds no
+    /// guild mask at all.</summary>
+    ManageAnyPersona        = 1ul << 25,
+
+    /// <summary>Work the approval queue: sign a character off, or send it back with a reason.</summary>
+    ApprovePersonas         = 1ul << 26,
+
+    /// <summary>Open, pause and conclude a scene, and set or skip whose turn it is.</summary>
+    ManageScenes            = 1ul << 27,
+
+    /// <summary>Roll dice into a channel.</summary>
+    RollDice                = 1ul << 28,
+
+    /// <summary>Roll where the result is not public - a GM-only or blind roll.</summary>
+    RollHidden              = 1ul << 29,
+
+    /// <summary>Export a scene or a campaign as a readable document.</summary>
+    ExportChronicle         = 1ul << 30,
 }
 
 public static class ModulePermissionExtensions

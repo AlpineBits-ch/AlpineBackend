@@ -11,6 +11,7 @@ using System.Net.Http.Headers;
 using AppEnvironment;
 using Facet.Dashboard;
 using Guild.Application.Services;
+using Guild.Domain.Services;
 using Guild.Persistence;
 using Guild.Persistence.Persistence;
 using JasperFx;
@@ -151,6 +152,14 @@ builder.Services.AddScoped<OnboardingValidationService>();
 builder.Services.AddScoped<OnboardingGrantService>();
 builder.Services.AddScoped<OnboardingConfigService>();
 builder.Services.AddScoped<ForumService>();
+builder.Services.AddScoped<PersonaService>();
+builder.Services.AddScoped<PersonaPageService>();
+builder.Services.AddScoped<PersonaDisplayGuard>();
+builder.Services.AddScoped<PersonaMentionService>();
+builder.Services.AddScoped<SceneService>();
+builder.Services.AddScoped<SceneNudgeService>();
+// Stateless and thread-safe: RandomNumberGenerator's static API needs nothing per request.
+builder.Services.AddSingleton<IDieRoller, SecureDieRoller>();
 builder.Services.AddScoped<HouseholdChannelService>();
 builder.Services.AddScoped<HouseholdNotifier>();
 builder.Services.AddScoped<HouseholdAlertService>();
@@ -205,6 +214,7 @@ builder.Services.AddTelemetryConsentGate(async (services, userIds, ct) =>
 builder.Services.AddHostedService<VoiceHeartbeatCleanupService>();
 builder.Services.AddHostedService<HouseholdReconcileService>();
 builder.Services.AddHostedService<ForumAutoArchiveService>();
+builder.Services.AddHostedService<SceneNudgeSweepService>();
 builder.Services.AddHostedService<TemporaryMembershipSweepService>();
 // The LiveKit control plane: token minting, the room registry and the reconcile sweep.
 builder.Services.AddLiveKit();

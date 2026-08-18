@@ -17,8 +17,12 @@ public class MemberRolesUpdatedHandler
 {
     public static async Task Handle(MemberRolesUpdated @event, MicroserviceContext ctx,
         GuildPermissionService guildPermissionService, IMessageBus bus,
-        IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate)
+        IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate, PersonaService personas)
     {
+        // Same reason as the single-role path: a persona grant can name any of the roles this call
+        // added or removed.
+        await personas.InvalidateGuildAsync(@event.GuildId);
+
         var userId = await ctx.GuildMembers
             .AsNoTracking()
             .Where(m => m.Id == @event.MemberId)

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using AppEnvironment;
 using Federation.Application.Dtos.Events;
@@ -78,13 +79,26 @@ public class FederationIntegrationTests
     }
 
     private static ByteArrayContent BuildSignedBody(FederationEvent payload, byte[] privateKeyBytes)
+        => SignBody(JsonSerializer.SerializeToUtf8Bytes(payload, FederationJson.Wire), privateKeyBytes);
+
+    private static ByteArrayContent BuildSignedBodyWithExtraField(
+        FederationEvent payload, byte[] privateKeyBytes, string field, string value)
     {
-        using var key    = Key.Import(Algorithm, privateKeyBytes, KeyBlobFormat.PkixPrivateKeyText);
-        var payloadBytes = JsonSerializer.SerializeToUtf8Bytes(payload);
-        var signature    = Algorithm.Sign(key, payloadBytes);
-        var signed       = new SignedFederationEvent { Payload = payload, Signature = signature };
-        var json         = JsonSerializer.SerializeToUtf8Bytes(signed);
-        var content      = new ByteArrayContent(json);
+        var json = Encoding.UTF8.GetString(JsonSerializer.SerializeToUtf8Bytes(payload, FederationJson.Wire));
+        return SignBody(Encoding.UTF8.GetBytes(json.Insert(json.Length - 1, $",\"{field}\":\"{value}\"")), privateKeyBytes);
+    }
+
+    // Builds the body the way a sender does: the payload bytes that were signed go on the wire
+    // verbatim, rather than being serialized a second time.
+    private static ByteArrayContent SignBody(byte[] payloadBytes, byte[] privateKeyBytes)
+    {
+        using var key = Key.Import(Algorithm, privateKeyBytes, KeyBlobFormat.PkixPrivateKeyText);
+        var signature = Algorithm.Sign(key, payloadBytes);
+        var body      = Encoding.UTF8.GetBytes(
+            $"{{\"Payload\":{Encoding.UTF8.GetString(payloadBytes)}," +
+            $"\"Signature\":\"{Convert.ToBase64String(signature)}\"}}");
+
+        var content = new ByteArrayContent(body);
         content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         return content;
     }
@@ -128,15 +142,11 @@ public class FederationIntegrationTests
             IFederationProvider provider,
             FederationDagService dagService) =>
         {
-            SignedFederationEvent? @event;
-            try
-            {
-                @event = await JsonSerializer
-                    .DeserializeAsync<SignedFederationEvent>(request.Body);
-            }
-            catch { return Results.BadRequest("Malformed body"); }
+            using var buffer = new MemoryStream();
+            await request.Body.CopyToAsync(buffer);
 
-            if (@event is null) return Results.BadRequest("Empty body");
+            if (!SignedFederationEvent.TryParse(buffer.ToArray(), out var @event) || @event is null)
+                return Results.BadRequest("Malformed body");
 
             var instance = await db.FederationInstances
                 .FirstOrDefaultAsync(i => i.Host == @event.Payload.Host);
@@ -196,7 +206,7 @@ public class FederationIntegrationTests
     {
         var channelId = $"ch_test:{InstanceBDomain}";
 
-        await _senderA.SendMessageAsync(channelId, "int-msg-1", "hello"u8.ToArray(), "usr_test:sender.example.com", default);
+        await _senderA.SendMessageAsync(channelId, "int-msg-1", "hello"u8.ToArray(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
 
         Assert.That(_received, Has.Count.EqualTo(1));
         Assert.That(_received[0], Is.InstanceOf<MessageCreated>());
@@ -224,10 +234,34 @@ public class FederationIntegrationTests
     public async Task SendMessage_ProtocolVersion_IsVentaV01OnReceivedEvent()
     {
         await _senderA.SendMessageAsync(
-            $"ch:{InstanceBDomain}", "pv-msg", Array.Empty<byte>(), "usr_test:sender.example.com", default);
+            $"ch:{InstanceBDomain}", "pv-msg", Array.Empty<byte>(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
 
         Assert.That(_received, Has.Count.EqualTo(1));
         Assert.That(_received[0].ProtocolVersion, Is.EqualTo("venta/v0.1"));
+    }
+
+    [Test]
+    public async Task PostEvent_PayloadCarriesAFieldThisVersionDoesNotKnow_IsAcceptedAndApplied()
+    {
+        // A sender one version ahead: the extra field is signed, and this receiver has no type for
+        // it. Verifying the received bytes is what keeps that from reading as a forgery.
+        var payload = new MessageCreated
+        {
+            Host             = InstanceAHost,
+            ProtocolVersion  = "venta/v0.1",
+            EventId          = Guid.NewGuid().ToString(),
+            ChannelId        = $"ch_future:{InstanceBDomain}",
+            MessageId        = "future-field-msg",
+            OriginServerTime = DateTime.UtcNow,
+        };
+
+        using var content = BuildSignedBodyWithExtraField(payload, _instanceAPrivateKey, "sceneTurnOrder", "kaelen");
+        using var client  = _testServer.CreateClient();
+        var response = await client.PostAsync("/api/v1/federation/events", content);
+
+        Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+        Assert.That(_received, Has.Count.EqualTo(1));
+        Assert.That(((MessageCreated)_received[0]).MessageId, Is.EqualTo("future-field-msg"));
     }
 
     // =========================================================================

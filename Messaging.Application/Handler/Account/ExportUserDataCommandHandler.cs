@@ -44,6 +44,15 @@ public class ExportUserDataCommandHandler
         var asOf = DateTimeOffset.UtcNow;
         var cap = Env.DataExport.MaxMessagesPerConversation;
 
+        // Keyed by channel as well as by conversation, so unlike everything else here it is not
+        // reachable from the membership list.
+        var drafts = await ctx.MessageDrafts
+            .AsNoTracking()
+            .Where(d => d.UserId == command.UserId)
+            .OrderBy(d => d.UpdatedAt)
+            .Select(d => new { d.ContextId, d.ChannelId, d.ConversationId, d.Content, d.InReplyTo, d.UpdatedAt })
+            .ToListAsync();
+
         var exportedConversations = new List<object>();
         var totalMessages = 0;
 
@@ -98,6 +107,7 @@ public class ExportUserDataCommandHandler
                 m.CreatedAt,
                 // No other member of the conversation appears here - see this handler's remarks.
             }),
+            drafts,
         };
 
         logger.LogInformation(
@@ -115,6 +125,7 @@ public class ExportUserDataCommandHandler
                 ["conversations"] = exportedConversations.Count,
                 ["memberships"] = memberships.Count,
                 ["messages"] = totalMessages,
+                ["drafts"] = drafts.Count,
             },
         };
     }

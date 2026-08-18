@@ -36,6 +36,9 @@ public class CreateMessageParams
     /// <summary>See Message.AuthorAvatarUrl - webhook executions only.</summary>
     public string? AuthorAvatarUrl { get; set; }
 
+    /// <summary>See Message.PersonaId.</summary>
+    public string? PersonaId { get; set; }
+
     public ICollection<MinimalAttachment> Attachments { get; set; } = new List<MinimalAttachment>();
 
     /// <summary>Raw JSON array of structured Discord-shaped embeds (see Bots.Contracts'
@@ -92,6 +95,11 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     /// message. Same rules: webhook-only, null otherwise.</summary>
     public string? AuthorAvatarUrl { get; set; }
 
+    /// <summary>Which character this was spoken as, or null for an ordinary message. Purely
+    /// denormalized display provenance - <see cref="AuthorId"/> stays the real account, which is
+    /// what blocking, moderation and reply-pings resolve against.</summary>
+    public string? PersonaId { get; set; }
+
     public List<string> Mentions { get; set; } = new();
     public List<string> RoleMentions { get; set; } = new();
     public bool MentionsEveryone { get; set; }
@@ -125,7 +133,8 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "sender_device_id, mls_epoch, mls_sequence_number, conversation_id, channel_id, mentions, " +
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
         "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id, " +
-        "author_display_name, author_avatar_url, components_json, mls_generation, flags, edited_at";
+        "author_display_name, author_avatar_url, components_json, mls_generation, flags, edited_at, " +
+        "persona_id";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       
@@ -161,6 +170,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
             ComponentsJson = createMessageParams.ComponentsJson,
             AuthorDisplayName = createMessageParams.AuthorDisplayName,
             AuthorAvatarUrl = createMessageParams.AuthorAvatarUrl,
+            PersonaId = createMessageParams.PersonaId,
         };
         
         return message;

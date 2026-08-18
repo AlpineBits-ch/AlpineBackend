@@ -27,4 +27,7 @@ public class CreateMessageDto
 
     public ICollection<string> Attachments { get; set; } = new List<string>();
 
+    /// <summary>Which of the caller's characters to speak as, or null for an ordinary message.</summary>
+    public string? PersonaId { get; set; }
+
 }

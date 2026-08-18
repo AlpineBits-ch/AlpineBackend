@@ -42,15 +42,35 @@ public static class SiteHost
         InstanceHosts.DeriveSibling(label, instanceUrl);
 
     /// <summary>
-    /// The absolute base URL of a site, for links that leave the system - a ban notice pointing at
-    /// the appeal form, a support email quoting the ticket URL.
+    /// Whether a request is for this site's label but not for the name it is bound to, which is the
+    /// misconfiguration worth explaining rather than answering with an empty 404.
     /// </summary>
-    public static string BaseUrl(string host)
+    /// <param name="requested">The hostname the request arrived on.</param>
+    /// <param name="boundHost">The hostname this site is served on.</param>
+    /// <param name="label">The site's label.</param>
+    /// <returns>True when the request meant this site and will not reach it.</returns>
+    public static bool IsMisdirected(string? requested, string boundHost, string label)
     {
-        var scheme = Uri.TryCreate(Env.GeneralConfiguration.InstanceUrl, UriKind.Absolute, out var uri)
+        if (string.IsNullOrEmpty(requested)) return false;
+
+        if (!requested.StartsWith($"{label}.", StringComparison.OrdinalIgnoreCase)) return false;
+        if (requested.Equals(boundHost, StringComparison.OrdinalIgnoreCase)) return false;
+
+        // Depth matters: a published wiki lives at admin.wiki.<instance>, one label deeper than the
+        // console at admin.<instance>, and claiming that request would take the wiki's own hostname
+        // away from it.
+        return requested.Count(c => c == '.') == boundHost.Count(c => c == '.');
+    }
+
+    /// <summary>The scheme the instance is reached over.</summary>
+    public static string Scheme =>
+        Uri.TryCreate(Env.GeneralConfiguration.InstanceUrl, UriKind.Absolute, out var uri)
             ? uri.Scheme
             : Uri.UriSchemeHttps;
 
-        return $"{scheme}://{host}";
-    }
+    /// <summary>
+    /// The absolute base URL of a site, for links that leave the system - a ban notice pointing at
+    /// the appeal form, a support email quoting the ticket URL.
+    /// </summary>
+    public static string BaseUrl(string host) => $"{Scheme}://{host}";
 }

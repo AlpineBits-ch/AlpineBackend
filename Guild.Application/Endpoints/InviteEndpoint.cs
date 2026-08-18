@@ -20,6 +20,7 @@ using Social.Contracts.Bus.Integration.Response;
 using Wolverine;
 using Wolverine.Http;
 using MessagingMessageType = Messaging.Contracts.Bus.Commands.MessageType;
+using MessagingAuthorIdType = Messaging.Contracts.Bus.Commands.AuthorIdType;
 
 namespace Guild.Application.Endpoints;
 
@@ -411,7 +412,7 @@ public class InviteEndpoint
                 Content = Encoding.UTF8.GetBytes($"{profileResponse.Profile.UserName} joined the server"),
                 ChannelId = guild.SystemChannelId,
                 AuthorId = userId,
-                AuthorIdType = AuthorIdType.User,
+                AuthorIdType = MessagingAuthorIdType.User,
                 Mentions = [],
                 Type = MessagingMessageType.GuildMemberJoin,
             });

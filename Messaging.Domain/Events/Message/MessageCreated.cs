@@ -39,4 +39,15 @@ public class MessageCreated : DomainEvent
     public string? ComponentsJson { get; set; }
     public MessageType Type { get; set; } = MessageType.Message;
     public int? SystemMessageVariant { get; set; }
+
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
+
+    /// <summary>Per-message author name override - see Entities.Message.AuthorDisplayName.</summary>
+    public string? AuthorDisplayName { get; set; }
+
+    /// <summary>Per-message author avatar override - see Entities.Message.AuthorAvatarUrl.</summary>
+    public string? AuthorAvatarUrl { get; set; }
+
+    /// <summary>Which character the message was spoken as - see Entities.Message.PersonaId.</summary>
+    public string? PersonaId { get; set; }
 }

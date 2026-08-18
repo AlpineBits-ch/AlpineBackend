@@ -43,7 +43,7 @@ public class WriteVoiceInviteMessageHandler
         {
             ConversationId = resolved.ConversationId,
             AuthorId = request.InviterId,
-            AuthorIdType = AuthorIdType.User,
+            AuthorIdType = global::Messaging.Contracts.Bus.Commands.AuthorIdType.User,
             Type = ContractMessageType.VoiceChannelInvite,
             // The same sentence the push notification carries, for the same reason the guild-join
             // message carries one: bots, exports and search see Content and nothing else.

@@ -52,8 +52,7 @@ public static class DocsEndpoints
         {
             var requested = context.Request.Host.Host;
 
-            if (requested.StartsWith("docs.", StringComparison.OrdinalIgnoreCase)
-                && !requested.Equals(host, StringComparison.OrdinalIgnoreCase))
+            if (Sites.SiteHost.IsMisdirected(requested, host, "docs"))
             {
                 app.Logger.LogWarning(
                     "Request for {Requested} but the docs site is bound to {Bound} (derived from "

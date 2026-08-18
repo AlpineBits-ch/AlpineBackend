@@ -11,6 +11,7 @@ using Messaging.Application.Services;
 using Messaging.Application.Services.Privacy;
 using Messaging.Contracts.Bus.Commands;
 using Messaging.Contracts.Bus.Response;
+using Messaging.Domain;
 using Messaging.Domain.Entities;
 using Messaging.Domain.Events.Message;
 using Messaging.Domain.Previews;
@@ -36,7 +37,8 @@ public class MessagingEndpoints
     /// <summary>Deliberately returns a bare IResult and no cascaded event.</summary>
     [WolverinePost("/api/v1/messaging")]
     public async Task<IResult> CreateMessage(CreateMessageDto dto,  [NotBody] ScyllaContext ctx, [NotBody] ClaimsPrincipal user, [NotBody] MicroserviceContext context, [NotBody] IMessageBus bus, [NotBody] IDistributedCache cache, [NotBody] MlsGroupService mls,
-        [NotBody] DirectMessagePolicyService dmPolicy, [NotBody] ExplicitContentGuard contentGuard)
+        [NotBody] DirectMessagePolicyService dmPolicy, [NotBody] ExplicitContentGuard contentGuard,
+        [NotBody] MessageLengthPolicy lengths)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if(userId is null) return Results.Unauthorized();
@@ -60,6 +62,22 @@ public class MessagingEndpoints
         var mentionsEveryone = dto.MentionsEveryone;
         var mentionsHere = dto.MentionsHere;
 
+        var isEncrypted = dto.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted;
+
+        // Called only once the caller has been shown to belong here: the ceiling is the guild's
+        // plan, and a stranger should not be able to read it off a refusal. It runs before auto-mod
+        // and before slowmode, so a body that was never going to be accepted does not consume the
+        // author's cooldown window.
+        async Task<IResult?> RefuseIfTooLongAsync()
+        {
+            var limit = await lengths.ForAsync(dto.ChannelId, dto.ConversationId, userId);
+            var length = MessageLength.Of(dto.Content);
+
+            return limit.Exceeds(length, isEncrypted)
+                ? await lengths.RefuseAsync(limit, length, isEncrypted, userId)
+                : null;
+        }
+
         if (!string.IsNullOrWhiteSpace(dto.ChannelId))
         {
             var response = await bus.InvokeAsync<HasUserPermissionToChannelResponse>(
@@ -71,6 +89,8 @@ public class MessagingEndpoints
                 });
 
             if(!response.IsAllowed) return Results.Forbid();
+
+            if (await RefuseIfTooLongAsync() is { } tooLong) return tooLong;
 
             // MentionEveryone answers two questions on this path - the @everyone/@here flags and
             // whether a non-mentionable role may be pinged - and the answer is the same for both,
@@ -146,6 +166,8 @@ public class MessagingEndpoints
                 return Results.Forbid();
             }
 
+            if (await RefuseIfTooLongAsync() is { } tooLong) return tooLong;
+
             // A DM or group has no roles, so every id here is meaningless.
             roleMentions = [];
 
@@ -197,12 +219,7 @@ public class MessagingEndpoints
         }).ToList();
 
 
-        var encryptionState = MessageEncryptionState.Plain;
-
-        if (dto.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted)
-        {
-            encryptionState = MessageEncryptionState.Encrypted;
-        }
+        var encryptionState = isEncrypted ? MessageEncryptionState.Encrypted : MessageEncryptionState.Plain;
 
         // The context, not the client, decides whether a message may be plaintext.
         var mlsContextId = dto.ConversationId ?? dto.ChannelId;
@@ -249,11 +266,57 @@ public class MessagingEndpoints
         }
 
 
+        // Guild owns personas, grants and autoproxy, so the send path asks rather than trusting the
+        // client's personaId. Conversations are skipped: a persona is guild-scoped and a DM has no
+        // guild. An encrypted send passes no content, so only an explicit id can resolve there -
+        // there is no plaintext for a proxy prefix to match against.
+        var content = dto.Content;
+        string? personaId = null;
+        string? personaDisplayName = null;
+        string? personaAvatarUrl = null;
+
+        if (dto.ChannelId is { } personaChannelId)
+        {
+            ResolvePersonaForSendResponse? persona;
+            try
+            {
+                persona = await bus.InvokeAsync<ResolvePersonaForSendResponse>(new ResolvePersonaForSendRequest
+                {
+                    UserId = userId,
+                    ChannelId = personaChannelId,
+                    PersonaId = dto.PersonaId,
+                    Content = encryptionState == MessageEncryptionState.Plain ? dto.Content : null,
+                });
+            }
+            // Only the implicit paths fall through to speaking as yourself when Guild is
+            // unreachable: silently posting an explicitly-chosen character as your own account
+            // outs the player rather than inconveniencing them.
+            catch (Exception) when (dto.PersonaId is null)
+            {
+                persona = null;
+            }
+
+            if (persona is not null && !persona.IsAllowed)
+            {
+                return Results.Problem(persona.Error ?? "You may not speak as that persona.", statusCode: 403);
+            }
+
+            content = persona?.Content ?? dto.Content;
+            personaId = persona?.PersonaId;
+            personaDisplayName = persona?.AuthorDisplayName;
+            personaAvatarUrl = persona?.AuthorAvatarUrl;
+
+            if (personaId is not null)
+            {
+                authorIdType = AuthorIdType.Persona;
+            }
+        }
+
         var message = await bus.InvokeAsync<Message>(new CreateMessageCommand()
         {
             AuthorId = userId,
             AuthorIdType = authorIdType,
-            Content = Encoding.UTF8.GetBytes(dto.Content),
+            Content = Encoding.UTF8.GetBytes(content),
             ChannelId = dto.ChannelId,
             ConversationId = dto.ConversationId,
             Attachments = attachments,
@@ -266,7 +329,12 @@ public class MessagingEndpoints
             MlsEpoch = dto.MlsEpoch,
             MlsSequenceNumber = dto.MlsSequenceNumber,
             MlsGeneration = mlsGeneration,
-            SenderDeviceId = dto.SenderDeviceId
+            SenderDeviceId = dto.SenderDeviceId,
+            // All three come back from Guild's resolver above, never from the client. AuthorId
+            // stays the caller whatever the persona is.
+            PersonaId = personaId,
+            AuthorDisplayName = personaDisplayName,
+            AuthorAvatarUrl = personaAvatarUrl,
         });
 
         // No cascaded event here - CreateMessageCommandHandler already raised the MessageCreated
@@ -415,10 +483,25 @@ public class MessagingEndpoints
     }
 
     [WolverinePut("/api/v1/messaging/{messageId}")]
-    public async Task<IResult> UpdateMessageAsync(string messageId, UpdateMessageDto dto, [NotBody] ClaimsPrincipal user, [NotBody] IMessageBus bus)
+    public async Task<IResult> UpdateMessageAsync(string messageId, UpdateMessageDto dto, [NotBody] ClaimsPrincipal user,
+        [NotBody] IMessageBus bus, [NotBody] IMessageRepository repo, [NotBody] MessageLengthPolicy lengths)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
+
+        // Read before the edit rather than after, because the ceiling is a property of the context
+        // the message sits in and an edit carries only the message id. An edit that grows a post
+        // past the limit is the same refusal as a send that starts there.
+        var existing = await repo.GetMessageAsync(messageId);
+        if (existing is null) return Results.NotFound();
+        if (existing.AuthorId != userId) return Results.Forbid();
+
+        var encrypted = existing.EncryptionState == Domain.Enums.MessageEncryptionState.Encrypted;
+        var limit = await lengths.ForAsync(existing.ChannelId, existing.ConversationId, userId);
+        var length = MessageLength.Of(dto.Content);
+
+        if (limit.Exceeds(length, encrypted))
+            return await lengths.RefuseAsync(limit, length, encrypted, userId);
 
         var result = await bus.InvokeAsync<UpdateMessageResponse>(new UpdateMessageCommand
         {

@@ -149,14 +149,11 @@ public static class SiteHosting
     public static IApplicationBuilder UseSiteHostDiagnostics(
         this WebApplication app, string label, string boundHost, string variable, string description)
     {
-        var prefix = $"{label}.";
-
         app.Use(async (context, next) =>
         {
             var requested = context.Request.Host.Host;
 
-            if (requested.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-                && !requested.Equals(boundHost, StringComparison.OrdinalIgnoreCase))
+            if (SiteHost.IsMisdirected(requested, boundHost, label))
             {
                 app.Logger.LogWarning(
                     "Request for {Requested} but the {Description} is bound to {Bound} (derived from "

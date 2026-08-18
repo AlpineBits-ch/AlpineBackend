@@ -707,6 +707,15 @@ services:
       # a partner site sends a person's browser to it by name.
       AUTH_DOMAIN: "${AUTH_DOMAIN:-}"
       STATUS_DOMAIN: "${STATUS_DOMAIN:-}"
+      # The public wiki, same mechanism again, derived as wiki.<instance host> when left empty. This
+      # is the one hostname that serves prose somebody else wrote, so it renders server-side with no
+      # script at all and answers on nothing but the wiki. A guild has to opt in per wiki and per
+      # page before anything appears here, so the name resolving is not the same as it publishing.
+      #
+      # This is the apex only. Each published wiki answers on <slug>.<this name>, so the DNS record
+      # and the proxy's certificate both need to cover *.<this name> as well; the apex keeps serving
+      # the /<slug>/<page> form and redirects it, which is what still works while they do not.
+      WIKI_DOMAIN: "${WIKI_DOMAIN:-}"
       STATUS_AUTO_DETECTION: "${STATUS_AUTO_DETECTION:-}"
       STATUS_DEGRADED_RATE: "${STATUS_DEGRADED_RATE:-}"
       STATUS_OUTAGE_RATE: "${STATUS_OUTAGE_RATE:-}"

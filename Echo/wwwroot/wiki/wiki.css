@@ -1,0 +1,104 @@
+/* The public wiki's only stylesheet. Self-contained on purpose: the site serves two assets and no
+   script, so there is nothing here to share with the shared bundle. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #16181d;
+  --muted: #5c6270;
+  --rule: #e3e6ec;
+  --accent: #4b5bd6;
+  --surface: #f7f8fa;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a;
+    --fg: #e7e9ee;
+    --muted: #99a0ae;
+    --rule: #262a31;
+    --accent: #8f9cf3;
+    --surface: #1b1e24;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); }
+
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  padding: 14px 20px;
+}
+
+.masthead .brand {
+  color: var(--fg);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+main {
+  margin: 0 auto;
+  max-width: 46rem;
+  padding: 32px 20px 64px;
+}
+
+h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 12px; }
+h2 { font-size: 1.35rem; margin: 32px 0 8px; }
+h3 { font-size: 1.1rem; margin: 24px 0 8px; }
+
+.lead { color: var(--muted); font-size: 1.05rem; margin: 0 0 20px; }
+.meta { color: var(--muted); font-size: 0.9rem; }
+.icon { font-style: normal; }
+
+.cover {
+  border-radius: 10px;
+  display: block;
+  margin-bottom: 20px;
+  max-width: 100%;
+}
+
+.prose img { max-width: 100%; }
+.prose pre {
+  background: var(--surface);
+  border-radius: 8px;
+  overflow-x: auto;
+  padding: 12px 14px;
+}
+.prose code { background: var(--surface); border-radius: 4px; padding: 1px 4px; }
+.prose pre code { background: none; padding: 0; }
+.prose blockquote {
+  border-left: 3px solid var(--rule);
+  color: var(--muted);
+  margin: 16px 0;
+  padding: 2px 0 2px 14px;
+}
+.prose table { border-collapse: collapse; display: block; overflow-x: auto; }
+.prose th, .prose td { border: 1px solid var(--rule); padding: 6px 10px; text-align: left; }
+
+.index { list-style: none; margin: 20px 0 0; padding: 0; }
+.index li {
+  align-items: baseline;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+}
+.index a { font-weight: 500; text-decoration: none; }
+.index a:hover { text-decoration: underline; }
+.index .tag { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+
+footer {
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0 auto;
+  max-width: 46rem;
+  padding: 20px;
+}

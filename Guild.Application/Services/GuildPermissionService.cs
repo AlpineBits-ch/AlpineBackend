@@ -248,11 +248,13 @@ public class GuildPermissionService(
         logger.LogDebug("User {UserId} has permissions {Permissions} on channel {ChannelId} in guild {GuildId}", userId, channelPermission.Permissions, channelId, guildId);
 
         // Threads inherit their parent's resolved permission set (see ComputePermissionsForUserAsync),
-        // but "can post" on a thread is governed by SendMessagesInThreads, not SendMessages.
+        // but "can post" on a thread is governed by SendMessagesInThreads, not SendMessages. A scene
+        // answers to the same bit, or posting in one would be a widening relative to the thread it
+        // is a variant of.
         if (requiredPermission == Permissions.SendMessages)
         {
             var channelType = await ctx.Channels.AsNoTracking().Where(c => c.Id == channelId).Select(c => c.Type).FirstOrDefaultAsync();
-            if (channelType == ChannelType.Thread)
+            if (channelType.IsThreadShaped())
                 requiredPermission = Permissions.SendMessagesInThreads;
         }
 
@@ -330,8 +332,9 @@ public class GuildPermissionService(
         if (!GuildFeatureMap.IsPermissionAvailable(await GetGuildFeaturesAsync(channel.GuildId), requiredPermission))
             return allowed;
 
-        // Threads govern posting via SendMessagesInThreads; resolved once rather than per user.
-        if (requiredPermission == Permissions.SendMessages && channel.Type == ChannelType.Thread)
+        // Threads and scenes govern posting via SendMessagesInThreads; resolved once rather than
+        // per user.
+        if (requiredPermission == Permissions.SendMessages && channel.Type.IsThreadShaped())
             requiredPermission = Permissions.SendMessagesInThreads;
 
         var ownerId = await ctx.Guilds
@@ -720,10 +723,10 @@ public class GuildPermissionService(
 
         var channelPermissions = new List<GuildChannelPermission>(channels.Count);
 
-        // Threads have no independent overwrites in this pass - resolve them in a second
+        // Threads and scenes have no independent overwrites in this pass - resolve them in a second
         // pass so their parent (processed in the loop below) is already computed.
-        var nonThreadChannels = channels.Where(c => c.Type != ChannelType.Thread || c.ParentChannelId == null).ToList();
-        var threadChannels = channels.Where(c => c.Type == ChannelType.Thread && c.ParentChannelId != null).ToList();
+        var nonThreadChannels = channels.Where(c => !c.Type.IsThreadShaped() || c.ParentChannelId == null).ToList();
+        var threadChannels = channels.Where(c => c.Type.IsThreadShaped() && c.ParentChannelId != null).ToList();
 
         foreach (var channel in nonThreadChannels)
         {

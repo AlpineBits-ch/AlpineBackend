@@ -44,6 +44,10 @@ public static class EntitlementKeys
     public static readonly EntitlementKey GuildBotsInstalled =
         EntitlementKey.Numeric("guild.bots_installed", EntitlementScope.Guild, EntitlementValue.Unlimited);
 
+    /// <summary>Longest message body, in characters, a member may post in this guild.</summary>
+    public static readonly EntitlementKey GuildMessageMaxLength =
+        EntitlementKey.Numeric("guild.message_max_length", EntitlementScope.Guild, EntitlementValue.Unlimited);
+
     public static readonly EntitlementKey GuildVanityUrl =
         EntitlementKey.Flag("guild.vanity_url", EntitlementScope.Guild, false);
 
@@ -57,6 +61,15 @@ public static class EntitlementKeys
     /// </summary>
     public static readonly EntitlementKey UserUploadMaxBytes =
         EntitlementKey.Numeric("user.upload_max_bytes", EntitlementScope.User, EntitlementValue.Unlimited);
+
+    /// <summary>
+    /// The message-length ceiling where no guild is involved - direct messages and groups. Paired
+    /// with <see cref="GuildMessageMaxLength"/> the way the two upload keys are: a DM has no plan
+    /// but the person sending it does, and without this key it would fall through to an arbitrary
+    /// number.
+    /// </summary>
+    public static readonly EntitlementKey UserMessageMaxLength =
+        EntitlementKey.Numeric("user.message_max_length", EntitlementScope.User, EntitlementValue.Unlimited);
 
     /// <summary>Registered devices per account.</summary>
     public static readonly EntitlementKey UserMaxDevices =
@@ -72,9 +85,11 @@ public static class EntitlementKeys
         StorageGuildQuotaBytes,
         GuildEmojiSlots,
         GuildBotsInstalled,
+        GuildMessageMaxLength,
         GuildVanityUrl,
         GuildAuditLogDays,
         UserUploadMaxBytes,
+        UserMessageMaxLength,
         UserMaxDevices,
     ];
 

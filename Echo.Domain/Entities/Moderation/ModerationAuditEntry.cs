@@ -52,6 +52,10 @@ public static class ModerationAuditActions
 
     public const string UserViewed = "user.viewed";
 
+    // The public wiki.
+    public const string WikiUnpublished = "wiki.unpublished";
+    public const string WikiPageUnpublished = "wiki.page-unpublished";
+
     // The status page.
     public const string StatusIncidentCreated = "status.incident-created";
     public const string StatusIncidentUpdated = "status.incident-updated";

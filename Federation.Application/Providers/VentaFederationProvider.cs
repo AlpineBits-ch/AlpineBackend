@@ -100,7 +100,7 @@ public class VentaFederationProvider : IFederationProvider
 
     // Messaging
 
-    public async Task SendMessageAsync(string channelId, string messageId, byte[] content, string senderId, CancellationToken cancellationToken)
+    public async Task SendMessageAsync(string channelId, string messageId, byte[] content, string senderId, FederatedAuthorDisplay author, CancellationToken cancellationToken)
     {
         var @event = new MessageCreated
         {
@@ -108,13 +108,16 @@ public class VentaFederationProvider : IFederationProvider
             ChannelId = channelId,
             Content = content,
             SenderId = senderId,
+            AuthorDisplayName = author.DisplayName,
+            AuthorAvatarUrl = author.AvatarUrl,
+            AuthorIdType = author.AuthorIdType,
             EventId = Guid.NewGuid().ToString(),
             OriginServerTime = DateTime.UtcNow
         };
         await SendEventAsync(channelId, @event, cancellationToken);
     }
 
-    public async Task EditMessageAsync(string channelId, string messageId, byte[] content, string senderId, CancellationToken cancellationToken)
+    public async Task EditMessageAsync(string channelId, string messageId, byte[] content, string senderId, FederatedAuthorDisplay author, CancellationToken cancellationToken)
     {
         var @event = new MessageEdited
         {
@@ -122,6 +125,9 @@ public class VentaFederationProvider : IFederationProvider
             ChannelId = channelId,
             Content = content,
             SenderId = senderId,
+            AuthorDisplayName = author.DisplayName,
+            AuthorAvatarUrl = author.AvatarUrl,
+            AuthorIdType = author.AuthorIdType,
             EventId = Guid.NewGuid().ToString(),
             OriginServerTime = DateTime.UtcNow
         };
@@ -392,8 +398,9 @@ public class VentaFederationProvider : IFederationProvider
         {
             using var client = CreateHttpClient(domain);
             var signed = SignedFederationEvent.Create(@event, ProtocolVersion.ToString());
-            var json = JsonSerializer.SerializeToUtf8Bytes(signed);
-            var content = new ByteArrayContent(json);
+            // The envelope embeds the signed bytes verbatim rather than serializing the payload a
+            // second time, so the receiver can verify what it actually got.
+            var content = new ByteArrayContent(signed.ToWireBytes());
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
             var response = await client.PostAsync(FederationEventsPath, content, cancellationToken);
             delivered = response.IsSuccessStatusCode;

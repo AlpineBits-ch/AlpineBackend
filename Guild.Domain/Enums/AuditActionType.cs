@@ -89,4 +89,15 @@ public enum AuditActionType
     /// leaves no role anybody can inspect afterwards.
     /// </summary>
     MemberPermissionsChanged,
+
+    // ── Roleplay ───────────────────────────────────────────────────────────── A persona keeps the
+    // author on the message, so moderation can already see who typed it; what these record is who
+    // shaped the costume and who let somebody else wear it.
+    PersonaCreated,
+    PersonaUpdated,
+    PersonaDeleted,
+    PersonaApproved,
+    PersonaRejected,
+    PersonaGrantCreated,
+    PersonaGrantDeleted,
 }

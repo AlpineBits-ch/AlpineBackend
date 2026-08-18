@@ -3,6 +3,8 @@ using Messaging.Infrastructure.Persistence.Repositories;
 using Messaging.Tests.Helpers;
 using ContractMessageEncryptionState = Messaging.Contracts.Bus.Commands.MessageEncryptionState;
 using ContractMessageType = Messaging.Contracts.Bus.Commands.MessageType;
+using ContractAuthorIdType = Messaging.Contracts.Bus.Commands.AuthorIdType;
+using DomainAuthorIdType = Messaging.Domain.Enums.AuthorIdType;
 
 namespace Messaging.Tests.Commands;
 
@@ -172,5 +174,174 @@ public class CreateMessageCommandTests
             Assert.That(message.Type, Is.EqualTo(global::Messaging.Domain.Enums.MessageType.Invite));
             Assert.That(evt.Type, Is.EqualTo(global::Messaging.Domain.Enums.MessageType.Invite));
         });
+    }
+
+    [Test]
+    public async Task Handle_BotAuthor_StoresBotAuthorIdType()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand();
+        command.AuthorIdType = ContractAuthorIdType.Bot;
+
+        var (message, evt) = await handler.Handle(command, _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var stored = await _repo.GetMessageAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.AuthorIdType, Is.EqualTo(DomainAuthorIdType.Bot));
+            Assert.That(evt.AuthorIdType, Is.EqualTo(DomainAuthorIdType.Bot));
+        });
+    }
+
+    /// <summary>
+    /// The regression this mapping exists for: a webhook execution sets Webhook plus the display
+    /// overrides, and the command handler used to drop the type on the floor, so every webhook
+    /// message was persisted claiming a real user authored it.
+    /// </summary>
+    [Test]
+    public async Task Handle_WebhookExecution_KeepsWebhookTypeAndDisplayOverrides()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand();
+        command.AuthorIdType = ContractAuthorIdType.Webhook;
+        command.AuthorDisplayName = "Deploy Bot";
+        command.AuthorAvatarUrl = "https://api.venta.gg/avatars/deploy.png";
+
+        var (message, evt) = await handler.Handle(command, _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var stored = await _repo.GetMessageAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.AuthorIdType, Is.EqualTo(DomainAuthorIdType.Webhook));
+            Assert.That(stored.AuthorDisplayName, Is.EqualTo("Deploy Bot"));
+            Assert.That(stored.AuthorAvatarUrl, Is.EqualTo("https://api.venta.gg/avatars/deploy.png"));
+            Assert.That(evt.AuthorIdType, Is.EqualTo(DomainAuthorIdType.Webhook));
+            Assert.That(evt.AuthorDisplayName, Is.EqualTo("Deploy Bot"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_UnsetAuthorIdType_DefaultsToUser()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var (message, evt) = await handler.Handle(MakeCommand(), _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var stored = await _repo.GetMessageAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.AuthorIdType, Is.EqualTo(DomainAuthorIdType.User));
+            Assert.That(evt.AuthorIdType, Is.EqualTo(DomainAuthorIdType.User));
+        });
+    }
+
+    /// <summary>
+    /// An encrypted message stored without its generation cannot be matched back to the MLS group it
+    /// was sealed to, so this was dropped alongside AuthorIdType.
+    /// </summary>
+    [Test]
+    public async Task Handle_CarriesMlsGenerationToStorage()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand(encryption: ContractMessageEncryptionState.Encrypted);
+        command.MlsGeneration = 7;
+
+        var (message, evt) = await handler.Handle(command, _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var stored = await _repo.GetMessageAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.MlsGeneration, Is.EqualTo(7));
+            Assert.That(evt.MlsGeneration, Is.EqualTo(7));
+        });
+    }
+
+    [Test]
+    public async Task Handle_PersonaMessage_StoresTheCharacterAndLeavesAuthorIdAlone()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand();
+        command.AuthorIdType = ContractAuthorIdType.Persona;
+        command.PersonaId = "pers_cogsgrove";
+        command.AuthorDisplayName = "Mayor Cogsgrove";
+        command.AuthorAvatarUrl = "https://api.venta.gg/avatars/cogsgrove.png";
+
+        var (message, evt) = await handler.Handle(command, _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var stored = await _repo.GetMessageAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.PersonaId, Is.EqualTo("pers_cogsgrove"));
+            Assert.That(stored.AuthorIdType, Is.EqualTo(DomainAuthorIdType.Persona));
+            Assert.That(stored.AuthorDisplayName, Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(stored.AuthorAvatarUrl, Is.EqualTo("https://api.venta.gg/avatars/cogsgrove.png"));
+
+            // The whole point of the design: blocking, moderation and reply-pings resolve against
+            // the real account, so a costume must never reach AuthorId.
+            Assert.That(stored.AuthorId, Is.EqualTo("author-1"));
+            Assert.That(evt.AuthorId, Is.EqualTo("author-1"));
+            Assert.That(evt.PersonaId, Is.EqualTo("pers_cogsgrove"));
+        });
+    }
+
+    /// <summary>
+    /// MessageCreatedHandler pushes under the display override when there is one; an event that
+    /// carried only the account name is what leaked who plays the character.
+    /// </summary>
+    [Test]
+    public async Task Handle_PersonaMessage_EventCarriesTheDisplayOverridesForPush()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand();
+        command.AuthorIdType = ContractAuthorIdType.Persona;
+        command.PersonaId = "pers_cogsgrove";
+        command.AuthorDisplayName = "Mayor Cogsgrove";
+        command.AuthorAvatarUrl = "https://api.venta.gg/avatars/cogsgrove.png";
+
+        var (_, evt) = await handler.Handle(command, _repo, _context);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(evt.AuthorDisplayName, Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(evt.AuthorAvatarUrl, Is.EqualTo("https://api.venta.gg/avatars/cogsgrove.png"));
+            Assert.That(evt.AuthorIdType, Is.EqualTo(DomainAuthorIdType.Persona));
+        });
+    }
+
+    [Test]
+    public async Task Handle_OrdinaryMessage_HasNoPersona()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var (message, evt) = await handler.Handle(MakeCommand(), _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var stored = await _repo.GetMessageAsync(message.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(stored!.PersonaId, Is.Null);
+            Assert.That(stored.AuthorDisplayName, Is.Null);
+            Assert.That(evt.PersonaId, Is.Null);
+        });
+    }
+
+    /// <summary>A persona message is still the user's message, so it is indexed like any other.</summary>
+    [Test]
+    public async Task Handle_PersonaMessage_IndexesUnderTheRealAuthor()
+    {
+        var handler = new CreateMessageCommandHandler();
+        var command = MakeCommand();
+        command.AuthorIdType = ContractAuthorIdType.Persona;
+        command.PersonaId = "pers_cogsgrove";
+        command.AuthorDisplayName = "Mayor Cogsgrove";
+
+        var (message, _) = await handler.Handle(command, _repo, _context);
+        await _context.SaveChangesAsync();
+
+        var entry = _context.MessageSearchEntries.FirstOrDefault(e => e.MessageId == message.Id);
+        Assert.That(entry!.AuthorId, Is.EqualTo("author-1"));
     }
 }

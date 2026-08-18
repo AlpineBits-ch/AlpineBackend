@@ -89,6 +89,12 @@ public class UpdateMessageCommandHandler
             UpdatedAt = message.UpdatedAt,
             EditedAt = message.EditedAt,
             IsAuthorEdit = command.IsAuthorEdit,
+            // Read back off the stored row: an edit keeps whatever identity the message was sent
+            // under, and nothing here re-resolves the persona.
+            AuthorIdType = message.AuthorIdType,
+            AuthorDisplayName = message.AuthorDisplayName,
+            AuthorAvatarUrl = message.AuthorAvatarUrl,
+            PersonaId = message.PersonaId,
         };
 
         return (response, messageUpdated);

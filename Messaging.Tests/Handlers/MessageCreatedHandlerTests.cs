@@ -11,6 +11,7 @@ using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
 using Social.Contracts.Dtos;
 using DomainMessageType = global::Messaging.Domain.Enums.MessageType;
+using DomainAuthorIdType = global::Messaging.Domain.Enums.AuthorIdType;
 
 namespace Messaging.Tests.Handlers;
 
@@ -285,6 +286,87 @@ public class MessageCreatedHandlerTests
 
         Assert.DoesNotThrowAsync(() => MessageCreatedHandler.Handle(
             MakeEvent(), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance));
+    }
+
+    /// <summary>Guild's realtime and bot fan-out render the character off these, so a persona
+    /// message that arrives without them shows up as an ordinary one.</summary>
+    [Test]
+    public async Task Handle_ChannelMessage_ForwardsThePersonaIdentity()
+    {
+        var bus = new FakeMessageBus();
+        var evt = MakeEvent(channelId: "chan-1");
+        evt.AuthorIdType = DomainAuthorIdType.Persona;
+        evt.PersonaId = "pers_cogsgrove";
+        evt.AuthorDisplayName = "Mayor Cogsgrove";
+        evt.AuthorAvatarUrl = "https://api.venta.gg/avatars/cogsgrove.png";
+
+        await MessageCreatedHandler.Handle(evt, _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
+
+        var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(forwarded.AuthorIdType, Is.EqualTo(Guild.Contracts.Bus.Events.AuthorIdType.Persona));
+            Assert.That(forwarded.PersonaId, Is.EqualTo("pers_cogsgrove"));
+            Assert.That(forwarded.AuthorDisplayName, Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(forwarded.AuthorAvatarUrl, Is.EqualTo("https://api.venta.gg/avatars/cogsgrove.png"));
+
+            // The costume never displaces the account the fan-out authorizes against.
+            Assert.That(forwarded.AuthorId, Is.EqualTo("author-1"));
+        });
+    }
+
+    [Test]
+    public async Task Handle_ChannelMessage_OrdinaryMessage_ForwardsUserAuthorType()
+    {
+        var bus = new FakeMessageBus();
+
+        await MessageCreatedHandler.Handle(MakeEvent(channelId: "chan-1"), _hub, _context, bus, Blocks(bus), Privacy(bus), StubWebPush.Create(bus).Sender, NullLogger<MessageCreatedHandler>.Instance);
+
+        var forwarded = (MessageCreatedForChannel)bus.Sent.Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(forwarded.AuthorIdType, Is.EqualTo(Guild.Contracts.Bus.Events.AuthorIdType.User));
+            Assert.That(forwarded.PersonaId, Is.Null);
+            Assert.That(forwarded.AuthorDisplayName, Is.Null);
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════ Push identity
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>The leak this replaced: every push used the account name, so a persona message told
+    /// the recipient's lock screen who plays the character.</summary>
+    [Test]
+    public void PushSenderName_PrefersTheMessagesOwnDisplayName()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(MessageCreatedHandler.PushSenderName("Mayor Cogsgrove", "real-account"), Is.EqualTo("Mayor Cogsgrove"));
+            Assert.That(MessageCreatedHandler.PushSenderAvatarUrl("https://cdn/persona.png", "https://cdn/account.png"),
+                Is.EqualTo("https://cdn/persona.png"));
+        });
+    }
+
+    [Test]
+    public void PushSenderName_FallsBackToTheAccount()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(MessageCreatedHandler.PushSenderName(null, "real-account"), Is.EqualTo("real-account"));
+            Assert.That(MessageCreatedHandler.PushSenderName("   ", "real-account"), Is.EqualTo("real-account"));
+            Assert.That(MessageCreatedHandler.PushSenderAvatarUrl(null, "https://cdn/account.png"),
+                Is.EqualTo("https://cdn/account.png"));
+        });
+    }
+
+    [Test]
+    public void PushSenderName_WithNeither_UsesTheGenericTitle()
+    {
+        Assert.Multiple(() =>
+        {
+            Assert.That(MessageCreatedHandler.PushSenderName(null, null), Is.EqualTo("New message"));
+            Assert.That(MessageCreatedHandler.PushSenderAvatarUrl(null, null), Is.Null);
+        });
     }
 
     // ══════════════════════════════════════════════════════════════════════════ LoadAsync

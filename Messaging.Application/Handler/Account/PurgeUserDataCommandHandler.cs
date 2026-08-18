@@ -21,6 +21,11 @@ public class PurgeUserDataCommandHandler
 
         ctx.Members.RemoveRange(memberships);
 
+        // Unsent text is still this person's writing, and it is keyed by channel as well as by
+        // conversation, so it does not fall out with the memberships above.
+        var drafts = await ctx.MessageDrafts.Where(d => d.UserId == command.UserId).ToListAsync();
+        ctx.MessageDrafts.RemoveRange(drafts);
+
         await PurgeMlsArtifactsAsync(ctx, command.UserId, memberships.Select(m => m.ConversationId).ToList());
 
         return new PurgeUserDataCommandResponse

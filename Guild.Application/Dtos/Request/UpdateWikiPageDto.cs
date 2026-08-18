@@ -29,6 +29,10 @@ public class UpdateWikiPageDto
     /// <summary>URL of an already-uploaded cover image.</summary>
     public Optional<string> CoverUrl { get; set; }
 
+    /// <summary>The structured half of the page. Omit to leave it alone, send <c>null</c> to clear
+    /// it; an edit to it versions the page exactly as an edit to the body does.</summary>
+    public Optional<string> InfoboxJson { get; set; }
+
     /// <summary>
     /// Optional note describing what changed, stored on the revision this update creates.
     /// </summary>

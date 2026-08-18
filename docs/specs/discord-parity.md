@@ -132,11 +132,18 @@ select menus, modals, autocomplete (type 4), message-component interactions (typ
 submit (type 5), and user/message context-menu command types. Most non-trivial bots are
 component-driven; commands-only support caps the ecosystem hard.
 
-### 3.3 Ephemeral responses are accepted and silently ignored
+### 3.3 Ephemeral responses work, but only for interactions
 
-`InteractionResponseDataPayload.Flags` documents flag 64 as "accepted but not enforced in v1 -
-posts as a normal channel message". Every bot that replies "only you can see this" leaks into the
-channel. This needs a per-recipient message visibility concept in Messaging, not just a flag.
+Flag 64 is honoured. `DiscordInteractionEndpoint.SendEphemeralAsync` pushes the response over the
+realtime hub to the invoking user alone and never writes it to the message store, and
+`Bots.Tests` asserts that it does not. Component custom ids on an ephemeral response are kept in
+`PendingInteractionStore` so the follow-up interaction still resolves.
+
+What that does not give anyone is a per-recipient *message*. An ephemeral response is transient: it
+survives no reload, appears in no history, and cannot be revealed later. Anything needing a stored
+message that only some readers may see - `MessageFlags` still documents flag 64 as "not
+implemented" on the Messaging side - is unbuilt, and `roleplay-guilds.md` §6 covers what it would
+cost in Scylla, where `messages` is partitioned on `context_id` with no recipient dimension.
 
 ### 3.4 Slowmode is stored but never enforced
 

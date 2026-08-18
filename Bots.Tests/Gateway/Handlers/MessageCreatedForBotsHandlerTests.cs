@@ -68,6 +68,27 @@ public class MessageCreatedForBotsHandlerTests
     }
 
     [Test]
+    public async Task Handle_PlainMessage_DispatchesAsAnOrdinaryUserAuthor()
+    {
+        await InstallBotAsync("usr_bot1", "gld_1");
+        var (registry, subscriber) = GatewayRegistryTestFactory.Create();
+        _bus.UserResponse = new GetUserByIdResponse { User = new ApplicationUserDto { Id = "usr_author", UserName = "Author", IsBot = false } };
+
+        await MessageCreatedForBotsHandler.Handle(
+            new MessageCreatedForBots { GuildId = "gld_1", ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_author", Content = "hi"u8.ToArray(), EncryptionState = MessageEncryptionState.Plain },
+            _context, registry, _bus, _visibility);
+
+        var (_, _, data) = DispatchAssertions.Parse(subscriber.Messages.Single());
+        Assert.Multiple(() =>
+        {
+            Assert.That(data.GetProperty("author_type").GetString(), Is.EqualTo("user"));
+            Assert.That(data.TryGetProperty("webhook_id", out _), Is.False);
+            Assert.That(data.TryGetProperty("persona", out _), Is.False);
+            Assert.That(data.GetProperty("author").GetProperty("id").GetString(), Is.EqualTo("usr_author"));
+        });
+    }
+
+    [Test]
     public async Task Handle_EncryptedMessage_DispatchesWithEmptyContent()
     {
         await InstallBotAsync("usr_bot1", "gld_1");

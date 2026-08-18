@@ -61,6 +61,10 @@ public class MessageUpdatedForChannelHandler
             ComponentsJson = message.ComponentsJson,
             Flags = message.Flags,
             EditedAt = message.EditedAt,
+            AuthorIdType = message.AuthorIdType,
+            AuthorDisplayName = message.AuthorDisplayName,
+            AuthorAvatarUrl = message.AuthorAvatarUrl,
+            PersonaId = message.PersonaId,
         });
     }
 }

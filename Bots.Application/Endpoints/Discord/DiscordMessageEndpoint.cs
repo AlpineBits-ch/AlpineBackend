@@ -114,6 +114,7 @@ public class DiscordMessageEndpoint
             embeds = dto.Embeds,
             timestamp = message.CreatedAt,
             author = new { id = botUserId, bot = true },
+            author_type = DiscordAuthorType.Bot,
         });
     }
 
@@ -155,6 +156,7 @@ public class DiscordMessageEndpoint
             embeds = DeserializeEmbeds(result.EmbedsJson),
             timestamp = result.UpdatedAt,
             author = new { id = botUserId, bot = true },
+            author_type = DiscordAuthorType.Bot,
         });
     }
 

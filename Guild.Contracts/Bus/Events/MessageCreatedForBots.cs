@@ -19,6 +19,14 @@ public class MessageCreatedForBots
 
     public MessageType Type { get; set; } = MessageType.Message;
     public int? SystemMessageVariant { get; set; }
+
+    // The author identity the bot gateway renders. Carried separately from MessageCreatedForChannel
+    // because Bots.Application consumes this event and not that one, and without these four a
+    // webhook or a character reaches bots looking like an ordinary account post.
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
+    public string? AuthorDisplayName { get; set; }
+    public string? AuthorAvatarUrl { get; set; }
+    public string? PersonaId { get; set; }
 }
 
 /// <summary>
@@ -55,6 +63,12 @@ public class MessageUpdatedForBots
 
     /// <summary>Discord's <c>edited_timestamp</c>.</summary>
     public DateTimeOffset? EditedAt { get; set; }
+
+    /// <inheritdoc cref="MessageCreatedForBots.AuthorIdType"/>
+    public AuthorIdType AuthorIdType { get; set; } = AuthorIdType.User;
+    public string? AuthorDisplayName { get; set; }
+    public string? AuthorAvatarUrl { get; set; }
+    public string? PersonaId { get; set; }
 }
 
 /// <summary>

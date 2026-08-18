@@ -24,12 +24,6 @@ public class MessageCreatedForBotsHandler
         if (botUserIds.Count == 0) return;
 
         var authorResponse = await bus.InvokeAsync<GetUserByIdResponse>(new GetUserByIdRequest { UserId = message.AuthorId });
-        var author = new DiscordUserPayload
-        {
-            Id = message.AuthorId,
-            Username = authorResponse.User?.UserName ?? message.AuthorId,
-            Bot = authorResponse.User?.IsBot ?? false,
-        };
 
         var content = message.EncryptionState == MessageEncryptionState.Plain
             ? Encoding.UTF8.GetString(message.Content)
@@ -41,10 +35,13 @@ public class MessageCreatedForBotsHandler
             ChannelId = message.ChannelId,
             GuildId = message.GuildId,
             Content = content,
-            Author = author,
             Timestamp = DateTimeOffset.UtcNow,
             Embeds = DeserializeEmbeds(message.EmbedsJson),
         };
+
+        DiscordAuthorMapper.Apply(payload, new DiscordAuthorSource(
+            message.AuthorIdType, message.AuthorId, message.AuthorDisplayName, message.AuthorAvatarUrl,
+            message.PersonaId, authorResponse.User?.UserName, authorResponse.User?.IsBot ?? false));
 
         // Real Discord dispatches MESSAGE_CREATE to the author bot for its own messages too -
         // filtering "is this my own message" is a client-side concern (every bot framework's

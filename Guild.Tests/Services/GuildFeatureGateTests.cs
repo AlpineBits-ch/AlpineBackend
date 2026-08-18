@@ -251,9 +251,18 @@ public class GuildFeatureGateTests
             ModulePermissions.PlanMeals | ModulePermissions.ManageMeals |
             ModulePermissions.LogMaintenance | ModulePermissions.ManageMaintenance;
 
+        // Roleplay is the second module family a Community guild does not have. Like the household
+        // bits, none of these existed before gating, so stripping them takes nothing from a guild
+        // that predates the feature - which is what this test is actually protecting.
+        var roleplayOnly =
+            ModulePermissions.UsePersonas | ModulePermissions.ManageAnyPersona |
+            ModulePermissions.ApprovePersonas | ModulePermissions.ManageScenes |
+            ModulePermissions.RollDice | ModulePermissions.RollHidden |
+            ModulePermissions.ExportChronicle;
+
         var stripped = GuildFeatureMap.DisabledModulePermissions(GuildFeaturePresets.Community);
 
-        Assert.That(stripped & ~householdOnly, Is.EqualTo(ModulePermissions.None),
+        Assert.That(stripped & ~householdOnly & ~roleplayOnly, Is.EqualTo(ModulePermissions.None),
             "every guild that existed before gating must keep every permission it had");
     }
 

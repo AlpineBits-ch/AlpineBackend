@@ -8,7 +8,7 @@ using Wolverine;
 
 namespace Guild.Application.Services;
 
-/// <summary>Archives forum posts whose auto-archive deadline has passed.</summary>
+/// <summary>Archives thread-shaped channels whose auto-archive deadline has passed.</summary>
 public class ForumAutoArchiveService(
     IHubContext<EchoRealtimeHub> hub,
     IServiceScopeFactory scopeFactory,
@@ -48,7 +48,7 @@ public class ForumAutoArchiveService(
         var now = DateTimeOffset.UtcNow;
 
         var due = await ctx.Channels
-            .Where(c => c.Type == ChannelType.Thread
+            .Where(c => ChannelTypeExtensions.ThreadShaped.Contains(c.Type)
                         && !c.IsArchived
                         && c.AutoArchiveAt != null
                         && c.AutoArchiveAt < now)
@@ -64,7 +64,7 @@ public class ForumAutoArchiveService(
         // for us - unlike the endpoints and handlers, which the EF middleware wraps.
         await ctx.SaveChangesAsync(ct);
 
-        logger.LogInformation("Auto-archived {Count} forum post(s)", due.Count);
+        logger.LogInformation("Auto-archived {Count} thread(s)", due.Count);
 
         foreach (var guildGroup in due.GroupBy(p => p.GuildId))
         {

@@ -193,5 +193,6 @@ public class DiscordInteractionEndpoint
             : JsonSerializer.Deserialize<List<EmbedPayload>>(message.EmbedsJson) ?? new List<EmbedPayload>(),
         timestamp = message.CreatedAt,
         author = new { id = pending.BotUserId, bot = true },
+        author_type = DiscordAuthorType.Bot,
     };
 }

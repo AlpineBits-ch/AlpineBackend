@@ -12,6 +12,7 @@ using Messaging.Infrastructure.Persistence;
 using Messaging.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.Logging.Abstractions;
 using MessageDto = global::Messaging.Application.Dtos.Response.MessageDto;
 
 namespace Messaging.Tests.Endpoints;
@@ -72,7 +73,8 @@ public class RoleMentionGatingTests
         var endpoint = new MessagingEndpoints();
         return endpoint.CreateMessage(dto, ScyllaContext.CreateDebug(), TestPrincipal.ForUser(UserId),
             _context, bus, _cache, MakeMlsService(bus),
-            TestPrivacyServices.Build(bus).Policy, TestPrivacyServices.Build(bus).Content);
+            TestPrivacyServices.Build(bus).Policy, TestPrivacyServices.Build(bus).Content,
+            new MessageLengthPolicy(bus, _cache, NullLogger<MessageLengthPolicy>.Instance));
     }
 
     private static CreateMessageCommand CommandOn(FakeMessageBus bus) =>

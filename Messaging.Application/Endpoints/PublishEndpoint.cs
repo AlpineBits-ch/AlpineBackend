@@ -39,6 +39,7 @@ public class PublishEndpoint
         {
             global::Messaging.Domain.Enums.AuthorIdType.Bot => AuthorIdType.Bot,
             global::Messaging.Domain.Enums.AuthorIdType.Webhook => AuthorIdType.Webhook,
+            global::Messaging.Domain.Enums.AuthorIdType.Persona => AuthorIdType.Persona,
             _ => AuthorIdType.User,
         };
 
@@ -50,6 +51,11 @@ public class PublishEndpoint
                 ChannelId = targetChannelId,
                 AuthorId = message.AuthorId,
                 AuthorIdType = authorIdType,
+                // The copy renders as whoever spoke in the source channel, so a crossposted persona
+                // or webhook message does not silently revert to the author's account name.
+                AuthorDisplayName = message.AuthorDisplayName,
+                AuthorAvatarUrl = message.AuthorAvatarUrl,
+                PersonaId = message.PersonaId,
                 EncryptionState = MessageEncryptionState.Plain,
                 EmbedsJson = message.EmbedsJson,
                 Attachments = message.Attachments.Select(a => new MinimalAttachmentContract

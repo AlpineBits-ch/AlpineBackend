@@ -61,13 +61,15 @@ migration step - the installer never needs `dotnet ef`.
 * For a federating, publicly reachable instance: a DNS **A/AAAA record for your API
   hostname and for the storage hostname**, both pointing at the host, with inbound TCP
   80 and 443 open.
-* The gateway also serves five sites, each gated on its own hostname: `docs.`, `admin.`,
-  `support.`, `status.` and `auth.` of your API hostname by default. They all point at the
-  same host, so a wildcard record covers them, and each one you skip simply has no site.
+* The gateway also serves six sites, each gated on its own hostname: `docs.`, `admin.`,
+  `support.`, `status.`, `auth.` and `wiki.` of your API hostname by default. They all point
+  at the same host, so a wildcard record covers them, and each one you skip simply has no site.
   **`auth.` is the exception**: it is the OIDC issuer, so a partner site's server fetches
   `https://auth.<domain>/.well-known/openid-configuration` from the outside and sends
   people's browsers there to sign in. Without that record SSO does not work, though the
   chat product still does - the mobile and web clients never touch it.
+* **`wiki.` needs a second record**, `*.wiki.<domain>`: each guild that publishes a wiki gets a
+  hostname of its own beneath it. See below for what that costs in certificates.
 * On Windows: Docker Desktop in **Linux container** mode (its default). The installer
   refuses to continue in Windows-container mode.
 
@@ -143,6 +145,30 @@ alias for the public hostname, so containers resolve it to Caddy directly instea
 depending on the router hairpinning NAT; in `external-proxy` mode the hostname is mapped
 back to the Docker host via `extra_hosts`; in `local` mode `INSTANCE_URL` uses the LAN IP
 rather than `localhost`, which inside a container would mean the container itself.
+
+### Certificates for published wikis
+
+A guild that publishes its wiki gets a hostname of its own: `<slug>.wiki.<domain>`. That is one
+name per published wiki, appearing whenever a guild owner presses publish, which is not something a
+certificate can be requested for in advance.
+
+The bundled Caddy handles it with **on-demand issuance**: the first request for a name triggers an
+ordinary HTTP-01 challenge for that one name. What keeps that from being an open certificate mill is
+the `ask` endpoint in the generated Caddyfile - Caddy asks the gateway at
+`/api/v1/wiki/certificate-check?domain=<name>` first, and the gateway answers `200` only for a slug
+some guild has actually published. Anything else is refused, and no certificate is requested.
+
+You need the DNS record regardless: `*.wiki.<domain>`, pointing at this host. A wildcard
+*certificate* would be the other way to do it, and it needs the DNS-01 challenge, a Caddy build with
+your DNS provider's plugin, and an API credential - which is why the default is not that.
+
+**The path form always works.** `wiki.<domain>/<slug>/<page>` is served on the apex certificate and
+redirects permanently to the per-wiki hostname. Keep it: while a per-wiki certificate is missing, the
+subdomain fails at TLS, which a browser shows as a security warning rather than as a missing page,
+and the path form is the address that still serves.
+
+In `external-proxy` mode the installer prints the same thing for your own proxy, including the ask
+URL if it supports on-demand issuance.
 
 ---
 

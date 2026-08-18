@@ -28,6 +28,10 @@ public class CreateMessageCommand
 
     public string? AuthorAvatarUrl { get; set; }
 
+    /// <summary>Which character this message is spoken as - see Message.PersonaId. Resolved and
+    /// authorized by the caller; Messaging only stores it, and never derives AuthorId from it.</summary>
+    public string? PersonaId { get; set; }
+
     public List<string> Mentions { get; set; } = new List<string>();
     public List<string> RoleMentions { get; set; } = new List<string>();
     public bool MentionsEveryone { get; set; }
@@ -39,7 +43,10 @@ public enum AuthorIdType
 {
     User,
     Bot,
-    Webhook
+    Webhook,
+
+    /// <summary>See Messaging.Domain.Enums.AuthorIdType.Persona.</summary>
+    Persona
 }
 
 public enum MessageEncryptionState
@@ -69,6 +76,9 @@ public enum MessageType
 
     /// <summary>See Messaging.Domain.Enums.MessageType.GroupIconChanged.</summary>
     GroupIconChanged,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.DiceRoll.</summary>
+    DiceRoll,
 }
 
 public record MinimalAttachmentContract

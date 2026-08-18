@@ -29,6 +29,7 @@ What the venta clients (Alpine desktop/web, venta-mobile) have to build.
 | [status-and-incidents.md](./status-and-incidents.md) | Public status page, incident records, the automatic detector |
 | [privacy.md](./privacy.md) | Settings, consent records, data-subject rights |
 | [discord-parity.md](./discord-parity.md) | Standing assessment of what is and is not implemented |
+| [roleplay-guilds.md](./roleplay-guilds.md) | Personas, character wiki pages, scenes, dice, the chronicle |
 
 ## MLS and encryption
 
@@ -42,9 +43,10 @@ These describe how it works when it is on.
 
 ## Feasibility reports
 
-Written to decide whether to build something. Neither is built.
+Written to decide whether to build something. None of them is built.
 
 | Report | Question |
 |---|---|
 | [global-search-feasibility.md](./global-search-feasibility.md) | Can we search messages across an instance? |
 | [whatsapp-bridge-feasibility.md](./whatsapp-bridge-feasibility.md) | Can we bridge WhatsApp? |
+| [public-wiki-feasibility.md](./public-wiki-feasibility.md) | Can a guild wiki be served to anonymous browsers on `wiki.*`? |

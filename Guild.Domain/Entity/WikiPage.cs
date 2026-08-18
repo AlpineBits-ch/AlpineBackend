@@ -19,6 +19,8 @@ public class CreateWikiPageParams
     public bool IsPinned { get; init; }
     public string? Icon { get; init; }
     public string? CoverUrl { get; init; }
+    public string? PersonaId { get; init; }
+    public string? InfoboxJson { get; init; }
 }
 
 public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
@@ -40,8 +42,26 @@ public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
     /// <summary>A single emoji shown next to the page title.</summary>
     public string? Icon { get; set; }
 
+    /// <summary>
+    /// The per-page opt-in to public hosting, and the moment somebody chose it. Null on every page
+    /// that existed before publishing did, which is the point: <see cref="Visibility"/> has always
+    /// defaulted to Public meaning "visible to the guild", so it cannot be what grants the open
+    /// internet access.
+    /// </summary>
+    public DateTimeOffset? PublishedAt { get; set; }
+
     /// <summary>Absolute or app-relative URL of an already-uploaded cover image.</summary>
     public string? CoverUrl { get; set; }
+
+    /// <summary>Set when this page is a character page, unique per guild so one persona has one
+    /// page here. There is no separate character-sheet entity; the prose and the stats are this
+    /// page and its infobox.</summary>
+    public string? PersonaId { get; set; }
+
+    /// <summary>The structured half of the page, shaped by the category's infobox template. Real
+    /// jsonb rather than opaque text: unlike <c>Message.EmbedsJson</c> this only ever lives in
+    /// Postgres, so it can stay queryable and dice can read <c>@sheet.perception</c> off it.</summary>
+    public string? InfoboxJson { get; set; }
 
     public virtual ICollection<WikiRevision> Revisions { get; set; } = [];
 
@@ -66,11 +86,14 @@ public class WikiPage : Aggregate<WikiPage>, IPrefixedEntity
             IsPinned = @params.IsPinned,
             Icon = @params.Icon,
             CoverUrl = @params.CoverUrl,
+            PersonaId = @params.PersonaId,
+            InfoboxJson = @params.InfoboxJson,
         };
         page.Revisions.Add(WikiRevision.Create(new CreateWikiRevisionParams
         {
             PageId = id,
             Content = @params.Content,
+            InfoboxJson = @params.InfoboxJson,
             EditorId = @params.AuthorId,
             RevisionNumber = 1,
         }));

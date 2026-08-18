@@ -8,6 +8,8 @@ using Messaging.Infrastructure.Persistence;
 using MessageEncryptionState = Messaging.Domain.Enums.MessageEncryptionState;
 using DomainMessageType = Messaging.Domain.Enums.MessageType;
 using ContractMessageType = Messaging.Contracts.Bus.Commands.MessageType;
+using DomainAuthorIdType = Messaging.Domain.Enums.AuthorIdType;
+using ContractAuthorIdType = Messaging.Contracts.Bus.Commands.AuthorIdType;
 
 namespace Messaging.Application.Commands;
 
@@ -38,7 +40,18 @@ public class CreateMessageCommandHandler
             ContractMessageType.VoiceChannelInvite => DomainMessageType.VoiceChannelInvite,
             ContractMessageType.GroupNameChanged => DomainMessageType.GroupNameChanged,
             ContractMessageType.GroupIconChanged => DomainMessageType.GroupIconChanged,
+            ContractMessageType.DiceRoll => DomainMessageType.DiceRoll,
             _ => DomainMessageType.Message,
+        };
+
+        // Dropped on the floor before this mapping existed, so every persisted message claimed to be
+        // authored by a user - including the webhook executions that set it correctly one hop up.
+        var authorIdType = command.AuthorIdType switch
+        {
+            ContractAuthorIdType.Bot => DomainAuthorIdType.Bot,
+            ContractAuthorIdType.Webhook => DomainAuthorIdType.Webhook,
+            ContractAuthorIdType.Persona => DomainAuthorIdType.Persona,
+            _ => DomainAuthorIdType.User,
         };
 
         var message = Message.Create(new CreateMessageParams()
@@ -57,10 +70,15 @@ public class CreateMessageCommandHandler
             Type = type,
             MlsEpoch = command.MlsEpoch,
             MlsSequenceNumber = command.MlsSequenceNumber,
+            // Dropped here too: an encrypted message stored without its generation cannot be matched
+            // back to the group it was sealed to.
+            MlsGeneration = command.MlsGeneration,
+            AuthorIdType = authorIdType,
             EmbedsJson = command.EmbedsJson,
             ComponentsJson = command.ComponentsJson,
             AuthorDisplayName = command.AuthorDisplayName,
             AuthorAvatarUrl = command.AuthorAvatarUrl,
+            PersonaId = command.PersonaId,
             Attachments = command.Attachments.Select(a => MinimalAttachment.Create(new CreateMinimalAttachmentParams()
             {
                 Id = a.Id,
@@ -134,6 +152,12 @@ public class CreateMessageCommandHandler
             InReplyTo = command.InReplyTo,
             EmbedsJson = command.EmbedsJson,
             ComponentsJson = command.ComponentsJson,
+            // Off the entity, so every consumer sees the identity that was actually stored rather
+            // than re-deriving it from the caller's account.
+            AuthorIdType = message.AuthorIdType,
+            AuthorDisplayName = message.AuthorDisplayName,
+            AuthorAvatarUrl = message.AuthorAvatarUrl,
+            PersonaId = message.PersonaId,
         });
     }
 }

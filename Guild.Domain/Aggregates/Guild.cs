@@ -80,6 +80,10 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     /// </summary>
     public string? VanityUrl { get; set; }
 
+    /// <summary>When set, a persona must be approved here before it may speak at all. This gates
+    /// first use, not edits - an unapproved edit to an approved character never blocks play.</summary>
+    public bool RequirePersonaApproval { get; set; }
+
     /// <summary>When <see cref="VanityUrl"/> was last claimed.</summary>
     public DateTimeOffset? VanityUrlSetAt { get; set; }
 
@@ -123,8 +127,8 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
             // chore rotation pool, and it is what separates the people who live here from a guest
             // who joined by invite.
             Roles = parameters.Kind == GuildKind.Household
-                ? [Role.CreateEveryoneRole(id, memberId), Role.CreateFlatmatesRole(id, memberId)]
-                : [Role.CreateEveryoneRole(id, memberId)]
+                ? [Role.CreateEveryoneRole(id, memberId, parameters.Kind), Role.CreateFlatmatesRole(id, memberId)]
+                : [Role.CreateEveryoneRole(id, memberId, parameters.Kind)]
         };
 
         // When default channels are skipped (Discord import), there's no text channel yet to

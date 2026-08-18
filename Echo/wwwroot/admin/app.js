@@ -1168,6 +1168,13 @@
 
             actions.append(button('Dismiss', 'times-circle', () => resolveReport(id, 'Dismissed')));
             actions.append(button('Duplicate', 'comments', () => resolveReport(id, 'Duplicate')));
+
+            // A report can name a published page in its details or its subject id, and acting on the
+            // account does not take the page off the instance's own domain.
+            const reported = wikiAddressIn(`${report.subjectId || ''}\n${report.details || ''}`);
+            if (reported) {
+                actions.append(button('Open the reported page', 'eye', () => openWikiAddress(reported)));
+            }
         } else {
             actions.append(button('Reopen', 'refresh', async () => {
                 await call('PATCH', `${API}/reports/${id}`, { body: { status: 'Triaged' } });
@@ -1717,6 +1724,16 @@
 
         if (ticket.requesterUserId) {
             controls.append(button('Open the account', 'user', () => openUser(ticket.requesterUserId)));
+        }
+
+        // A report about a published wiki page arrives here rather than through the report queue:
+        // the wiki host has no session, so its readers have the support form and nothing else. The
+        // address is in the text they wrote, and this is what makes it lead somewhere.
+        const reported = wikiAddressIn(
+            [ticket.subject, ...ticket.messages.map(message => message.body)].join('\n'));
+
+        if (reported) {
+            controls.append(button('Open the reported page', 'eye', () => openWikiAddress(reported)));
         }
 
         pane.append(block('Ticket', controls));
@@ -7108,6 +7125,187 @@
         });
     }
 
+    // ── View: public wiki ───────────────────────────────────────────────────
+
+    /*
+     * Publishing a wiki puts prose on this instance's own domain, under its brand, reachable by
+     * anyone. That is a takedown obligation rather than a visibility setting, and the guild's own
+     * publish switch is not reachable from here: it is gated on a permission inside the guild that
+     * no instance moderator holds, and should not be given one.
+     *
+     * So this view is the operator's half. It shows exactly what an address serves anonymously -
+     * read here rather than by visiting the live page, because deciding from memory after it is
+     * gone is the failure mode - and takes it off.
+     */
+    const wikiState = { address: '', result: null };
+
+    /** Pulls a wiki address out of whatever a report or a ticket said. Assumes the default `wiki.`
+     *  label; an instance that moved it with WIKI_DOMAIN loses the shortcut, not the takedown. */
+    const WIKI_ADDRESS_PATTERN = /(?:https?:\/\/)?[a-z0-9-]+\.wiki\.[a-z0-9.-]+(?:\/[a-z0-9-]+)?/i;
+
+    function wikiAddressIn(text) {
+        return text ? (text.match(WIKI_ADDRESS_PATTERN)?.[0] ?? null) : null;
+    }
+
+    /** Opens the wiki view on an address, from wherever it was found. */
+    function openWikiAddress(address) {
+        wikiState.address = address;
+        wikiState.result = null;
+        go('wiki');
+        lookUpWiki(address);
+    }
+
+    async function lookUpWiki(address) {
+        wikiState.address = address;
+
+        try {
+            wikiState.result = await call('GET', `${API}/wiki`, { query: { address } });
+        } catch (error) {
+            wikiState.result = null;
+            toast('danger', error.message);
+        }
+
+        render();
+    }
+
+    views.wiki = {
+        title: 'Public wiki',
+
+        async render() {
+            const host = el('div');
+
+            const form = el('form');
+            const input = el('input');
+            input.type = 'search';
+            input.value = wikiState.address;
+            input.placeholder = 'wiki address, or the slug';
+            input.required = true;
+
+            form.append(field('Published address', input, null, { required: true }));
+
+            const look = el('button', 'btn primary sm', 'Look up');
+            look.type = 'submit';
+            form.append(look);
+
+            form.addEventListener('submit', event => {
+                event.preventDefault();
+                lookUpWiki(input.value.trim());
+            });
+
+            host.append(block('What is published', form,
+                el('p', 'hint',
+                   'Any form works: the address from a report, the wiki\'s own hostname, or the slug '
+                   + 'on its own.')));
+
+            if (!wikiState.result) {
+                host.append(empty('Nothing looked up yet.', 'search'));
+                return host;
+            }
+
+            const found = wikiState.result;
+            const link = el('a', 'btn ghost sm', found.url);
+            link.href = found.url;
+            link.target = '_blank';
+            link.rel = 'noreferrer';
+
+            host.append(block(found.pageSlug ? found.title : found.guildName, kv([
+                ['Address', link],
+                ['Published by', found.guildName],
+                ['Category', found.category || null],
+                ['Last edited', found.updatedAt ? stamp(found.updatedAt) : null],
+                ['Pages published', found.pages ? String(found.pages.length) : null],
+            ])));
+
+            if (found.content) {
+                // Shown as the author wrote it, not as the site renders it: what is being judged is
+                // the text, and re-rendering it inside the console is how a console grows the same
+                // markup-injection problem the public host was built to avoid.
+                host.append(block('The page', el('div', 'evidence', found.content)));
+            }
+
+            if (found.pages?.length) {
+                const list = el('div', 'rows');
+                found.pages.forEach(page => list.append(row({
+                    title: [el('span', null, page.title)],
+                    sub: page.url,
+                    onOpen: () => openWikiAddress(`${found.slug}/${page.slug}`),
+                })));
+
+                host.append(block('Published pages', list));
+            }
+
+            const actions = el('div', 'btn-row');
+
+            if (found.pageSlug) {
+                actions.append(button('Take this page down', 'times-circle',
+                    () => takeWikiDown(`${found.slug}/${found.pageSlug}`, found.title), 'danger'));
+            }
+
+            actions.append(button('Take the whole wiki down', 'ban',
+                () => takeWikiDown(found.slug, found.guildName), found.pageSlug ? '' : 'danger'));
+
+            host.append(block('Actions', actions,
+                el('p', 'hint',
+                   'This only stops the instance serving it. Anything that already fetched the page '
+                   + 'still has its copy, and so does any cache in front of us.')));
+
+            return host;
+        },
+    };
+
+    function takeWikiDown(address, label) {
+        modal(close => {
+            const form = el('form');
+            form.append(el('h2', null, 'Take this off the public host'));
+            form.append(el('p', 'lede',
+                `${label} stops being served anonymously. The guild keeps the page and can publish `
+                + 'it again, so a takedown that needs to stick needs an action against the account too.'));
+
+            const note = el('textarea');
+            note.required = true;
+            note.rows = 4;
+            note.placeholder = 'e.g. Page is a phishing landing page dressed as a login screen.';
+            form.append(field('Why', note, null, { required: true }));
+
+            const actions = el('div', 'actions');
+            const cancel = el('button', 'btn', 'Cancel');
+            cancel.type = 'button';
+            cancel.addEventListener('click', close);
+
+            const confirm = el('button', 'btn danger', 'Take it down');
+            confirm.type = 'submit';
+            actions.append(cancel, confirm);
+            form.append(actions);
+
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                confirm.disabled = true;
+
+                try {
+                    const result = await call('POST', `${API}/wiki/unpublish`, {
+                        body: { address, reason: note.value },
+                    });
+
+                    close();
+                    toast('ok', result.unpublished
+                        ? `Off the public host within ${result.cacheSeconds} seconds`
+                        : 'It was already off the public host');
+
+                    // Not looked up again: the address is meant to answer nothing now, and a
+                    // "nothing is published there" error toast on a successful takedown reads as a
+                    // failure.
+                    wikiState.result = null;
+                    render();
+                } catch (error) {
+                    toast('danger', error.message);
+                    confirm.disabled = false;
+                }
+            });
+
+            return form;
+        });
+    }
+
     // ── View: audit ─────────────────────────────────────────────────────────
 
     /** Entries that reach further than the subject named on them. A grant affects one subject; a
@@ -7223,6 +7421,8 @@
         'ticket.updated': ['updated a ticket', 'from'],
         'user.role-changed': ['changed a staff role', 'for'],
         'user.viewed': ['looked at an account', 'belonging to'],
+        'wiki.unpublished': 'took a wiki off the public host',
+        'wiki.page-unpublished': 'took a wiki page off the public host',
         'status.incident-created': 'published a status incident',
         'status.incident-updated': ['posted a status update', 'on'],
         'status.incident-edited': 'edited a status incident',

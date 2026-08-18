@@ -18,7 +18,8 @@ namespace Guild.Application.Bus.Events.Role;
 public class RoleUpdatedHandler
 {
     public static async Task Handle(RoleUpdated @event, MicroserviceContext ctx, GuildPermissionService guildPermissionService,
-        IMessageBus bus, IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate)
+        IMessageBus bus, IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate,
+        PersonaService personas)
     {
         var role = await ctx.Roles
             .Include(r => r.Members)
@@ -37,6 +38,11 @@ public class RoleUpdatedHandler
         // commit, so the loop above misses them.
         if (@event.MemberId != null)
         {
+            // A grant can name a role, so joining or leaving one changes which personas the member
+            // may speak as. The send path re-reads grants, so this is the listing going stale for
+            // up to the cache lifetime rather than a hole.
+            await personas.InvalidateGuildAsync(@event.GuildId);
+
             var userId = await ctx.GuildMembers
                 .AsNoTracking()
                 .Where(m => m.Id == @event.MemberId)

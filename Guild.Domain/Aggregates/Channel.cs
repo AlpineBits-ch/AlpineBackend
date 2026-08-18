@@ -40,12 +40,13 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     public int Position { get; set; } = 0;
     public int SlowModeSeconds { get; set; } = 0;
 
-    /// <summary>Set only for Type == Thread; the channel it was created under.</summary>
+    /// <summary>Set only for a thread-shaped type (Thread, Scene); the channel it was created
+    /// under.</summary>
     public string? ParentChannelId { get; set; }
     public virtual Channel? ParentChannel { get; set; }
 
-    /// <summary>Set only for Type == Thread: who created it, used to gate ManageOwnThreads
-    /// (creator) vs ManageAnyThread (moderator) on the archive endpoint.</summary>
+    /// <summary>Set only for a thread-shaped type (Thread, Scene): who created it, used to gate
+    /// ManageOwnThreads (creator) vs ManageAnyThread (moderator) on the archive endpoint.</summary>
     public string? CreatedByUserId { get; set; }
     public bool IsArchived { get; set; }
 

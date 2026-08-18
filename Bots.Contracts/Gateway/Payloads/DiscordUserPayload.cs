@@ -16,6 +16,8 @@ public class DiscordUserPayload
     [JsonPropertyName("discriminator")]
     public string Discriminator { get; set; } = "0000";
 
+    /// <summary>An absolute URL, not Discord's CDN hash, so discord.js's displayAvatarURL() cannot
+    /// rebuild it - clients read this field directly.</summary>
     [JsonPropertyName("avatar")]
     public string? Avatar { get; set; }
 

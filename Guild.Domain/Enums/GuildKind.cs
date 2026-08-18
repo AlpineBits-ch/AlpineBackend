@@ -8,4 +8,7 @@ public enum GuildKind
     Team,
     Study,
     Event,
+
+    /// <summary>Text roleplay: characters, scenes, dice and a chronicle.</summary>
+    Roleplay,
 }

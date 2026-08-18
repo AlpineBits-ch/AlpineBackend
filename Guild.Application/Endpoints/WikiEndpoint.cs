@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using AppEnvironment;
 using Facet.Extensions;
 using Facet.Extensions.EFCore;
 using Guild.Application.Dtos.Request;
@@ -21,6 +22,9 @@ public class WikiEndpoint
     /// <summary>Cover urls point at already-uploaded storage; the cap only exists so the column
     /// cannot be used as a text field.</summary>
     private const int MaxCoverUrlLength = 2048;
+
+    /// <summary>The label the public wiki host is derived under, matching the gateway's.</summary>
+    private const string WikiSiteLabel = "wiki";
 
     /// <summary>A comment is a paragraph, not a page. Anything longer belongs in the wiki.</summary>
     private const int MaxCommentLength = 4000;
@@ -48,8 +52,13 @@ public class WikiEndpoint
             await ctx.SaveChangesAsync();
         }
 
+        // Visibility finally does something. It was written by two endpoints and read by nothing,
+        // which is why it cannot be the column that grants public access - see WikiPublication.
+        var canEditAny = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.EditAnyWikiPage);
+
         var pages = await ctx.WikiPages
             .Where(p => p.GuildId == guildId)
+            .Where(p => canEditAny || p.Visibility == WikiVisibility.Public || p.AuthorId == userId)
             .OrderBy(p => p.CreatedAt)
             .ToListAsync();
 
@@ -133,6 +142,9 @@ public class WikiEndpoint
 
         if (page is null) return Results.NotFound();
 
+        // 404 rather than 403: a private page nobody may read should not be confirmed to exist.
+        if (!await CanSeeAsync(page, userId, guildId, permissionService)) return Results.NotFound();
+
         var dto = page.ToFacet<WikiPage, WikiPageDto>();
         dto.RevisionCount = await ctx.WikiRevisions
             .CountAsync(r => r.PageId == pageId);
@@ -173,6 +185,7 @@ public class WikiEndpoint
             IsPinned = dto.IsPinned ?? false,
             Icon = string.IsNullOrEmpty(dto.Icon) ? null : dto.Icon,
             CoverUrl = string.IsNullOrWhiteSpace(dto.CoverUrl) ? null : dto.CoverUrl.Trim(),
+            InfoboxJson = string.IsNullOrWhiteSpace(dto.InfoboxJson) ? null : dto.InfoboxJson,
         });
 
         ctx.WikiPages.Add(page);
@@ -205,7 +218,7 @@ public class WikiEndpoint
         var movesPage = dto.ParentPageId.HasValue || dto.CategoryId.HasValue;
         var changesContent = dto.Title is not null || dto.Content is not null || dto.Visibility is not null
                              || dto.Tags is not null || dto.IsPinned is not null
-                             || dto.Icon.HasValue || dto.CoverUrl.HasValue;
+                             || dto.Icon.HasValue || dto.CoverUrl.HasValue || dto.InfoboxJson.HasValue;
 
         var isOwn = page.AuthorId == userId;
         var requiredPermission = isOwn ? ModulePermissions.EditOwnWikiPages : ModulePermissions.EditAnyWikiPage;
@@ -223,7 +236,10 @@ public class WikiEndpoint
         if (dto.CoverUrl.Value is { Length: > MaxCoverUrlLength })
             return Results.BadRequest($"Cover url must be at most {MaxCoverUrlLength} characters.");
 
-        var contentChanged = dto.Content is not null && dto.Content != page.Content;
+        // The infobox counts: an infobox-only edit used to version nothing and bump no revision
+        // number, so "who quietly buffed their own stats" was not a diff anybody could review.
+        var infoboxChanged = dto.InfoboxJson.HasValue && dto.InfoboxJson.Value != page.InfoboxJson;
+        var contentChanged = (dto.Content is not null && dto.Content != page.Content) || infoboxChanged;
 
         if (dto.Title is not null) page.Title = dto.Title;
         if (dto.Content is not null) page.Content = dto.Content;
@@ -238,6 +254,7 @@ public class WikiEndpoint
         // input does not have to translate "" into a JSON null to mean the same thing.
         if (dto.Icon.HasValue) page.Icon = string.IsNullOrEmpty(dto.Icon.Value) ? null : dto.Icon.Value;
         if (dto.CoverUrl.HasValue) page.CoverUrl = dto.CoverUrl.Value?.Trim() is { Length: > 0 } url ? url : null;
+        if (dto.InfoboxJson.HasValue) page.InfoboxJson = string.IsNullOrWhiteSpace(dto.InfoboxJson.Value) ? null : dto.InfoboxJson.Value;
         page.LastEditorId = userId;
 
         if (contentChanged)
@@ -250,6 +267,7 @@ public class WikiEndpoint
             {
                 PageId = page.Id,
                 Content = page.Content,
+                InfoboxJson = page.InfoboxJson,
                 EditorId = userId,
                 RevisionNumber = nextRevisionNumber,
                 // Only meaningful here: a summary describes a content change, and this is the
@@ -308,8 +326,10 @@ public class WikiEndpoint
         var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
-        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
-        if (!pageExists) return Results.NotFound();
+        var page = await ctx.WikiPages.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (page is null) return Results.NotFound();
+        if (!await CanSeeAsync(page, userId, guildId, permissionService)) return Results.NotFound();
 
         var revisions = await ctx.WikiRevisions
             .Where(r => r.PageId == pageId)
@@ -344,6 +364,7 @@ public class WikiEndpoint
         if (revision is null) return Results.NotFound();
 
         page.Content = revision.Content;
+        page.InfoboxJson = revision.InfoboxJson;
         page.LastEditorId = userId;
 
         var nextRevisionNumber = page.Revisions.Max(r => r.RevisionNumber) + 1;
@@ -351,6 +372,7 @@ public class WikiEndpoint
         {
             PageId = page.Id,
             Content = revision.Content,
+            InfoboxJson = revision.InfoboxJson,
             EditorId = userId,
             RevisionNumber = nextRevisionNumber,
             Summary = $"Restored from revision #{revision.RevisionNumber}",
@@ -391,6 +413,7 @@ public class WikiEndpoint
             Name = dto.Name,
             Position = position,
             ParentCategoryId = dto.ParentCategoryId,
+            InfoboxTemplateJson = string.IsNullOrWhiteSpace(dto.InfoboxTemplateJson) ? null : dto.InfoboxTemplateJson,
         });
 
         ctx.WikiCategories.Add(category);
@@ -419,6 +442,10 @@ public class WikiEndpoint
         if (dto.Name is not null) category.Name = dto.Name;
         if (dto.Position is not null) category.Position = dto.Position.Value;
         category.ParentCategoryId = dto.ParentCategoryId;
+        if (dto.InfoboxTemplateJson.HasValue)
+            category.InfoboxTemplateJson = string.IsNullOrWhiteSpace(dto.InfoboxTemplateJson.Value)
+                ? null
+                : dto.InfoboxTemplateJson.Value;
 
         category.RaiseUpdated();
 
@@ -446,6 +473,198 @@ public class WikiEndpoint
         ctx.WikiCategories.Remove(category);
 
         return Results.NoContent();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    // Publishing
+
+    /// <summary>Whether this wiki is on the public host, and whether the plan still covers it.</summary>
+    /// <param name="guildId">The guild.</param>
+    /// <param name="permissionService">Resolves the caller's mask.</param>
+    /// <param name="ctx">The Guild database.</param>
+    /// <param name="user">The caller.</param>
+    /// <param name="vanity">The entitlement gate publishing shares with vanity URLs.</param>
+    /// <returns>The publication state, or 403 without PublishWikiPublicly.</returns>
+    [WolverineGet("/api/v1/guilds/{guildId}/wiki/publication")]
+    public async Task<IResult> GetWikiPublication(
+        string guildId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] VanityUrlService vanity)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canPublish = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.PublishWikiPublicly);
+        if (!canPublish) return Results.Forbid();
+
+        var wiki = await ctx.Wikis.AsNoTracking().FirstOrDefaultAsync(w => w.GuildId == guildId);
+
+        // Not strict: this is a settings screen, and the same reasoning as the vanity-URL read
+        // applies - a Billing hiccup should not tell an owner their wiki is gone.
+        var entitled = await vanity.IsEntitledAsync(guildId, strict: false);
+
+        return Results.Ok(await DescribePublicationAsync(guildId, wiki, entitled, ctx));
+    }
+
+    /// <summary>
+    /// Claims the slug this wiki is published on, or clears it. This is the master switch: while the
+    /// slug is null no page of this guild is reachable anonymously, whatever any page says.
+    /// </summary>
+    /// <param name="guildId">The guild.</param>
+    /// <param name="dto">The slug to claim, or null to unpublish.</param>
+    /// <param name="permissionService">Resolves the caller's mask.</param>
+    /// <param name="ctx">The Guild database.</param>
+    /// <param name="user">The caller.</param>
+    /// <param name="vanity">The entitlement gate publishing shares with vanity URLs.</param>
+    /// <param name="auditLog">Records who published what.</param>
+    /// <returns>The new publication state.</returns>
+    [WolverinePut("/api/v1/guilds/{guildId}/wiki/publication")]
+    public async Task<IResult> SetWikiPublication(
+        string guildId,
+        SetWikiPublicationDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] VanityUrlService vanity,
+        [NotBody] AuditLogService auditLog)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        // The bit that has existed since the wiki shipped and gated nothing. It is not in the
+        // @everyone defaults, so enforcing it widens nothing for existing guilds.
+        var canPublish = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.PublishWikiPublicly);
+        if (!canPublish) return Results.Forbid();
+
+        var guild = await ctx.Guilds.AsNoTracking()
+            .Where(g => g.Id == guildId)
+            .Select(g => new { g.Id, g.Kind })
+            .FirstOrDefaultAsync();
+        if (guild is null) return Results.NotFound();
+
+        var wiki = await ctx.Wikis.FirstOrDefaultAsync(w => w.GuildId == guildId);
+        if (wiki is null)
+        {
+            wiki = Wiki.Create(guildId);
+            ctx.Wikis.Add(wiki);
+        }
+
+        if (string.IsNullOrWhiteSpace(dto.Slug))
+        {
+            var released = wiki.PublishedSlug;
+            wiki.Unpublish();
+
+            if (released is not null)
+            {
+                auditLog.Log(guildId, userId, AuditActionType.GuildUpdated, guildId,
+                    new { WikiPublishedSlug = (string?)null, Previous = released });
+            }
+
+            return Results.Ok(await DescribePublicationAsync(
+                guildId, wiki, await vanity.IsEntitledAsync(guildId, strict: false), ctx));
+        }
+
+        // A house manual is not something anybody meant to put on the open internet, and the
+        // Household preset carries GuildFeatures.Wiki, so it would otherwise inherit the capability.
+        if (guild.Kind == GuildKind.Household)
+        {
+            return Results.Json(
+                new { error = "wiki_publication_not_available", message = "A household's wiki cannot be published publicly." },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var normalized = VanitySlug.Normalize(dto.Slug);
+        if (VanitySlug.Validate(normalized) is { } problem) return Results.BadRequest(problem);
+
+        if (string.Equals(wiki.PublishedSlug, normalized, StringComparison.Ordinal))
+            return Results.Ok(await DescribePublicationAsync(guildId, wiki, entitled: true, ctx));
+
+        // Strict: publishing is the persistent artifact, so an unreadable plan denies rather than
+        // grants. A payment step is also the cheapest spam filter available for free SEO-bearing
+        // hosting on a real domain.
+        if (!await vanity.IsEntitledAsync(guildId, strict: true))
+        {
+            return Results.Json(
+                new { error = "wiki_publication_not_entitled", message = "This guild's plan does not include public wiki hosting." },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var taken = await ctx.Wikis.AsNoTracking()
+            .AnyAsync(w => w.PublishedSlug == normalized && w.GuildId != guildId);
+        if (taken) return Results.Conflict("That wiki address is already taken.");
+
+        wiki.Publish(normalized);
+
+        auditLog.Log(guildId, userId, AuditActionType.GuildUpdated, guildId,
+            new { WikiPublishedSlug = normalized });
+
+        return Results.Ok(await DescribePublicationAsync(guildId, wiki, entitled: true, ctx));
+    }
+
+    /// <summary>Puts one page on the public host, or takes it off.</summary>
+    /// <param name="guildId">The guild.</param>
+    /// <param name="pageId">The page.</param>
+    /// <param name="dto">Whether the page is published.</param>
+    /// <param name="permissionService">Resolves the caller's mask.</param>
+    /// <param name="ctx">The Guild database.</param>
+    /// <param name="user">The caller.</param>
+    /// <param name="auditLog">Records who published what.</param>
+    /// <returns>The page's publication state.</returns>
+    [WolverinePut("/api/v1/guilds/{guildId}/wiki/pages/{pageId}/publication")]
+    public async Task<IResult> SetWikiPagePublication(
+        string guildId,
+        string pageId,
+        SetWikiPagePublicationDto dto,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] AuditLogService auditLog)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canPublish = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.PublishWikiPublicly);
+        if (!canPublish) return Results.Forbid();
+
+        var page = await ctx.WikiPages.FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (page is null) return Results.NotFound();
+
+        if (dto.Published)
+        {
+            if (!WikiPublication.MayBePublished(page))
+                return Results.BadRequest("A page marked private inside the guild cannot be published publicly.");
+
+            // The column is capped at 2048 characters and validated nowhere else, and the comment on
+            // it only claims covers point at uploaded storage. On a public page an arbitrary cover
+            // is a per-visitor beacon aimed at an address the page author chose.
+            if (!WikiPublication.IsInstanceHosted(page.CoverUrl, InstanceMediaHosts))
+                return Results.BadRequest("A published page's cover image must be hosted on this instance.");
+
+            page.PublishedAt ??= DateTimeOffset.UtcNow;
+        }
+        else
+        {
+            page.PublishedAt = null;
+        }
+
+        // No RaiseUpdated: publishing is not an edit, and watchers should not be pinged as though
+        // the prose had changed.
+        auditLog.Log(guildId, userId, AuditActionType.GuildUpdated, pageId,
+            new { WikiPagePublished = dto.Published });
+
+        var wiki = await ctx.Wikis.AsNoTracking().FirstOrDefaultAsync(w => w.GuildId == guildId);
+        var active = WikiPublication.IsPublic(wiki, page);
+
+        return Results.Ok(new WikiPagePublicationDto
+        {
+            PageId = page.Id,
+            Published = page.PublishedAt is not null,
+            Active = active,
+            PublishedAt = page.PublishedAt,
+            Url = active ? PublishedPageUrl(wiki!.PublishedSlug!, page.Slug) : null,
+        });
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
@@ -627,8 +846,10 @@ public class WikiEndpoint
         var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
         if (!canView) return Results.Forbid();
 
-        var pageExists = await ctx.WikiPages.AnyAsync(p => p.Id == pageId && p.GuildId == guildId);
-        if (!pageExists) return Results.NotFound();
+        var page = await ctx.WikiPages.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == pageId && p.GuildId == guildId);
+        if (page is null) return Results.NotFound();
+        if (!await CanSeeAsync(page, userId, guildId, permissionService)) return Results.NotFound();
 
         var canModerate = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ModerateWikiComments);
 
@@ -753,6 +974,91 @@ public class WikiEndpoint
     // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Who may read a page marked private: whoever wrote it, and whoever may already rewrite it.
+    /// </summary>
+    private static async Task<bool> CanSeeAsync(
+        WikiPage page, string userId, string guildId, GuildPermissionService permissionService) =>
+        page.Visibility == WikiVisibility.Public
+        || page.AuthorId == userId
+        || await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.EditAnyWikiPage);
+
+    /// <summary>The hostnames a published page's images may come from.</summary>
+    private static IReadOnlyCollection<string> InstanceMediaHosts { get; } = BuildInstanceMediaHosts();
+
+    private static List<string> BuildInstanceMediaHosts()
+    {
+        var hosts = new List<string>();
+
+        foreach (var candidate in new[] { Env.GeneralConfiguration.InstanceUrl, Env.StorageConfiguration.PublicUrl })
+        {
+            if (Uri.TryCreate(candidate, UriKind.Absolute, out var uri) && uri.Host.Length > 0)
+                hosts.Add(uri.Host);
+        }
+
+        return hosts;
+    }
+
+    /// <summary>
+    /// A published page's canonical address. Each wiki gets its own subdomain rather than a path
+    /// segment, so the slug goes in front of the host - the path form still answers, but only as a
+    /// permanent redirect to this.
+    /// </summary>
+    private static string PublishedPageUrl(string wikiSlug, string pageSlug)
+    {
+        var baseUrl = WikiSiteBaseUrl;
+        var separator = baseUrl.IndexOf("://", StringComparison.Ordinal);
+
+        // No scheme to split on should not produce a mangled link, so fall back to the path form.
+        if (separator < 0) return $"{baseUrl}/{wikiSlug}/{pageSlug}";
+
+        var scheme = baseUrl[..separator];
+        var host = baseUrl[(separator + 3)..].TrimEnd('/');
+
+        return $"{scheme}://{wikiSlug}.{host}/{pageSlug}";
+    }
+
+    /// <summary>Where the public wiki answers, honouring the gateway's own WIKI_DOMAIN override.</summary>
+    private static string WikiSiteBaseUrl
+    {
+        get
+        {
+            var configured = Environment.GetEnvironmentVariable("WIKI_DOMAIN")?.Trim().TrimEnd('/');
+            var instanceUrl = Env.GeneralConfiguration.InstanceUrl;
+
+            if (string.IsNullOrEmpty(configured))
+                return InstanceHosts.DeriveSiblingUrl(WikiSiteLabel, instanceUrl);
+
+            if (configured.Contains("://", StringComparison.Ordinal)) return configured;
+
+            var scheme = Uri.TryCreate(instanceUrl, UriKind.Absolute, out var uri)
+                ? uri.Scheme
+                : Uri.UriSchemeHttps;
+
+            return $"{scheme}://{configured}";
+        }
+    }
+
+    /// <summary>The publication state of a wiki, with its published-page count.</summary>
+    private static async Task<WikiPublicationDto> DescribePublicationAsync(
+        string guildId, Wiki? wiki, bool entitled, MicroserviceContext ctx)
+    {
+        var publishedPages = await ctx.WikiPages.AsNoTracking()
+            .Where(p => p.GuildId == guildId)
+            .Where(WikiPublication.IsPageOptedIn)
+            .CountAsync();
+
+        return new WikiPublicationDto
+        {
+            GuildId = guildId,
+            Slug = wiki?.PublishedSlug,
+            Entitled = entitled,
+            Active = wiki?.PublishedSlug is not null && entitled,
+            PublishedPageCount = publishedPages,
+            PublishedAt = wiki?.PublishedAt,
+        };
+    }
 
     /// <summary>Fills the engagement fields of a page DTO.</summary>
     private static async Task HydrateEngagementAsync(WikiPageDto dto, string pageId, string userId, MicroserviceContext ctx)

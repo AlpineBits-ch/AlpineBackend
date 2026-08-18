@@ -18,6 +18,7 @@ using Echo.RateLimiter;
 using Echo.Sagas;
 using Echo.Sites;
 using Echo.Status;
+using Echo.Wiki;
 using JasperFx;
 using Messaging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -128,6 +129,9 @@ builder.Services.AddScoped<EmailService>();
 // The status page: the request counters, the detector, the public snapshot, and the CORS and
 // rate-limit policies that belong to it alone.
 builder.Services.AddVentaStatus();
+
+// The public wiki site: its channel to the Guild service and its own per-IP budget.
+builder.Services.AddVentaWiki();
 
 // Entitlements, read side.
 builder.Services.AddEntitlements(builder.Configuration);
@@ -250,6 +254,10 @@ app.MapVentaDocs();
 
 // The moderation console, the support site and the status page.
 app.MapVentaSites();
+
+// Published guild wikis, on wiki.<instance>. Mapped after the other sites so its host guard is the
+// innermost of the site branches.
+app.MapVentaWiki();
 
 app.MapReverseProxy();
 app.UseGracefulShutdownHealthCheck();

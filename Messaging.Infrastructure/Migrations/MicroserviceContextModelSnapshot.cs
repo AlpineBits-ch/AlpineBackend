@@ -24,11 +24,11 @@ namespace Messaging.Persistence.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "attachment_state", new[] { "complete", "pending" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "author_id_type", new[] { "bot", "user", "webhook" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "author_id_type", new[] { "bot", "persona", "user", "webhook" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "channel_encryption_state", new[] { "encrypted", "plain" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "message_encryption_state", new[] { "encrypted", "plain" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "message_part_type", new[] { "bold", "inline_code", "italic", "link", "plain", "strikethrough", "underline" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "message_type", new[] { "call_ended", "call_missed", "group_icon_changed", "group_name_changed", "guild_member_join", "guild_member_leave", "invite", "message", "voice_channel_invite" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "message_type", new[] { "call_ended", "call_missed", "dice_roll", "group_icon_changed", "group_name_changed", "guild_member_join", "guild_member_leave", "invite", "message", "voice_channel_invite" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "mls_generation_state", new[] { "active", "terminated" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "mls_join_request_state", new[] { "cancelled", "denied", "fulfilled", "pending" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -384,6 +384,10 @@ namespace Messaging.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("mls_sequence_number");
 
+                    b.Property<string>("PersonaId")
+                        .HasColumnType("text")
+                        .HasColumnName("persona_id");
+
                     b.Property<DateTime?>("PinnedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("pinned_at");
@@ -432,6 +436,60 @@ namespace Messaging.Persistence.Migrations
                         .HasDatabaseName("ix_messages_context_id_is_pinned");
 
                     b.ToTable("messages", (string)null);
+                });
+
+            modelBuilder.Entity("Messaging.Domain.Entities.MessageDraft", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChannelId")
+                        .HasColumnType("text")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<string>("ContextId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("context_id");
+
+                    b.Property<string>("ConversationId")
+                        .HasColumnType("text")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("InReplyTo")
+                        .HasColumnType("text")
+                        .HasColumnName("in_reply_to");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_message_drafts");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_message_drafts_user_id");
+
+                    b.HasIndex("UserId", "ContextId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_message_drafts_user_id_context_id");
+
+                    b.ToTable("message_drafts", (string)null);
                 });
 
             modelBuilder.Entity("Messaging.Domain.Entities.MinimalAttachment", b =>

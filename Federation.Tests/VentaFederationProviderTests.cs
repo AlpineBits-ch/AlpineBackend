@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 using AppEnvironment;
 using Federation.Application.Dtos.Events;
 using Federation.Application.Dtos.Events.Bidirectional.Conversation;
@@ -85,7 +84,7 @@ public class VentaFederationProviderTests
     }
 
     private static SignedFederationEvent DeserializeSignedEvent(byte[] body)
-        => JsonSerializer.Deserialize<SignedFederationEvent>(body)!;
+        => SignedFederationEvent.Parse(body);
 
     private static T AssertPayloadType<T>(byte[] body) where T : FederationEvent
     {
@@ -167,7 +166,7 @@ public class VentaFederationProviderTests
         public async Task SendMessageAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.SendMessageAsync(channelId, "msg-1", "hello"u8.ToArray(), "usr_test:sender.example.com", default);
+            await _provider.SendMessageAsync(channelId, "msg-1", "hello"u8.ToArray(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -181,7 +180,7 @@ public class VentaFederationProviderTests
         public async Task EditMessageAsync_PostsCorrectEvent()
         {
             var channelId = Id.Channel(Domain);
-            await _provider.EditMessageAsync(channelId, "msg-2", "edited"u8.ToArray(), "usr_test:sender.example.com", default);
+            await _provider.EditMessageAsync(channelId, "msg-2", "edited"u8.ToArray(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
 
             Assert.That(_handler.Requests, Has.Count.EqualTo(1));
             AssertPostToEventsEndpoint(_handler.Requests[0]);
@@ -571,7 +570,7 @@ public class VentaFederationProviderTests
         [Test]
         public async Task MessagingEvent_HasCorrectEventFields()
         {
-            await _provider.SendMessageAsync(Id.Channel(Domain), "m", Array.Empty<byte>(), "usr_test:sender.example.com", default);
+            await _provider.SendMessageAsync(Id.Channel(Domain), "m", Array.Empty<byte>(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
             AssertEventFields(AssertPayloadType<MessageCreated>(_handler.Requests[0].Body));
         }
 
@@ -626,7 +625,7 @@ public class VentaFederationProviderTests
         [Test]
         public async Task SignedEvent_CanBeVerified_WithGeneratedPublicKey()
         {
-            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), "usr_test:sender.example.com", default);
+            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
 
             var signed = DeserializeSignedEvent(_handler.Requests[0].Body);
             Assert.That(signed.IsValid(BuildInstance(_publicKeyBytes)), Is.True);
@@ -635,7 +634,7 @@ public class VentaFederationProviderTests
         [Test]
         public async Task SignedEvent_FailsVerification_WithWrongPublicKey()
         {
-            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), "usr_test:sender.example.com", default);
+            await _provider.SendMessageAsync(Id.Channel(Domain), "sig-msg", "test"u8.ToArray(), "usr_test:sender.example.com", FederatedAuthorDisplay.RealUser, default);
 
             var signed = DeserializeSignedEvent(_handler.Requests[0].Body);
             var (_, wrongPublicKey) = GenerateKeyPair();

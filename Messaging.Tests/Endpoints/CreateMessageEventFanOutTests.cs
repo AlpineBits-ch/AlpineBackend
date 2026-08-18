@@ -12,6 +12,7 @@ using Messaging.Domain.Events.Message;
 using Messaging.Infrastructure.Persistence;
 using Messaging.Infrastructure.Persistence.Repositories;
 using Messaging.Tests.Helpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using CreateMessageCommand = Messaging.Contracts.Bus.Commands.CreateMessageCommand;
 
 namespace Messaging.Tests.Endpoints;
@@ -83,6 +84,7 @@ public class CreateMessageEventFanOutTests
             MakeMlsService(bus),
             TestPrivacyServices.Build(bus).Policy,
             TestPrivacyServices.Build(bus).Content,
+            new MessageLengthPolicy(bus, _cache, NullLogger<MessageLengthPolicy>.Instance),
         ])!;
 
         await task;

@@ -255,6 +255,29 @@ public enum ExternalModulePermission
 
     /// <summary>Add, edit and delete maintenance assets and anyone's log entry.</summary>
     ManageMaintenance = 23,
+
+    // ── Roleplay ─────────────────────────────────────────────────────────────
+
+    /// <summary>Speak as a persona in this guild, and adopt one into it.</summary>
+    UsePersonas = 24,
+
+    /// <summary>Create and edit the guild's own shared personas, and edit anyone's profile here.</summary>
+    ManageAnyPersona = 25,
+
+    /// <summary>Approve a character, or send it back with a reason.</summary>
+    ApprovePersonas = 26,
+
+    /// <summary>Open, pause and conclude a scene, and set or skip whose turn it is.</summary>
+    ManageScenes = 27,
+
+    /// <summary>Roll dice into a channel.</summary>
+    RollDice = 28,
+
+    /// <summary>Roll where the result is not public.</summary>
+    RollHidden = 29,
+
+    /// <summary>Export a scene or a campaign as a readable document.</summary>
+    ExportChronicle = 30,
 }
  
 // ─────────────────────────────────────────────────────────────────────────────

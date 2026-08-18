@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Guild.Domain.Entity;
+using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Identity.Contracts.Bus.Commands;
 using Identity.Contracts.Bus.Response;
@@ -55,6 +57,21 @@ public class ExportUserDataCommandHandler
         var bans = await ctx.GuildBans
             .AsNoTracking()
             .Where(b => b.BannedUserId == command.UserId)
+            .ToListAsync();
+
+        // Characters somebody has written for months are the part of this export they would most
+        // want back, and the profiles carry the per-guild half of them.
+        var personas = await ctx.Set<Persona>()
+            .AsNoTracking()
+            .Where(p => p.Scope == PersonaScope.User && p.OwnerUserId == command.UserId)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
+
+        var personaIds = personas.Select(p => p.Id).ToList();
+
+        var personaProfiles = await ctx.Set<PersonaGuildProfile>()
+            .AsNoTracking()
+            .Where(p => personaIds.Contains(p.PersonaId))
             .ToListAsync();
 
         var fragment = new
@@ -114,6 +131,32 @@ public class ExportUserDataCommandHandler
                 b.BannedByUserId,
                 b.CreatedAt,
             }),
+            personas = personas.Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.AvatarUrl,
+                p.Pronouns,
+                p.Color,
+                p.ShortBio,
+                p.IsRetired,
+                p.CreatedAt,
+            }),
+            personaProfiles = personaProfiles.Select(p => new
+            {
+                p.Id,
+                p.PersonaId,
+                p.GuildId,
+                guildName = nameByGuild.GetValueOrDefault(p.GuildId),
+                p.DisplayName,
+                p.AvatarUrl,
+                p.Tag,
+                p.ProxyPrefix,
+                p.ProxySuffix,
+                p.WikiPageId,
+                approvalState = p.ApprovalState.ToString(),
+                p.ApprovedAt,
+            }),
         };
 
         return new ExportUserDataResponse
@@ -130,6 +173,8 @@ public class ExportUserDataCommandHandler
                 ["directMessagePreferences"] = dmPreferences.Count,
                 ["readStates"] = readStates.Count,
                 ["bans"] = bans.Count,
+                ["personas"] = personas.Count,
+                ["personaProfiles"] = personaProfiles.Count,
             },
         };
     }

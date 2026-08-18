@@ -44,6 +44,8 @@ public class RoleUpdatedHandlerTests
 
     private FakeHubClients Clients => (FakeHubClients)_hub.Clients;
 
+    private PersonaService Personas() => new(_cache, _context);
+
     /// <summary>Nobody online anywhere. Every handler still has to run its cache work.</summary>
     private static GuildHydrateService EmptyPresence() =>
         new(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
@@ -115,7 +117,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = MemberId },
-            _context, _service, new FakeMessageBus(), _hub, EmptyPresence());
+            _context, _service, new FakeMessageBus(), _hub, EmptyPresence(), Personas());
 
         Assert.That(_cache.HasEntry(cacheKey), Is.False,
             "Removed member's cache must be cleared immediately so the permission loss takes effect");
@@ -135,7 +137,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = MemberId },
-            _context, _service, new FakeMessageBus(), _hub, EmptyPresence());
+            _context, _service, new FakeMessageBus(), _hub, EmptyPresence(), Personas());
 
         Assert.That(_cache.HasEntry(cacheKey), Is.False,
             "Added member's cache must be cleared so new role permissions take effect immediately");
@@ -162,7 +164,7 @@ public class RoleUpdatedHandlerTests
         // Role permissions updated - no specific member added or removed.
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = null },
-            _context, _service, new FakeMessageBus(), _hub, EmptyPresence());
+            _context, _service, new FakeMessageBus(), _hub, EmptyPresence(), Personas());
 
         Assert.Multiple(() =>
         {
@@ -248,7 +250,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = null },
-            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)));
+            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)), Personas());
 
         Assert.Multiple(() =>
         {
@@ -270,7 +272,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleUpdatedHandler.Handle(
             new RoleUpdated { RoleId = RoleId, GuildId = GuildId, MemberId = MemberId },
-            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)));
+            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)), Personas());
 
         Assert.Multiple(() =>
         {
@@ -297,7 +299,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleDeletedHandler.Handle(
             new RoleDeleted { RoleId = RoleId, GuildId = GuildId, UserIds = [UserId, UserId2] },
-            _service, _hub, EmptyPresence(), new FakeMessageBus());
+            _service, _hub, EmptyPresence(), new FakeMessageBus(), Personas());
 
         Assert.Multiple(() =>
         {
@@ -314,7 +316,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleDeletedHandler.Handle(
             new RoleDeleted { RoleId = RoleId, GuildId = GuildId, UserIds = [] },
-            _service, _hub, EmptyPresence(), new FakeMessageBus());
+            _service, _hub, EmptyPresence(), new FakeMessageBus(), Personas());
 
         Assert.That(_cache.HasEntry(unrelated), Is.True);
     }
@@ -327,7 +329,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleDeletedHandler.Handle(
             new RoleDeleted { RoleId = RoleId, GuildId = GuildId, UserIds = [UserId, UserId] },
-            _service, _hub, EmptyPresence(), new FakeMessageBus());
+            _service, _hub, EmptyPresence(), new FakeMessageBus(), Personas());
 
         Assert.That(_cache.HasEntry(key), Is.False);
     }
@@ -339,7 +341,7 @@ public class RoleUpdatedHandlerTests
 
         await RoleDeletedHandler.Handle(
             new RoleDeleted { RoleId = RoleId, GuildId = GuildId, UserIds = ["user-a", "user-b", "user-c"] },
-            _service, _hub, PresenceIn(GuildId, (MemberId, UserId)), bus);
+            _service, _hub, PresenceIn(GuildId, (MemberId, UserId)), bus, Personas());
 
         Assert.Multiple(() =>
         {
@@ -356,7 +358,8 @@ public class RoleUpdatedHandlerTests
     {
         await RoleDeletedHandler.Handle(
             new RoleDeleted { RoleId = RoleId, GuildId = GuildId, UserIds = [UserId] },
-            _service, _hub, PresenceIn("guild-elsewhere", ("member-x", "user-outsider")), new FakeMessageBus());
+            _service, _hub, PresenceIn("guild-elsewhere", ("member-x", "user-outsider")), new FakeMessageBus(),
+            Personas());
 
         Assert.That(Clients.SentMessages, Is.Empty,
             "the audience is this guild's presence set; somebody who cannot see the guild is not in it");
@@ -382,7 +385,7 @@ public class RoleUpdatedHandlerTests
                 GuildId = GuildId, MemberId = MemberId,
                 AddedRoleIds = ["role-a", "role-b"], RemovedRoleIds = ["role-c"],
             },
-            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)));
+            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)), Personas());
 
         Assert.Multiple(() =>
         {
@@ -400,7 +403,7 @@ public class RoleUpdatedHandlerTests
 
         await MemberRolesUpdatedHandler.Handle(
             new MemberRolesUpdated { GuildId = GuildId, MemberId = "member-gone" },
-            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)));
+            _context, _service, bus, _hub, PresenceIn(GuildId, (MemberId, UserId)), Personas());
 
         Assert.Multiple(() =>
         {

@@ -14,8 +14,12 @@ namespace Guild.Application.Bus.Events.Role;
 public class RoleDeletedHandler
 {
     public static async Task Handle(RoleDeleted @event, GuildPermissionService guildPermissionService,
-        IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate, IMessageBus bus)
+        IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate, IMessageBus bus,
+        PersonaService personas)
     {
+        // Any persona grant naming this role cascaded away with it.
+        await personas.InvalidateGuildAsync(@event.GuildId);
+
         if (@event.UserIds.Count > 0)
         {
             await Task.WhenAll(@event.UserIds.Distinct()

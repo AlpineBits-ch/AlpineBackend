@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using Guild.Application.Bus.Events.Messages;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
@@ -10,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using OnlineStatus = Guild.Application.Dtos.Response.OnlineStatus;
+using ChannelEncryption = Guild.Contracts.Bus.Events.MessageEncryptionState;
 
 namespace Guild.Tests.Bus.Events;
 
@@ -124,11 +127,14 @@ public class MessageCreatedHandlerTests
         IEnumerable<string>? roleMentions = null,
         bool everyone = false,
         bool here = false,
-        string authorId = AuthorUserId) => new()
+        string authorId = AuthorUserId,
+        string content = "hi",
+        ChannelEncryption encryption = ChannelEncryption.Plain) => new()
     {
         ChannelId = ChannelId,
         MessageId = "mesg-1",
-        Content = "hi"u8.ToArray(),
+        Content = Encoding.UTF8.GetBytes(content),
+        EncryptionState = encryption,
         AuthorId = authorId,
         CreatedAt = new DateTimeOffset(2026, 8, 3, 10, 0, 0, TimeSpan.Zero),
         Mentions = mentions?.ToList() ?? [],
@@ -165,10 +171,13 @@ public class MessageCreatedHandlerTests
 
         var blockCache = PrivacyTestFactory.Blocks(privacyBus, privacyCache, blocks);
 
+        var mentions = new PersonaMentionService(_context, new PersonaService(_cache, _context));
+
         return _handler.Handle(
             message, _hub, hydrate, _context, _cache, _bus,
             NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience,
-            blockCache, privacy);
+            blockCache, privacy, mentions,
+            new SceneService(_context, mentions, hydrate, _hub));
     }
 
     /// <summary>Every recipient across the chunked index commands.</summary>
@@ -827,5 +836,178 @@ public class MessageCreatedHandlerTests
         await RunAsync(Message(everyone: true));
 
         Assert.That(PushedUserIds(), Does.Not.Contain(AuthorUserId));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Persona mentions
+    // ══════════════════════════════════════════════════════════════════════
+
+    /// <summary>Seeds a character adopted into this guild. A guild-scoped one has no owner and is
+    /// reached through grants instead.</summary>
+    private async Task SeedPersonaAsync(
+        string personaId, string? ownerUserId = null, string? grantRoleId = null, bool retired = false)
+    {
+        _context.Set<Persona>().Add(new Persona
+        {
+            Id = personaId,
+            Scope = ownerUserId is null ? PersonaScope.Guild : PersonaScope.User,
+            OwnerUserId = ownerUserId,
+            OwnerGuildId = ownerUserId is null ? GuildId : null,
+            Name = "Mayor Cogsgrove", IsRetired = retired, HasSpoken = true,
+            CreatedAt = Now, UpdatedAt = Now,
+        });
+
+        _context.Set<PersonaGuildProfile>().Add(new PersonaGuildProfile
+        {
+            Id = $"pgpf-{personaId}", PersonaId = personaId, GuildId = GuildId,
+            ApprovalState = PersonaApprovalState.Approved, CreatedAt = Now, UpdatedAt = Now,
+        });
+
+        if (grantRoleId is not null)
+        {
+            _context.Set<PersonaGrant>().Add(new PersonaGrant
+            {
+                Id = $"pgnt-{personaId}", PersonaId = personaId, RoleId = grantRoleId,
+                CreatedAt = Now, UpdatedAt = Now,
+            });
+        }
+
+        await _context.SaveChangesAsync();
+    }
+
+    private string? KindFor(string userId) =>
+        IndexedRecipients().FirstOrDefault(r => r.UserId == userId)?.Kind;
+
+    [Test]
+    public async Task PersonaMention_NotifiesTheOwnerUnderItsOwnKind()
+    {
+        await SeedGuildAsync(memberCount: 2);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: "user-1");
+
+        await RunAsync(Message(content: "<@pers_mayor> evening, all"));
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(MentionedMemberIds(), Is.EqualTo(new[] { "memb-1" }).AsCollection);
+            Assert.That(KindFor("user-1"), Is.EqualTo("Persona"),
+                "a client renders the character, not the account, so it cannot be a Direct row");
+        });
+    }
+
+    /// <summary>The privacy property the whole design turns on.</summary>
+    [Test]
+    public async Task PersonaMention_TellsNoOtherReaderWhoPlaysTheCharacter()
+    {
+        await SeedGuildAsync(memberCount: 2);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: "user-1");
+
+        await RunAsync(
+            Message(content: "<@pers_mayor> evening, all"),
+            Present("memb-2", "user-2", OnlineStatus.Online));
+        await _context.SaveChangesAsync();
+
+        var clients = (FakeHubClients)_hub.Clients;
+
+        Assert.Multiple(() =>
+        {
+            foreach (var send in clients.SentToUsers.Where(s => !s.UserIds.Contains("user-1")))
+            {
+                Assert.That(JsonSerializer.Serialize(send.Args), Does.Not.Contain("user-1"),
+                    $"{send.Method} reaches readers who must not learn who plays the Mayor");
+            }
+
+            Assert.That(clients.RecipientsOf("inbox.MentionAdded"), Is.EqualTo(new[] { "user-1" }).AsCollection);
+        });
+    }
+
+    [Test]
+    public async Task PersonaMention_OfASharedCharacter_ReachesEveryGrantHolder()
+    {
+        await SeedGuildAsync(memberCount: 3);
+        await AddRoleAsync("role-gm", "memb-1", "memb-3");
+        await SeedPersonaAsync("pers_narrator", grantRoleId: "role-gm");
+
+        await RunAsync(Message(content: "<@pers_narrator> what do we see?"));
+        await _context.SaveChangesAsync();
+
+        Assert.That(MentionedMemberIds(), Is.EqualTo(new[] { "memb-1", "memb-3" }).AsCollection);
+    }
+
+    [Test]
+    public async Task PersonaMention_OfYourOwnCharacter_ProducesNothing()
+    {
+        await SeedGuildAsync(memberCount: 1);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: AuthorUserId);
+
+        await RunAsync(Message(content: "<@pers_mayor> talking to myself"));
+        await _context.SaveChangesAsync();
+
+        Assert.That(IndexedRecipients(), Is.Empty);
+    }
+
+    [Test]
+    public async Task PersonaMention_OfACharacterFromAnotherGuild_ProducesNothing()
+    {
+        await SeedGuildAsync(memberCount: 1);
+
+        await RunAsync(Message(content: "<@pers_stranger> hello"));
+        await _context.SaveChangesAsync();
+
+        Assert.That(IndexedRecipients(), Is.Empty);
+    }
+
+    /// <summary>Ciphertext has no body to read, the same exclusion previews and search already make.</summary>
+    [Test]
+    public async Task PersonaMention_InAnEncryptedMessage_ProducesNothing()
+    {
+        await SeedGuildAsync(memberCount: 1);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: "user-1");
+
+        await RunAsync(Message(
+            content: "<@pers_mayor> evening", encryption: ChannelEncryption.Encrypted));
+        await _context.SaveChangesAsync();
+
+        Assert.That(IndexedRecipients(), Is.Empty);
+    }
+
+    [Test]
+    public async Task DirectMentionAndPersonaMentionOfTheSamePerson_IndexesOnceAsDirect()
+    {
+        await SeedGuildAsync(memberCount: 1);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: "user-1");
+
+        await RunAsync(Message(mentions: ["user-1"], content: "<@user-1> <@pers_mayor> evening"));
+        await _context.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(MentionCountFor("memb-1"), Is.EqualTo(1));
+            Assert.That(KindFor("user-1"), Is.EqualTo("Direct"),
+                "being named outright is the more specific fact");
+        });
+    }
+
+    /// <summary>A persona mention is as personal as being named, so it survives OnlyMentions.</summary>
+    [Test]
+    public async Task PersonaMention_PushesToTheOwnerInAnOnlyMentionsGuild()
+    {
+        await SeedGuildAsync(memberCount: 2, guildDefault: NotificationLevel.OnlyMentions);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: "user-1");
+
+        await RunAsync(Message(content: "<@pers_mayor> evening"));
+
+        Assert.That(PushedUserIds(), Is.EqualTo(new[] { "user-1" }).AsCollection);
+    }
+
+    [Test]
+    public async Task PersonaMention_OfARetiredCharacter_ProducesNothing()
+    {
+        await SeedGuildAsync(memberCount: 1);
+        await SeedPersonaAsync("pers_mayor", ownerUserId: "user-1", retired: true);
+
+        await RunAsync(Message(content: "<@pers_mayor> evening"));
+        await _context.SaveChangesAsync();
+
+        Assert.That(IndexedRecipients(), Is.Empty);
     }
 }

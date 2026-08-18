@@ -52,18 +52,27 @@ public class SceneEndpoint
             return Results.Forbid();
 
         if (parent.Type != ChannelType.Text)
-            return Results.BadRequest("A scene can only be opened under a Text channel.");
+            return Fault("scene_parent_not_text", "A scene can only be opened under a text channel.");
 
-        var participants = (dto.ParticipantPersonaIds ?? []).Distinct(StringComparer.Ordinal).ToList();
+        if (dto.Status is { } wanted and not (SceneStatus.Open or SceneStatus.Active))
+            return Fault("scene_status_not_openable", $"A scene cannot be created {wanted}.");
+
+        var order = (dto.TurnOrder ?? []).Distinct(StringComparer.Ordinal).ToList();
+
+        // The rotation is the cast for every client that asks the question once. Only a caller that
+        // wants somebody in the scene but out of the rotation sends both.
+        var participants = dto.ParticipantPersonaIds is {Count: > 0} given
+            ? given.Distinct(StringComparer.Ordinal).ToList()
+            : order;
+
         foreach (var personaId in participants)
         {
             if (!await scenes.IsAdoptedAsync(guildId, personaId))
-                return Results.BadRequest($"Persona '{personaId}' has not been adopted into this guild.");
+                return Fault("persona_not_adopted", $"Persona '{personaId}' has not been adopted into this guild.");
         }
 
-        var order = dto.TurnOrder ?? [];
         if (order.Except(participants, StringComparer.Ordinal).Any())
-            return Results.BadRequest("The turn order can only name personas in the scene.");
+            return Fault("turn_order_not_in_cast", "The turn order can only name personas in the scene.");
 
         try
         {
@@ -100,6 +109,20 @@ public class SceneEndpoint
             });
 
             state.TurnOrder = [.. order];
+
+            if (dto.Status is { } status)
+            {
+                state.Status = status;
+
+                // Starting on creation has to open the first turn, or the scene is Active with
+                // nobody on the clock and nothing is ever nudged.
+                if (status == SceneStatus.Active)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    var unavailable = await scenes.UnavailablePersonasAsync(guildId, state.Rotation, now);
+                    state.StartTurn(unavailable, now);
+                }
+            }
 
             ctx.Channels.Add(scene);
             ctx.Channels.Add(ooc);
@@ -311,7 +334,7 @@ public class SceneEndpoint
         if (dto.TurnOrder is not null)
         {
             if (dto.TurnOrder.Except(state.ParticipantPersonaIds, StringComparer.Ordinal).Any())
-                return Results.BadRequest("The turn order can only name personas in the scene.");
+                return Fault("turn_order_not_in_cast", "The turn order can only name personas in the scene.");
 
             state.TurnOrder = [.. dto.TurnOrder.Distinct(StringComparer.Ordinal)];
         }
@@ -319,7 +342,7 @@ public class SceneEndpoint
         if (dto.CurrentTurnPersonaId is not null)
         {
             if (!state.ParticipantPersonaIds.Contains(dto.CurrentTurnPersonaId, StringComparer.Ordinal))
-                return Results.BadRequest("That persona is not in this scene.");
+                return Fault("persona_not_in_scene", "That persona is not in this scene.");
 
             state.TakeTurn(dto.CurrentTurnPersonaId, now);
         }
@@ -366,10 +389,10 @@ public class SceneEndpoint
         var (channel, state) = found.Value;
 
         if (!await scenes.IsAdoptedAsync(guildId, dto.PersonaId))
-            return Results.BadRequest("That persona has not been adopted into this guild.");
+            return Fault("persona_not_adopted", "That persona has not been adopted into this guild.");
 
         if (state.ParticipantPersonaIds.Contains(dto.PersonaId, StringComparer.Ordinal))
-            return Results.Conflict("That persona is already in this scene.");
+            return Fault("persona_already_in_scene", "That persona is already in this scene.", StatusCodes.Status409Conflict);
 
         state.ParticipantPersonaIds.Add(dto.PersonaId);
 
@@ -438,7 +461,7 @@ public class SceneEndpoint
         var (channel, state) = found.Value;
 
         if (state.Status != SceneStatus.Active)
-            return Results.BadRequest("The turn only moves while a scene is active.");
+            return Fault("scene_not_active", "The turn only moves while a scene is active.");
 
         var isGameMaster = await permissionService.CanUserPerformActionOnGuildAsync(
             userId, guildId, ModulePermissions.ManageScenes);
@@ -469,7 +492,7 @@ public class SceneEndpoint
         var (channel, state) = found.Value;
 
         if (state.Status != SceneStatus.Active)
-            return Results.BadRequest("The turn only moves while a scene is active.");
+            return Fault("scene_not_active", "The turn only moves while a scene is active.");
 
         await scenes.AdvanceAsync(state, DateTimeOffset.UtcNow);
 
@@ -497,7 +520,7 @@ public class SceneEndpoint
         var (channel, state) = found.Value;
 
         if (!await nudges.NudgeNowAsync(state, DateTimeOffset.UtcNow))
-            return Results.BadRequest("There is no turn to chase in this scene.");
+            return Fault("no_turn_to_nudge", "There is no turn to chase in this scene.");
 
         return await OkAsync(scenes, state, channel);
     }
@@ -505,6 +528,10 @@ public class SceneEndpoint
     // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>A refusal a client can act on: a stable code to branch on, a sentence to show.</summary>
+    private static IResult Fault(string error, string message, int status = StatusCodes.Status400BadRequest) =>
+        Results.Json(new { error, message }, statusCode: status);
 
     /// <summary>The scene as clients read it, cast and absences included.</summary>
     private static async Task<IResult> OkAsync(SceneService scenes, SceneState state, Channel channel)

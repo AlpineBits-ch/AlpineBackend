@@ -16,7 +16,8 @@ public class CreateSceneDto
     /// <summary>The OOC thread's title, defaulting to the scene's name with an OOC marker.</summary>
     public string? OocName { get; set; }
 
-    /// <summary>The starting cast, as personas already adopted into this guild.</summary>
+    /// <summary>The starting cast, as personas already adopted into this guild. Omit to take the
+    /// cast from <see cref="TurnOrder"/>.</summary>
     public List<string>? ParticipantPersonaIds { get; set; }
 
     /// <summary>The rotation, if it should differ from the order the cast was given in.</summary>
@@ -25,6 +26,10 @@ public class CreateSceneDto
     /// <summary>How long each turn gets. Omit for a scene that is not on a clock and is never
     /// nudged.</summary>
     public int? TurnLengthHours { get; set; }
+
+    /// <summary>Open for a scene the cast still has to arrive in, Active to start the first turn
+    /// straight away. Nothing else is legal at creation.</summary>
+    public SceneStatus? Status { get; set; }
 }
 
 /// <summary>

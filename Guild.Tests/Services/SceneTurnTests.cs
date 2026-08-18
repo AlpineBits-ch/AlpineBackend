@@ -289,7 +289,65 @@ public class SceneTurnTests
             Name = "The Siege of Blackwater", ParticipantPersonaIds = ["pers_nobody"],
         });
 
-        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        Assert.Multiple(() =>
+        {
+            Assert.That((result as IStatusCodeHttpResult)?.StatusCode,
+                Is.EqualTo(StatusCodes.Status400BadRequest));
+            Assert.That(FaultCode(result), Is.EqualTo("persona_not_adopted"));
+        });
+    }
+
+    [Test]
+    public async Task Create_WithOnlyATurnOrder_TakesTheCastFromIt()
+    {
+        await SeedAsync();
+
+        var result = await CreateAsync(new CreateSceneDto
+        {
+            Name = "The Siege of Blackwater",
+            TurnOrder = [PlayerPersonaId, OtherPersonaId],
+            TurnLengthHours = 48,
+        });
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+        Assert.That(dto, Is.Not.Null);
+        Assert.That(dto!.ParticipantPersonaIds, Is.EqualTo(new[] { PlayerPersonaId, OtherPersonaId }));
+    }
+
+    [Test]
+    public async Task Create_Active_OpensTheFirstTurn()
+    {
+        await SeedAsync();
+
+        var result = await CreateAsync(new CreateSceneDto
+        {
+            Name = "The Siege of Blackwater",
+            TurnOrder = [PlayerPersonaId, OtherPersonaId],
+            TurnLengthHours = 48,
+            Status = SceneStatus.Active,
+        });
+
+        var dto = (result as Ok<SceneDto>)?.Value;
+        Assert.That(dto, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto!.Status, Is.EqualTo(SceneStatus.Active));
+            Assert.That(dto.CurrentTurnPersonaId, Is.EqualTo(PlayerPersonaId));
+            Assert.That(dto.TurnDeadlineAt, Is.Not.Null);
+        });
+    }
+
+    [Test]
+    public async Task Create_Concluded_IsRefused()
+    {
+        await SeedAsync();
+
+        var result = await CreateAsync(new CreateSceneDto
+        {
+            Name = "The Siege of Blackwater", Status = SceneStatus.Concluded,
+        });
+
+        Assert.That(FaultCode(result), Is.EqualTo("scene_status_not_openable"));
     }
 
     // ══════════════════════════════════════════════════════════════════════ Turn on post
@@ -1055,6 +1113,13 @@ public class SceneTurnTests
             waitingOnMe, includeConcluded, includeArchived);
 
         return (result as Ok<SceneListDto>)?.Value;
+    }
+
+    /// <summary>The code a refusal carries, or null when the result is not one.</summary>
+    private static string? FaultCode(IResult result)
+    {
+        var value = (result as IValueHttpResult)?.Value;
+        return value?.GetType().GetProperty("error")?.GetValue(value) as string;
     }
 
     private Task<IResult> CreateAsync(CreateSceneDto dto, string userId = GameMasterId) =>

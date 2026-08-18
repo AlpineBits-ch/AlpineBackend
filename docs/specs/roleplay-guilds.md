@@ -410,6 +410,17 @@ permission), gated on `GuildFeatures.Scenes`:
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/skip` | `ManageScenes` |
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/nudge` | `ManageScenes`. Chases the current turn now, ignoring the grace period and quiet hours |
 
+The create body is `{name, description?, oocName?, participantPersonaIds?, turnOrder?,
+turnLengthHours?, status?}`. `participantPersonaIds` may be omitted, in which case the cast is
+`turnOrder`: a client that asks the question once should not have to send the same list twice.
+`status` accepts `Open` or `Active` and nothing else, and `Active` opens the first turn on the spot,
+so starting a scene is one call rather than a create followed by a patch. The clock is
+`turnLengthHours`, never a deadline: a create has no turn to put a deadline on.
+
+Refusals from these routes answer `{error, message}`, with `error` one of `scene_parent_not_text`,
+`scene_status_not_openable`, `persona_not_adopted`, `turn_order_not_in_cast`, `persona_not_in_scene`,
+`persona_already_in_scene` (409), `scene_not_active`, `no_turn_to_nudge`.
+
 "Is the game waiting on me" is the headline question of the whole feature, so it is one request:
 `waitingOnMe` filters to scenes whose turn belongs to a character the caller may speak as, resolved
 from the set `PersonaService` already caches per (user, guild) and drops when a grant is revoked.

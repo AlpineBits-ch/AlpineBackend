@@ -20,6 +20,7 @@ public class MicroserviceContext : DbContext
     public DbSet<GuildInvite> GuildInvites { get; set; }
     public DbSet<ReadState> ReadStates { get; set; }
     public DbSet<ChannelBroadcastMention> ChannelBroadcastMentions { get; set; }
+    public DbSet<InboxTaskDismissal> InboxTaskDismissals { get; set; }
     public DbSet<Wiki> Wikis { get; set; }
     public DbSet<WikiPage> WikiPages { get; set; }
     public DbSet<WikiCategory> WikiCategories { get; set; }
@@ -224,6 +225,19 @@ public class MicroserviceContext : DbContext
                 .HasDatabaseName("IX_broadcast_mentions_message_role");
         });
 
+        modelBuilder.Entity<InboxTaskDismissal>(dismissalBuilder =>
+        {
+            // One dismissal per row per person, and the read path looks the whole set up by
+            // caller, so the unique index is the one it rides too.
+            dismissalBuilder.HasIndex(x => new { x.UserId, x.Kind, x.GuildId, x.TargetId })
+                .IsUnique()
+                .HasDatabaseName("IX_inbox_task_dismissals_user_task");
+
+            // The retention sweep each write runs walks one caller oldest-first.
+            dismissalBuilder.HasIndex(x => new { x.UserId, x.DismissedAt })
+                .HasDatabaseName("IX_inbox_task_dismissals_user_dismissed");
+        });
+
         modelBuilder.Entity<GuildNotificationSetting>(settingBuilder =>
         {
             settingBuilder.HasOne(x => x.GuildMember)
@@ -313,6 +327,13 @@ public class MicroserviceContext : DbContext
 
             channelBuilder.HasIndex(c => new { c.ParentChannelId, c.IsPinned, c.CreatedAt })
                 .HasDatabaseName("IX_channels_forum_created");
+
+            // One thread per message, enforced here rather than by a read-then-create: two people
+            // clicking the same button race, and the loser has to fail on the insert.
+            channelBuilder.HasIndex(c => c.StarterMessageId)
+                .IsUnique()
+                .HasFilter("starter_message_id IS NOT NULL")
+                .HasDatabaseName("IX_channels_starter_message");
         });
         
         modelBuilder.Entity<GuildInvite>(guildInviteBuilder =>

@@ -5,6 +5,7 @@ using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -13,9 +14,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Guild.Persistence.Migrations
 {
     [DbContext(typeof(MicroserviceContext))]
-    partial class MicroserviceContextModelSnapshot : ModelSnapshot
+    [Migration("20260819091454_AddInboxTaskDismissals")]
+    partial class AddInboxTaskDismissals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -142,10 +145,6 @@ namespace Guild.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("slow_mode_seconds");
 
-                    b.Property<string>("StarterMessageId")
-                        .HasColumnType("text")
-                        .HasColumnName("starter_message_id");
-
                     b.Property<ChannelType>("Type")
                         .HasColumnType("channel_type")
                         .HasColumnName("type");
@@ -162,11 +161,6 @@ namespace Guild.Persistence.Migrations
 
                     b.HasIndex("GuildId")
                         .HasDatabaseName("ix_channels_guild_id");
-
-                    b.HasIndex("StarterMessageId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_channels_starter_message")
-                        .HasFilter("starter_message_id IS NOT NULL");
 
                     b.HasIndex("ParentChannelId", "IsPinned", "CreatedAt")
                         .HasDatabaseName("IX_channels_forum_created");

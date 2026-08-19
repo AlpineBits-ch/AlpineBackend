@@ -224,6 +224,8 @@ presence at all.
   simply marked broken - a broken washing machine has no deadline, it is already late in a way a date
   cannot express.
 - **No cursor.** It is a to-do list; `truncated` says more were waiting.
+- **A row can be put away** with `DELETE /inbox/tasks/{kind}/{targetId}?guildId=…` below. It
+  comes back on its own when whatever it is about moves again.
 - Feature-gated and `ViewChannel`-filtered per row, the same as Unread.
 - **Render an unrecognised `kind` from `title` / `subtitle` and deep-link on `targetId`.** More
   kinds will be added, and three were added with the household modules' second wave.
@@ -267,6 +269,9 @@ roleplay hub events - `guild.SceneTurnChanged`, `guild.SceneTurnNudge`,
 `/inbox/summary` when one of those arrives. See
 [roleplay-realtime-frontend-guide.md](./roleplay-realtime-frontend-guide.md).
 
+A dismissal is not broadcast either, so another device of the same person keeps showing the row
+until it refetches.
+
 ---
 
 ## `POST /api/v1/guild/inbox/channels/{channelId}/read`
@@ -307,6 +312,28 @@ Only direct and `@here` mentions can be dismissed. `@everyone` and `@role` pings
 rows, so there is nothing to delete - dismissing one is accepted and does nothing.
 
 ---
+
+## `DELETE /api/v1/guild/inbox/tasks/{kind}/{targetId}?guildId=…`
+
+Puts one Waiting-on-you row away (the ✕). `204`, idempotent.
+
+`kind` is the value off the row, case-insensitive. `targetId` is its `targetId`. `guildId` is
+**required** and is `breadcrumb.guildId` off the same row - it is part of the key rather than
+derivable from the target, because the same character can be submitted in two guilds at once and
+putting one queue away must not empty the other.
+
+| Status | Meaning |
+|---|---|
+| `204` | Put away |
+| `400` | `kind` is not one this server knows, or `guildId` is missing |
+| `403` | Not a member of that guild |
+
+**The row comes back when the thing it is about moves.** The tab is derived from the modules that
+own the rows, so a dismissal is a suppression with a timestamp rather than a delete: the next turn
+of the same scene, a character resubmitted after being sent back, and an asset broken a second
+time are all new work and reappear. Nothing on the caller's side needs to un-dismiss anything.
+
+A dismissal lives 90 days and is swept on the next write.
 
 ## Shared object: `InboxMessage`
 

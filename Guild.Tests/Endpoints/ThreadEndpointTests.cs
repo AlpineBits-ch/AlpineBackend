@@ -279,6 +279,230 @@ public class ThreadEndpointTests
         Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
     }
 
+    // ══════════════════════════════════════════════════════════════════ CreateThreadFromMessage
+    // ══════════════════════════════════════════════════════════════════════
+
+    private const string MessageId = "mesg_1";
+
+    private void AttachReturns(AttachThreadOutcome outcome, string? existingThreadId = null) =>
+        _bus.SetResponse<AttachThreadToMessageCommand>(new AttachThreadToMessageResponse
+        {
+            Outcome = outcome,
+            ExistingThreadId = existingThreadId,
+        });
+
+    private Task<IResult> CreateFromMessage(string channelId, CreateThreadDto dto, string? userId = UserId) =>
+        _endpoint.CreateThreadFromMessageAsync(channelId, MessageId, dto, _permissionService, _context, _hub,
+            _hydrateService, _auditLog, _bus,
+            userId is null ? TestPrincipal.CreateAnonymous() : TestPrincipal.Create(userId));
+
+    [Test]
+    public async Task CreateThreadFromMessage_Unauthenticated_ReturnsUnauthorized()
+    {
+        var result = await CreateFromMessage("nonexistent", new CreateThreadDto { Name = "t" }, userId: null);
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentDoesNotExist_ReturnsNotFound()
+    {
+        var result = await CreateFromMessage("nonexistent", new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentIsForum_ReturnsBadRequest()
+    {
+        // A forum post already is the thread, so there is no message to hang a second one off.
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentIsEncrypted_ReturnsBadRequest()
+    {
+        await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+
+        var encrypted = new Channel
+        {
+            Id = "chan_encrypted", Name = "secret", Type = ChannelType.Text, GuildId = GuildId,
+            EncryptionState = EncryptionState.Encrypted,
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        _context.Channels.Add(encrypted);
+        await _context.SaveChangesAsync();
+
+        var result = await CreateFromMessage(encrypted.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_LacksCreateThreads_ReturnsForbid()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.ViewChannel);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_MessageAlreadyHasThreadLocally_ReturnsConflict()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        _context.Channels.Add(Channel.Create(new CreateChannelParams
+        {
+            Name = "existing", Description = "", Type = ChannelType.Thread, GuildId = GuildId,
+            ParentChannelId = parent.Id, CreatedByUserId = UserId, StarterMessageId = MessageId,
+        }));
+        await _context.SaveChangesAsync();
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+
+        Assert.That(result, Is.InstanceOf<Conflict<Guild.Application.Dtos.Response.ThreadConflictDto>>());
+        // Never reached Messaging: the local row already answers the question.
+        Assert.That(_bus.Invoked, Is.Empty);
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ThreadOnThatMessageElsewhere_DoesNotLeakItAsAConflict()
+    {
+        // The pre-check must not confirm the existence of a thread in a channel the caller was not
+        // asking about; Messaging decides, and it answers 404 for a foreign message.
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        var other = Channel.Create(new CreateChannelParams { Name = "other", Description = "", Type = ChannelType.Text, GuildId = GuildId });
+        _context.Channels.Add(other);
+        _context.Channels.Add(Channel.Create(new CreateChannelParams
+        {
+            Name = "elsewhere", Description = "", Type = ChannelType.Thread, GuildId = GuildId,
+            ParentChannelId = other.Id, CreatedByUserId = UserId, StarterMessageId = MessageId,
+        }));
+        await _context.SaveChangesAsync();
+        AttachReturns(AttachThreadOutcome.WrongChannel);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+
+        Assert.That(result, Is.InstanceOf<NotFound>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_MessagingSaysNotFound_ReturnsNotFoundAndPersistsNothing()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.MessageNotFound);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<NotFound>());
+        // AutoApplyTransactions commits whatever is staged when the endpoint returns, so a rejected
+        // create is only really rejected if nothing was staged.
+        Assert.That(await _context.Channels.CountAsync(c => c.Type == ChannelType.Thread), Is.Zero);
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_MessageInAnotherChannel_ReturnsNotFoundAndPersistsNothing()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.WrongChannel);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<NotFound>());
+        Assert.That(await _context.Channels.CountAsync(c => c.Type == ChannelType.Thread), Is.Zero);
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_MessagingSaysAlreadyAttached_ReturnsConflictAndPersistsNothing()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.AlreadyHasThread, "chan_other");
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Conflict<Guild.Application.Dtos.Response.ThreadConflictDto>>());
+        Assert.That(await _context.Channels.CountAsync(c => c.Type == ChannelType.Thread), Is.Zero);
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_Valid_PersistsThreadWithStarterMessage()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "my-thread" });
+        await _context.SaveChangesAsync();
+
+        var ok = result as Ok<Guild.Application.Dtos.Response.ChannelDto>;
+        Assert.That(ok, Is.Not.Null);
+
+        var created = await _context.Channels.AsNoTracking().FirstAsync(c => c.Id == ok!.Value!.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(created.Type, Is.EqualTo(ChannelType.Thread));
+            Assert.That(created.ParentChannelId, Is.EqualTo(parent.Id));
+            Assert.That(created.StarterMessageId, Is.EqualTo(MessageId));
+            Assert.That(ok!.Value!.StarterMessageId, Is.EqualTo(MessageId));
+        });
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_Valid_AttachesTheThreadItIsAboutToPersist()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+        var ok = result as Ok<Guild.Application.Dtos.Response.ChannelDto>;
+
+        var attach = _bus.Invoked.OfType<AttachThreadToMessageCommand>().Single();
+        Assert.Multiple(() =>
+        {
+            Assert.That(attach.MessageId, Is.EqualTo(MessageId));
+            Assert.That(attach.ChannelId, Is.EqualTo(parent.Id));
+            Assert.That(attach.ThreadId, Is.EqualTo(ok!.Value!.Id));
+        });
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_Valid_PublishesThreadCreatedForBotsWithStarter()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+
+        var evt = _bus.Published.OfType<ThreadCreatedForBots>().Single();
+        Assert.That(evt.StarterMessageId, Is.EqualTo(MessageId));
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_WithContent_SendsCreateMessageCommandIntoTheThread()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        var result = await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t", Content = "first reply" });
+        var ok = result as Ok<Guild.Application.Dtos.Response.ChannelDto>;
+
+        var create = _bus.Invoked.OfType<CreateMessageCommand>().Single();
+        Assert.That(create.ChannelId, Is.EqualTo(ok!.Value!.Id));
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_NoContent_DoesNotSendCreateMessageCommand()
+    {
+        var parent = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        await CreateFromMessage(parent.Id, new CreateThreadDto { Name = "t" });
+
+        Assert.That(_bus.Invoked.OfType<CreateMessageCommand>(), Is.Empty);
+    }
+
     // ══════════════════════════════════════════════════════════════════════ GetThreadsAsync
     // ══════════════════════════════════════════════════════════════════════
 

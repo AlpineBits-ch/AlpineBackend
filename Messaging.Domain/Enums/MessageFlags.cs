@@ -15,7 +15,12 @@ public static class MessageFlags
 
     /// <summary>1 &lt;&lt; 3 SOURCE_MESSAGE_DELETED - not implemented.</summary>
     /// <summary>1 &lt;&lt; 4 URGENT - not implemented.</summary>
-    /// <summary>1 &lt;&lt; 5 HAS_THREAD - not implemented (threads are modelled relationally).</summary>
+    /// <summary>
+    /// The message has a thread hanging off it. Never stored: it is ORed into the projected flags
+    /// from <c>Message.ThreadId</c>, which is the one writable truth about the relationship.
+    /// </summary>
+    public const int HasThread = 1 << 5;
+
     /// <summary>1 &lt;&lt; 6 EPHEMERAL - not implemented.</summary>
     /// <summary>1 &lt;&lt; 7 LOADING - not implemented.</summary>
 

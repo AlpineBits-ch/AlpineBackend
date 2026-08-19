@@ -28,6 +28,9 @@ public class InboxTaskService(
     /// <summary>Ceiling per source before filtering.</summary>
     private const int CandidatesPerSource = 100;
 
+    /// <summary>How long a dismissal outlives the row it was about.</summary>
+    private static readonly TimeSpan DismissalRetention = TimeSpan.FromDays(90);
+
     /// <summary>Ceiling on the badge count, matching <see cref="InboxService.MaxSummaryCount"/>.</summary>
     public const int MaxSummaryCount = 99;
 
@@ -48,7 +51,8 @@ public class InboxTaskService(
         DateTimeOffset? DueAt,
         int GraceHours,
         DateTimeOffset CreatedAt,
-        DateOnly? PlanDate = null);
+        DateOnly? PlanDate = null,
+        DateTimeOffset? FreshAt = null);
 
     public async Task<InboxTaskPageDto> GetTasksAsync(string userId, int limit)
     {
@@ -134,6 +138,8 @@ public class InboxTaskService(
         rows.AddRange(await KeepPermittedAsync(userId, sentBack, GuildFeatures.Personas));
         rows.AddRange(await KeepPermittedAsync(
             userId, guildSentBack, GuildFeatures.Personas, ModulePermissions.ManageAnyPersona));
+
+        rows = await DropDismissedAsync(userId, rows);
 
         // Anything with a deadline sorts ahead of anything without, soonest first; the undated tail
         // falls back to age.
@@ -312,7 +318,9 @@ public class InboxTaskService(
                 // when somebody should have looked at it, and the thing is already unusable.
                 asset.Status == AssetStatus.Broken ? null : asset.NextServiceAt,
                 0,
-                asset.CreatedAt);
+                asset.CreatedAt,
+                null,
+                asset.UpdatedAt);
 
     /// <summary>
     /// Scenes waiting on a character the caller answers for - their own, or one they hold a grant
@@ -442,6 +450,97 @@ public class InboxTaskService(
                 null,
                 0,
                 profile.UpdatedAt);
+
+    /// <summary>
+    /// Drops the rows the caller has put away, and keeps the ones whose own stamp has moved since:
+    /// the next turn of a scene, a character resubmitted after being sent back and an asset broken
+    /// a second time are all new work rather than work already dismissed.
+    /// </summary>
+    private async Task<List<TaskRow>> DropDismissedAsync(string userId, List<TaskRow> rows)
+    {
+        if (rows.Count == 0) return rows;
+
+        // The whole set in one read rather than a filter per row: a dismissal is only written by
+        // hand and swept at 90 days, so there are never many.
+        var dismissals = await ctx.InboxTaskDismissals
+            .AsNoTracking()
+            .Where(d => d.UserId == userId)
+            .Select(d => new { d.Kind, d.GuildId, d.TargetId, d.DismissedAt })
+            .ToListAsync();
+
+        if (dismissals.Count == 0) return rows;
+
+        var byTask = dismissals.ToDictionary(
+            d => (d.Kind, d.GuildId, d.TargetId),
+            d => d.DismissedAt);
+
+        return rows
+            .Where(r => !byTask.TryGetValue((r.Kind.ToString(), r.GuildId, r.TargetId), out var at)
+                        || (r.FreshAt ?? r.CreatedAt) > at)
+            .ToList();
+    }
+
+    /// <summary>Puts one row away until whatever it is about moves again.</summary>
+    /// <param name="userId">The caller, who can only ever dismiss their own row.</param>
+    /// <param name="kind">Which kind of task the row is.</param>
+    /// <param name="guildId">The guild the row is in, which is part of the key.</param>
+    /// <param name="targetId">The row this task is about.</param>
+    /// <returns>False when the caller is not in that guild.</returns>
+    public async Task<bool> DismissAsync(
+        string userId, InboxTaskKind kind, string guildId, string targetId)
+    {
+        var isMember = await ctx.GuildMembers
+            .AsNoTracking()
+            .AnyAsync(m => m.UserId == userId && m.GuildId == guildId);
+
+        // Refused rather than accepted-and-ignored: a row written for a guild the caller is not in
+        // is unreachable by the read path and would only ever be swept.
+        if (!isMember) return false;
+
+        var name = kind.ToString();
+        var now = DateTimeOffset.UtcNow;
+
+        var existing = await ctx.InboxTaskDismissals.FirstOrDefaultAsync(d =>
+            d.UserId == userId && d.Kind == name && d.GuildId == guildId && d.TargetId == targetId);
+
+        if (existing is null)
+        {
+            ctx.InboxTaskDismissals.Add(new InboxTaskDismissal
+            {
+                Id = InboxTaskDismissal.GenerateId(),
+                CreatedAt = now,
+                UpdatedAt = now,
+                UserId = userId,
+                Kind = name,
+                GuildId = guildId,
+                TargetId = targetId,
+                DismissedAt = now,
+            });
+        }
+        else
+        {
+            // Re-stamped rather than left alone, so a row that came back and was put away again
+            // stays away.
+            existing.DismissedAt = now;
+            existing.UpdatedAt = now;
+        }
+
+        // Swept on the write instead of on a schedule: only the owner ever writes here, so there
+        // is no reaper to forget to run. The row this call just re-stamped is excluded by key: the
+        // database still holds its old timestamp, so an old one would sweep away the write.
+        var cutoff = now - DismissalRetention;
+        var stale = await ctx.InboxTaskDismissals
+            .Where(d => d.UserId == userId
+                        && d.DismissedAt < cutoff
+                        && !(d.Kind == name && d.GuildId == guildId && d.TargetId == targetId))
+            .ToListAsync();
+
+        if (stale.Count > 0) ctx.InboxTaskDismissals.RemoveRange(stale);
+
+        await ctx.SaveChangesAsync();
+
+        return true;
+    }
 
     /// <summary>
     /// Drops guild-scoped rows whose module has since been switched off, and rows addressed to a

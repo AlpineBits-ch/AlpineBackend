@@ -7,6 +7,7 @@ using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Guild.Tests.Helpers;
+using Messaging.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
@@ -186,6 +187,39 @@ public class ChannelEndpointTests
 
         var entries = _context.Set<GuildAuditLogEntry>().Where(e => e.ActionType == AuditActionType.ChannelDeleted).ToList();
         Assert.That(entries, Has.Count.EqualTo(1));
+    }
+
+    [Test]
+    public async Task DeleteChannel_MessageThread_DetachesTheStarterMessage()
+    {
+        await SeedManagerMember();
+        var parent = await SeedChannel();
+        var thread = Channel.Create(new CreateChannelParams
+        {
+            Name = "thread", Type = ChannelType.Thread, GuildId = GuildId, Description = "",
+            ParentChannelId = parent.Id, CreatedByUserId = UserId, StarterMessageId = "mesg_1",
+        });
+        _context.Channels.Add(thread);
+        await _context.SaveChangesAsync();
+
+        await _endpoint.DeleteChannelAsync(thread.Id, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var detach = _bus.Published.OfType<DetachThreadFromMessageCommand>().Single();
+        Assert.That(detach.MessageId, Is.EqualTo("mesg_1"));
+        Assert.That(detach.ThreadId, Is.EqualTo(thread.Id));
+    }
+
+    [Test]
+    public async Task DeleteChannel_PlainChannel_PublishesNoDetach()
+    {
+        await SeedManagerMember();
+        var channel = await SeedChannel();
+
+        await _endpoint.DeleteChannelAsync(channel.Id, _permissionService, _context, _hub, _hydrateService, _auditLog, _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.That(_bus.Published.OfType<DetachThreadFromMessageCommand>(), Is.Empty);
     }
 
     // ══════════════════════════════════════════════════════════════════════ UpdateChannelAsync

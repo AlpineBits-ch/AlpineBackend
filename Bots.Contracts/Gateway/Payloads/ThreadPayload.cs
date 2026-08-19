@@ -23,6 +23,13 @@ public class ThreadPayload
 
     [JsonPropertyName("thread_metadata")]
     public ThreadMetadataPayload ThreadMetadata { get; set; } = null!;
+
+    /// <summary>Non-standard: the message this thread was started from. Discord conveys the same
+    /// fact by giving the thread the starter message's id, which Echo cannot do because ids are
+    /// prefixed per entity.</summary>
+    [JsonPropertyName("starter_message_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? StarterMessageId { get; set; }
 }
 
 public class ThreadMetadataPayload

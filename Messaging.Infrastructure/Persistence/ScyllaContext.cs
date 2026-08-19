@@ -131,7 +131,8 @@ public class ScyllaContext : IAsyncDisposable
                 .Column(m => m.PinnedById, cm => cm.WithName("pinned_by_id"))
                 .Column(m => m.Flags, cm => cm.WithName("flags"))
                 .Column(m => m.EditedAt, cm => cm.WithName("edited_at"))
-                .Column(m => m.PersonaId, cm => cm.WithName("persona_id")));
+                .Column(m => m.PersonaId, cm => cm.WithName("persona_id"))
+                .Column(m => m.ThreadId, cm => cm.WithName("thread_id")));
 
         config.Define(
             new Map<PinnedMessage>()
@@ -425,6 +426,18 @@ public class ScyllaContext : IAsyncDisposable
         {
             await session.ExecuteAsync(new SimpleStatement(
                 "ALTER TABLE messages ADD persona_id text;"));
+        }
+        catch (InvalidQueryException)
+        {
+        }
+
+        // The thread started from this message; "thread_id" sorts between "system_message_variant"
+        // and "updated_at", the same alphabetical hazard as the columns above and safe for the same
+        // reason.
+        try
+        {
+            await session.ExecuteAsync(new SimpleStatement(
+                "ALTER TABLE messages ADD thread_id text;"));
         }
         catch (InvalidQueryException)
         {

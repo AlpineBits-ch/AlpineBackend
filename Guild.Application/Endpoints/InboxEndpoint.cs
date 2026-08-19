@@ -58,6 +58,30 @@ public class InboxEndpoint
         return Results.Ok(await tasks.GetTasksAsync(userId, limit ?? InboxTaskService.DefaultPageSize));
     }
 
+    /// <summary>Puts one task row away - the X in the UI.</summary>
+    [WolverineDelete("/api/v1/inbox/tasks/{kind}/{targetId}")]
+    public async Task<IResult> DismissTask(
+        string kind,
+        string targetId,
+        [NotBody] ClaimsPrincipal user,
+        [NotBody] InboxTaskService tasks,
+        string? guildId = null)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (!Enum.TryParse<InboxTaskKind>(kind, ignoreCase: true, out var parsed))
+            return Results.BadRequest("kind is not a task kind this server knows.");
+
+        // Part of the key rather than derivable from the target: the same character can be waiting
+        // in two guilds at once, and putting one queue away must not empty the other.
+        if (string.IsNullOrWhiteSpace(guildId)) return Results.BadRequest("guildId is required.");
+
+        return await tasks.DismissAsync(userId, parsed, guildId, targetId)
+            ? Results.NoContent()
+            : Results.Forbid();
+    }
+
     /// <summary>The Mentions tab.</summary>
     [WolverineGet("/api/v1/inbox/mentions")]
     public async Task<IResult> GetMentions(

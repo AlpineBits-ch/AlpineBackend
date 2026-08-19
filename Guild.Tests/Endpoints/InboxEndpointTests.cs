@@ -1,4 +1,6 @@
+using Guild.Application.Dtos.Response;
 using Guild.Application.Endpoints;
+using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
@@ -6,13 +8,14 @@ using Guild.Persistence.Persistence;
 using Guild.Tests.Helpers;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Guild.Tests.Endpoints;
 
 /// <summary>
-/// Covers the two write endpoints on <see cref="InboxEndpoint"/>: per-channel mark-read (the REST
-/// twin of the guild.UpdateLastRead hub method, so the check button works without a live socket)
-/// and read-all (the header's clear-everything button).
+/// Covers the write endpoints on <see cref="InboxEndpoint"/>: per-channel mark-read (the REST
+/// twin of the guild.UpdateLastRead hub method, so the check button works without a live socket),
+/// read-all (the header's clear-everything button) and dismissing one Waiting-on-you row.
 /// </summary>
 [TestFixtureSource(typeof(GuildContextProviders))]
 public class InboxEndpointTests(IGuildContextProvider provider)
@@ -278,5 +281,104 @@ public class InboxEndpointTests(IGuildContextProvider provider)
 
         var other = _context.ReadStates.AsNoTracking().Single(r => r.MemberId == "memb-2");
         Assert.That(other.LastReadAt, Is.EqualTo(JoinedAt), "another member's cursor is not this caller's to move");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Dismiss one task
+    // ══════════════════════════════════════════════════════════════════════
+
+    private InboxTaskService Tasks() => new(
+        _context,
+        new GuildPermissionService(
+            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance));
+
+    [Test]
+    public async Task DismissTask_Unauthenticated_ReturnsUnauthorized()
+    {
+        await SeedAsync();
+
+        var result = await _endpoint.DismissTask(
+            nameof(InboxTaskKind.SceneTurn), "chan-0", TestPrincipal.CreateAnonymous(), Tasks(), GuildId);
+
+        Assert.That(result, Is.InstanceOf<UnauthorizedHttpResult>());
+    }
+
+    /// <summary>An unknown kind is a client that is ahead of, or behind, this server - not a row to
+    /// write and never read.</summary>
+    [Test]
+    public async Task DismissTask_UnknownKind_ReturnsBadRequest()
+    {
+        await SeedAsync();
+
+        var result = await _endpoint.DismissTask(
+            "NotAKind", "chan-0", TestPrincipal.Create(UserId), Tasks(), GuildId);
+
+        var wrote = await _context.InboxTaskDismissals.AnyAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+            Assert.That(wrote, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task DismissTask_WithoutAGuild_ReturnsBadRequest()
+    {
+        await SeedAsync();
+
+        var result = await _endpoint.DismissTask(
+            nameof(InboxTaskKind.SceneTurn), "chan-0", TestPrincipal.Create(UserId), Tasks());
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task DismissTask_NonMember_ReturnsForbid()
+    {
+        await SeedAsync();
+
+        var result = await _endpoint.DismissTask(
+            nameof(InboxTaskKind.SceneTurn), "chan-0", TestPrincipal.Create("user-stranger"), Tasks(), GuildId);
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task DismissTask_WritesTheRowForTheCallerAndTheGuildNamed()
+    {
+        await SeedAsync();
+
+        var result = await _endpoint.DismissTask(
+            nameof(InboxTaskKind.SceneTurn), "chan-0", TestPrincipal.Create(UserId), Tasks(), GuildId);
+
+        var stored = await _context.InboxTaskDismissals.AsNoTracking().SingleAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<NoContent>());
+            Assert.That(stored.UserId, Is.EqualTo(UserId));
+            Assert.That(stored.Kind, Is.EqualTo(nameof(InboxTaskKind.SceneTurn)));
+            Assert.That(stored.GuildId, Is.EqualTo(GuildId));
+            Assert.That(stored.TargetId, Is.EqualTo("chan-0"));
+        });
+    }
+
+    /// <summary>The kind travels in the path, where casing is the client's business.</summary>
+    [Test]
+    public async Task DismissTask_WithTheKindInAnyCasing_IsAccepted()
+    {
+        await SeedAsync();
+
+        var result = await _endpoint.DismissTask(
+            "sceneturn", "chan-0", TestPrincipal.Create(UserId), Tasks(), GuildId);
+
+        var stored = await _context.InboxTaskDismissals.AsNoTracking().SingleAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<NoContent>());
+            Assert.That(stored.Kind, Is.EqualTo(nameof(InboxTaskKind.SceneTurn)),
+                "stored under the name the read path compares against, not the one that was typed");
+        });
     }
 }

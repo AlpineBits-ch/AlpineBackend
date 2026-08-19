@@ -1070,6 +1070,13 @@ None of the three has an inbox event of its own. They appear and disappear on
 `guild.SceneTurnChanged`, `guild.SceneTurnNudge`, `guild.PersonaReviewRequested` and
 `guild.PersonaReviewCompleted`, which is what a client refetches on.
 
+A row can also be put away by hand with
+`DELETE /inbox/tasks/{kind}/{targetId}?guildId={guildId}`. The tab is derived state, so a
+dismissal is stored as a timestamp against `(user, kind, guild, target)` rather than as a delete,
+and the row returns as soon as its own stamp moves past it - the turn stamp for `SceneTurn`, the
+profile's `UpdatedAt` for the two approval kinds. The guild is part of the key because a character
+can be submitted in two guilds at once and `targetId` is the same persona in both.
+
 ### 15.9 Errors
 
 | Case | Status |

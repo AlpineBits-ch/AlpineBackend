@@ -79,7 +79,12 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
     public string? ComponentsJson { get; set; }
 
     public string? InReplyTo { get; set; }
-    
+
+    /// <summary>The thread channel started from this message, or null. Guild owns the channel and
+    /// the lifecycle; this is the denormalized copy a message page renders its thread card from
+    /// without a second round trip. May outlive the channel it names - see AttachThreadToMessage.</summary>
+    public string? ThreadId { get; set; }
+
     public MessageType Type { get; set; } = MessageType.Message;
 
     /// <summary>Which of the fixed set of localized copy variants a client should render for
@@ -134,7 +139,7 @@ public class Message : BaseEntity<Message>, IPrefixedEntity
         "role_mentions, mentions_everyone, mentions_here, author_id_type, message_type, attachments, " +
         "encryption_state, embeds_json, system_message_variant, is_pinned, pinned_at, pinned_by_id, " +
         "author_display_name, author_avatar_url, components_json, mls_generation, flags, edited_at, " +
-        "persona_id";
+        "persona_id, thread_id";
 
     public static Message Create(CreateMessageParams createMessageParams)
     {       

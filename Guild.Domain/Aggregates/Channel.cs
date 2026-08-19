@@ -19,6 +19,7 @@ public class CreateChannelParams
     public int Position { get; init; } = 0;
     public string? ParentChannelId { get; init; }
     public string? CreatedByUserId { get; init; }
+    public string? StarterMessageId { get; init; }
 }
 
 public class Channel : Aggregate<Channel>, IPrefixedEntity
@@ -48,6 +49,12 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     /// <summary>Set only for a thread-shaped type (Thread, Scene): who created it, used to gate
     /// ManageOwnThreads (creator) vs ManageAnyThread (moderator) on the archive endpoint.</summary>
     public string? CreatedByUserId { get; set; }
+
+    /// <summary>Set only for a thread started from an existing message; the message it hangs off,
+    /// which stays in the parent channel and renders a thread card there. Unique where present, so
+    /// two people racing the same button cannot give one message two threads.</summary>
+    public string? StarterMessageId { get; set; }
+
     public bool IsArchived { get; set; }
 
     // ── Forum post state (Type == Thread under a Forum/Media parent) ─────────────────────────
@@ -116,6 +123,7 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
             Position = @params.Position,
             ParentChannelId = @params.ParentChannelId,
             CreatedByUserId = @params.CreatedByUserId,
+            StarterMessageId = @params.StarterMessageId,
         };
 
         channel.AddDomainEvent(new ChannelCreated() { ChannelId = id, GuildId = @params.GuildId });

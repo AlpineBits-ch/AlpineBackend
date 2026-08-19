@@ -17,7 +17,7 @@ handler - not "not exposed yet".
 | Members, bans, kicks, timeouts, audit log | **On par** |
 | Invites | **On par** |
 | Messages (send/edit/delete/reply/react/pin) | **On par** |
-| Threads & forums | **On par** |
+| Threads & forums | **On par** for public threads; no private threads or thread membership |
 | Announcements / channel follows | **On par** |
 | Read state & typing | **On par** |
 | Voice channels & 1:1 calls | **On par** for core; missing Discord's voice knobs |
@@ -78,10 +78,12 @@ reactions (`Reaction.EmojiId`), pins, Postgres tsvector full-text search, struct
 stored as JSON, and system messages with randomized localized variants
 (`MessageType.GuildMemberJoin` + `SystemMessageVariant`).
 
-**Threads & forums.** Threads under Text and Forum parents, archive/lock/pin, tag vocabulary
-with `RequireTag`, forum config (layout, sort order, default slowmode), keyset paging, and a
-periodic auto-archive sweep with a snapshotted window (`Channel.AutoArchiveMinutes` - the
-comment there correctly explains why deriving it would drift).
+**Threads & forums.** Threads under Text and Forum parents, threads started from a specific
+message (`Channel.StarterMessageId` / `Message.ThreadId`, since ids cannot be shared the way
+Discord shares them), archive/lock/pin, tag vocabulary with `RequireTag`, forum config (layout,
+sort order, default slowmode), keyset paging, and a periodic auto-archive sweep with a snapshotted
+window (`Channel.AutoArchiveMinutes` - the comment there correctly explains why deriving it would
+drift).
 
 **Announcements.** Channel follows plus `POST /messaging/{messageId}/publish` - Discord's
 crosspost model, implemented.
@@ -267,6 +269,12 @@ Only public threads exist. No `ThreadMember` list, no join/leave/add/remove thre
 member count, no "invitable" flag. `Channel.cs` documents that threads resolve permissions
 identically to the parent - correct for public threads, but it means private threads can't be
 layered on without a new resolution path.
+
+A thread started from a message links the two by id in both directions rather than by sharing one,
+so `MessageFlags.HasThread` is derived from `Message.ThreadId` at projection time and a client
+cannot assume `thread.id == message.id` the way Discord's can. Threads are also refused in an
+encrypted channel: `Channel.EncryptionState` is `init`-only and `Channel.Create` never sets it, so
+the thread would be a plaintext room under an MLS parent.
 
 ### 4.9 Guild-level settings and assets
 

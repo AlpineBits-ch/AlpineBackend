@@ -6,6 +6,9 @@ public class ThreadCreatedForBots
     public string GuildId { get; set; }
     public string ParentChannelId { get; set; }
     public string Name { get; set; }
+
+    /// <summary>The message this thread was started from, or null for a plain thread.</summary>
+    public string? StarterMessageId { get; set; }
 }
 
 /// <summary>Only ever fired for archive/unarchive today - there's no thread rename/delete

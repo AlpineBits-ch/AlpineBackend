@@ -11,6 +11,7 @@ using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Messaging.Contracts.Bus.Commands;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -150,6 +151,19 @@ public class ChannelEndpoint
         if (!canManage) return Results.Forbid();
 
         ctx.Channels.Remove(channel);
+
+        // The starter message outlives its thread, so it has to stop pointing at one that is gone.
+        // Only for a thread deleted on its own: deleting the parent cascades the threads away, but
+        // it takes the starter messages' channel with them, and Messaging never purges a deleted
+        // channel's history - those rows are already unreachable.
+        if (channel.StarterMessageId is not null)
+        {
+            await bus.PublishAsync(new DetachThreadFromMessageCommand
+            {
+                MessageId = channel.StarterMessageId,
+                ThreadId = channel.Id,
+            });
+        }
 
         auditLog.Log(channel.GuildId, userId, AuditActionType.ChannelDeleted, channelId);
 

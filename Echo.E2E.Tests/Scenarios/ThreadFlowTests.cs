@@ -179,4 +179,73 @@ public class ThreadFlowTests
         var listedThreadIds = threads.EnumerateArray().Select(t => t.GetProperty("id").GetString()).ToList();
         Assert.That(listedThreadIds, Does.Contain(threadId));
     }
+
+    [Test]
+    public async Task CreateThreadFromMessage_LinksBothSidesAndRefusesASecond()
+    {
+        var (_, token) = await E2EUsers.RegisterAndGetTokenAsync(_stack, "threaduser3");
+        using var guild = AuthedClient(_stack.Guild, token);
+        using var messaging = AuthedClient(_stack.Messaging, token);
+
+        var createGuildResponse = await guild.PostAsJsonAsync("/api/v1/guilds", new { Name = "Message Thread Guild" });
+        await E2EAssert.SucceededAsync(createGuildResponse, _stack.Guild, "Create guild failed");
+        var createdGuild = await createGuildResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var guildId = createdGuild.GetProperty("id").GetString()!;
+
+        var channelsResponse = await guild.GetAsync($"/api/v1/guilds/{guildId}/channels");
+        var channels = await channelsResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var textChannelId = channels.EnumerateArray()
+            .First(c => c.GetProperty("type").GetString() == "Text")
+            .GetProperty("id").GetString()!;
+
+        var sendResponse = await messaging.PostAsJsonAsync("/api/v1/messaging", new
+        {
+            ChannelId = textChannelId,
+            Content = "the message worth discussing",
+        });
+        await E2EAssert.SucceededAsync(sendResponse, _stack.Messaging, "Send message failed");
+        var sent = await sendResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var messageId = sent.GetProperty("id").GetString()!;
+
+        // --- Act: hang a thread off it. ---
+
+        var createResponse = await guild.PostAsJsonAsync(
+            $"/api/v1/channels/{textChannelId}/messages/{messageId}/threads", new { Name = "about that message" });
+        await E2EAssert.SucceededAsync(createResponse, _stack.Guild, "Create thread from message failed");
+        var thread = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var threadId = thread.GetProperty("id").GetString()!;
+
+        Assert.That(thread.GetProperty("starterMessageId").GetString(), Is.EqualTo(messageId),
+            "Guild's own response did not carry the message the thread was started from.");
+
+        // --- Assert: Messaging agrees, which is the half that crosses the service boundary. ---
+
+        string? seenThreadId = null;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (!cts.IsCancellationRequested && seenThreadId is null)
+        {
+            var messagesResponse = await messaging.GetAsync($"/api/v1/messaging/channels/{textChannelId}/messages?offset=0&limit=20");
+            if (messagesResponse.IsSuccessStatusCode)
+            {
+                var messages = await messagesResponse.Content.ReadFromJsonAsync<JsonElement>();
+                var starter = messages.EnumerateArray()
+                    .Cast<JsonElement?>()
+                    .FirstOrDefault(m => m!.Value.GetProperty("id").GetString() == messageId);
+
+                if (starter is not null && starter.Value.TryGetProperty("threadId", out var value))
+                    seenThreadId = value.GetString();
+            }
+
+            if (seenThreadId is null) await Task.Delay(500, CancellationToken.None);
+        }
+
+        Assert.That(seenThreadId, Is.EqualTo(threadId),
+            $"The starter message never came back carrying its thread within 30s.\n{_stack.Messaging.CapturedOutput}");
+
+        // --- Assert: one thread per message. ---
+
+        var secondResponse = await guild.PostAsJsonAsync(
+            $"/api/v1/channels/{textChannelId}/messages/{messageId}/threads", new { Name = "a second one" });
+        Assert.That(secondResponse.StatusCode, Is.EqualTo(System.Net.HttpStatusCode.Conflict));
+    }
 }

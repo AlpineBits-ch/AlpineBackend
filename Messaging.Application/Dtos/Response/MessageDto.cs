@@ -1,9 +1,25 @@
 ﻿using Facet;
+using Facet.Mapping;
 using Messaging.Domain.Entities;
+using Messaging.Domain.Enums;
 
 namespace Messaging.Application.Dtos.Response;
 
-[Facet(typeof(Message), NestedFacets = [typeof(MinimalAttachmentDto)])]
+public class MessageMapConfig : IFacetMapConfiguration<Message, MessageDto>
+{
+    /// <summary>
+    /// Derives the flags Echo stores as their own columns rather than as bits, so every projection
+    /// site gets them without remembering to - the alternative is a second writable copy of
+    /// <c>ThreadId</c> that can disagree with it.
+    /// </summary>
+    public static void Map(Message source, MessageDto target)
+    {
+        if (!string.IsNullOrEmpty(source.ThreadId))
+            target.Flags = MessageFlags.With(target.Flags, MessageFlags.HasThread);
+    }
+}
+
+[Facet(typeof(Message), NestedFacets = [typeof(MinimalAttachmentDto)], Configuration = typeof(MessageMapConfig))]
 public partial class MessageDto
 {
     /// <summary>Not produced by the Facet mapping - reactions live in their own table (and their

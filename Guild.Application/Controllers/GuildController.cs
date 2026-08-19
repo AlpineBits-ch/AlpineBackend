@@ -39,6 +39,7 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         // handling still apply, and consistently with every sibling endpoint here (GetInvitesAsync,
         // GetGuildMembers, GetGuild below), which all materialize before mapping.
         var guilds = await ctx.Guilds
+            .AsSplitQuery()
             .Include(g => g.Channels.OrderBy(c => c.CreatedAt))
             .Include(g => g.Roles.OrderBy(r => r.Position))
             .Include(g => g.Categories.OrderBy(c => c.CreatedAt))

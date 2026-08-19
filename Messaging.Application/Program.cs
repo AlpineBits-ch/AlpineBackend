@@ -167,8 +167,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
     builder.Services.AddSingleton(debugScylla);
     var jasperApp = builder.Build();
     jasperApp.MapWolverineEndpoints();
-    await jasperApp.RunJasperFxCommands(args);
-    return;
+    return await jasperApp.RunJasperFxCommands(args);
 }
 
 // When USE_SCYLLA_DB=false (see Messaging.Infrastructure.MessagingInfrastructure), message/
@@ -202,5 +201,5 @@ app.MapHealthChecks("/messaging/health");
 
 app.MapWolverineEndpoints();
 
-await app.RunJasperFxCommands(args);
+return await app.RunJasperFxCommands(args);
 

@@ -266,8 +266,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
     var codeGenApp = builder.Build();
     codeGenApp.MapWolverineEndpoints();
     codeGenApp.MapFacetDashboard();
-    await codeGenApp.RunJasperFxCommands(args);
-    Environment.Exit(0);
+    return await codeGenApp.RunJasperFxCommands(args);
 }
 
 if (args.Contains("facets"))
@@ -309,3 +308,5 @@ app.MapFacetDashboard();
 
 
 await app.RunAsync();
+
+return 0;

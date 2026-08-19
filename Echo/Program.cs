@@ -38,6 +38,11 @@ using Yarp.ReverseProxy.Health;
 // while giving the product away.
 Env.License.EnsureConfigured();
 
+// Codegen and describe run against the container, so they have to be handed off after every
+// registration below - a handler whose dependency has not been registered yet cannot have its code
+// generated, and the Dockerfile bakes that generated code into the image.
+var isJasperFxCommand = args.Contains("codegen") || args.Contains("describe");
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddErrorReporting();
@@ -83,19 +88,15 @@ builder.UseWolverine(opts =>
 // is the entire guarantee here (see WolverineListenerStartup).
 builder.Services.AddHostedService<DeferredWolverineListeners>();
 
-if (args.Contains("codegen") || args.Contains("describe"))
+var dataProtection = builder.Services.AddDataProtection()
+    .SetApplicationName("yarp-proxy-cluster"); // Must be the same name across all YARP instances
+
+// Codegen runs in the Dockerfile, where there is no Redis to connect to.
+if (!isJasperFxCommand)
 {
-    var codeGenApp = builder.Build();
-    await codeGenApp.RunJasperFxCommands(args);
-    Environment.Exit(0);   
+    var redisConnection = await ConnectionMultiplexer.ConnectAsync($"{redis.Host}:{redis.Port},password={redis.Password}");
+    dataProtection.PersistKeysToStackExchangeRedis(redisConnection, "DataProtection-Keys");
 }
-
-
-
-var redisConnection = await ConnectionMultiplexer.ConnectAsync($"{redis.Host}:{redis.Port},password={redis.Password}");
-builder.Services.AddDataProtection()
-    .SetApplicationName("yarp-proxy-cluster") // Must be the same name across all YARP instances
-    .PersistKeysToStackExchangeRedis(redisConnection, "DataProtection-Keys");
 
 // Registers the PerUserPolicy that RateLimitConfigFilter stamps onto every proxied route.
 builder.Services.AddEchoRateLimiting();
@@ -214,6 +215,16 @@ builder.Services.AddSsoCors();
 // client.
 builder.Services.AddAlpineCors();
 
+// Handed off here rather than after the middleware below, because UseInfrastructure migrates the
+// database and codegen runs at image build time, where there is no database. The exit code is
+// returned: swallowing it is what let a failed codegen ship an image with handlers whose code was
+// never generated.
+if (isJasperFxCommand)
+{
+    var codeGenApp = builder.Build();
+    return await codeGenApp.RunJasperFxCommands(args);
+}
+
 var app = builder.Build();
 
 // Before anything can be refused: a CORS problem leaves no server-side trace, so the resolved
@@ -274,4 +285,4 @@ app.UseHttpsRedirection();
 app.UseInfrastructure();
 
 
-await app.RunJasperFxCommands(args);
+return await app.RunJasperFxCommands(args);

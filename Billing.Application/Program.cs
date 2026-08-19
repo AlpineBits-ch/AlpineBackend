@@ -123,8 +123,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
 {
     var codeGenApp = builder.Build();
     codeGenApp.MapWolverineEndpoints();
-    await codeGenApp.RunJasperFxCommands(args);
-    Environment.Exit(0);
+    return await codeGenApp.RunJasperFxCommands(args);
 }
 
 // After the codegen branch above, deliberately: the Dockerfile runs `codegen write` at image build
@@ -191,3 +190,5 @@ using (var seedScope = app.Services.CreateScope())
 }
 
 await app.RunAsync();
+
+return 0;

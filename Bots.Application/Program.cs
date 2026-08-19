@@ -73,8 +73,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
 {
     var codeGenApp = builder.Build();
     codeGenApp.MapWolverineEndpoints();
-    await codeGenApp.RunJasperFxCommands(args);
-    return;
+    return await codeGenApp.RunJasperFxCommands(args);
 }
 
 var app = builder.Build();
@@ -122,4 +121,4 @@ app.Lifetime.ApplicationStopping.Register(() =>
     Task.WaitAll(sendTasks, TimeSpan.FromSeconds(5));
 });
 
-await app.RunJasperFxCommands(args);
+return await app.RunJasperFxCommands(args);

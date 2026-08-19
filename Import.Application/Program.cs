@@ -69,8 +69,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
 {
     var codeGenApp = builder.Build();
     codeGenApp.MapWolverineEndpoints();
-    await codeGenApp.RunJasperFxCommands(args);
-    return;
+    return await codeGenApp.RunJasperFxCommands(args);
 }
 
 var app = builder.Build();
@@ -89,4 +88,4 @@ app.UseAuthorization();
 
 app.MapWolverineEndpoints();
 
-await app.RunJasperFxCommands(args);
+return await app.RunJasperFxCommands(args);

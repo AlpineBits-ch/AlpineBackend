@@ -1,4 +1,5 @@
 ﻿using AppEnvironment;
+using JasperFx;
 using JasperFx.CodeGeneration;
 using JasperFx.Core;
 using JasperFx.Resources;
@@ -52,8 +53,14 @@ public static class Messaging
         opts.Policies.UseDurableInboxOnAllListeners();
         opts.Policies.UseDurableLocalQueues();
         opts.Policies.UseDurableOutboxOnAllSendingEndpoints();
-    
-    
+
+
+        opts.Services.CritterStackDefaults(x =>
+        {
+            x.Production.GeneratedCodeMode = TypeLoadMode.Static;
+            x.Production.AssertAllPreGeneratedTypesExist = true;
+        });
+        
     opts.MultipleHandlerBehavior = MultipleHandlerBehavior.Separated;
     opts.Durability.MessageIdentity = MessageIdentity.IdAndDestination;
 

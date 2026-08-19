@@ -271,7 +271,7 @@ builder.UseWolverine(opts =>
 
 if (args.Contains("codegen") || args.Contains("describe"))
 {
-    
+    int exitCode;
     try
     {
         var codeGenApp = builder.Build();
@@ -280,14 +280,16 @@ if (args.Contains("codegen") || args.Contains("describe"))
             opts.UseFluentValidationProblemDetailMiddleware();
             opts.UseDataAnnotationsValidationProblemDetailMiddleware();
         });
-        await codeGenApp.RunJasperFxCommands(args);
+        // JasperFx catches a codegen failure itself and reports it as an exit code, so discarding
+        // this is how a half-generated image gets built and shipped as a success.
+        exitCode = await codeGenApp.RunJasperFxCommands(args);
     }
     catch (Exception ex)
     {
         Console.Error.WriteLine($"CODEGEN BUILD FAILED: {ex}");
         throw;
     }
-    return;
+    return exitCode;
 }
 
 var app = builder.Build();
@@ -339,10 +341,9 @@ await Identity.Application.Services.EchoClientBootstrap.EnsureAsync(manager);
         manager, AuthClientRegistry.Parse(Env.AuthConfiguration.Clients, registryLogger), registryLogger);
 }
 
-await app.RunJasperFxCommands(args);
+return await app.RunJasperFxCommands(args);
 
 namespace Identity.Application
 {
     public partial class Program { }
 }
-

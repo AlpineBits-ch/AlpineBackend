@@ -57,6 +57,7 @@ builder.Services.AddIsleApplication();
 
 if (args.Contains("codegen") || args.Contains("describe"))
 {
+    int exitCode;
     try
     {
         builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
@@ -73,7 +74,9 @@ if (args.Contains("codegen") || args.Contains("describe"))
         {
             opts.UseDataAnnotationsValidationProblemDetailMiddleware();
         });
-        await codeGenApp.RunJasperFxCommands(args);
+        // JasperFx catches a codegen failure itself and reports it as an exit code, so discarding
+        // this is how a half-generated image gets built and shipped as a success.
+        exitCode = await codeGenApp.RunJasperFxCommands(args);
     }
     catch (Exception ex)
     {
@@ -81,7 +84,7 @@ if (args.Contains("codegen") || args.Contains("describe"))
         throw;
     }
 
-    return;
+    return exitCode;
 }
 
 var app = builder.Build();
@@ -100,3 +103,5 @@ app.MapHealthChecks("/isle/health");
 app.UseHttpsRedirection();
 
 await app.RunAsync();
+
+return 0;

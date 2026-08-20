@@ -105,6 +105,17 @@ public class ThreadEndpointTests
     }
 
     [Test]
+    public async Task CreateThread_ParentIsSceneUnderTextChannel_Succeeds()
+    {
+        // The scene header carries a thread list of its own, so the plain route has to serve it.
+        var text = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        var scene = await SeedChildChannel(text.Id, ChannelType.Scene, "a scene");
+
+        var result = await _endpoint.CreateThreadAsync(scene.Id, new CreateThreadDto { Name = "t" }, _permissionService, _context, _hub, _hydrateService, _auditLog, _forumService, _bus, TestPrincipal.Create(UserId));
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
+    }
+
+    [Test]
     public async Task CreateThread_LacksCreateThreads_ReturnsForbid()
     {
         var parent = await SeedMemberAndParentChannel(Permissions.ViewChannel);

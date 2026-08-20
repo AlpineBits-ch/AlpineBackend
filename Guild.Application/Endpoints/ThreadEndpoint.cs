@@ -41,8 +41,13 @@ public class ThreadEndpoint
         // A Forum channel's "posts" are threads with a Forum parent instead of a Text one - same
         // entity, same permission model, same listing endpoint below. dto.Name doubles as the post
         // title in that case. Media channels are forums that render differently, nothing more.
-        if (parent.Type != ChannelType.Text && !parent.Type.IsForum())
-            return Results.BadRequest("Threads can only be created under a Text, Forum or Media channel.");
+        // Plus the two rooms a scene is made of, which hang off a text channel and carry a thread
+        // list of their own. The grandparent check bounds the depth the same way the from-message
+        // route does.
+        if (parent.Type != ChannelType.Text && !parent.Type.IsForum() &&
+            !await HangsOffATextChannelAsync(ctx, parent))
+            return Results.BadRequest(
+                "Threads can only be created under a Text, Forum or Media channel, or a room hanging directly off a text channel.");
 
         var canCreate = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.CreateThreads);
         if (!canCreate) return Results.Forbid();
@@ -149,6 +154,20 @@ public class ThreadEndpoint
         }
     }
 
+    /// <summary>Whether a thread may be nested under <paramref name="parent"/>: it must itself be
+    /// thread-shaped and sit directly under a text channel. That bounds the depth at one level, and
+    /// it is also what refuses a forum or media post, whose parent is the board.</summary>
+    private static async Task<bool> HangsOffATextChannelAsync(
+        MicroserviceContext ctx, Domain.Aggregates.Channel parent)
+    {
+        if (!parent.Type.IsThreadShaped() || parent.ParentChannelId is null) return false;
+
+        var grandparent = await ctx.Channels.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == parent.ParentChannelId);
+
+        return grandparent?.Type == ChannelType.Text;
+    }
+
     /// <summary>Starts a thread from an existing message, which stays where it was posted.</summary>
     [WolverinePost("/api/v1/channels/{channelId}/messages/{messageId}/threads")]
     public async Task<IResult> CreateThreadFromMessageAsync(string channelId, string messageId,
@@ -163,20 +182,10 @@ public class ThreadEndpoint
         var parent = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (parent is null) return Results.NotFound();
 
-        // Text, plus the two rooms a scene is made of: the in-character channel and its OOC thread,
-        // which both hang off a text channel. The grandparent check is what bounds the depth, and it
-        // is also what refuses a forum or media post, whose parent is the board rather than a channel.
-        if (parent.Type != ChannelType.Text)
-        {
-            var grandparent = parent.ParentChannelId is null
-                ? null
-                : await ctx.Channels.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.Id == parent.ParentChannelId);
-
-            if (!parent.Type.IsThreadShaped() || grandparent?.Type != ChannelType.Text)
-                return Results.BadRequest(
-                    "A thread can only be started from a message in a text channel, or in a room that hangs directly off one.");
-        }
+        // Text, plus the two rooms a scene is made of: the in-character channel and its OOC thread.
+        if (parent.Type != ChannelType.Text && !await HangsOffATextChannelAsync(ctx, parent))
+            return Results.BadRequest(
+                "A thread can only be started from a message in a text channel, or in a room that hangs directly off one.");
 
         // Channel.Create never sets EncryptionState, so a thread under an MLS channel would be a
         // plaintext room hanging off an encrypted one. Refused rather than silently downgraded.

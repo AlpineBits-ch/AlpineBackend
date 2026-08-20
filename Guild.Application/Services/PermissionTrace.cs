@@ -18,7 +18,8 @@ public enum PermissionTier
     Member,
 }
 
-/// <summary>The layer that last wrote a bit. Wire values, so never renumber.</summary>
+/// <summary>The layer that last wrote a bit. Serialized by name, so a rename or a removal breaks
+/// clients where a reorder does not.</summary>
 public enum PermissionSource
 {
     Base,

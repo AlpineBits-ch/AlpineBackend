@@ -64,8 +64,49 @@ public class GuildPermissionService(
     IDistributedCache cache,
     MicroserviceContext ctx,
     ILogger<GuildPermissionService> logger,
-    IGuildPlanFeatures? planFeatures = null)
+    IGuildPlanFeatures? planFeatures = null,
+    SceneVisibilityCache? sceneVisibility = null)
 {
+    /// <summary>
+    /// Whether a cast-only scene lets this caller through, applied beside the resolved mask rather
+    /// than folded into it: thread-shaped channels copy their parent's mask and skip channel
+    /// overwrites, so there is no overwrite a scene rule could live in.
+    /// </summary>
+    private async Task<bool> PassesSceneVisibilityAsync(string userId, string guildId, string channelId)
+    {
+        if (sceneVisibility is null) return true;
+
+        var restricted = await sceneVisibility.RestrictedAsync(guildId);
+        if (!restricted.ContainsKey(channelId)) return true;
+
+        // Guild-level, so it does not re-enter the channel path this call is already inside.
+        var isGameMaster = await CanUserPerformActionOnGuildAsync(
+            userId, guildId, ModulePermissions.ManageScenes);
+
+        return await sceneVisibility.CanSeeAsync(userId, guildId, channelId, isGameMaster);
+    }
+
+    /// <summary>Drops the cast-only scenes this caller has nobody in, resolving the caller's
+    /// characters once for the whole set.</summary>
+    private async Task<HashSet<string>> DropInvisibleScenesAsync(
+        string userId, string guildId, HashSet<string> allowed)
+    {
+        if (sceneVisibility is null || allowed.Count == 0) return allowed;
+
+        var restricted = await sceneVisibility.RestrictedAsync(guildId);
+        if (restricted.Count == 0 || !allowed.Any(restricted.ContainsKey)) return allowed;
+
+        if (await CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ManageScenes))
+            return allowed;
+
+        var speakable = await sceneVisibility.SpeakableIdsAsync(userId, guildId);
+
+        allowed.RemoveWhere(channelId =>
+            restricted.TryGetValue(channelId, out var cast) && !cast.Any(speakable.Contains));
+
+        return allowed;
+    }
+
     private async Task<string?> ResolveGuildIdAsync(string channelId)
     {
         return await ctx.Channels
@@ -258,7 +299,8 @@ public class GuildPermissionService(
                 requiredPermission = Permissions.SendMessagesInThreads;
         }
 
-        return (channelPermission.Permissions & requiredPermission) == requiredPermission;
+        return (channelPermission.Permissions & requiredPermission) == requiredPermission
+               && await PassesSceneVisibilityAsync(userId, guildId, channelId);
     }
 
     /// <summary>
@@ -299,7 +341,8 @@ public class GuildPermissionService(
             return false;
         }
 
-        return (channelPermission.ModulePermissions & requiredPermission) == requiredPermission;
+        return (channelPermission.ModulePermissions & requiredPermission) == requiredPermission
+               && await PassesSceneVisibilityAsync(userId, guildId, channelId);
     }
 
     /// <summary>
@@ -356,7 +399,8 @@ public class GuildPermissionService(
             var channelPermission = await ResolveChannelPermissionAsync(userId, channel.GuildId, channelId);
 
             if (channelPermission is not null &&
-                (channelPermission.Permissions & requiredPermission) == requiredPermission)
+                (channelPermission.Permissions & requiredPermission) == requiredPermission &&
+                await PassesSceneVisibilityAsync(userId, channel.GuildId, channelId))
             {
                 allowed.Add(userId);
             }
@@ -408,7 +452,8 @@ public class GuildPermissionService(
             var channelPermission = await ResolveChannelPermissionAsync(userId, channel.GuildId, channelId);
 
             if (channelPermission is not null &&
-                (channelPermission.ModulePermissions & requiredPermission) == requiredPermission)
+                (channelPermission.ModulePermissions & requiredPermission) == requiredPermission &&
+                await PassesSceneVisibilityAsync(userId, channel.GuildId, channelId))
             {
                 allowed.Add(userId);
             }
@@ -475,7 +520,7 @@ public class GuildPermissionService(
             if ((permissions & requiredPermission) == requiredPermission) allowed.Add(channelId);
         }
 
-        return allowed;
+        return await DropInvisibleScenesAsync(userId, guildId, allowed);
     }
 
     /// <summary>
@@ -563,7 +608,7 @@ public class GuildPermissionService(
             if ((permissions & requiredPermission) == requiredPermission) allowed.Add(channelId);
         }
 
-        return allowed;
+        return await DropInvisibleScenesAsync(userId, guildId, allowed);
     }
 
     /// <summary>

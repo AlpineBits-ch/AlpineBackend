@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Echo.RateLimiter;
 using Microsoft.Extensions.Logging;
@@ -103,17 +104,29 @@ public class GatewayRateLimitEnforcementTests
     public async Task An_exhausted_bucket_refills_over_time_instead_of_at_a_window_boundary()
     {
         // The reason for the algorithm change, stated as a test.
-        var options = GatewayRateLimitHarness.Options(replenishmentPeriod: TimeSpan.FromMilliseconds(200));
+        //
+        // The period has to outlast the burst that empties the bucket. At 200ms it did not on a
+        // loaded runner: a refill landed part-way through the hundred requests, handed the probe
+        // below a token back, and the 200 it answered with read as the limiter failing to reject.
+        var period = TimeSpan.FromSeconds(2);
+        var options = GatewayRateLimitHarness.Options(replenishmentPeriod: period);
         await using var harness = await GatewayRateLimitHarness.StartAsync(options);
 
+        var emptying = Stopwatch.StartNew();
         await harness.SendManyAsync(options.AuthenticatedBurstCapacity, subject: "user-refill");
+        emptying.Stop();
+
         var immediately = await harness.SendAsync(subject: "user-refill");
 
-        await Task.Delay(TimeSpan.FromSeconds(2));
+        await Task.Delay(period * 2);
         var afterWaiting = await harness.SendAsync(subject: "user-refill");
 
         Assert.Multiple(() =>
         {
+            // Asserted rather than assumed, so a machine slow enough to break the setup says so
+            // instead of reporting it as a limiter that let a request through.
+            Assert.That(emptying.Elapsed, Is.LessThan(period),
+                "emptying the bucket outran the replenishment period, so this test proves nothing about refill");
             Assert.That(immediately.Response.StatusCode, Is.EqualTo(429));
             Assert.That(afterWaiting.Response.StatusCode, Is.EqualTo(200), "a token bucket refills as time passes");
         });

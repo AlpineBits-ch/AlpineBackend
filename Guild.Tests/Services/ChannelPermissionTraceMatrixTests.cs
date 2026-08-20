@@ -162,6 +162,17 @@ public class ChannelPermissionTraceMatrixTests
         await AssertAgreesWithTheGateAsync();
     }
 
+    /// <summary>ApplyOverwrites short-circuits only on the mask it starts with, so an allow tier can
+    /// put Superadmin into the resolved mask without it ever being in the guild-level one.</summary>
+    [Test]
+    public async Task AMutedMemberHandedSuperadminByAnOverwrite_Agrees()
+    {
+        await SeedAsync(mutedUntil: DateTimeOffset.UtcNow.AddHours(1));
+        await AddMemberOverwriteAsync(ChannelId, null, Permissions.Superadmin, Permissions.None);
+
+        await AssertAgreesWithTheGateAsync();
+    }
+
     [Test]
     public async Task ADisabledModule_Agrees()
     {

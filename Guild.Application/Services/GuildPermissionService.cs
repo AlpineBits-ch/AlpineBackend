@@ -498,7 +498,9 @@ public class GuildPermissionService(
             resolvedModule = ApplyModuleOverwrites(resolvedModule, tiers);
         }
 
-        if (mutedOrPending && !resolved.HasFlag(Permissions.Superadmin))
+        // Keyed on the guild-level mask, as ComputePermissionsForUserAsync is: an allow tier can put
+        // Superadmin into the resolved mask, and only the initial one short-circuits ApplyOverwrites.
+        if (mutedOrPending && !basePermissions.HasFlag(Permissions.Superadmin))
         {
             var muted = resolved & MuteRetainedPermissions;
             trace.Record(resolved & ~muted, PermissionSource.Muted);

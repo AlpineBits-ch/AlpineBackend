@@ -1,6 +1,9 @@
+using Echo.Realtime;
+using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Wolverine;
@@ -17,6 +20,7 @@ public class MessageDeletedForChannelHandler
     private string GetChannelKey(string channelId) => $"channel:{channelId}:guild";
 
     public async Task Handle(MessageDeletedForChannel message, MicroserviceContext context, IDistributedCache cache,
+        IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrateService, ChannelAudienceService audience,
         IMessageBus bus, ILogger<MessageDeletedForChannelHandler> logger)
     {
         var channelKey = GetChannelKey(message.ChannelId);
@@ -32,6 +36,19 @@ public class MessageDeletedForChannelHandler
             }
             await cache.SetStringAsync(channelKey, guildId);
         }
+
+        // Channel-scoped audience, the same one the bulk delete uses. Messaging only announces a
+        // delete to a conversation, so without this a guild channel's readers keep the message.
+        var presence = await hydrateService.GetGuildPresenceAsync(guildId);
+        var viewerIds = await audience.FilterToViewersAsync(message.ChannelId, presence.Select(p => p.UserId));
+
+        await hub.Clients.Users(viewerIds).SendAsync("guild.MessageDeleted", new
+        {
+            GuildId = guildId,
+            message.ChannelId,
+            message.MessageId,
+            message.AuthorId,
+        });
 
         await bus.PublishAsync(new MessageDeletedForBots
         {

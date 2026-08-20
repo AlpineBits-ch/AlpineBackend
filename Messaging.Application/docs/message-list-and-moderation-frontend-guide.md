@@ -93,8 +93,8 @@ Every id must be in `channelId`. Mixed-channel batches are not supported - split
 Two events fire for a bulk delete, and you want the aggregate one:
 
 ```js
-// One per message - the same event a single delete has always emitted.
-connection.on("guild.MessageDeleted", ({ messageId, channelId }) => { ... })
+// One per message, to whoever can see the channel. Also what a single delete emits.
+connection.on("guild.MessageDeleted", ({ guildId, channelId, messageId, authorId }) => { ... })
 
 // One per bulk call. Prefer this: it removes a whole range in a single UI update.
 connection.on("guild.MessagesBulkDeleted", ({ guildId, channelId, messageIds, actorUserId }) => { ... })

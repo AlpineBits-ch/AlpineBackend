@@ -228,7 +228,7 @@ public class ForumPostEndpoint
     /// their own events, carrying the full current flag state - one client handler updates the
     /// post card for any of them, and the payload is a replace rather than a patch.</summary>
     private static async Task BroadcastThreadUpdatedAsync(IHubContext<EchoRealtimeHub> hub,
-        GuildHydrateService guildHydrateService, IMessageBus bus, Channel post, List<string> tagIds)
+        GuildHydrateService guildHydrateService, IMessageBus bus, Domain.Aggregates.Channel post, List<string> tagIds)
     {
         var presence = await guildHydrateService.GetGuildPresenceAsync(post.GuildId);
 

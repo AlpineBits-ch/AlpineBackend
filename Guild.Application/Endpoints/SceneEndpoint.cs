@@ -76,7 +76,7 @@ public class SceneEndpoint
 
         try
         {
-            var scene = Channel.Create(new CreateChannelParams
+            var scene = Domain.Aggregates.Channel.Create(new CreateChannelParams
             {
                 Name = dto.Name,
                 Description = dto.Description ?? "",
@@ -89,7 +89,7 @@ public class SceneEndpoint
             // Paired at creation rather than left to convention: every guide on running roleplay
             // says to keep the in-character and out-of-character rooms apart, and every server that
             // has to do it by hand ends up with half of them missing.
-            var ooc = Channel.Create(new CreateChannelParams
+            var ooc = Domain.Aggregates.Channel.Create(new CreateChannelParams
             {
                 Name = string.IsNullOrWhiteSpace(dto.OocName) ? $"{dto.Name} (OOC)" : dto.OocName,
                 Description = "",
@@ -567,7 +567,7 @@ public class SceneEndpoint
         Results.Json(new { error, message }, statusCode: status);
 
     /// <summary>The scene as clients read it, cast and absences included.</summary>
-    private static async Task<IResult> OkAsync(SceneService scenes, SceneState state, Channel channel)
+    private static async Task<IResult> OkAsync(SceneService scenes, SceneState state, Domain.Aggregates.Channel channel)
     {
         var participants = await scenes.ParticipantsAsync(state, DateTimeOffset.UtcNow);
 
@@ -581,7 +581,7 @@ public class SceneEndpoint
 
     /// <summary>The scene channel and its turn state, or null when the id is not a scene of this
     /// guild.</summary>
-    private static async Task<(Channel Channel, SceneState State)?> ResolveAsync(
+    private static async Task<(Domain.Aggregates.Channel Channel, SceneState State)?> ResolveAsync(
         MicroserviceContext ctx, SceneService scenes, string guildId, string sceneChannelId)
     {
         var channel = await ctx.Channels.FirstOrDefaultAsync(
@@ -606,7 +606,7 @@ public class SceneEndpoint
     /// <summary>Announces a newly created thread-shaped channel to clients and to bots.</summary>
     private static async Task AnnounceThreadAsync(
         IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate, IMessageBus bus,
-        Channel channel, string parentChannelId)
+        Domain.Aggregates.Channel channel, string parentChannelId)
     {
         var presence = await hydrate.GetGuildPresenceAsync(channel.GuildId);
 

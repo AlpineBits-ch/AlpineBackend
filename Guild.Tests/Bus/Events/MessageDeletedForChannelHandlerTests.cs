@@ -5,6 +5,8 @@ using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Tests.Helpers;
+using Messaging.Contracts.Bus.Request;
+using Messaging.Contracts.Bus.Response;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using OnlineStatus = Guild.Application.Dtos.Response.OnlineStatus;
@@ -27,7 +29,7 @@ public class MessageDeletedForChannelHandlerTests
     private TestGuildContext _context = null!;
     private FakeDistributedCache _cache = null!;
     private FakeHubContext _hub = null!;
-    private FakeMessageBus _bus = null!;
+    private FakeInvokingMessageBus _bus = null!;
     private ChannelAudienceService _audience = null!;
     private MessageDeletedForChannelHandler _handler = null!;
 
@@ -37,7 +39,7 @@ public class MessageDeletedForChannelHandlerTests
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
         _hub = new FakeHubContext();
-        _bus = new FakeMessageBus();
+        _bus = new FakeInvokingMessageBus();
         _audience = new ChannelAudienceService(
             PermissionTestFactory.Create(_cache, _context),
             new MemoryCache(new MemoryCacheOptions()));
@@ -49,7 +51,7 @@ public class MessageDeletedForChannelHandlerTests
 
     private static DateTimeOffset Now => DateTimeOffset.UtcNow;
 
-    private async Task SeedGuildAsync()
+    private async Task SeedGuildAsync(string? head = null, DateTimeOffset? headAt = null)
     {
         _context.Guilds.Add(new global::Guild.Domain.Aggregates.Guild
         {
@@ -59,6 +61,7 @@ public class MessageDeletedForChannelHandlerTests
         {
             Id = ChannelId, GuildId = GuildId, Name = "chat", Description = "d",
             Type = ChannelType.Text, MessageCount = 4, CreatedAt = Now, UpdatedAt = Now,
+            LastMessageId = head, LastActivityAt = headAt,
         });
         _context.Roles.Add(new Role
         {
@@ -153,5 +156,86 @@ public class MessageDeletedForChannelHandlerTests
         await RunAsync(message);
 
         Assert.That(((FakeHubClients)_hub.Clients).SentMessages, Is.Empty);
+    }
+
+    /// <summary>
+    /// The unread predicate compares LastActivityAt against the reader's cursor, so a head left on a
+    /// deleted message is a channel nobody can ever mark read.
+    /// </summary>
+    [Test]
+    public async Task Handle_DeletingTheHead_MovesItToWhatIsLeft()
+    {
+        var deletedAt = Now;
+        var survivingAt = deletedAt.AddMinutes(-5);
+        await SeedGuildAsync(head: "mesg-1", headAt: deletedAt);
+
+        _bus.SetResponse<GetChannelHeadRequest>(new GetChannelHeadResponse
+        {
+            MessageId = "mesg-0",
+            CreatedAt = survivingAt,
+        });
+
+        await RunAsync(Deleted());
+
+        var channel = await _context.Channels.FindAsync(ChannelId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(channel!.LastMessageId, Is.EqualTo("mesg-0"));
+            Assert.That(channel.LastActivityAt, Is.EqualTo(survivingAt));
+            Assert.That(channel.MessageCount, Is.EqualTo(3));
+        });
+    }
+
+    [Test]
+    public async Task Handle_DeletingTheOnlyMessage_ClearsTheHead()
+    {
+        await SeedGuildAsync(head: "mesg-1", headAt: Now);
+
+        _bus.SetResponse<GetChannelHeadRequest>(new GetChannelHeadResponse());
+
+        await RunAsync(Deleted());
+
+        var channel = await _context.Channels.FindAsync(ChannelId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(channel!.LastMessageId, Is.Null);
+            Assert.That(channel.LastActivityAt, Is.Null);
+        });
+    }
+
+    [Test]
+    public async Task Handle_DeletingSomethingBehindTheHead_LeavesItAlone()
+    {
+        var headAt = Now;
+        await SeedGuildAsync(head: "mesg-9", headAt: headAt);
+
+        await RunAsync(Deleted());
+
+        var channel = await _context.Channels.FindAsync(ChannelId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(channel!.LastMessageId, Is.EqualTo("mesg-9"));
+            Assert.That(channel.LastActivityAt, Is.EqualTo(headAt));
+            Assert.That(_bus.Invoked.OfType<GetChannelHeadRequest>(), Is.Empty);
+            Assert.That(channel.MessageCount, Is.EqualTo(3));
+        });
+    }
+
+    /// <summary>Messaging being unreachable leaves the stale head rather than blanking the channel.</summary>
+    [Test]
+    public async Task Handle_HeadLookupFails_LeavesTheHeadAlone()
+    {
+        var headAt = Now;
+        await SeedGuildAsync(head: "mesg-1", headAt: headAt);
+
+        await RunAsync(Deleted());
+
+        var channel = await _context.Channels.FindAsync(ChannelId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(channel!.LastMessageId, Is.EqualTo("mesg-1"));
+            Assert.That(channel.LastActivityAt, Is.EqualTo(headAt));
+            Assert.That(channel.MessageCount, Is.EqualTo(3));
+        });
     }
 }

@@ -18,8 +18,12 @@ public record MessagePageQuery
 {
     public required string ContextId { get; init; }
 
-    /// <summary>Anchor message id.</summary>
-    public required string AnchorMessageId { get; init; }
+    /// <summary>
+    /// Anchor message id, or null with <see cref="MessageCursorDirection.After"/> to mean the
+    /// beginning of the context. There is no message to anchor on before the first one, and a
+    /// scene channel is created without a starter message.
+    /// </summary>
+    public required string? AnchorMessageId { get; init; }
 
     public required MessageCursorDirection Direction { get; init; }
 

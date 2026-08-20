@@ -394,8 +394,53 @@ public class EfCoreMessageRepositoryTests
         return seeded;
     }
 
-    private MessagePageQuery Query(string contextId, string anchorId, MessageCursorDirection direction, int limit = 50) =>
+    private MessagePageQuery Query(string contextId, string? anchorId, MessageCursorDirection direction, int limit = 50) =>
         new() { ContextId = contextId, AnchorMessageId = anchorId, Direction = direction, Limit = limit };
+
+    [Test]
+    public async Task Cursor_NoAnchorRunningForward_StartsAtTheBeginning()
+    {
+        var seeded = await SeedSequence(5, "conv-oldest");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-oldest", null, MessageCursorDirection.After, limit: 2));
+
+        Assert.That(messages.Select(m => m.Id), Is.EqualTo(new[] { seeded[0].Id, seeded[1].Id }));
+    }
+
+    [Test]
+    public async Task Cursor_NoAnchorRunningForward_StaysInsideItsOwnContext()
+    {
+        await SeedSequence(3, "conv-oldest");
+        var other = await SeedSequence(3, "conv-other");
+
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-other", null, MessageCursorDirection.After, limit: 10));
+
+        Assert.That(messages.Select(m => m.Id), Is.EqualTo(other.Select(m => m.Id)));
+    }
+
+    [TestCase(MessageCursorDirection.Before)]
+    [TestCase(MessageCursorDirection.Around)]
+    public async Task Cursor_NoAnchor_IsEmptyInEveryOtherDirection(MessageCursorDirection direction)
+    {
+        await SeedSequence(3, "conv-oldest");
+
+        // There is nothing before the beginning, and nothing to sit around either.
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-oldest", null, direction));
+
+        Assert.That(messages, Is.Empty);
+    }
+
+    [Test]
+    public async Task Cursor_NoAnchorInAnEmptyContext_IsEmpty()
+    {
+        var (messages, _) = await _repo.GetMessagePageByCursorAsync(
+            Query("conv-empty", null, MessageCursorDirection.After));
+
+        Assert.That(messages, Is.Empty);
+    }
 
     [Test]
     public async Task Cursor_Before_ReturnsOlderMessagesAscending_ExcludingAnchor()

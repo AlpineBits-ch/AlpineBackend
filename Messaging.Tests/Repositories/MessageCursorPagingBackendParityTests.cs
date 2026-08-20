@@ -212,11 +212,11 @@ public class MessageCursorPagingBackendParityTests
         return ids.Order(StringComparer.Ordinal).ToList();
     }
 
-    private static MessagePageQuery Query(string contextId, string anchorId, MessageCursorDirection direction, int limit) =>
+    private static MessagePageQuery Query(string contextId, string? anchorId, MessageCursorDirection direction, int limit) =>
         new() { ContextId = contextId, AnchorMessageId = anchorId, Direction = direction, Limit = limit };
 
     private async Task<(List<string> Scylla, List<string> Ef)> BothPagesAsync(
-        string contextId, string anchorId, MessageCursorDirection direction, int limit)
+        string contextId, string? anchorId, MessageCursorDirection direction, int limit)
     {
         var query = Query(contextId, anchorId, direction, limit);
 
@@ -269,6 +269,63 @@ public class MessageCursorPagingBackendParityTests
             Assert.That(scylla, Is.EqualTo(ef), "the two backends returned different pages for one query");
             Assert.That(scylla, Is.EqualTo(new[] { group[2], group[3], group[4] }),
                 "and both must return the three immediately before the anchor, oldest-first");
+        });
+    }
+
+    [Test]
+    public async Task BothBackendsStartAtTheSamePlaceWithNoAnchor()
+    {
+        // Read-from-the-start has no anchor to sit next to, so the two backends have to agree on
+        // what "the beginning" is, including inside a same-millisecond group.
+        var contextId = NewContextId();
+        var oldest = await SeedBothAsync(contextId, Now - TimeSpan.FromMinutes(9));
+        var group = await SeedGroupBothAsync(contextId, Now - TimeSpan.FromMinutes(5), 4);
+
+        var (scylla, ef) = await BothPagesAsync(contextId, null, MessageCursorDirection.After, 3);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scylla, Is.EqualTo(ef), "the two backends disagreed about the beginning");
+            Assert.That(scylla, Is.EqualTo(new[] { oldest, group[0], group[1] }));
+        });
+    }
+
+    [Test]
+    public async Task BothBackendsScrollForwardFromNoAnchorIdentically()
+    {
+        var contextId = NewContextId();
+        var oldest = await SeedBothAsync(contextId, Now - TimeSpan.FromMinutes(3));
+        var middle = await SeedGroupBothAsync(contextId, Now - TimeSpan.FromMinutes(2), 4);
+        var newest = await SeedBothAsync(contextId, Now);
+
+        var (scyllaFirst, efFirst) = await BothPagesAsync(contextId, null, MessageCursorDirection.After, 2);
+
+        // The client's second page: the first page's far edge becomes the anchor.
+        var (scyllaNext, efNext) = await BothPagesAsync(
+            contextId, scyllaFirst[^1], MessageCursorDirection.After, 4);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scyllaFirst, Is.EqualTo(efFirst));
+            Assert.That(scyllaNext, Is.EqualTo(efNext));
+            Assert.That(scyllaFirst.Concat(scyllaNext), Is.Unique);
+            Assert.That(scyllaFirst.Concat(scyllaNext),
+                Is.EqualTo(new[] { oldest }.Concat(middle).Append(newest)));
+        });
+    }
+
+    [Test]
+    public async Task BothBackendsRefuseANullAnchorRunningBackwards()
+    {
+        var contextId = NewContextId();
+        await SeedGroupBothAsync(contextId, Now - TimeSpan.FromMinutes(5), 3);
+
+        var (scylla, ef) = await BothPagesAsync(contextId, null, MessageCursorDirection.Before, 3);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(scylla, Is.Empty, "there is nothing before the beginning");
+            Assert.That(ef, Is.Empty);
         });
     }
 

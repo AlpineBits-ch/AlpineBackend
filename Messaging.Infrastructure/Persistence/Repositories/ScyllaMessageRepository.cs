@@ -99,6 +99,26 @@ public class ScyllaMessageRepository(ScyllaContext context) : IMessageRepository
         var empty = ((ICollection<Message>)new List<Message>(), new Dictionary<string, List<Reaction>>());
         if (query.Limit <= 0) return empty;
 
+        // A null anchor running forward is "start at the beginning": a forward scan from the
+        // partition's first clustering position, which needs no anchor to sit next to.
+        if (query.AnchorMessageId is null)
+        {
+            if (query.Direction != MessageCursorDirection.After) return empty;
+
+            var cql =
+                $"SELECT {Message.SelectColumns} FROM messages " +
+                $"WHERE context_id = ? ORDER BY created_at ASC LIMIT ?";
+
+            // Materialized immediately: Mapper.FetchAsync is a single-pass projection over the
+            // driver's RowSet, which self-consumes on enumeration.
+            var oldest = (await context.Mapper.FetchAsync<Message>(cql, query.ContextId, query.Limit))
+                .OrderBy(m => m.CreatedAt)
+                .ThenBy(m => m.Id, StringComparer.Ordinal)
+                .ToList();
+
+            return (oldest, await FetchReactionsAsync(oldest));
+        }
+
         // The cursor is an id, but the clustering key is (created_at, message_id) - so the anchor
         // has to be resolved to its actual sort position first.
         var anchor = await GetMessageAsync(query.AnchorMessageId);

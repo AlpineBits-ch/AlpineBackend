@@ -107,6 +107,22 @@ public class EfCoreMessageRepository(MicroserviceContext context) : IMessageRepo
         var empty = ((ICollection<Message>)new List<Message>(), new Dictionary<string, List<Reaction>>());
         if (query.Limit <= 0) return empty;
 
+        // A null anchor running forward is "start at the beginning". Every other combination needs
+        // a real message to sit next to.
+        if (query.AnchorMessageId is null)
+        {
+            if (query.Direction != MessageCursorDirection.After) return empty;
+
+            var oldest = await context.Messages.AsNoTracking()
+                .Where(m => m.ContextId == query.ContextId)
+                .OrderBy(m => m.CreatedAt).ThenBy(m => m.Id)
+                .Take(query.Limit)
+                .Include(m => m.Attachments)
+                .ToListAsync();
+
+            return (oldest, await FetchReactionsForMessages(oldest));
+        }
+
         var anchor = await context.Messages.AsNoTracking()
             .FirstOrDefaultAsync(m => m.Id == query.AnchorMessageId && m.ContextId == query.ContextId);
         if (anchor is null) return empty;

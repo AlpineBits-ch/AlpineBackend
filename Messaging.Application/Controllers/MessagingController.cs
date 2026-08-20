@@ -29,9 +29,15 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
     /// Resolves the optional cursor triplet into a repository query, or null when the caller
     /// supplied none - in which case the legacy offset path is used unchanged.
     /// </summary>
-    private static MessagePageQuery? BuildCursorQuery(string contextId, string? before, string? after, string? around, int limit)
+    private static MessagePageQuery? BuildCursorQuery(string contextId, string? before, string? after,
+        string? around, int limit, bool oldest = false)
     {
         var (_, size) = NormalizePaging(0, limit);
+
+        // Checked first: "the beginning" is not relative to anything, so an anchor sent alongside
+        // it would only be ambiguous.
+        if (oldest)
+            return new MessagePageQuery { ContextId = contextId, AnchorMessageId = null, Direction = MessageCursorDirection.After, Limit = size };
 
         if (!string.IsNullOrWhiteSpace(before))
             return new MessagePageQuery { ContextId = contextId, AnchorMessageId = before, Direction = MessageCursorDirection.Before, Limit = size };
@@ -99,7 +105,8 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
 
     [HttpGet("channels/{channelId}/messages")]
     public async Task<IActionResult> GetMessagesForChannelAsync(string channelId, [FromQuery] int offset, [FromQuery] int limit,
-        [FromQuery] string? before = null, [FromQuery] string? after = null, [FromQuery] string? around = null)
+        [FromQuery] string? before = null, [FromQuery] string? after = null, [FromQuery] string? around = null,
+        [FromQuery] bool oldest = false)
     {
         if (string.IsNullOrEmpty(channelId))
         {
@@ -116,7 +123,7 @@ public class MessagingController(IMessageRepository repo, ILogger<MessagingContr
 
         try
         {
-            var cursor = BuildCursorQuery(channelId, before, after, around, limit);
+            var cursor = BuildCursorQuery(channelId, before, after, around, limit, oldest);
 
             var (result, reactionsByMessage) = cursor is not null
                 ? await repo.GetMessagePageByCursorAsync(cursor)

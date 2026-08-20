@@ -1,7 +1,9 @@
+using Echo.Realtime;
 using Guild.Application.Services;
 using Guild.Domain.Enums;
 using Guild.Domain.Events.Permission;
 using Guild.Persistence.Persistence;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace Guild.Application.Bus.Events.Permission;
@@ -9,7 +11,11 @@ namespace Guild.Application.Bus.Events.Permission;
 /// <summary>Drops the cached permission set of everybody an overwrite change can reach.</summary>
 public class ChannelPermissionChangedHandler
 {
-    public static async Task Handle(ChannelPermissionChanged @event, MicroserviceContext ctx, GuildPermissionService guildPermissionService)
+    /// <summary>What the guild sees when an overwrite moved somebody's effective permissions.</summary>
+    public const string ChangedEvent = "guild.ChannelPermissionsChanged";
+
+    public static async Task Handle(ChannelPermissionChanged @event, MicroserviceContext ctx,
+        GuildPermissionService guildPermissionService, IHubContext<EchoRealtimeHub> hub)
     {
         if (@event.MemberId != null)
         {
@@ -20,7 +26,10 @@ public class ChannelPermissionChangedHandler
                 .FirstOrDefaultAsync();
 
             if (userId != null)
+            {
                 await guildPermissionService.InvalidateUserPermissionsCacheAsync(@event.GuildId, userId);
+                await AnnounceAsync(hub, @event.GuildId, [userId]);
+            }
 
             return;
         }
@@ -49,6 +58,19 @@ public class ChannelPermissionChangedHandler
 
             foreach (var userId in userIds)
                 await guildPermissionService.InvalidateUserPermissionsCacheAsync(@event.GuildId, userId);
+
+            await AnnounceAsync(hub, @event.GuildId, userIds);
         }
     }
+
+    /// <summary>
+    /// Addressed to the people the overwrite moved, not to the guild: which channels somebody can
+    /// see is their own answer, and the payload names no target so it says nothing about anyone
+    /// else. The recipient re-reads the guild rather than patching a mask it cannot resolve.
+    /// </summary>
+    private static Task AnnounceAsync(
+        IHubContext<EchoRealtimeHub> hub, string guildId, IReadOnlyList<string> userIds) =>
+        userIds.Count == 0
+            ? Task.CompletedTask
+            : hub.Clients.Users(userIds).SendAsync(ChangedEvent, new { GuildId = guildId });
 }

@@ -685,7 +685,7 @@ public class PermissionResolutionTests(IGuildContextProvider provider)
         Assume.That(_cache.HasEntry(key), Is.True);
 
         await ChannelPermissionChangedHandler.Handle(
-            new ChannelPermissionChanged { GuildId = GuildId, RoleId = EveryoneRoleId }, _context, _service);
+            new ChannelPermissionChanged { GuildId = GuildId, RoleId = EveryoneRoleId }, _context, _service, new FakeHubContext());
 
         Assert.That(_cache.HasEntry(key), Is.False,
             "an @everyone overwrite applies to every member, row or no row");
@@ -702,7 +702,7 @@ public class PermissionResolutionTests(IGuildContextProvider provider)
         await _service.ComputePermissionsForUserAsync("user-2", GuildId);
 
         await ChannelPermissionChangedHandler.Handle(
-            new ChannelPermissionChanged { GuildId = GuildId, RoleId = EveryoneRoleId }, _context, _service);
+            new ChannelPermissionChanged { GuildId = GuildId, RoleId = EveryoneRoleId }, _context, _service, new FakeHubContext());
 
         Assert.Multiple(() =>
         {
@@ -726,7 +726,7 @@ public class PermissionResolutionTests(IGuildContextProvider provider)
         await _service.ComputePermissionsForUserAsync("user-2", GuildId);
 
         await ChannelPermissionChangedHandler.Handle(
-            new ChannelPermissionChanged { GuildId = GuildId, RoleId = "role-staff" }, _context, _service);
+            new ChannelPermissionChanged { GuildId = GuildId, RoleId = "role-staff" }, _context, _service, new FakeHubContext());
 
         Assert.Multiple(() =>
         {
@@ -757,7 +757,7 @@ public class PermissionResolutionTests(IGuildContextProvider provider)
         await _service.ComputePermissionsForUserAsync(UserId, GuildId);
 
         await ChannelPermissionChangedHandler.Handle(
-            new ChannelPermissionChanged { GuildId = GuildId, RoleId = "role-everyone-other" }, _context, _service);
+            new ChannelPermissionChanged { GuildId = GuildId, RoleId = "role-everyone-other" }, _context, _service, new FakeHubContext());
 
         Assert.That(_cache.HasEntry(GuildPermissionsForUser.GetCacheKey(GuildId, UserId)), Is.True);
     }
@@ -773,7 +773,7 @@ public class PermissionResolutionTests(IGuildContextProvider provider)
         await _service.ComputePermissionsForUserAsync("user-2", GuildId);
 
         await ChannelPermissionChangedHandler.Handle(
-            new ChannelPermissionChanged { GuildId = GuildId, MemberId = MemberId }, _context, _service);
+            new ChannelPermissionChanged { GuildId = GuildId, MemberId = MemberId }, _context, _service, new FakeHubContext());
 
         Assert.Multiple(() =>
         {

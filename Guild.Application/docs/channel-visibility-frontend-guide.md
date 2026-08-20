@@ -91,6 +91,23 @@ in; the channel stays `isPrivate: true`, because `@everyone` is still denied.
 A guild with no `@everyone` role cannot express privacy this way, and the flag is refused rather than
 recorded - there would be nothing enforcing it.
 
+### `guild.ChannelPermissionsChanged`
+
+An overwrite write moves who can see what, and the resolved channel list is server-side, so the
+people it moved are told to read theirs again.
+
+```jsonc
+{ "guildId": "gild_01J…" }
+```
+
+Addressed to the accounts whose effective permissions changed, and to nobody else: which channels
+somebody can see is their own answer. The payload names no channel and no target, deliberately - a
+recipient who just lost `ViewChannel` must not learn the id of the channel they lost it on.
+
+There is no mask to patch on receipt. Refetch the guild (`GET /guilds/{guildId}`) and
+`GET /guilds/{guildId}/me`, then redraw the sidebar off what comes back. A channel missing from the
+new list is a channel the reader can no longer see.
+
 ## 3. Read states are yours alone
 
 ```http
@@ -112,4 +129,5 @@ rather than picking their own row out of the member list.
 | `isPrivate` is settable on create | Add the toggle to the create-channel form |
 | `isPrivate` is nullable on PATCH | Omit it unless the toggle was actually changed |
 | Privacy toggle and permission grid are one thing | Refetch the channel after editing either |
+| `guild.ChannelPermissionsChanged` | Subscribe, then refetch the guild and `/me`; do not wait for a reload |
 | `readStates` only on `/me` | Source unread badges from `/me`, not the member list |

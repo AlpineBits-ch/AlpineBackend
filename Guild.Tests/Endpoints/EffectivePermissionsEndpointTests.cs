@@ -146,8 +146,21 @@ public class EffectivePermissionsEndpointTests
 
         var ok = result as Ok<EffectivePermissionsDto>;
         Assert.That(ok, Is.Not.Null);
-        Assert.That(
-            ok!.Value!.Sources.Select(s => s.Permission),
-            Is.SupersetOf([nameof(Permissions.ViewChannel), nameof(Permissions.Connect), nameof(Permissions.AttachFiles)]));
+
+        string[] expected =
+        [
+            nameof(Permissions.ViewChannel), nameof(Permissions.CreateInvite), nameof(Permissions.UseApplicationCommands),
+            nameof(Permissions.SendMessages), nameof(Permissions.ReadMessageHistory), nameof(Permissions.EditOwnMessages),
+            nameof(Permissions.EditAnyMessage), nameof(Permissions.DeleteOwnMessages), nameof(Permissions.DeleteAnyMessage),
+            nameof(Permissions.PinMessages), nameof(Permissions.MentionEveryone),
+            nameof(Permissions.AttachFiles), nameof(Permissions.EmbedLinks), nameof(Permissions.AddReactions), nameof(Permissions.UseExternalEmojis),
+            nameof(Permissions.Connect), nameof(Permissions.Speak), nameof(Permissions.Stream),
+            nameof(Permissions.MuteMembers), nameof(Permissions.DeafenMembers), nameof(Permissions.MoveMembers),
+            nameof(Permissions.CreateThreads), nameof(Permissions.SendMessagesInThreads),
+            nameof(Permissions.ManageOwnThreads), nameof(Permissions.ManageAnyThread),
+            nameof(Permissions.ManageChannel), nameof(Permissions.ManagePermissions), nameof(Permissions.ManageWebhooks),
+        ];
+
+        Assert.That(ok!.Value!.Sources.Select(s => s.Permission), Is.EqualTo(expected));
     }
 }

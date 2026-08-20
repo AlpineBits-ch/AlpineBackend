@@ -1,13 +1,16 @@
+using Guild.Application.Bus.Events.Permission;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Endpoints.Channel;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
 using Guild.Domain.Enums;
+using Guild.Domain.Events.Permission;
 using Guild.Tests.Helpers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 
 namespace Guild.Tests.Endpoints;
 
@@ -237,17 +240,42 @@ public class ChannelPermissionSyncEndpointTests
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
+    /// <summary>An event naming no target reaches neither branch of the handler, so this asserts
+    /// the cache entry is actually gone rather than that some event was returned.</summary>
     [Test]
-    public async Task Sync_EmitsOneInvalidationEvent()
+    public async Task Sync_DropsTheCachedMaskOfEverybodyItMoves()
     {
         await SeedAsync();
-        await AddOverwriteAsync(null, CategoryId, PlayerRoleId, Permissions.AddReactions, Permissions.None);
+        var now = DateTimeOffset.UtcNow;
 
-        var (_, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        _context.GuildMembers.Add(new GuildMember
+        {
+            Id = "member-1", GuildId = GuildId, UserId = "user-1", JoinedAt = DateTime.UtcNow,
+            SearchValue = "USER-1", CreatedAt = now, UpdatedAt = now,
+        });
+        _context.RoleMembers.Add(new RoleMember
+        {
+            Id = "rm-1", RoleId = EveryoneRoleId, MemberId = "member-1", CreatedAt = now, UpdatedAt = now,
+        });
+        await _context.SaveChangesAsync();
+
+        // The category hides the channel from @everyone, which is the confidentiality case: a stale
+        // cache keeps ViewChannel for fifteen minutes after IsPrivate flips.
+        await AddOverwriteAsync(null, CategoryId, EveryoneRoleId, Permissions.None, Permissions.ViewChannel);
+
+        var cacheKey = GuildPermissionsForUser.GetCacheKey(GuildId, "user-1");
+        await _service.ComputePermissionsForUserAsync("user-1", GuildId);
+        Assert.That(await _cache.GetStringAsync(cacheKey), Is.Not.Null, "cache not primed");
+
+        var (_, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(OwnerId), _service, _auditLog, _mfa, _privacy);
+        await _context.SaveChangesAsync();
 
-        Assert.That(evt, Is.Not.Null);
-        Assert.That(evt!.GuildId, Is.EqualTo(GuildId));
+        var hub = new FakeHubContext();
+        foreach (var invalidation in events.OfType<ChannelPermissionChanged>())
+            await ChannelPermissionChangedHandler.Handle(invalidation, _context, _service, hub);
+
+        Assert.That(await _cache.GetStringAsync(cacheKey), Is.Null);
     }
 
     [Test]
@@ -279,7 +307,7 @@ public class ChannelPermissionSyncEndpointTests
         await AddOverwriteAsync(null, CategoryId, PlayerRoleId, Permissions.BanMembers, Permissions.None);
         await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
 
         var rows = await _context.Set<ChannelPermission>()
@@ -288,7 +316,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
-            Assert.That(evt, Is.Null);
+            Assert.That(events, Is.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(EveryoneRoleId));
             Assert.That(rows[0].AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
@@ -305,7 +333,7 @@ public class ChannelPermissionSyncEndpointTests
         await AddOverwriteAsync(null, CategoryId, PlayerRoleId, Permissions.None, Permissions.PinMessages);
         await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
 
         var rows = await _context.Set<ChannelPermission>()
@@ -314,7 +342,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
-            Assert.That(evt, Is.Null);
+            Assert.That(events, Is.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(EveryoneRoleId));
         });
@@ -343,7 +371,7 @@ public class ChannelPermissionSyncEndpointTests
         await SeedManagerAsync(Permissions.ManagePermissions | Permissions.SendMessages, position: 10);
         await AddMemberOverwriteAsync(ChannelId, null, ManagerMemberId, Permissions.None, Permissions.SendMessages);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
 
         var rows = await _context.Set<ChannelPermission>()
@@ -352,7 +380,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
-            Assert.That(evt, Is.Null);
+            Assert.That(events, Is.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].MemberId, Is.EqualTo(ManagerMemberId));
             Assert.That(rows[0].DenyPermissions, Is.EqualTo(Permissions.SendMessages));
@@ -367,7 +395,7 @@ public class ChannelPermissionSyncEndpointTests
         await SeedManagerAsync(Permissions.ManagePermissions | Permissions.SendMessages, position: 10);
         await AddOverwriteAsync(ChannelId, null, AdminRoleId, Permissions.None, Permissions.SendMessages);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
 
         var rows = await _context.Set<ChannelPermission>()
@@ -376,7 +404,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
-            Assert.That(evt, Is.Null);
+            Assert.That(events, Is.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(AdminRoleId));
             Assert.That(rows[0].DenyPermissions, Is.EqualTo(Permissions.SendMessages));
@@ -394,7 +422,7 @@ public class ChannelPermissionSyncEndpointTests
         await AddOverwriteAsync(null, CategoryId, AdminRoleId, Permissions.None, Permissions.SendMessages);
         await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
 
         var rows = await _context.Set<ChannelPermission>()
@@ -403,7 +431,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
-            Assert.That(evt, Is.Null);
+            Assert.That(events, Is.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(EveryoneRoleId));
             Assert.That(rows[0].AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
@@ -418,7 +446,7 @@ public class ChannelPermissionSyncEndpointTests
         await AddOverwriteAsync(null, CategoryId, PlayerRoleId, Permissions.AddReactions, Permissions.None);
         await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
         await _context.SaveChangesAsync();
 
@@ -428,7 +456,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<Ok<List<ChannelPermissionDto>>>());
-            Assert.That(evt, Is.Not.Null);
+            Assert.That(events, Is.Not.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(PlayerRoleId));
         });
@@ -443,7 +471,7 @@ public class ChannelPermissionSyncEndpointTests
             allowModule: ModulePermissions.DeleteWikiPages);
         await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
 
-        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+        var (result, events) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
             ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
 
         var rows = await _context.Set<ChannelPermission>()
@@ -452,7 +480,7 @@ public class ChannelPermissionSyncEndpointTests
         Assert.Multiple(() =>
         {
             Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
-            Assert.That(evt, Is.Null);
+            Assert.That(events, Is.Empty);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(EveryoneRoleId));
         });

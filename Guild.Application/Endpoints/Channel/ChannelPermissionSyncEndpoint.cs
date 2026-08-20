@@ -7,6 +7,7 @@ using Guild.Domain.Events.Permission;
 using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Wolverine;
 using Wolverine.Http;
 
 namespace Guild.Application.Endpoints.Channel;
@@ -20,7 +21,7 @@ namespace Guild.Application.Endpoints.Channel;
 public class ChannelPermissionSyncEndpoint
 {
     [WolverinePost("/api/v1/channels/{channelId}/permissions/sync")]
-    public static async Task<(IResult, ChannelPermissionChanged?)> SyncChannelPermissionsAsync(
+    public static async Task<(IResult, OutgoingMessages)> SyncChannelPermissionsAsync(
         string channelId,
         [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user,
@@ -30,22 +31,22 @@ public class ChannelPermissionSyncEndpoint
         [NotBody] ChannelPrivacyService channelPrivacy)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
+        if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), []);
 
         // Tracked, not projected: SyncFlagFrom below writes IsPrivate onto this same instance and
         // leaves it for the trailing commit rather than saving here.
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
 
         if (channel is null || string.IsNullOrWhiteSpace(channel.CategoryId))
-            return (Results.NotFound(), null);
+            return (Results.NotFound(), []);
 
         var guildId = channel.GuildId;
         var categoryId = channel.CategoryId;
 
         if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions))
-            return (Results.Forbid(), null);
+            return (Results.Forbid(), []);
 
-        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return (mfaRejection, null);
+        if (await mfa.RequireAsync(guildId, user) is { } mfaRejection) return (mfaRejection, []);
 
         var source = await ctx.Set<ChannelPermission>()
             .AsNoTracking()
@@ -59,20 +60,23 @@ public class ChannelPermissionSyncEndpoint
                 !await permissionService.CanGrantPermissionsAsync(userId, guildId, row.DenyPermissions) ||
                 !await permissionService.CanGrantPermissionsAsync(userId, guildId, row.AllowModulePermissions) ||
                 !await permissionService.CanGrantPermissionsAsync(userId, guildId, row.DenyModulePermissions))
-                return (Results.Forbid(), null);
+                return (Results.Forbid(), []);
         }
 
         var existing = await ctx.Set<ChannelPermission>()
             .Where(p => p.ChannelId == channelId)
             .ToListAsync();
 
+        // Everybody the swap moves, which is also everybody whose cached mask has to be dropped.
+        var targets = TargetsOf(existing, source);
+
         // Clearing a row is a grant to whoever it denied, so the hierarchy gate a direct write runs
         // covers both sides of the swap, not just the rows being created.
-        foreach (var (targetRoleId, targetMemberId) in TargetsOf(existing, source))
+        foreach (var (targetRoleId, targetMemberId) in targets)
         {
             if (await PermissionOverwriteEndpoint.EnsureTargetIsInGuildAndOutrankedAsync(
                     ctx, permissionService, userId, guildId, targetRoleId, targetMemberId) is not null)
-                return (Results.Forbid(), null);
+                return (Results.Forbid(), []);
         }
 
         // Independent of the rows being copied, so this can be read now rather than after the
@@ -132,11 +136,24 @@ public class ChannelPermissionSyncEndpoint
             UpdatedAt = p.UpdatedAt,
         }).ToList();
 
-        return (Results.Ok(dtos), new ChannelPermissionChanged { GuildId = guildId });
+        // One event per target rather than one for the channel: ChannelPermissionChangedHandler
+        // branches on MemberId then RoleId and does nothing at all when both are null.
+        var invalidations = new OutgoingMessages();
+        foreach (var (targetRoleId, targetMemberId) in targets)
+        {
+            invalidations.Add(new ChannelPermissionChanged
+            {
+                GuildId = guildId,
+                RoleId = targetRoleId,
+                MemberId = targetMemberId,
+            });
+        }
+
+        return (Results.Ok(dtos), invalidations);
     }
 
     /// <summary>Everybody a sync moves: the targets of the rows going away and of the rows arriving.</summary>
-    private static IEnumerable<(string? RoleId, string? MemberId)> TargetsOf(
+    private static List<(string? RoleId, string? MemberId)> TargetsOf(
         IEnumerable<ChannelPermission> removed, IEnumerable<ChannelPermission> created) =>
-        removed.Concat(created).Select(p => (p.RoleId, p.MemberId)).Distinct();
+        removed.Concat(created).Select(p => (p.RoleId, p.MemberId)).Distinct().ToList();
 }

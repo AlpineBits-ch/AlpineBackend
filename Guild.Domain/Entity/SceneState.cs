@@ -10,6 +10,8 @@ public class CreateSceneStateParams
     public string? OocThreadId { get; init; }
     public int? TurnLengthHours { get; init; }
     public List<string> ParticipantPersonaIds { get; init; } = [];
+    public SceneJoinPolicy JoinPolicy { get; init; } = SceneJoinPolicy.Open;
+    public SceneVisibility Visibility { get; init; } = SceneVisibility.Everyone;
 }
 
 /// <summary>
@@ -60,6 +62,14 @@ public class SceneState
 
     public SceneStatus Status { get; set; } = SceneStatus.Open;
 
+    /// <summary>Whether a player brings a character in themselves or has to ask.</summary>
+    public SceneJoinPolicy JoinPolicy { get; set; } = SceneJoinPolicy.Open;
+
+    /// <summary>Who may see the scene. <see cref="SceneVisibility.Cast"/> with
+    /// <see cref="SceneJoinPolicy.Open"/> is refused: walking into a scene you cannot see is not a
+    /// state anything can act on.</summary>
+    public SceneVisibility Visibility { get; set; } = SceneVisibility.Everyone;
+
     /// <summary>The out-of-character companion thread, created and linked at scene creation because
     /// every guide on running roleplay says to pair them and every server does it by hand.</summary>
     public string? OocThreadId { get; set; }
@@ -90,9 +100,47 @@ public class SceneState
             OocThreadId = @params.OocThreadId,
             TurnLengthHours = @params.TurnLengthHours,
             ParticipantPersonaIds = [.. @params.ParticipantPersonaIds.Distinct(StringComparer.Ordinal)],
+            JoinPolicy = @params.JoinPolicy,
+            Visibility = @params.Visibility,
             CreatedAt = date,
             UpdatedAt = date,
         };
+    }
+
+    /// <summary>
+    /// Whether a policy and a visibility describe a scene anybody can act on. Cast-only with an
+    /// open table is the one pair that does not: nobody outside the cast can find the scene to walk
+    /// into it.
+    /// </summary>
+    /// <param name="policy">The join policy.</param>
+    /// <param name="visibility">The visibility.</param>
+    /// <returns>False for the one refused pair.</returns>
+    public static bool IsAccessPairLegal(SceneJoinPolicy policy, SceneVisibility visibility) =>
+        visibility != SceneVisibility.Cast || policy != SceneJoinPolicy.Open;
+
+    /// <summary>Whether this character is in the cast.</summary>
+    /// <param name="personaId">The character.</param>
+    /// <returns>True when the scene lists it as a participant.</returns>
+    public bool IsInCast(string? personaId) =>
+        personaId is not null
+        && ParticipantPersonaIds.Contains(personaId, StringComparer.Ordinal);
+
+    /// <summary>Puts a character in the cast and at the end of the rotation.</summary>
+    /// <param name="personaId">The character joining.</param>
+    /// <param name="now">The instant it joined.</param>
+    /// <returns>False when it was already in the scene.</returns>
+    public bool AddParticipant(string personaId, DateTimeOffset now)
+    {
+        if (IsInCast(personaId)) return false;
+
+        ParticipantPersonaIds.Add(personaId);
+
+        // Only when a rotation was set by hand: an empty TurnOrder already means the cast in the
+        // order it was assembled, so appending there would freeze it.
+        if (TurnOrder.Count > 0) TurnOrder.Add(personaId);
+
+        UpdatedAt = now;
+        return true;
     }
 
     /// <summary>The rotation as it actually resolves: the explicit turn order when one is set,
@@ -261,3 +309,5 @@ public class SceneState
 // });
 // DbSet: public DbSet<SceneState> SceneStates { get; set; }
 // MapEnum: options.MapEnum<SceneStatus>();
+// MapEnum: options.MapEnum<SceneJoinPolicy>();
+// MapEnum: options.MapEnum<SceneVisibility>();

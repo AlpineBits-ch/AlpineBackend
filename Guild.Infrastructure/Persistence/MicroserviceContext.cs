@@ -38,6 +38,7 @@ public class MicroserviceContext : DbContext
     public DbSet<SceneFolder> SceneFolders { get; set; }
     public DbSet<SceneTag> SceneTags { get; set; }
     public DbSet<SceneTagAssignment> SceneTagAssignments { get; set; }
+    public DbSet<SceneJoinRequest> SceneJoinRequests { get; set; }
     public DbSet<DiceRoll> DiceRolls { get; set; }
 
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
@@ -136,6 +137,9 @@ public class MicroserviceContext : DbContext
             options.MapEnum<PersonaApprovalState>();
             options.MapEnum<AutoproxyMode>();
             options.MapEnum<SceneStatus>();
+            options.MapEnum<SceneJoinPolicy>();
+            options.MapEnum<SceneVisibility>();
+            options.MapEnum<SceneJoinRequestStatus>();
         }).UseSnakeCaseNamingConvention();
     }
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options)
@@ -705,6 +709,28 @@ public class MicroserviceContext : DbContext
 
             // What the archive asks: one folder's scenes.
             sceneBuilder.HasIndex(x => new { x.GuildId, x.FolderId });
+        });
+
+        modelBuilder.Entity<SceneJoinRequest>(requestBuilder =>
+        {
+            requestBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.SceneChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            requestBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The GM's guild-wide queue, and one scene's banner.
+            requestBuilder.HasIndex(x => new { x.GuildId, x.Status });
+            requestBuilder.HasIndex(x => new { x.SceneChannelId, x.Status });
+
+            // Partial, so a character that was denied can ask again while never queueing twice.
+            requestBuilder.HasIndex(x => new { x.SceneChannelId, x.PersonaId })
+                .IsUnique()
+                .HasFilter("status = 'pending'");
         });
 
         modelBuilder.Entity<SceneFolder>(folderBuilder =>

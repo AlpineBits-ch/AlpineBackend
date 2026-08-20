@@ -5,6 +5,7 @@ using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -13,9 +14,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Guild.Persistence.Migrations
 {
     [DbContext(typeof(MicroserviceContext))]
-    partial class MicroserviceContextModelSnapshot : ModelSnapshot
+    [Migration("20260820140447_AddSceneAccess")]
+    partial class AddSceneAccess
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -4419,34 +4422,6 @@ namespace Guild.Persistence.Migrations
                     b.ToTable("wiki_pages", (string)null);
                 });
 
-            modelBuilder.Entity("Guild.Domain.Entity.WikiPageLink", b =>
-                {
-                    b.Property<string>("SourcePageId")
-                        .HasColumnType("text")
-                        .HasColumnName("source_page_id");
-
-                    b.Property<string>("TargetPageId")
-                        .HasColumnType("text")
-                        .HasColumnName("target_page_id");
-
-                    b.Property<string>("GuildId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("guild_id");
-
-                    b.Property<string>("HeadingId")
-                        .HasColumnType("text")
-                        .HasColumnName("heading_id");
-
-                    b.HasKey("SourcePageId", "TargetPageId")
-                        .HasName("pk_wiki_page_links");
-
-                    b.HasIndex("GuildId", "TargetPageId")
-                        .HasDatabaseName("ix_wiki_page_links_guild_id_target_page_id");
-
-                    b.ToTable("wiki_page_links", (string)null);
-                });
-
             modelBuilder.Entity("Guild.Domain.Entity.WikiPageReaction", b =>
                 {
                     b.Property<string>("PageId")
@@ -5903,16 +5878,6 @@ namespace Guild.Persistence.Migrations
                         .HasForeignKey("PersonaId")
                         .OnDelete(DeleteBehavior.SetNull)
                         .HasConstraintName("fk_wiki_pages_personas_persona_id");
-                });
-
-            modelBuilder.Entity("Guild.Domain.Entity.WikiPageLink", b =>
-                {
-                    b.HasOne("Guild.Domain.Entity.WikiPage", null)
-                        .WithMany()
-                        .HasForeignKey("SourcePageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_wiki_page_links_wiki_pages_source_page_id");
                 });
 
             modelBuilder.Entity("Guild.Domain.Entity.WikiPageReaction", b =>

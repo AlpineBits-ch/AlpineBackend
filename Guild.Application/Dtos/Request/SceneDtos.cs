@@ -30,6 +30,13 @@ public class CreateSceneDto
     /// <summary>Open for a scene the cast still has to arrive in, Active to start the first turn
     /// straight away. Nothing else is legal at creation.</summary>
     public SceneStatus? Status { get; set; }
+
+    /// <summary>Whether a player brings a character in themselves. Defaults to Open.</summary>
+    public SceneJoinPolicy? JoinPolicy { get; set; }
+
+    /// <summary>Who may see the scene. Cast alongside an Open policy is refused with
+    /// <c>scene_visibility_conflict</c>.</summary>
+    public SceneVisibility? Visibility { get; set; }
 }
 
 /// <summary>
@@ -62,6 +69,13 @@ public class UpdateSceneDto
     /// <summary>Files the scene on an archive shelf. Omit to leave it where it is, send
     /// <c>null</c> to unfile it.</summary>
     public Optional<string> FolderId { get; set; }
+
+    /// <summary>Whether a player brings a character in themselves.</summary>
+    public SceneJoinPolicy? JoinPolicy { get; set; }
+
+    /// <summary>Who may see the scene. The resulting pair is checked against the one refused
+    /// combination whether or not both fields were sent.</summary>
+    public SceneVisibility? Visibility { get; set; }
 }
 
 /// <summary>Adds one character to a scene's cast.</summary>
@@ -71,4 +85,25 @@ public class AddSceneParticipantDto
 
     /// <summary>Where in the rotation to insert them, appending when omitted.</summary>
     public int? Position { get; set; }
+}
+
+/// <summary>Brings one of the caller's own characters into an open scene.</summary>
+public class JoinSceneDto
+{
+    public required string PersonaId { get; set; }
+}
+
+/// <summary>Asks a GM to bring a character into a closed scene.</summary>
+public class CreateSceneJoinRequestDto
+{
+    public required string PersonaId { get; set; }
+
+    /// <summary>The player's pitch, trimmed to 300 characters.</summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>Refuses one ask, optionally saying why.</summary>
+public class DenySceneJoinRequestDto
+{
+    public string? Reason { get; set; }
 }

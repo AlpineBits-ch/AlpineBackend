@@ -19,6 +19,13 @@ public class SceneDto
     public bool IsArchived { get; set; }
 
     public SceneStatus Status { get; set; }
+
+    /// <summary>Whether a player brings a character in themselves or has to ask.</summary>
+    public SceneJoinPolicy JoinPolicy { get; set; }
+
+    /// <summary>Who may see the scene at all.</summary>
+    public SceneVisibility Visibility { get; set; }
+
     public List<string> ParticipantPersonaIds { get; set; } = [];
 
     /// <summary>The rotation. Empty means the cast in the order it was assembled.</summary>
@@ -81,6 +88,8 @@ public class SceneDto
         CreatedByUserId = channel.CreatedByUserId,
         IsArchived = channel.IsArchived,
         Status = scene.Status,
+        JoinPolicy = scene.JoinPolicy,
+        Visibility = scene.Visibility,
         ParticipantPersonaIds = [.. scene.ParticipantPersonaIds],
         TurnOrder = [.. scene.TurnOrder],
         Participants = participants is null ? [] : [.. participants],
@@ -137,6 +146,12 @@ public class SceneListItemDto
     public string? ParentChannelId { get; set; }
     public SceneStatus Status { get; set; }
 
+    /// <summary>Whether a player brings a character in themselves or has to ask.</summary>
+    public SceneJoinPolicy JoinPolicy { get; set; }
+
+    /// <summary>Who may see the scene at all, which is what puts the lock chip on a row.</summary>
+    public SceneVisibility Visibility { get; set; }
+
     public string? CurrentTurnPersonaId { get; set; }
 
     /// <summary>The character whose turn it is, named, so a row needs no lookup of its own.</summary>
@@ -182,4 +197,60 @@ public class SceneListDto
 
     /// <summary>True when more scenes matched than the route returns.</summary>
     public required bool Truncated { get; init; }
+}
+
+/// <summary>
+/// One ask to bring a character into a closed scene, with the character's display data so a GM's
+/// banner needs no second call.
+/// </summary>
+public class SceneJoinRequestDto
+{
+    public string Id { get; set; } = null!;
+    public string GuildId { get; set; } = null!;
+    public string SceneChannelId { get; set; } = null!;
+    public string PersonaId { get; set; } = null!;
+
+    /// <summary>The per-guild display name, empty for a character this guild no longer adopts.</summary>
+    public string PersonaName { get; set; } = "";
+
+    public string? PersonaAvatarUrl { get; set; }
+    public string? PersonaColor { get; set; }
+
+    /// <summary>Who asked. Present because approving is a moderation decision about a member,
+    /// unlike a persona message, where the account behind the character is withheld.</summary>
+    public string RequestedByUserId { get; set; } = null!;
+
+    public string? Note { get; set; }
+    public SceneJoinRequestStatus Status { get; set; }
+    public string? DecidedByUserId { get; set; }
+    public DateTimeOffset? DecidedAt { get; set; }
+    public string? DecisionReason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    public static SceneJoinRequestDto From(
+        SceneJoinRequest request, PersonaCastMemberDto? persona = null) => new()
+    {
+        Id = request.Id,
+        GuildId = request.GuildId,
+        SceneChannelId = request.SceneChannelId,
+        PersonaId = request.PersonaId,
+        PersonaName = persona?.Name ?? "",
+        PersonaAvatarUrl = persona?.AvatarUrl,
+        PersonaColor = persona?.Color,
+        RequestedByUserId = request.RequestedByUserId,
+        Note = request.Note,
+        Status = request.Status,
+        DecidedByUserId = request.DecidedByUserId,
+        DecidedAt = request.DecidedAt,
+        DecisionReason = request.DecisionReason,
+        CreatedAt = request.CreatedAt,
+        UpdatedAt = request.UpdatedAt,
+    };
+}
+
+/// <summary>A scene's asks, or a guild's.</summary>
+public class SceneJoinRequestListDto
+{
+    public required IReadOnlyList<SceneJoinRequestDto> Requests { get; init; }
 }

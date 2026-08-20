@@ -42,7 +42,7 @@ public class GuildVoiceParticipantAnnouncementTests
         _hub = new FakeHubContext();
         _voiceStore = new LockedJsonCacheStore(new FakeDistributedLockService(), _cache);
 
-        var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
         _controller = new GuildVoiceMediaController(
             new FakeVoiceSfu(), permissions,
             NullLogger<GuildVoiceMediaController>.Instance, _cache,

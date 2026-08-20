@@ -60,8 +60,7 @@ public class GuildPermissionServiceTests
         _dbName = Guid.NewGuid().ToString();
         _cache = new FakeDistributedCache();
         _context = new TestGuildContext(_dbName);
-        _service = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _service = PermissionTestFactory.Create(_cache, _context);
     }
 
     [TearDown]

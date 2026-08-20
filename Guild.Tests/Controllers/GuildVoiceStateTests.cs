@@ -91,7 +91,7 @@ public class GuildVoiceStateTests
     private GuildVoiceStateController ControllerFor(string userId) =>
         new(_cache,
             VoiceTestHarness.StoreFor(_cache, new FakeDistributedLockService()),
-            new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance),
+            PermissionTestFactory.Create(_cache, _context),
             _context)
         {
             ControllerContext = new ControllerContext

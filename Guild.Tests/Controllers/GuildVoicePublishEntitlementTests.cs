@@ -45,8 +45,7 @@ public class GuildVoicePublishEntitlementTests
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
         _sfu = new FakeVoiceSfu();
-        _permissions = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
 
         await SeedGuildAsync(Permissions.Connect | Permissions.Speak | Permissions.Stream);
         await SeedRoomAsync();

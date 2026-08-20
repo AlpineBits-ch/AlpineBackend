@@ -40,7 +40,7 @@ public class MessageUpdatedForChannelHandlerTests
         _hub = new FakeHubContext();
         _bus = new FakeMessageBus();
         _audience = new ChannelAudienceService(
-            new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance),
+            PermissionTestFactory.Create(_cache, _context),
             new MemoryCache(new MemoryCacheOptions()));
         _handler = new MessageUpdatedForChannelHandler();
     }

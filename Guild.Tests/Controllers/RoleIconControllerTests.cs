@@ -42,8 +42,7 @@ public class RoleIconControllerTests
     public void SetUp()
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
-        _permissionService = new GuildPermissionService(
-            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance);
+        _permissionService = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
         _auditLog = new AuditLogService(_context);
         _mfa = new MfaElevationService(_context);
         _s3 = Substitute.For<IAmazonS3>();

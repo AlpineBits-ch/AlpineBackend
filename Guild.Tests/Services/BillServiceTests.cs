@@ -42,7 +42,7 @@ public class BillServiceTests
     {
         _cache = new FakeDistributedCache();
         _context = new BillTestContext(Guid.NewGuid().ToString());
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _ledger = new LedgerService(_context);
         _hub = new FakeHubContext();
         _bus = new FakeMessageBus();

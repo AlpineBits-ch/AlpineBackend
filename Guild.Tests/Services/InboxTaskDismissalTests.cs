@@ -37,8 +37,7 @@ public class InboxTaskDismissalTests
         _cache = new FakeDistributedCache();
         _context = new TestGuildContext(Guid.NewGuid().ToString());
 
-        var permissions = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
 
         _service = new InboxTaskService(_context, permissions);
     }

@@ -51,7 +51,7 @@ public class MessageCreatedPrivacyTests
         _bus = new FakeMessageBus();
         _integrationBus = new FakeInvokingMessageBus();
 
-        var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
         _audience = new ChannelAudienceService(permissions, new MemoryCache(new MemoryCacheOptions()));
         _notifications = new NotificationResolutionService(_context);
         _handler = new MessageCreatedHandler();
@@ -165,8 +165,7 @@ public class MessageCreatedPrivacyTests
     /// <summary>Same reason as <see cref="Scenes"/>: no scene is seeded, so nothing here runs.</summary>
     private SceneJoinService Joins(GuildHydrateService hydrate)
     {
-        var permissions = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
 
         return new SceneJoinService(
             _context, Scenes(hydrate),

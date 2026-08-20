@@ -53,7 +53,7 @@ public class GuildVoiceActivityTests
         _activity = new GuildVoiceActivityStore(locks, _cache);
         _viewers = new StreamViewerStore(locks, _cache);
 
-        var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
 
         _voice = new GuildVoiceController(
             permissions, _hub, _cache,

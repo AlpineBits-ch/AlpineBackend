@@ -288,8 +288,7 @@ public class InboxEndpointTests(IGuildContextProvider provider)
 
     private InboxTaskService Tasks() => new(
         _context,
-        new GuildPermissionService(
-            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance));
+        PermissionTestFactory.Create(new FakeDistributedCache(), _context));
 
     [Test]
     public async Task DismissTask_Unauthenticated_ReturnsUnauthorized()

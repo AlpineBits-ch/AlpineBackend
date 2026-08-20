@@ -37,7 +37,7 @@ public class ChoreNudgeTests
     {
         _cache = new FakeDistributedCache();
         _context = new AbsenceTestContext(Guid.NewGuid().ToString());
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _hub = new FakeHubContext();
         _bus = new FakeMessageBus();
         _endpoint = new ChoreEndpoint();

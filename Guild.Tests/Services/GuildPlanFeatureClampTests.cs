@@ -58,11 +58,11 @@ public class GuildPlanFeatureClampTests
     public async Task TearDown() => await _context.DisposeAsync();
 
     /// <summary>With a plan source.</summary>
-    private GuildPermissionService Planned() => new(
-        _cache, _context, NullLogger<GuildPermissionService>.Instance, _plan);
+    private GuildPermissionService Planned() =>
+        PermissionTestFactory.Create(_cache, _context, _plan);
 
-    private GuildPermissionService Unplanned() => new(
-        _cache, _context, NullLogger<GuildPermissionService>.Instance);
+    private GuildPermissionService Unplanned() =>
+        PermissionTestFactory.Create(_cache, _context);
 
     private async Task SeedAsync(
         GuildFeatures features,
@@ -490,16 +490,42 @@ public class GuildPlanFeatureClampTests
     [Test]
     public void ServiceResolves_WithNoPlanSourceRegistered()
     {
+        using var provider = Container(withSceneVisibility: true).BuildServiceProvider();
+
+        Assert.That(provider.GetRequiredService<GuildPermissionService>(), Is.Not.Null);
+    }
+
+    /// <summary>
+    /// The scene visibility cache is required, unlike the plan source: a host that forgot it would
+    /// otherwise resolve a service that answers "yes, you can see that" for every private scene.
+    /// </summary>
+    [Test]
+    public void ServiceDoesNotResolve_WithNoSceneVisibilityCacheRegistered()
+    {
+        using var provider = Container(withSceneVisibility: false).BuildServiceProvider();
+
+        Assert.That(
+            () => provider.GetRequiredService<GuildPermissionService>(),
+            Throws.InvalidOperationException);
+    }
+
+    private ServiceCollection Container(bool withSceneVisibility)
+    {
         var services = new ServiceCollection();
         services.AddSingleton<IDistributedCache>(_cache);
         services.AddSingleton<MicroserviceContext>(_context);
         services.AddSingleton<ILogger<GuildPermissionService>>(
             NullLogger<GuildPermissionService>.Instance);
+
+        if (withSceneVisibility)
+        {
+            services.AddScoped<PersonaService>();
+            services.AddScoped<SceneVisibilityCache>();
+        }
+
         services.AddScoped<GuildPermissionService>();
 
-        using var provider = services.BuildServiceProvider();
-
-        Assert.That(provider.GetRequiredService<GuildPermissionService>(), Is.Not.Null);
+        return services;
     }
 
     private static IEnumerable<Permissions> Ungated() =>

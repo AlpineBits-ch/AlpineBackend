@@ -45,8 +45,7 @@ public class SceneVisibilityTests
         _cache = new FakeDistributedCache();
         _personas = new PersonaService(_cache, _context);
         _visibility = new SceneVisibilityCache(_cache, _context, _personas);
-        _permissions = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance, null, _visibility);
+        _permissions = PermissionTestFactory.Create(_cache, _context, sceneVisibility: _visibility);
     }
 
     [TearDown]

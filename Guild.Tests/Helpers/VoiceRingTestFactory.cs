@@ -34,7 +34,7 @@ public static class VoiceRingTestFactory
         VoiceRingThrottle? throttle = null,
         TimeProvider? clock = null)
     {
-        var permissions = new GuildPermissionService(cache, context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(cache, context);
 
         var service = new VoiceRingService(
             context,

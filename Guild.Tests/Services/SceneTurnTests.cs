@@ -55,7 +55,7 @@ public class SceneTurnTests
         _cache = new FakeDistributedCache();
         _hub = new FakeHubContext();
         _bus = new FakeInvokingMessageBus();
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _hydrate = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
         _personas = new PersonaService(_cache, _context);
         _cast = new PersonaCastService(_context);

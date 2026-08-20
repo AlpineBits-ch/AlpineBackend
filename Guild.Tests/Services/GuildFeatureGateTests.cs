@@ -32,8 +32,7 @@ public class GuildFeatureGateTests
     {
         _cache = new FakeDistributedCache();
         _context = new TestGuildContext(Guid.NewGuid().ToString());
-        _service = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _service = PermissionTestFactory.Create(_cache, _context);
     }
 
     [TearDown]

@@ -39,7 +39,7 @@ public class WikiEndpointTests
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
-        _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissionService = PermissionTestFactory.Create(_cache, _context);
         _endpoint = new WikiEndpoint();
     }
 

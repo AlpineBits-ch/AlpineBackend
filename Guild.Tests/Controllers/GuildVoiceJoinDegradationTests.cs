@@ -48,8 +48,7 @@ public class GuildVoiceJoinDegradationTests
         _cache = new FakeDistributedCache();
         _hub = new FakeHubContext();
         _bus = new FakeMessageBus();
-        _permissions = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
 
         _context.Guilds.Add(new Guild.Domain.Aggregates.Guild
         {

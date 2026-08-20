@@ -36,8 +36,7 @@ public class InboxMentionHistoryTests(IGuildContextProvider provider)
     public async Task SetUp()
     {
         _context = await provider.CreateAsync();
-        _permissions = new GuildPermissionService(
-            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
 
         _bus = new FakeInvokingMessageBus();
         _bus.SetResponse<GetMessageRequest>(new GetMessageResponse

@@ -36,8 +36,7 @@ public class FilterChannelsForUserTests(IGuildContextProvider provider)
     public async Task SetUp()
     {
         _context = await provider.CreateAsync();
-        _service = new GuildPermissionService(
-            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance);
+        _service = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
     }
 
     [TearDown]

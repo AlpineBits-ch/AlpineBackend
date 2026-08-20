@@ -72,7 +72,7 @@ public class GuildVoiceLivenessTests
         if (deviceId is not null) http.Request.Headers[DeviceIdentity.HeaderName] = deviceId;
 
         return new GuildVoiceController(
-            new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance),
+            PermissionTestFactory.Create(_cache, _context),
             _hub, _cache,
             _context,
             new DeviceIdResolver(_bus, _cache, NullLogger<DeviceIdResolver>.Instance),

@@ -36,7 +36,7 @@ public class PermissionResolutionTests(IGuildContextProvider provider)
     {
         _context = await provider.CreateAsync();
         _cache = new FakeDistributedCache();
-        _service = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _service = PermissionTestFactory.Create(_cache, _context);
     }
 
     [TearDown]

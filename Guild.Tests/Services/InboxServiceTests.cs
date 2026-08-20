@@ -35,7 +35,7 @@ public class InboxServiceTests(IGuildContextProvider provider)
         _bus = new FakeInvokingMessageBus();
         _bus.SetResponse<GetChannelMessagePagesRequest>(new GetChannelMessagePagesResponse { Pages = [] });
 
-        var permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
         _service = new InboxService(
             _context,
             new NotificationResolutionService(_context),

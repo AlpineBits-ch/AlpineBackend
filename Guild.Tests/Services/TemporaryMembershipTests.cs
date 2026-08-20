@@ -36,7 +36,7 @@ public class TemporaryMembershipTests
         _hub = new FakeHubContext();
         _bus = new FakeMessageBus();
         _hydrate = new GuildHydrateService(RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
-        _permissions = new GuildPermissionService(new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
         _sweep = new TemporaryMembershipSweepService(_hub, new ThrowingScopeFactory(), NullLogger<TemporaryMembershipSweepService>.Instance);
     }
 

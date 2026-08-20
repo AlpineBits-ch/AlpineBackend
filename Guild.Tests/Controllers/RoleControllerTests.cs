@@ -33,7 +33,7 @@ public class RoleControllerTests
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
-        _permissionService = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissionService = PermissionTestFactory.Create(_cache, _context);
         _controller = new RoleController(_context, _permissionService, NullLogger<GuildController>.Instance)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = TestPrincipal.Create(UserId) } },

@@ -38,7 +38,7 @@ public class GuildTypingHandlerTests
         _hub = new FakeHubContext();
         _cache = new FakeDistributedCache();
         _bus = new FakeInvokingMessageBus();
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _audience = new ChannelAudienceService(_permissions, new MemoryCache(new MemoryCacheOptions()));
         _handler = new GuildTypingHandler();
 

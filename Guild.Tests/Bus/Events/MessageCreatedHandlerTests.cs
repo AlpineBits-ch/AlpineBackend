@@ -43,7 +43,7 @@ public class MessageCreatedHandlerTests
         _cache = new FakeDistributedCache();
         _hub = new FakeHubContext();
         _bus = new FakeMessageBus();
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _audience = new ChannelAudienceService(_permissions, new MemoryCache(new MemoryCacheOptions()));
         _notifications = new NotificationResolutionService(_context);
         _handler = new MessageCreatedHandler();
@@ -174,8 +174,7 @@ public class MessageCreatedHandlerTests
         var mentions = new PersonaMentionService(_context, new PersonaService(_cache, _context));
         var scenes = new SceneService(_context, mentions, new PersonaCastService(_context), hydrate, _hub);
 
-        var permissions = new GuildPermissionService(
-            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+        var permissions = PermissionTestFactory.Create(_cache, _context);
 
         // No scene is seeded here, so this only has to satisfy the handler's signature.
         var joins = new SceneJoinService(

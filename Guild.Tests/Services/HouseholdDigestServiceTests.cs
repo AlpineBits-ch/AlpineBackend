@@ -35,7 +35,7 @@ public class HouseholdDigestServiceTests
     {
         _cache = new FakeDistributedCache();
         _context = new TestGuildContext(Guid.NewGuid().ToString());
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
     }
 
     [TearDown]

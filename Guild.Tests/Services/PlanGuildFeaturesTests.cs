@@ -259,10 +259,7 @@ public class PlanGuildFeaturesTests
         });
         await context.SaveChangesAsync();
 
-        var permissions = new GuildPermissionService(
-            cache, context, NullLogger<GuildPermissionService>.Instance,
-            Subject(new FakePlanAssignment("free"),
-                ("free", string.Join(',', GuildFeatureMap.Names(GuildFeaturePresets.Community & ~GuildFeatures.Forums)))));
+        var permissions = PermissionTestFactory.Create(cache, context, Subject(new FakePlanAssignment("free"), ("free", string.Join(',', GuildFeatureMap.Names(GuildFeaturePresets.Community & ~GuildFeatures.Forums)))));
 
         var resolution = await permissions.GetGuildFeatureResolutionAsync(GuildId);
 
@@ -293,9 +290,7 @@ public class PlanGuildFeaturesTests
         });
         await context.SaveChangesAsync();
 
-        var permissions = new GuildPermissionService(
-            cache, context, NullLogger<GuildPermissionService>.Instance,
-            Subject(new FakePlanAssignment("free")));
+        var permissions = PermissionTestFactory.Create(cache, context, Subject(new FakePlanAssignment("free")));
 
         var resolution = await permissions.GetGuildFeatureResolutionAsync(GuildId);
 

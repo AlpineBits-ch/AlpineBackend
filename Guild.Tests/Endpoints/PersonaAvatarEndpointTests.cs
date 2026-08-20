@@ -46,7 +46,7 @@ public class PersonaAvatarEndpointTests
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _personas = new PersonaService(_cache, _context);
         _pages = new PersonaPageService(_context);
         _auditLog = new AuditLogService(_context);

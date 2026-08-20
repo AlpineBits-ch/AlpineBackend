@@ -27,8 +27,7 @@ public class ChannelSyncHandlersTests
         _dbName = Guid.NewGuid().ToString();
         _context = new TestGuildContext(_dbName);
         _auditLog = new AuditLogService(_context);
-        _permissionService = new GuildPermissionService(new FakeDistributedCache(), _context,
-            NullLogger<GuildPermissionService>.Instance);
+        _permissionService = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
     }
 
     [TearDown]

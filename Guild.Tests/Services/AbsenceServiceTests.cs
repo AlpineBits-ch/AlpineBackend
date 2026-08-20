@@ -62,7 +62,7 @@ public class AbsenceServiceTests
     {
         _cache = new FakeDistributedCache();
         _context = new AbsenceTestContext(Guid.NewGuid().ToString());
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _rotation = new ChoreRotationService(_context, _permissions);
         _absences = new AbsenceService(_context, _rotation);
         _hub = new FakeHubContext();

@@ -64,8 +64,8 @@ public class GuildPermissionService(
     IDistributedCache cache,
     MicroserviceContext ctx,
     ILogger<GuildPermissionService> logger,
-    IGuildPlanFeatures? planFeatures = null,
-    SceneVisibilityCache? sceneVisibility = null)
+    SceneVisibilityCache sceneVisibility,
+    IGuildPlanFeatures? planFeatures = null)
 {
     /// <summary>
     /// Whether a cast-only scene lets this caller through, applied beside the resolved mask rather
@@ -74,8 +74,6 @@ public class GuildPermissionService(
     /// </summary>
     private async Task<bool> PassesSceneVisibilityAsync(string userId, string guildId, string channelId)
     {
-        if (sceneVisibility is null) return true;
-
         var restricted = await sceneVisibility.RestrictedAsync(guildId);
         if (!restricted.ContainsKey(channelId)) return true;
 
@@ -91,7 +89,7 @@ public class GuildPermissionService(
     private async Task<HashSet<string>> DropInvisibleScenesAsync(
         string userId, string guildId, HashSet<string> allowed)
     {
-        if (sceneVisibility is null || allowed.Count == 0) return allowed;
+        if (allowed.Count == 0) return allowed;
 
         var restricted = await sceneVisibility.RestrictedAsync(guildId);
         if (restricted.Count == 0 || !allowed.Any(restricted.ContainsKey)) return allowed;

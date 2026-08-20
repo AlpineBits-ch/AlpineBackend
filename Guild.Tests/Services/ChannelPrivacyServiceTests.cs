@@ -34,7 +34,7 @@ public class ChannelPrivacyServiceTests
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
         _privacy = new ChannelPrivacyService(_context);
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
     }
 
     [TearDown]

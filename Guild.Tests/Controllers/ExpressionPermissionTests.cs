@@ -36,8 +36,7 @@ public class ExpressionPermissionTests
     public void SetUp()
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
-        _permissionService = new GuildPermissionService(
-            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance);
+        _permissionService = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
         _s3 = Substitute.For<IAmazonS3>();
         _controller = new GuildEmojiController(
             _context,

@@ -30,8 +30,7 @@ public class UseApplicationCommandsEnforcementTests
     public void SetUp()
     {
         _context = new TestGuildContext(Guid.NewGuid().ToString());
-        _service = new GuildPermissionService(
-            new FakeDistributedCache(), _context, NullLogger<GuildPermissionService>.Instance);
+        _service = PermissionTestFactory.Create(new FakeDistributedCache(), _context);
     }
 
     [TearDown]

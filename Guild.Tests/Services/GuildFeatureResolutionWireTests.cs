@@ -46,11 +46,11 @@ public class GuildFeatureResolutionWireTests
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
 
-    private GuildPermissionService Planned() => new(
-        _cache, _context, NullLogger<GuildPermissionService>.Instance, _plan);
+    private GuildPermissionService Planned() =>
+        PermissionTestFactory.Create(_cache, _context, _plan);
 
-    private GuildPermissionService Unplanned() => new(
-        _cache, _context, NullLogger<GuildPermissionService>.Instance);
+    private GuildPermissionService Unplanned() =>
+        PermissionTestFactory.Create(_cache, _context);
 
     private async Task SeedAsync(GuildFeatures features)
     {

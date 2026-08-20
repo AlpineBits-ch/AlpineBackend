@@ -36,7 +36,7 @@ public class PersonaGrantCacheTests
         _context = new TestGuildContext(Guid.NewGuid().ToString());
         _cache = new FakeDistributedCache();
         _personas = new PersonaService(_cache, _context);
-        _permissions = new GuildPermissionService(_cache, _context, NullLogger<GuildPermissionService>.Instance);
+        _permissions = PermissionTestFactory.Create(_cache, _context);
         _hub = new FakeHubContext();
 
         _context.Guilds.Add(new Guild.Domain.Aggregates.Guild

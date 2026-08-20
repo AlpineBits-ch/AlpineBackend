@@ -199,6 +199,11 @@ public class ChannelEndpoint
         var icon = dto.Icon is null ? channel.Icon : NullIfEmpty(dto.Icon);
         var iconColor = dto.IconColor is null ? channel.IconColor : NullIfEmpty(dto.IconColor);
 
+        // Set directly rather than through UpdateChannelParams: Update() is also called from the
+        // Discord sync path, which has no sentinel-aware input and would wipe these with null.
+        channel.Icon = icon;
+        channel.IconColor = iconColor;
+
         try
         {
             channel.Update(new Domain.Aggregates.Channel.UpdateChannelParams
@@ -207,8 +212,6 @@ public class ChannelEndpoint
                 Description = dto.Description,
                 IsAgeRestricted = dto.IsAgeRestricted,
                 SlowModeSeconds = dto.SlowModeSeconds,
-                Icon = icon,
-                IconColor = iconColor,
             });
         }
         catch (ValidationException validationException)
@@ -265,7 +268,6 @@ public class ChannelEndpoint
     }
 
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
-
 
     [WolverinePatch("/api/v1/guilds/{guildId}/channels/reorder")]
     public async Task<IResult> ReorderChannels(

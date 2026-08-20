@@ -329,6 +329,7 @@ public class ChannelEndpointTests
             Icon = "swords",
             IconColor = "#F87171",
         }, _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
 
         var dto = ((Ok<Guild.Application.Dtos.Response.ChannelDto>)result).Value!;
         Assert.That(dto.Name, Is.EqualTo("renamed"));
@@ -338,6 +339,20 @@ public class ChannelEndpointTests
         Assert.That(dto.IconColor, Is.EqualTo("#F87171"));
         Assert.That(dto.Position, Is.EqualTo(channel.Position));
         Assert.That(dto.CategoryId, Is.EqualTo(channel.CategoryId));
+    }
+
+    [Test]
+    public async Task UpdateChannel_MalformedIcon_ReturnsValidationProblem()
+    {
+        await SeedManagerMember();
+        var channel = await SeedChannel();
+
+        var result = await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = channel.Name, Icon = "Not Kebab Case" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
+
+        // Results.ValidationProblem materializes as ProblemHttpResult, not the ValidationProblem type.
+        Assert.That(result, Is.InstanceOf<ProblemHttpResult>());
+        Assert.That(((ProblemHttpResult)result).StatusCode, Is.EqualTo(StatusCodes.Status400BadRequest));
     }
 
     // ══════════════════════════════════════════════════════════════════════ ReorderChannels

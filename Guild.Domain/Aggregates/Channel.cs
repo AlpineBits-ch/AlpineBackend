@@ -145,15 +145,12 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
         public string? Description { get; init; }
         public bool IsAgeRestricted { get; init; }
         public int SlowModeSeconds { get; init; }
-
-        // Absolute values; the endpoint has already resolved the clear sentinel.
-        public string? Icon { get; init; }
-        public string? IconColor { get; init; }
     }
 
     /// <summary>
-    /// IsPrivate is not settable here: it is only meaningful alongside the @everyone ViewChannel
-    /// overwrite that enforces it, so ChannelPrivacyService owns both halves.
+    /// IsPrivate, Icon and IconColor are absent from UpdateChannelParams on purpose: each needs
+    /// caller-specific handling (the @everyone overwrite, the PATCH endpoint's clear sentinel) that
+    /// a blind field copy here would silently overwrite with null on every other caller's update.
     /// </summary>
     public void Update(UpdateChannelParams @params)
     {
@@ -161,8 +158,6 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
         Description = @params.Description;
         IsAgeRestricted = @params.IsAgeRestricted;
         SlowModeSeconds = @params.SlowModeSeconds;
-        Icon = @params.Icon;
-        IconColor = @params.IconColor;
 
         new ChannelValidator().ValidateAndThrow(this);
 

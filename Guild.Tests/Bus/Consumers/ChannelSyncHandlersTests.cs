@@ -151,6 +151,28 @@ public class ChannelSyncHandlersTests
     }
 
     [Test]
+    public async Task Upsert_UpdateExistingChannel_DoesNotClearIconOrColour()
+    {
+        var created = await Upsert(new UpsertChannelFromSyncCommand
+        {
+            GuildId = GuildId, IsCategory = false, Name = "general", Type = "Text", Position = 0,
+        });
+        var channel = _context.Channels.Single(c => c.Id == created.EchoId);
+        channel.Icon = "swords";
+        channel.IconColor = "#F87171";
+        await _context.SaveChangesAsync();
+
+        await Upsert(new UpsertChannelFromSyncCommand
+        {
+            GuildId = GuildId, IsCategory = false, EchoChannelId = created.EchoId, Name = "renamed", Type = "Text", Position = 0,
+        });
+
+        var reloaded = _context.Channels.Single(c => c.Id == created.EchoId);
+        Assert.That(reloaded.Icon, Is.EqualTo("swords"));
+        Assert.That(reloaded.IconColor, Is.EqualTo("#F87171"));
+    }
+
+    [Test]
     public async Task Delete_ExistingChannel_RemovesRow()
     {
         var created = await Upsert(new UpsertChannelFromSyncCommand

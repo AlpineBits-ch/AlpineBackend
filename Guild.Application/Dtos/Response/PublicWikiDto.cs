@@ -63,4 +63,8 @@ public class PublicWikiPageDto
     public required string GuildName { get; init; }
 
     public required string WikiSlug { get; init; }
+
+    /// <summary>The slug of each published page this body links to, keyed by page id. A link to a
+    /// page nobody published is absent, so the gateway renders it as a dead anchor.</summary>
+    public Dictionary<string, string> LinkedPages { get; init; } = [];
 }

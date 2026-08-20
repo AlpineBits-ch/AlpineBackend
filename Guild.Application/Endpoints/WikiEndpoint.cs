@@ -123,6 +123,66 @@ public class WikiEndpoint
         });
     }
 
+    /// <summary>The page graph: every page the caller may see, and the links between them.</summary>
+    /// <param name="guildId">The guild.</param>
+    /// <param name="permissionService">Resolves the caller's mask.</param>
+    /// <param name="ctx">The Guild database.</param>
+    /// <param name="user">The caller.</param>
+    /// <returns>The nodes and their body-link edges, or 403 without ViewWiki.</returns>
+    [WolverineGet("/api/v1/guilds/{guildId}/wiki/graph")]
+    public async Task<IResult> GetWikiGraph(
+        string guildId,
+        [NotBody] GuildPermissionService permissionService,
+        [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        var canView = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.ViewWiki);
+        if (!canView) return Results.Forbid();
+
+        var canEditAny = await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, ModulePermissions.EditAnyWikiPage);
+
+        var nodes = await ctx.WikiPages.AsNoTracking()
+            .Where(p => p.GuildId == guildId)
+            .Where(p => canEditAny || p.Visibility == WikiVisibility.Public || p.AuthorId == userId)
+            .OrderBy(p => p.CreatedAt)
+            .Select(p => new WikiGraphNodeDto
+            {
+                Id = p.Id,
+                Title = p.Title,
+                Icon = p.Icon,
+                ParentPageId = p.ParentPageId,
+                CategoryId = p.CategoryId,
+            })
+            .ToListAsync();
+
+        var visible = nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
+
+        var links = await ctx.WikiPageLinks.AsNoTracking()
+            .Where(l => l.GuildId == guildId)
+            .OrderBy(l => l.SourcePageId)
+            .ThenBy(l => l.TargetPageId)
+            .ToListAsync();
+
+        return Results.Ok(new WikiGraphDto
+        {
+            Nodes = nodes,
+            // Both ends have to be visible. GetWikiPage answers 404 rather than 403 for a page the
+            // caller may not see, and an edge naming one confirms it exists.
+            Edges = links
+                .Where(l => visible.Contains(l.SourcePageId) && visible.Contains(l.TargetPageId))
+                .Select(l => new WikiGraphEdgeDto
+                {
+                    SourcePageId = l.SourcePageId,
+                    TargetPageId = l.TargetPageId,
+                    HeadingId = l.HeadingId,
+                })
+                .ToList(),
+        });
+    }
+
     [WolverineGet("/api/v1/guilds/{guildId}/wiki/pages/{pageId}")]
     public async Task<IResult> GetWikiPage(
         string guildId,
@@ -189,6 +249,7 @@ public class WikiEndpoint
         });
 
         ctx.WikiPages.Add(page);
+        await RebuildPageLinksAsync(page, ctx);
 
         var responseDto = page.ToFacet<WikiPage, WikiPageDto>();
         responseDto.RevisionCount = page.Revisions.Count;
@@ -279,6 +340,7 @@ public class WikiEndpoint
             // already-tracked page (adding it explicitly too duplicated the in-memory list entry,
             // inflating WikiPageDto.RevisionCount by one in the response below).
             ctx.WikiRevisions.Add(revision);
+            await RebuildPageLinksAsync(page, ctx);
         }
 
         page.RaiseUpdated(userId);
@@ -380,6 +442,8 @@ public class WikiEndpoint
         // Not also page.Revisions.Add(restoredRevision) - see the identical note in UpdateWikiPage
         // above; EF's change-tracker fixup already appends it once tracked via the DbSet.
         ctx.WikiRevisions.Add(restoredRevision);
+
+        await RebuildPageLinksAsync(page, ctx);
 
         page.RaiseUpdated(userId);
 
@@ -996,6 +1060,49 @@ public class WikiEndpoint
     // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Rewrites one page's outgoing edges from its body, in the caller's transaction. The page is
+    /// the sole authority for its own links, so nothing here merges with what was there.
+    /// </summary>
+    private static async Task RebuildPageLinksAsync(WikiPage page, MicroserviceContext ctx)
+    {
+        var wanted = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        // TODO(dominic): infobox references are not extracted yet.
+        foreach (var reference in WikiLinkExtractor.Extract(page.Content, page.Id))
+        {
+            // One row per (source, target), so a second link to the same page keeps the first
+            // one's heading.
+            wanted.TryAdd(reference.TargetPageId, reference.HeadingId);
+        }
+
+        var existing = await ctx.WikiPageLinks
+            .Where(l => l.SourcePageId == page.Id)
+            .ToListAsync();
+
+        ctx.WikiPageLinks.RemoveRange(existing.Where(l => !wanted.ContainsKey(l.TargetPageId)));
+
+        // A surviving edge is updated rather than removed and re-added: both instances would be
+        // tracked under the same key, which throws before SaveChanges ever runs.
+        foreach (var link in existing.Where(l => wanted.ContainsKey(l.TargetPageId)))
+        {
+            link.HeadingId = wanted[link.TargetPageId];
+        }
+
+        var kept = existing.Select(l => l.TargetPageId).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var (targetPageId, headingId) in wanted.Where(w => !kept.Contains(w.Key)))
+        {
+            ctx.WikiPageLinks.Add(new WikiPageLink
+            {
+                SourcePageId = page.Id,
+                TargetPageId = targetPageId,
+                GuildId = page.GuildId,
+                HeadingId = headingId,
+            });
+        }
+    }
 
     /// <summary>
     /// Who may read a page marked private: whoever wrote it, and whoever may already rewrite it.

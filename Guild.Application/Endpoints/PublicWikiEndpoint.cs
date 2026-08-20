@@ -90,6 +90,16 @@ public class PublicWikiEndpoint
                 .Select(c => c.Name)
                 .FirstOrDefaultAsync();
 
+        // Only published targets: an internal link must not become an address on the public site
+        // for a page the guild kept to itself.
+        var linkedPages = await (
+                from link in ctx.WikiPageLinks.AsNoTracking().Where(l => l.SourcePageId == page.Id)
+                join target in ctx.WikiPages.AsNoTracking().Where(WikiPublication.IsPageOptedIn)
+                    on link.TargetPageId equals target.Id
+                where target.GuildId == published.GuildId
+                select new { target.Id, target.Slug })
+            .ToDictionaryAsync(t => t.Id, t => t.Slug);
+
         return Results.Ok(new PublicWikiPageDto
         {
             Slug = page.Slug,
@@ -101,6 +111,7 @@ public class PublicWikiEndpoint
             UpdatedAt = page.UpdatedAt,
             GuildName = published.GuildName,
             WikiSlug = published.Slug,
+            LinkedPages = linkedPages,
         });
     }
 

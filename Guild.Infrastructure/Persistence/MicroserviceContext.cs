@@ -28,6 +28,7 @@ public class MicroserviceContext : DbContext
     public DbSet<WikiPageReaction> WikiPageReactions { get; set; }
     public DbSet<WikiPageWatcher> WikiPageWatchers { get; set; }
     public DbSet<WikiComment> WikiComments { get; set; }
+    public DbSet<WikiPageLink> WikiPageLinks { get; set; }
 
     // ── Roleplay ─────────────────────────────────────────────────────────────
     public DbSet<Persona> Personas { get; set; }
@@ -567,6 +568,23 @@ public class MicroserviceContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             commentBuilder.HasIndex(c => new { c.PageId, c.CreatedAt });
+        });
+
+        // Same FK-without-navigation shape as the reactions above, for the same reason.
+        modelBuilder.Entity<WikiPageLink>(linkBuilder =>
+        {
+            linkBuilder.HasKey(l => new { l.SourcePageId, l.TargetPageId });
+
+            linkBuilder.HasOne<WikiPage>()
+                .WithMany()
+                .HasForeignKey(l => l.SourcePageId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // No foreign key on TargetPageId: a link to a page that does not exist yet is a red
+            // link, and an FK would refuse the write.
+
+            // The backlinks query, which asks who points at one page across the whole guild.
+            linkBuilder.HasIndex(l => new { l.GuildId, l.TargetPageId });
         });
 
         // Personas hang off Guild by foreign key and never off GuildMember - see

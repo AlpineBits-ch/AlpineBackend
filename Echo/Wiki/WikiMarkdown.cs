@@ -12,7 +12,14 @@ namespace Echo.Wiki;
 /// What an app-relative URL is rebased onto. A leading slash would otherwise resolve against the
 /// wiki host, which serves no media and no application routes.
 /// </param>
-public sealed record WikiLinkPolicy(IReadOnlyCollection<string> ImageHosts, string InstanceBaseUrl);
+/// <param name="PublishedPages">
+/// The public address of each page a <c>wiki:</c> link may resolve to, keyed by page id. A target
+/// missing from here is a page nobody published, and its link is neutralised.
+/// </param>
+public sealed record WikiLinkPolicy(
+    IReadOnlyCollection<string> ImageHosts,
+    string InstanceBaseUrl,
+    IReadOnlyDictionary<string, string>? PublishedPages = null);
 
 /// <summary>
 /// Turns a wiki page's markdown into the HTML the public site serves.
@@ -27,6 +34,9 @@ public static class WikiMarkdown
 {
     /// <summary>What a link may point at once it is rendered.</summary>
     private static readonly string[] AllowedSchemes = ["http", "https", "mailto"];
+
+    /// <summary>The scheme an internal page link is written with: <c>[Title](wiki:wkpg_abc)</c>.</summary>
+    private const string WikiScheme = "wiki:";
 
     /// <summary>Untrusted outbound links carry no ranking value and no window handle.</summary>
     private const string OutboundRel = "nofollow ugc noopener noreferrer";
@@ -121,6 +131,13 @@ public static class WikiMarkdown
     {
         var url = Clean(link.Url);
 
+        // Same site, same tab, so this returns before the outbound attributes below.
+        if (ResolveWikiLink(url, policy) is { } internalUrl)
+        {
+            link.Url = internalUrl;
+            return;
+        }
+
         if (!IsAllowedHref(url))
         {
             // Kept as an anchor so the author's link text survives, pointed at nothing.
@@ -137,6 +154,24 @@ public static class WikiMarkdown
         var attributes = link.GetAttributes();
         attributes.AddPropertyIfNotExist("rel", OutboundRel);
         attributes.AddPropertyIfNotExist("target", "_blank");
+    }
+
+    /// <summary>
+    /// Turns <c>wiki:wkpg_x#heading</c> into the target page's public address, or null when the
+    /// target is not itself published.
+    /// </summary>
+    private static string? ResolveWikiLink(string url, WikiLinkPolicy policy)
+    {
+        if (!url.StartsWith(WikiScheme, StringComparison.OrdinalIgnoreCase)) return null;
+        if (policy.PublishedPages is not { Count: > 0 } published) return null;
+
+        var rest = url[WikiScheme.Length..];
+        var hash = rest.IndexOf('#', StringComparison.Ordinal);
+
+        var target = hash < 0 ? rest : rest[..hash];
+        var fragment = hash < 0 ? string.Empty : rest[hash..];
+
+        return published.TryGetValue(target, out var address) ? address + fragment : null;
     }
 
     /// <summary>

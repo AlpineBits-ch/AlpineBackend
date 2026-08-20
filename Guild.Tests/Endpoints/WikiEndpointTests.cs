@@ -1369,6 +1369,139 @@ public class WikiEndpointTests
         Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
     }
 
+    // ══════════════════════════════════════════════════════════════════════ GetWikiGraph
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task GetWikiGraph_LacksViewWiki_ReturnsForbid()
+    {
+        await SeedMember(Permissions.None);
+
+        var result = await _endpoint.GetWikiGraph(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+
+        Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+    }
+
+    [Test]
+    public async Task GetWikiGraph_PrivatePageOfAnotherAuthor_IsNotANode()
+    {
+        await SeedMember(ModulePermissions.ViewWiki);
+        var mine = await SeedPage();
+        var theirs = await SeedPrivatePage("someone-else");
+
+        var graph = await Graph();
+
+        Assert.That(graph.Nodes.Select(n => n.Id), Is.EqualTo(new[] { mine.Id }));
+        Assert.That(theirs.Visibility, Is.EqualTo(WikiVisibility.Private));
+    }
+
+    // The 404 GetWikiPage answers for a page you may not see is the whole point; an edge naming it
+    // would give it away.
+    [Test]
+    public async Task GetWikiGraph_EdgeIntoAHiddenPage_IsAbsent()
+    {
+        await SeedMember(ModulePermissions.ViewWiki);
+        var mine = await SeedPage();
+        var hidden = await SeedPrivatePage("someone-else");
+        await SeedLink(mine.Id, hidden.Id);
+
+        var graph = await Graph();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(graph.Edges, Is.Empty);
+            Assert.That(graph.Nodes.Select(n => n.Id), Does.Not.Contain(hidden.Id));
+        });
+    }
+
+    [Test]
+    public async Task GetWikiGraph_Valid_ReturnsTheEdgeWithItsHeading()
+    {
+        await SeedMember(ModulePermissions.ViewWiki);
+        var source = await SeedPage();
+        var target = await SeedPage();
+        await SeedLink(source.Id, target.Id, "the-siege");
+
+        var graph = await Graph();
+
+        Assert.That(graph.Edges, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(graph.Edges[0].SourcePageId, Is.EqualTo(source.Id));
+            Assert.That(graph.Edges[0].TargetPageId, Is.EqualTo(target.Id));
+            Assert.That(graph.Edges[0].HeadingId, Is.EqualTo("the-siege"));
+        });
+    }
+
+    [Test]
+    public async Task UpdateWikiPage_ContentChanged_RebuildsTheEdges()
+    {
+        await SeedMember(ModulePermissions.ViewWiki | ModulePermissions.EditOwnWikiPages);
+        var first = await SeedPage();
+        var second = await SeedPage();
+        var source = await SeedPage(content: "v1");
+        await RebuildLinksThrough(source, $"[a](wiki:{first.Id})");
+
+        await RebuildLinksThrough(source, $"[b](wiki:{second.Id}#later)");
+
+        var graph = await Graph();
+        Assert.That(graph.Edges, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(graph.Edges[0].TargetPageId, Is.EqualTo(second.Id));
+            Assert.That(graph.Edges[0].HeadingId, Is.EqualTo("later"));
+        });
+    }
+
+    [Test]
+    public async Task DeleteWikiPage_TakesItsEdgesWithIt()
+    {
+        await SeedMember(ModulePermissions.ViewWiki | ModulePermissions.EditOwnWikiPages | ModulePermissions.DeleteWikiPages);
+        var target = await SeedPage();
+        var source = await SeedPage();
+        await RebuildLinksThrough(source, $"[a](wiki:{target.Id})");
+
+        await _endpoint.DeleteWikiPage(GuildId, source.Id, _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        Assert.That(await _context.WikiPageLinks.AsNoTracking().AnyAsync(l => l.SourcePageId == source.Id), Is.False);
+    }
+
+    private async Task<Guild.Application.Dtos.Response.WikiGraphDto> Graph()
+    {
+        var result = await _endpoint.GetWikiGraph(GuildId, _permissionService, _context, TestPrincipal.Create(UserId));
+        return ((Ok<Guild.Application.Dtos.Response.WikiGraphDto>)result).Value!;
+    }
+
+    private async Task<WikiPage> SeedPrivatePage(string authorId, string content = "secret")
+    {
+        var page = WikiPage.Create(new CreateWikiPageParams
+        {
+            GuildId = GuildId, Title = "Hidden", Content = content,
+            AuthorId = authorId, Visibility = WikiVisibility.Private,
+        });
+        _context.WikiPages.Add(page);
+        await _context.SaveChangesAsync();
+        return page;
+    }
+
+    private async Task SeedLink(string sourcePageId, string targetPageId, string? headingId = null)
+    {
+        _context.WikiPageLinks.Add(new WikiPageLink
+        {
+            SourcePageId = sourcePageId, TargetPageId = targetPageId, GuildId = GuildId, HeadingId = headingId,
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    /// <summary>Puts a new body on a page through the endpoint, which is what rewrites its edges.</summary>
+    private async Task RebuildLinksThrough(WikiPage page, string content)
+    {
+        await _endpoint.UpdateWikiPage(GuildId, page.Id, new UpdateWikiPageDto { Content = content },
+            _permissionService, _context, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+    }
+
     private async Task<WikiComment> SeedComment(string pageId, string content, string authorId, DateTime? createdAt = null)
     {
         var comment = WikiComment.Create(new CreateWikiCommentParams

@@ -31,6 +31,10 @@ public sealed record PublicWikiPageSummary(string Slug, string Title, string? Ic
 /// <param name="UpdatedAt">When the page was last edited.</param>
 /// <param name="GuildName">The publishing guild's name.</param>
 /// <param name="WikiSlug">The slug of the wiki this page belongs to.</param>
+/// <param name="LinkedPages">
+/// The slug of each published page this body links to, keyed by page id. Anything the body points at
+/// that is missing from here was not published, and its link stays dead.
+/// </param>
 public sealed record PublicWikiPage(
     string Slug,
     string Title,
@@ -40,4 +44,5 @@ public sealed record PublicWikiPage(
     string? Category,
     DateTimeOffset UpdatedAt,
     string GuildName,
-    string WikiSlug);
+    string WikiSlug,
+    IReadOnlyDictionary<string, string>? LinkedPages = null);

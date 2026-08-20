@@ -13,6 +13,15 @@ public class WikiMarkdownTests
     private static readonly WikiLinkPolicy Policy =
         new(["media.venta.gg"], "https://api.venta.gg");
 
+    /// <summary>One published sibling to link to, as the page renderer hands it over.</summary>
+    private static readonly WikiLinkPolicy PolicyWithSibling = Policy with
+    {
+        PublishedPages = new Dictionary<string, string>
+        {
+            ["wkpg_published"] = "https://keep.wiki.venta.gg/the-keep-published",
+        },
+    };
+
     // ── Raw HTML never becomes markup ────────────────────────────────────────
 
     /// <summary>
@@ -126,6 +135,54 @@ public class WikiMarkdownTests
         var html = WikiMarkdown.Render("[x](/channels/1)", Policy);
 
         Assert.That(html, Does.Contain("href=\"https://api.venta.gg/channels/1\""));
+    }
+
+    // ── Internal links ───────────────────────────────────────────────────────
+
+    /// <summary>Every internal link on a published wiki used to render as a dead anchor.</summary>
+    [Test]
+    public void A_link_to_a_published_page_resolves_to_its_public_address()
+    {
+        var html = WikiMarkdown.Render("[the keep](wiki:wkpg_published)", PolicyWithSibling);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(html, Does.Contain("href=\"https://keep.wiki.venta.gg/the-keep-published\""));
+            // Same site, so it stays in this tab and carries no outbound rel.
+            Assert.That(html, Does.Not.Contain("nofollow"));
+            Assert.That(html, Does.Not.Contain("_blank"));
+        });
+    }
+
+    [Test]
+    public void A_link_to_a_heading_on_a_published_page_keeps_the_fragment()
+    {
+        var html = WikiMarkdown.Render("[the siege](wiki:wkpg_published#the-siege)", PolicyWithSibling);
+
+        Assert.That(html, Does.Contain("href=\"https://keep.wiki.venta.gg/the-keep-published#the-siege\""));
+    }
+
+    /// <summary>A page the guild kept to itself must not get an address on the public site.</summary>
+    [Test]
+    public void A_link_to_a_page_that_is_not_published_is_neutralised()
+    {
+        var html = WikiMarkdown.Render("[the vault](wiki:wkpg_private)", PolicyWithSibling);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(html, Does.Contain("href=\"#\""));
+            Assert.That(html, Does.Not.Contain("wkpg_private"));
+            Assert.That(html, Does.Contain(">the vault</a>"));
+        });
+    }
+
+    /// <summary>Nothing resolves without a page map, which is every render but a page body.</summary>
+    [Test]
+    public void A_wiki_link_is_neutralised_when_no_pages_are_published()
+    {
+        var html = WikiMarkdown.Render("[the keep](wiki:wkpg_published)", Policy);
+
+        Assert.That(html, Does.Contain("href=\"#\""));
     }
 
     // ── Images are a beacon, not just a picture ──────────────────────────────

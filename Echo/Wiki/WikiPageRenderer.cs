@@ -42,13 +42,14 @@ public static class WikiPageRenderer
         ArgumentNullException.ThrowIfNull(context);
 
         var summary = WikiMarkdown.Summarise(page.Content, SummaryLength);
+        var links = LinkPolicyFor(page, context);
         var body = new StringBuilder();
 
         body.Append("<article class=\"page\">");
 
         // Checked again here rather than trusted from the publish call: the column predates the
         // origin restriction, so a row can carry an address no current code would have accepted.
-        if (WikiMarkdown.ResolveImage(page.CoverUrl, context.Links) is { } cover)
+        if (WikiMarkdown.ResolveImage(page.CoverUrl, links) is { } cover)
         {
             body.Append("<img class=\"cover\" src=\"").Append(Attribute(cover)).Append("\" alt=\"\" />");
         }
@@ -61,7 +62,7 @@ public static class WikiPageRenderer
             body.Append("<p class=\"meta\">").Append(Text(page.Category)).Append("</p>");
 
         body.Append("<div class=\"prose\">")
-            .Append(WikiMarkdown.Render(page.Content, context.Links))
+            .Append(WikiMarkdown.Render(page.Content, links))
             .Append("</div>");
 
         body.Append("<p class=\"meta\">Last updated ")
@@ -172,6 +173,25 @@ public static class WikiPageRenderer
             body: "<article class=\"page\"><h1>Temporarily unavailable</h1>"
                   + "<p class=\"lead\">This page could not be loaded. Try again in a moment.</p></article>",
             context: context);
+    }
+
+    /// <summary>
+    /// This page's link policy: the instance-wide one, plus the address every internal link in this
+    /// body may resolve to. Both live on this wiki's own host.
+    /// </summary>
+    private static WikiLinkPolicy LinkPolicyFor(PublicWikiPage page, WikiRenderContext context)
+    {
+        if (page.LinkedPages is not { Count: > 0 } linked) return context.Links;
+
+        var origin = context.OriginFor(page.WikiSlug);
+
+        return context.Links with
+        {
+            PublishedPages = linked.ToDictionary(
+                entry => entry.Key,
+                entry => $"{origin}/{Uri.EscapeDataString(entry.Value)}",
+                StringComparer.Ordinal),
+        };
     }
 
     /// <summary>The shell every document shares.</summary>

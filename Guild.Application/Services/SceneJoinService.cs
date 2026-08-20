@@ -20,6 +20,7 @@ public class SceneJoinService(
     MicroserviceContext ctx,
     SceneService scenes,
     SceneVisibilityCache visibility,
+    GuildPermissionService permissions,
     PersonaCastService cast,
     ModulePermissionHolderService holders,
     IHubContext<EchoRealtimeHub> hub,
@@ -48,8 +49,8 @@ public class SceneJoinService(
     }
 
     /// <summary>
-    /// Puts a character that just spoke into an open scene it was not in. Nobody asked for this;
-    /// without it the cast means nothing in an open scene.
+    /// Puts a character that just spoke into a scene it was not in: into the rotation when the
+    /// scene is open, into the cast alone when a game master spoke it into a closed one.
     /// </summary>
     /// <param name="scene">The scene's turn state, tracked.</param>
     /// <param name="personaId">The character the message went out as, or null for a plain message.</param>
@@ -59,11 +60,28 @@ public class SceneJoinService(
     public async Task<bool> AutoJoinOnPostAsync(
         SceneState scene, string? personaId, string authorUserId, DateTimeOffset now)
     {
-        if (scene.JoinPolicy != SceneJoinPolicy.Open) return false;
         if (scene.Status == SceneStatus.Concluded) return false;
         if (personaId is null || scene.IsInCast(personaId)) return false;
 
-        return await JoinAsync(scene, personaId, authorUserId, now);
+        // An open scene takes the character into the rotation: it turned up, so it plays.
+        if (scene.JoinPolicy == SceneJoinPolicy.Open)
+            return await JoinAsync(scene, personaId, authorUserId, now);
+
+        // A closed scene is only reachable here by whoever the send gate let through, which is a
+        // game master voicing somebody. The cast has to say they spoke; the queue must not hand a
+        // one-line NPC a turn.
+        if (!await permissions.CanUserPerformActionOnGuildAsync(
+                authorUserId, scene.GuildId, ModulePermissions.ManageScenes))
+        {
+            return false;
+        }
+
+        if (!scene.AddGuest(personaId, now)) return false;
+
+        await AnnounceJoinedAsync(scene, personaId, authorUserId);
+        await scenes.BroadcastUpdatedAsync(scene);
+
+        return true;
     }
 
     /// <summary>

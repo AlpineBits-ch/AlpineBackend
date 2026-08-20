@@ -69,7 +69,7 @@ public class SceneTurnTests
     }
 
     private SceneJoinService JoinsFor(SceneService scenes) =>
-        new(_context, scenes, _sceneVisibility, _cast,
+        new(_context, scenes, _sceneVisibility, _permissions, _cast,
             new ModulePermissionHolderService(_context, _permissions), _hub, _bus);
 
     [TearDown]

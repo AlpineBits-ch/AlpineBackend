@@ -595,6 +595,14 @@ beside `AdvanceOnPostAsync` rather than in the send path, so the join lands afte
 caused it, in the order a reader expects. Nobody asked for this behaviour; without it the cast means
 nothing in an open scene. Leaving is one click and writes its own line.
 
+The same handler covers the one way a character reaches a closed scene without asking: the send gate
+lets a `ManageScenes` holder speak as anyone, and a character that spoke while outside the cast left
+no trace at all, so the scene's record of who is playing was wrong. Such a character now joins the
+cast but not the rotation, through `SceneState.AddGuest`. A GM's one-line innkeeper is visibly in the
+scene and writes its join line, and is never handed a turn it does not want; promoting it to a player
+is a `turnOrder` edit. `Rotation` falls back to the cast whenever `TurnOrder` is empty, so `AddGuest`
+writes the existing order down before adding anyone, or the fallback would queue the guest anyway.
+
 **Two system messages.** `MessageType.SceneCharacterJoined` and `MessageType.SceneCharacterLeft`,
 written through the same `CreateMessageCommand` path the dice route uses. Authored by the real
 account with `PersonaId`, `AuthorDisplayName` and `AuthorAvatarUrl` set from the character, and

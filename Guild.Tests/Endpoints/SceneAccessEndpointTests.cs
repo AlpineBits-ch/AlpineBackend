@@ -69,7 +69,7 @@ public class SceneAccessEndpointTests
             _context, new PersonaMentionService(_context, _personas), _cast, _hydrate,
             _permissions, _hub);
         _joins = new SceneJoinService(
-            _context, _scenes, _visibility, _cast,
+            _context, _scenes, _visibility, _permissions, _cast,
             new ModulePermissionHolderService(_context, _permissions), _hub, _bus);
         _auditLog = new AuditLogService(_context);
         _endpoint = new SceneEndpoint();
@@ -364,7 +364,7 @@ public class SceneAccessEndpointTests
     }
 
     [Test]
-    public async Task PostingInAClosedOrConcludedScene_JoinsNobody()
+    public async Task PostingInAClosedOrConcludedScene_JoinsNobodyWithoutManageScenes()
     {
         await SeedAsync();
         var closed = await SeedSceneAsync(SceneJoinPolicy.Ask);
@@ -381,6 +381,41 @@ public class SceneAccessEndpointTests
             await _joins.AutoJoinOnPostAsync(
                 closed, OutsiderPersonaId, OutsiderId, DateTimeOffset.UtcNow),
             Is.False);
+    }
+
+    [Test]
+    public async Task AGameMasterSpeakingInAClosedScene_PutsTheCharacterInTheCastWithoutATurn()
+    {
+        await SeedAsync();
+        var closed = await SeedSceneAsync(SceneJoinPolicy.Ask);
+
+        var joined = await _joins.AutoJoinOnPostAsync(
+            closed, OutsiderPersonaId, GameMasterId, DateTimeOffset.UtcNow);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(joined, Is.True);
+            Assert.That(closed.ParticipantPersonaIds, Does.Contain(OutsiderPersonaId));
+            Assert.That(closed.Rotation, Does.Not.Contain(OutsiderPersonaId));
+            Assert.That(SystemMessages(MessagingMessageType.SceneCharacterJoined), Has.Count.EqualTo(1));
+        });
+    }
+
+    /// <summary>
+    /// An empty TurnOrder means the cast in the order it was assembled, so a guest added to a scene
+    /// that never set one would be handed a turn by the fallback.
+    /// </summary>
+    [Test]
+    public async Task AGuestDoesNotDisturbTheRotationTheSceneAlreadyHad()
+    {
+        await SeedAsync();
+        var closed = await SeedSceneAsync(SceneJoinPolicy.Ask);
+        var before = closed.Rotation.ToList();
+
+        await _joins.AutoJoinOnPostAsync(
+            closed, OutsiderPersonaId, GameMasterId, DateTimeOffset.UtcNow);
+
+        Assert.That(closed.Rotation, Is.EqualTo(before));
     }
 
     [Test]

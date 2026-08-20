@@ -143,6 +143,26 @@ public class SceneState
         return true;
     }
 
+    /// <summary>
+    /// Puts a character in the cast without giving it a turn, for a voice a game master speaks in
+    /// rather than a player taking a place in the rotation.
+    /// </summary>
+    /// <param name="personaId">The character joining.</param>
+    /// <param name="now">The instant it joined.</param>
+    /// <returns>False when the character was already in the scene.</returns>
+    public bool AddGuest(string personaId, DateTimeOffset now)
+    {
+        if (IsInCast(personaId)) return false;
+
+        // Rotation falls back to the cast whenever TurnOrder is empty, so the order has to be
+        // written down before anyone can be in the scene without being in the queue.
+        if (TurnOrder.Count == 0) TurnOrder = [.. ParticipantPersonaIds];
+
+        ParticipantPersonaIds.Add(personaId);
+        UpdatedAt = now;
+        return true;
+    }
+
     /// <summary>The rotation as it actually resolves: the explicit turn order when one is set,
     /// otherwise the participants in the order they were added.</summary>
     [NotMapped]

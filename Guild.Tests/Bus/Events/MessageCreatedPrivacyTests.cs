@@ -171,6 +171,7 @@ public class MessageCreatedPrivacyTests
         return new SceneJoinService(
             _context, Scenes(hydrate),
             new SceneVisibilityCache(_cache, _context, new PersonaService(_cache, _context)),
+            permissions,
             new PersonaCastService(_context),
             new ModulePermissionHolderService(_context, permissions), _hub, _bus);
     }

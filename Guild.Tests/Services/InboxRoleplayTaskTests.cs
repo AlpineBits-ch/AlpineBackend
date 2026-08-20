@@ -75,7 +75,8 @@ public class InboxRoleplayTaskTests
         _context.Roles.Add(new Role
         {
             Id = ReviewerRoleId, GuildId = GuildId, Name = "Storyteller",
-            ModulePermissions = ModulePermissions.ApprovePersonas | ModulePermissions.ManageAnyPersona,
+            ModulePermissions = ModulePermissions.ApprovePersonas | ModulePermissions.ManageAnyPersona
+                                | ModulePermissions.ManageScenes,
             CreatedAt = now, UpdatedAt = now,
         });
 
@@ -386,6 +387,101 @@ public class InboxRoleplayTaskTests
             PlayerPersonaId, "Mayor Cogsgrove", PlayerId, PersonaApprovalState.Submitted);
 
         Assert.That(await TasksAsync(ReviewerId), Is.Empty);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════ Scene join requests
+    // ══════════════════════════════════════════════════════════════════════
+
+    private async Task<SceneJoinRequest> AddJoinRequestAsync(
+        SceneJoinRequestStatus status = SceneJoinRequestStatus.Pending, string? reason = null)
+    {
+        var request = SceneJoinRequest.Create(new CreateSceneJoinRequestParams
+        {
+            SceneChannelId = SceneChannelId, GuildId = GuildId, PersonaId = PlayerPersonaId,
+            RequestedByUserId = PlayerId, Note = "I have business at the gate.",
+        });
+
+        if (status != SceneJoinRequestStatus.Pending)
+            request.Decide(status, ReviewerId, reason, DateTimeOffset.UtcNow);
+
+        _context.SceneJoinRequests.Add(request);
+        await _context.SaveChangesAsync();
+
+        return request;
+    }
+
+    [Test]
+    public async Task APendingJoinRequest_WaitsOnWhoeverRunsScenes()
+    {
+        await SeedAsync();
+        await AddPersonaAsync(PlayerPersonaId, "Mayor Cogsgrove", PlayerId);
+        await AddSceneAsync(currentTurn: null);
+        var request = await AddJoinRequestAsync();
+
+        var task = (await TasksAsync(ReviewerId))
+            .SingleOrDefault(t => t.Kind == InboxTaskKind.SceneJoinRequest);
+
+        Assert.That(task, Is.Not.Null);
+        Assert.Multiple(async () =>
+        {
+            Assert.That(task!.TargetId, Is.EqualTo(request.Id));
+            Assert.That(task.Subtitle, Does.Contain("Mayor Cogsgrove"));
+            Assert.That(task.Breadcrumb.ChannelId, Is.EqualTo(SceneChannelId));
+
+            Assert.That(
+                (await TasksAsync(OutsiderId)).Any(t => t.Kind == InboxTaskKind.SceneJoinRequest),
+                Is.False,
+                "the queue belongs to ManageScenes, not to the guild");
+        });
+    }
+
+    [Test]
+    public async Task ADeniedRequest_CarriesTheReasonBackToWhoeverAsked()
+    {
+        await SeedAsync();
+        await AddPersonaAsync(PlayerPersonaId, "Mayor Cogsgrove", PlayerId);
+        await AddSceneAsync(currentTurn: null);
+        await AddJoinRequestAsync(SceneJoinRequestStatus.Denied, "Not this arc.");
+
+        var task = (await TasksAsync(PlayerId))
+            .SingleOrDefault(t => t.Kind == InboxTaskKind.SceneJoinDenied);
+
+        Assert.That(task, Is.Not.Null);
+        Assert.Multiple(async () =>
+        {
+            Assert.That(task!.Subtitle, Is.EqualTo("Not this arc."));
+
+            Assert.That(
+                (await TasksAsync(ReviewerId)).Any(t => t.Kind == InboxTaskKind.SceneJoinDenied),
+                Is.False,
+                "the reason is feedback for the player who asked");
+        });
+    }
+
+    [Test]
+    public async Task AnAnsweredRequest_LeavesTheGameMastersQueue()
+    {
+        await SeedAsync();
+        await AddPersonaAsync(PlayerPersonaId, "Mayor Cogsgrove", PlayerId);
+        await AddSceneAsync(currentTurn: null);
+        await AddJoinRequestAsync(SceneJoinRequestStatus.Approved);
+
+        Assert.That(
+            (await TasksAsync(ReviewerId)).Any(t => t.Kind == InboxTaskKind.SceneJoinRequest),
+            Is.False);
+    }
+
+    [Test]
+    public async Task JoinRequestTasks_WithTheScenesModuleOff_Disappear()
+    {
+        await SeedAsync(features: GuildFeatures.Personas | GuildFeatures.Wiki);
+        await AddPersonaAsync(PlayerPersonaId, "Mayor Cogsgrove", PlayerId);
+        await AddSceneAsync(currentTurn: null);
+        await AddJoinRequestAsync();
+
+        Assert.That(
+            (await TasksAsync(ReviewerId)).Any(t => t.Kind == InboxTaskKind.SceneJoinRequest),
+            Is.False);
     }
 
     // ══════════════════════════════════════════════════════════════════════ The badge

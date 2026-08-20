@@ -154,6 +154,12 @@ public enum InboxTaskKind
 
     /// <summary>One of your characters was sent back with a reason.</summary>
     PersonaChangesRequested,
+
+    /// <summary>Somebody is waiting on you to let a character into a scene you run.</summary>
+    SceneJoinRequest,
+
+    /// <summary>Your ask to get a character into a scene was refused.</summary>
+    SceneJoinDenied,
 }
 
 /// <summary>One thing waiting on the caller.</summary>

@@ -106,6 +106,10 @@ public class InboxTaskService(
             .Take(CandidatesPerSource).ToListAsync();
         var guildSentBack = await BuildGuildPersonaChangesRequestedQuery(ctx, userId)
             .Take(CandidatesPerSource).ToListAsync();
+        var joinRequests = await BuildSceneJoinRequestQuery(ctx, userId)
+            .Take(CandidatesPerSource).ToListAsync();
+        var joinDenials = await BuildSceneJoinDeniedQuery(ctx, userId)
+            .Take(CandidatesPerSource).ToListAsync();
 
         // The one conversion the queries cannot do. See TaskRow's PlanDate.
         meals = meals
@@ -118,7 +122,8 @@ public class InboxTaskService(
         var rows = new List<TaskRow>(
             chores.Count + decisions.Count + assignments.Count
             + bills.Count + meals.Count + maintenance.Count
-            + turns.Count + reviews.Count + sentBack.Count + guildSentBack.Count);
+            + turns.Count + reviews.Count + sentBack.Count + guildSentBack.Count
+            + joinRequests.Count + joinDenials.Count);
 
         rows.AddRange(await KeepVisibleAsync(userId, chores, GuildFeatures.Chores));
         rows.AddRange(await KeepVisibleAsync(userId, decisions, GuildFeatures.Decisions));
@@ -138,6 +143,13 @@ public class InboxTaskService(
         rows.AddRange(await KeepPermittedAsync(userId, sentBack, GuildFeatures.Personas));
         rows.AddRange(await KeepPermittedAsync(
             userId, guildSentBack, GuildFeatures.Personas, ModulePermissions.ManageAnyPersona));
+
+        // Permitted rather than visible: the queue belongs to whoever runs scenes here, and a
+        // ManageScenes holder can see every scene by definition. The player's own denial follows
+        // the module alone, the way a sent-back character does.
+        rows.AddRange(await KeepPermittedAsync(
+            userId, joinRequests, GuildFeatures.Scenes, ModulePermissions.ManageScenes));
+        rows.AddRange(await KeepPermittedAsync(userId, joinDenials, GuildFeatures.Scenes));
 
         rows = await DropDismissedAsync(userId, rows);
 
@@ -450,6 +462,64 @@ public class InboxTaskService(
                 null,
                 0,
                 profile.UpdatedAt);
+
+    /// <summary>Characters waiting on a GM to let them into a scene.</summary>
+    internal static IQueryable<TaskRow> BuildSceneJoinRequestQuery(
+        MicroserviceContext ctx, string userId) =>
+        from member in ctx.GuildMembers.AsNoTracking()
+            where member.UserId == userId
+            join request in ctx.Set<SceneJoinRequest>().AsNoTracking()
+                on member.GuildId equals request.GuildId
+            where request.Status == SceneJoinRequestStatus.Pending
+            join persona in ctx.Set<Persona>().AsNoTracking() on request.PersonaId equals persona.Id
+            join profile in ctx.Set<PersonaGuildProfile>().AsNoTracking()
+                on new { persona.Id, request.GuildId } equals
+                   new { Id = profile.PersonaId, profile.GuildId }
+            join channel in ctx.Channels.AsNoTracking() on request.SceneChannelId equals channel.Id
+            orderby request.CreatedAt
+            select new TaskRow(
+                InboxTaskKind.SceneJoinRequest,
+                request.Id,
+                channel.GuildId,
+                channel.Guild.Name,
+                channel.Id,
+                channel.Name,
+                channel.Type,
+                channel.CategoryId,
+                channel.Category != null ? channel.Category.Name : null,
+                channel.Name,
+                (profile.DisplayName ?? persona.Name) + " wants in",
+                null,
+                0,
+                request.CreatedAt);
+
+    /// <summary>The caller's own asks that a GM refused, carrying the reason they gave.</summary>
+    internal static IQueryable<TaskRow> BuildSceneJoinDeniedQuery(
+        MicroserviceContext ctx, string userId) =>
+        from request in ctx.Set<SceneJoinRequest>().AsNoTracking()
+            where request.Status == SceneJoinRequestStatus.Denied
+                  && request.RequestedByUserId == userId
+            join persona in ctx.Set<Persona>().AsNoTracking() on request.PersonaId equals persona.Id
+            join profile in ctx.Set<PersonaGuildProfile>().AsNoTracking()
+                on new { persona.Id, request.GuildId } equals
+                   new { Id = profile.PersonaId, profile.GuildId }
+            join channel in ctx.Channels.AsNoTracking() on request.SceneChannelId equals channel.Id
+            orderby request.UpdatedAt
+            select new TaskRow(
+                InboxTaskKind.SceneJoinDenied,
+                request.Id,
+                channel.GuildId,
+                channel.Guild.Name,
+                channel.Id,
+                channel.Name,
+                channel.Type,
+                channel.CategoryId,
+                channel.Category != null ? channel.Category.Name : null,
+                (profile.DisplayName ?? persona.Name) + " was not let in",
+                request.DecisionReason ?? "The GM said no",
+                null,
+                0,
+                request.UpdatedAt);
 
     /// <summary>
     /// Drops the rows the caller has put away, and keeps the ones whose own stamp has moved since:

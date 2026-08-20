@@ -160,6 +160,22 @@ public class InboxQueryTranslationTests
     }
 
     [Test]
+    public void BuildSceneJoinRequestQuery_translates()
+    {
+        var sql = InboxTaskService.BuildSceneJoinRequestQuery(_context, "user-1").ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    [Test]
+    public void BuildSceneJoinDeniedQuery_translates()
+    {
+        var sql = InboxTaskService.BuildSceneJoinDeniedQuery(_context, "user-1").ToQueryString();
+
+        Assert.That(sql, Does.Contain("SELECT"));
+    }
+
+    [Test]
     public void BuildPersonaReviewQuery_translates()
     {
         var sql = InboxTaskService.BuildPersonaReviewQuery(_context, "user-1").ToQueryString();

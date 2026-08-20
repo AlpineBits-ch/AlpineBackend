@@ -574,8 +574,11 @@ cannot queue twice. Decided rows stay: the player's inbox reads the reason off t
 request is a new row rather than a reopened one. Approve is add-participant plus the system message
 plus the row transition, in one call.
 
-Access refusals join the list above: `scene_not_open`, `scene_concluded`, `scene_join_not_visible`,
-`persona_not_usable`, `join_request_exists` (409), `join_request_not_pending` (409).
+Access refusals join the list above: `scene_not_open`, `scene_join_not_required`, `scene_concluded`,
+`scene_join_not_visible`, `persona_not_usable`, `join_request_exists` (409),
+`join_request_not_pending` (409). The first two are a pair: `/join` refuses a scene whose policy is
+`Ask`, and `/join-requests` refuses one whose policy is `Open`, so neither route quietly does the
+other's job.
 
 **The send gate.** `ResolvePersonaForSendHandler` runs on every send with the user and the channel
 and can answer `IsAllowed: false` with a sentence. The gate runs last, after the existing

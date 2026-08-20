@@ -419,6 +419,16 @@ public class SceneAccessEndpointTests
     }
 
     [Test]
+    public async Task Requesting_OnAnOpenScene_IsRefused()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        AssertFault(
+            await RequestAsync(OutsiderPersonaId, OutsiderId), "scene_join_not_required");
+    }
+
+    [Test]
     public async Task Requesting_Twice_IsRefused()
     {
         await SeedAsync();

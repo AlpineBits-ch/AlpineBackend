@@ -815,6 +815,13 @@ public class SceneEndpoint
         if (state.Status == SceneStatus.Concluded)
             return Fault("scene_concluded", "That scene has finished.");
 
+        // A queue nobody has to work is worse than no queue: on an open table the answer is /join.
+        if (state.JoinPolicy != SceneJoinPolicy.Ask)
+        {
+            return Fault("scene_join_not_required",
+                "This scene is open, so the character can join it directly.");
+        }
+
         if (!await CanSpeakAsAsync(personas, userId, guildId, dto.PersonaId))
             return Fault("persona_not_usable", "You cannot speak as that character here.",
                 StatusCodes.Status403Forbidden);

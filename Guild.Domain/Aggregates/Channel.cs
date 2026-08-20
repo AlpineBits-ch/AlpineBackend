@@ -41,6 +41,12 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
     public int Position { get; set; } = 0;
     public int SlowModeSeconds { get; set; } = 0;
 
+    /// <summary>Lucide icon name in kebab-case, or null to fall back to the channel type's own icon.</summary>
+    public string? Icon { get; set; }
+
+    /// <summary>Hex colour as #RRGGBB, or null to fall back to the uniform default colour.</summary>
+    public string? IconColor { get; set; }
+
     /// <summary>Set only for a thread-shaped type (Thread, Scene); the channel it was created
     /// under.</summary>
     public string? ParentChannelId { get; set; }
@@ -139,6 +145,10 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
         public string? Description { get; init; }
         public bool IsAgeRestricted { get; init; }
         public int SlowModeSeconds { get; init; }
+
+        // Absolute values; the endpoint has already resolved the clear sentinel.
+        public string? Icon { get; init; }
+        public string? IconColor { get; init; }
     }
 
     /// <summary>
@@ -151,6 +161,8 @@ public class Channel : Aggregate<Channel>, IPrefixedEntity
         Description = @params.Description;
         IsAgeRestricted = @params.IsAgeRestricted;
         SlowModeSeconds = @params.SlowModeSeconds;
+        Icon = @params.Icon;
+        IconColor = @params.IconColor;
 
         new ChannelValidator().ValidateAndThrow(this);
 

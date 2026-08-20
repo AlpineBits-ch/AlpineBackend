@@ -100,4 +100,12 @@ public enum AuditActionType
     PersonaRejected,
     PersonaGrantCreated,
     PersonaGrantDeleted,
+    SceneFolderCreated,
+    SceneFolderUpdated,
+    SceneFolderDeleted,
+    SceneFoldersReordered,
+    SceneTagCreated,
+    SceneTagUpdated,
+    SceneTagDeleted,
+    SceneTagsApplied,
 }

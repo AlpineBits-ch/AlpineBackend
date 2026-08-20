@@ -411,7 +411,7 @@ permission), gated on `GuildFeatures.Scenes`:
 | POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/turn/nudge` | `ManageScenes`. Chases the current turn now, ignoring the grace period and quiet hours |
 
 The create body is `{name, description?, oocName?, participantPersonaIds?, turnOrder?,
-turnLengthHours?, status?}`. `participantPersonaIds` may be omitted, in which case the cast is
+turnLengthHours?, status?, joinPolicy?, visibility?}`. `participantPersonaIds` may be omitted, in which case the cast is
 `turnOrder`: a client that asks the question once should not have to send the same list twice.
 `status` accepts `Open` or `Active` and nothing else, and `Active` opens the first turn on the spot,
 so starting a scene is one call rather than a create followed by a patch. The clock is
@@ -419,7 +419,8 @@ so starting a scene is one call rather than a create followed by a patch. The cl
 
 Refusals from these routes answer `{error, message}`, with `error` one of `scene_parent_not_text`,
 `scene_status_not_openable`, `persona_not_adopted`, `turn_order_not_in_cast`, `persona_not_in_scene`,
-`persona_already_in_scene` (409), `scene_not_active`, `no_turn_to_nudge`.
+`persona_already_in_scene` (409), `scene_not_active`, `no_turn_to_nudge`,
+`scene_visibility_conflict`. §5.3 adds the access refusals.
 
 "Is the game waiting on me" is the headline question of the whole feature, so it is one request:
 `waitingOnMe` filters to scenes whose turn belongs to a character the caller may speak as, resolved
@@ -482,6 +483,125 @@ the account's - the same rule a persona message's push already follows - and whe
 cannot be named it sets `personaHidden` and masks rather than falling back to the account. Recipients
 go through the same mute and mobile-push resolution every other push producer uses, and a guild
 inside its quiet hours has the whole nudge held for a later pass rather than its push dropped.
+
+### 5.3 Who plays, and who can see it
+
+A scene carries two more settings, both set at creation and changed by a `ManageScenes` holder:
+
+```
+SceneState
+    JoinPolicy : Open | Ask          // new pg enum scene_join_policy, default Open
+    Visibility : Everyone | Cast     // new pg enum scene_visibility, default Everyone
+```
+
+`Visibility = Cast` alongside `JoinPolicy = Open` is refused with `scene_visibility_conflict`,
+because walking into a scene you cannot see is not a state anything can act on. The three legal
+pairs are exactly the three presets a client offers: open table, ask to join, private table. A
+silent rewrite was the alternative and was rejected: a PATCH that answers with something the caller
+did not send is worse than a 400. The pair is judged on where the scene lands, so a PATCH that only
+flips the policy of a private scene is refused too.
+
+Existing scenes take the column defaults and behave exactly as they did.
+
+**Visibility is checked beside the permission answer, never as a permission.**
+`ComputePermissionsForUserAsync` resolves thread-shaped channels in a second pass that copies the
+parent's mask verbatim and skips channel overwrites entirely, so a `ChannelPermission` row on a
+scene channel is ignored. Expressing this as an overwrite would mean changing how every thread in
+the product resolves.
+
+`SceneVisibilityCache` answers two questions: which of a guild's scene channels are cast-only, and
+whether one caller is in the cast. The map covers those scenes and their out-of-character companion
+threads and nothing else, and it is empty in a guild with no private scenes. It is epoch-keyed the
+way `PersonaService` keys its per-user sets, so one write drops the guild, and its entries live a
+minute rather than the fifteen the permission caches use: the epoch moves before the write it
+describes commits, and the direction that fails open is a private scene everybody can see.
+
+`GuildPermissionService` applies it after the mask answer in four paths, seven overloads:
+
+| Call site | What it stops leaking |
+|---|---|
+| `CanUserPerformActionAsync(user, channel, Permissions)` | The scene read, the message history read, every endpoint that asks `ViewChannel` |
+| `CanUserPerformActionAsync(user, channel, ModulePermissions)` | The module verbs on a scene channel |
+| `FilterUsersWithChannelPermissionAsync`, both overloads | Realtime fan-out and bot dispatch, which is what keeps a private scene's messages off other people's sockets |
+| `FilterChannelsWithPermissionAsync`, all three overloads | Channel lists, thread lists, search |
+
+The guild owner short-circuits ahead of all of it and keeps seeing everything. There is no cycle:
+`PersonaService` takes only the cache and the context, and the `ManageScenes` check is
+`CanUserPerformActionOnGuildAsync`, which is a guild-level answer and does not re-enter the channel
+path.
+
+Hidden means hidden everywhere: the board, the archive, the folder rail, the thread list, message
+history, realtime fan-out and bot dispatch. There is no locked placeholder row, and there is no
+visibility-changed event: `guild.SceneUpdated` carries `joinPolicy` and `visibility`, and a client
+that can no longer satisfy the predicate drops the scene itself.
+
+**Joining and asking.**
+
+| Verb | Route | Permission |
+|---|---|---|
+| POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join` | Membership. Body `{personaId}` |
+| DELETE | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join/{personaId}` | Membership |
+| POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests` | Membership. Body `{personaId, note?}` |
+| GET | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests` | Membership, then `ViewChannel`. `?status=` |
+| POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests/{requestId}/approve` | `ManageScenes` |
+| POST | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests/{requestId}/deny` | `ManageScenes`. Body `{reason?}` |
+| DELETE | `/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests/{requestId}` | The player who asked |
+| GET | `/api/v1/guilds/{guildId}/scene-join-requests` | Membership. `?status=` |
+
+`/join` is not `/participants` with a different guard. `/participants` is the GM adding anybody;
+`/join` accepts only a persona the caller may speak as, only on a scene whose policy is `Open`, and
+only while the scene is not concluded. Two authorizations, two routes.
+
+Both `GET` routes answer the whole queue to a `ManageScenes` holder and only the caller's own rows
+to anybody else, so a player can see that their request is still pending without being told who
+else asked. Asking into a hidden scene is not possible: you cannot see it, so the GM adds you by
+hand.
+
+```
+SceneJoinRequest                     // scjr_
+    Id (PK)
+    SceneChannelId, GuildId
+    PersonaId
+    RequestedByUserId
+    Note?                            // <= 300 chars
+    Status : Pending | Approved | Denied | Withdrawn
+    DecidedByUserId?, DecidedAt?, DecisionReason?
+```
+
+Indexes: `(GuildId, Status)` for the GM's queue, `(SceneChannelId, Status)` for one scene's banner,
+and a unique partial index on `(SceneChannelId, PersonaId) WHERE Status = 'Pending'` so a character
+cannot queue twice. Decided rows stay: the player's inbox reads the reason off them, and a later
+request is a new row rather than a reopened one. Approve is add-participant plus the system message
+plus the row transition, in one call.
+
+Access refusals join the list above: `scene_not_open`, `scene_concluded`, `scene_join_not_visible`,
+`persona_not_usable`, `join_request_exists` (409), `join_request_not_pending` (409).
+
+**The send gate.** `ResolvePersonaForSendHandler` runs on every send with the user and the channel
+and can answer `IsAllowed: false` with a sentence. The gate runs last, after the existing
+resolution, and fires only for a scene channel whose policy is `Ask`: a resolved persona that is in
+the cast passes, and anything else passes only with `ManageScenes`. "Anything else" covers both a
+character outside the cast and a plain message with no character at all, which is what makes a
+closed scene actually closed. It keys on the scene channel only, so the companion thread is
+untouched and stays open to everyone who can see the scene. Who speaks in the OOC thread follows
+visibility, never the cast.
+
+**Auto-join.** A persona that speaks in an open, non-concluded scene it is not in is appended to the
+cast and the rotation, and the join system message is written. This lives in `MessageCreatedHandler`
+beside `AdvanceOnPostAsync` rather than in the send path, so the join lands after the message that
+caused it, in the order a reader expects. Nobody asked for this behaviour; without it the cast means
+nothing in an open scene. Leaving is one click and writes its own line.
+
+**Two system messages.** `MessageType.SceneCharacterJoined` and `MessageType.SceneCharacterLeft`,
+written through the same `CreateMessageCommand` path the dice route uses. Authored by the real
+account with `PersonaId`, `AuthorDisplayName` and `AuthorAvatarUrl` set from the character, and
+`Content` empty, or `removed` when a GM took the character out rather than the player leaving. That
+mirrors `GroupIconChanged`, which distinguishes its two cases the same way, and avoids a third
+message type for a one-word difference. The display fields are denormalised on purpose: a character
+renamed a year later still reads correctly at the point in the log where it walked in.
+
+Neither counts as a post. `MessageCreatedHandler` skips both for `PostCount` and for the turn
+advance, or the scene's own log line would move the turn again on the character that just spoke.
 
 ---
 
@@ -637,7 +757,8 @@ place the author-stays-real design bites back, and it needs the override threade
 
 ### 9.2 Messaging
 
-* `AuthorIdType` gains `Persona`; `MessageType` gains `DiceRoll`.
+* `AuthorIdType` gains `Persona`; `MessageType` gains `DiceRoll`, `SceneCharacterJoined` and
+  `SceneCharacterLeft`. All three are `HasPostgresEnum` members and need a Messaging migration.
 * `Message` gains `PersonaId`.
 * `Message.SelectColumns` is used only by `ScyllaMessageRepository`. The Cassandra `Mapper`
   registration in `ScyllaContext` needs the column too, or `GetMessageAsync` and
@@ -810,10 +931,11 @@ it does mean an instance cannot relay a newer peer's extra fields.
 
 * `channel_type`, `guild_kind` and `member_type` are `HasPostgresEnum` in Guild's model snapshot.
   `GuildKind.Roleplay` and `ChannelType.Scene` each need a Guild migration or the service crashes at
-  startup, and unit tests cannot catch it. `SceneStatus` is a third new enum in the same service.
+  startup, and unit tests cannot catch it. `SceneStatus` is a third new enum in the same service,
+  and §5.3 adds `scene_join_policy`, `scene_visibility` and `scene_join_request_status`.
 * The same trap applies to **Messaging**, which the first draft of this document missed while naming
-  it. `author_id_type` and `message_type` are both `HasPostgresEnum` there, so `AuthorIdType.Persona`
-  and `MessageType.DiceRoll` need a Messaging migration each.
+  it. `author_id_type` and `message_type` are both `HasPostgresEnum` there, so `AuthorIdType.Persona`,
+  `MessageType.DiceRoll` and the two scene system message types need a Messaging migration each.
 * Never hand-edit the migrations. Leftover work goes in a separate EF-generated empty migration plus
   `Sql()`.
 * `ChannelValidator` rejects whitespace for every type but `Thread` (§5.1).
@@ -1072,13 +1194,23 @@ A persona message needs no new event. It arrives on the existing message-created
 the display fields per §9.1.
 
 The scene events are in §5: `guild.SceneCreated`, `guild.SceneUpdated`, `guild.SceneTurnChanged`,
-`guild.SceneConcluded` and `guild.SceneTurnNudge`.
+`guild.SceneConcluded` and `guild.SceneTurnNudge`. Two more come with §5.3, both addressed the way
+the nudge escalation is:
+
+| Event | Audience | Payload |
+|---|---|---|
+| `guild.SceneJoinRequested` | ManageScenes holders | `guildId, channelId, requestId, personaId, personaName, personaAvatarUrl, personaColor, requestedByUserId, note, createdAt` |
+| `guild.SceneJoinRequestResolved` | the requester, plus ManageScenes holders | `guildId, channelId, requestId, personaId, status, decisionReason, decidedByUserId` |
+
+`guild.SceneCreated` and `guild.SceneUpdated` both carry `joinPolicy` and `visibility`. There is no
+visibility-changed event of its own: a client that can no longer satisfy the predicate drops the
+scene itself, which is one rule evaluated in one place.
 
 Client reference: `Guild.Application/docs/roleplay-realtime-frontend-guide.md`.
 
 ### 15.8.1 The inbox
 
-Three roleplay rows appear on the Waiting-on-you tab, as `InboxTaskKind` values alongside the
+Five roleplay rows appear on the Waiting-on-you tab, as `InboxTaskKind` values alongside the
 household ones.
 
 | Kind | Who gets the row | `dueAt` |
@@ -1086,25 +1218,33 @@ household ones.
 | `SceneTurn` | whoever answers for the character on the clock in an `Active` scene | the turn deadline |
 | `PersonaReview` | ApprovePersonas holders, one row per `Submitted` profile | none |
 | `PersonaChangesRequested` | the owner of a sent-back personal character; ManageAnyPersona holders for a guild-owned one | none |
+| `SceneJoinRequest` | ManageScenes holders, one row per `Pending` ask | none |
+| `SceneJoinDenied` | the player who asked, carrying the reason as the subtitle | none |
 
 An approval queue lives in a guild's cast rather than in any one channel, so
-`InboxBreadcrumbDto.channelId`, `channelName` and `channelType` are nullable and are null on those
-two kinds. Every unread group, every mention and every other task kind still carries all three.
+`InboxBreadcrumbDto.channelId`, `channelName` and `channelType` are nullable and are null on the two
+persona kinds. Every unread group, every mention and every other task kind still carries all three.
+
+The two scene-join kinds are gated on `GuildFeatures.Scenes` and, for the GM side, on
+`ManageScenes` - permission rather than channel visibility, because a `ManageScenes` holder can see
+every scene in the guild by definition.
 
 An approved profile whose page has been edited past what was signed off is a queue row on
 `GET /guilds/{guildId}/personas/pending` but is deliberately not an inbox row: resolving it costs a
 page-revision lookup per character, and the inbox spans every guild the caller is in.
 
-None of the three has an inbox event of its own. They appear and disappear on
-`guild.SceneTurnChanged`, `guild.SceneTurnNudge`, `guild.PersonaReviewRequested` and
-`guild.PersonaReviewCompleted`, which is what a client refetches on.
+None of them has an inbox event of its own. They appear and disappear on
+`guild.SceneTurnChanged`, `guild.SceneTurnNudge`, `guild.PersonaReviewRequested`,
+`guild.PersonaReviewCompleted`, `guild.SceneJoinRequested` and `guild.SceneJoinRequestResolved`,
+which is what a client refetches on.
 
 A row can also be put away by hand with
 `DELETE /inbox/tasks/{kind}/{targetId}?guildId={guildId}`. The tab is derived state, so a
 dismissal is stored as a timestamp against `(user, kind, guild, target)` rather than as a delete,
 and the row returns as soon as its own stamp moves past it - the turn stamp for `SceneTurn`, the
-profile's `UpdatedAt` for the two approval kinds. The guild is part of the key because a character
-can be submitted in two guilds at once and `targetId` is the same persona in both.
+profile's `UpdatedAt` for the two approval kinds, the request's for the two scene-join kinds. The
+guild is part of the key because a character can be submitted in two guilds at once and `targetId`
+is the same persona in both.
 
 ### 15.9 Errors
 

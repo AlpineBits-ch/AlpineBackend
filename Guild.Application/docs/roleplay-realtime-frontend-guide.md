@@ -208,6 +208,8 @@ that says a game started.
   "name": "The Siege of Blackwater",
   "oocThreadId": "chan_01J…",
   "status": "Open",              // Open | Active | Paused | Concluded
+  "joinPolicy": "Open",          // Open | Ask
+  "visibility": "Everyone",      // Everyone | Cast
   "participantPersonaIds": ["pers_01J…"],
   "turnOrder": ["pers_01J…"],
   "currentTurnPersonaId": null,
@@ -239,13 +241,18 @@ instead.
 
 ### `guild.SceneUpdated`
 
-Fires when the cast, the order, the status or the clock changes.
+Fires when the cast, the order, the status, the clock or the access settings change. There is no
+visibility-changed event: this one carries the new value, and a scene that stops matching
+`visibility === "Everyone" || canManage || cast ∩ speakable` should be dropped from the board, the
+archive, the folder rail and the thread list on the same rule.
 
 ```jsonc
 {
   "guildId": "gild_01J…",
   "channelId": "chan_01J…",
   "status": "Active",
+  "joinPolicy": "Ask",
+  "visibility": "Cast",
   "participantPersonaIds": ["pers_01J…"],
   "turnOrder": ["pers_01J…"],
   "currentTurnPersonaId": "pers_01J…",
@@ -293,6 +300,44 @@ To whoever answers for the character on the clock, plus - on the second miss - w
   "escalated": true
 }
 ```
+
+### `guild.SceneJoinRequested`
+
+To whoever holds `ManageScenes`. Somebody wants a character in a scene whose `joinPolicy` is `Ask`.
+
+```jsonc
+{
+  "guildId": "gild_01J…",
+  "channelId": "chan_01J…",
+  "requestId": "scjr_01J…",
+  "personaId": "pers_01J…",
+  "personaName": "Town Guard",
+  "personaAvatarUrl": null,
+  "personaColor": "#7a5c3e",
+  "requestedByUserId": "user_01J…",
+  "note": "I have business at the gate.",
+  "createdAt": "2026-08-20T09:14:22.115Z"
+}
+```
+
+### `guild.SceneJoinRequestResolved`
+
+To the player who asked, and to `ManageScenes` holders so a second banner clears itself.
+`decisionReason` is feedback for the player and travels on this event only.
+
+```jsonc
+{
+  "guildId": "gild_01J…",
+  "channelId": "chan_01J…",
+  "requestId": "scjr_01J…",
+  "personaId": "pers_01J…",
+  "status": "Denied",            // Approved | Denied | Withdrawn
+  "decisionReason": "Not this arc.",
+  "decidedByUserId": "user_01J…"
+}
+```
+
+A denial keeps its row and does not stop the character asking again.
 
 ---
 
@@ -346,7 +391,7 @@ otherwise never hears about.
 
 ## The inbox
 
-Three of these events change what `GET /api/v1/guild/inbox/tasks` returns, and therefore the header
+Some of these events change what `GET /api/v1/guild/inbox/tasks` returns, and therefore the header
 badge. There is no separate inbox event for them - refetch `/inbox/tasks` and `/inbox/summary` on:
 
 | Event | What it adds or removes |
@@ -355,5 +400,7 @@ badge. There is no separate inbox event for them - refetch `/inbox/tasks` and `/
 | `guild.SceneTurnNudge` | nothing new, but the row is now overdue |
 | `guild.PersonaReviewRequested` | a `PersonaReview` row for the reviewers |
 | `guild.PersonaReviewCompleted` | clears that row, and may add a `PersonaChangesRequested` row for the character's players |
+| `guild.SceneJoinRequested` | a `SceneJoinRequest` row for `ManageScenes` holders |
+| `guild.SceneJoinRequestResolved` | clears that row, and adds a `SceneJoinDenied` row for the player when the answer was no |
 
 See [inbox-frontend-guide.md](./inbox-frontend-guide.md).

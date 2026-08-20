@@ -853,7 +853,7 @@ public class GuildPermissionService(
     /// The three tiers of overwrite that apply to one member on one channel or category, each
     /// already unioned across every row in that tier.
     /// </summary>
-    private readonly record struct OverwriteTiers(
+    internal readonly record struct OverwriteTiers(
         Permissions EveryoneDeny, Permissions EveryoneAllow,
         Permissions RoleDeny, Permissions RoleAllow,
         Permissions MemberDeny, Permissions MemberAllow,
@@ -920,22 +920,49 @@ public class GuildPermissionService(
     /// held role's overwrites unioned (deny then allow, so an allow on one role beats a deny on
     /// another), then the member's own overwrite last.
     /// </summary>
-    private static Permissions ApplyOverwrites(Permissions initial, in OverwriteTiers tiers)
+    internal static Permissions ApplyOverwrites(
+        Permissions initial,
+        in OverwriteTiers tiers,
+        PermissionTrace? trace = null,
+        PermissionLayer layer = PermissionLayer.Channel)
     {
-        if (initial.HasFlag(Permissions.Superadmin)) return initial;
+        if (initial.HasFlag(Permissions.Superadmin))
+        {
+            trace?.Record(initial, PermissionSource.Superadmin);
+            return initial;
+        }
 
         var result = initial;
 
-        result &= ~ExpandDeniedPermissions(tiers.EveryoneDeny);
-        result |= tiers.EveryoneAllow;
+        result = Deny(result, tiers.EveryoneDeny, trace, layer, PermissionTier.Everyone);
+        result = Allow(result, tiers.EveryoneAllow, trace, layer, PermissionTier.Everyone);
 
-        result &= ~ExpandDeniedPermissions(tiers.RoleDeny);
-        result |= tiers.RoleAllow;
+        result = Deny(result, tiers.RoleDeny, trace, layer, PermissionTier.Role);
+        result = Allow(result, tiers.RoleAllow, trace, layer, PermissionTier.Role);
 
-        result &= ~ExpandDeniedPermissions(tiers.MemberDeny);
-        result |= tiers.MemberAllow;
+        result = Deny(result, tiers.MemberDeny, trace, layer, PermissionTier.Member);
+        result = Allow(result, tiers.MemberAllow, trace, layer, PermissionTier.Member);
 
         return result;
+    }
+
+    private static Permissions Deny(
+        Permissions current, Permissions named, PermissionTrace? trace,
+        PermissionLayer layer, PermissionTier tier)
+    {
+        var expanded = ExpandDeniedPermissions(named);
+        var next = current & ~expanded;
+        trace?.RecordDeny(current & ~next, named, layer, tier);
+        return next;
+    }
+
+    private static Permissions Allow(
+        Permissions current, Permissions granted, PermissionTrace? trace,
+        PermissionLayer layer, PermissionTier tier)
+    {
+        var next = current | granted;
+        trace?.RecordAllow(next & ~current, layer, tier);
+        return next;
     }
 
     /// <summary>

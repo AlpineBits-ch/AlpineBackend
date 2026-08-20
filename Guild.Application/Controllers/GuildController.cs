@@ -158,7 +158,7 @@ public class GuildController(MicroserviceContext ctx, GuildThumbnailService thum
         var members = await ctx.GuildMembers
             .Where(m => m.GuildId == id)
             .OrderBy(m => m.CreatedAt)
-            .Take(take).Skip(skip)
+            .Skip(skip).Take(take)
             .ToFacetsAsync<GuildMember, MemberDto>();
     
         var presenceMap = await guildHydrateService.GetPresenceByMemberIdsAsync(

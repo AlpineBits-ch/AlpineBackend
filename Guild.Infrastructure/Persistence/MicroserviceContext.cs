@@ -207,8 +207,13 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey(x => x.ChannelId)
                 .OnDelete(DeleteBehavior.Cascade);
 
-            // No explicit index on MemberId: the FK above already creates one, which is what the
-            // inbox's "every read state this member has" query rides.
+            // A second row for the same pair keeps the channel unread forever: the unread query
+            // left-joins every read state a member has, and the ack only ever moves the first.
+            // Leads with MemberId, so it also carries the FK index and the inbox's
+            // "every read state this member has" query.
+            readStateBuilder.HasIndex(x => new { x.MemberId, x.ChannelId })
+                .HasDatabaseName("ix_read_states_member_id_channel_id")
+                .IsUnique();
         });
 
         modelBuilder.Entity<ChannelBroadcastMention>(broadcastBuilder =>

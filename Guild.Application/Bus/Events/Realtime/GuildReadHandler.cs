@@ -39,9 +39,24 @@ public class GuildReadHandler
             return;
         }
 
+        // Resolved before the row is read, not between reading it and saving it: this can cost a
+        // bus round trip, and a read-then-insert held open across one is long enough for a second
+        // ack on the same channel to insert its own row.
+        var readAt = await ResolveReadTimeAsync(
+            message.UserId, message.Id, channel.LastMessageId, channel.LastActivityAt, bus, logger);
+
+        void MoveCursor(ReadState state)
+        {
+            state.LastReadMessageId = message.Id;
+            state.LastReadAt = readAt;
+            state.MessageCountAtRead = channel.MessageCount;
+            state.UpdatedAt = DateTime.UtcNow;
+        }
+
         var lastRead =
             await microserviceContext.ReadStates.FirstOrDefaultAsync(r =>
                 r.ChannelId == message.ChannelId && r.MemberId == member.Id);
+        var inserting = lastRead is null;
         if (lastRead is null)
         {
             lastRead = new ReadState
@@ -55,12 +70,27 @@ public class GuildReadHandler
             await microserviceContext.ReadStates.AddAsync(lastRead);
         }
 
-        lastRead.LastReadMessageId = message.Id;
-        lastRead.LastReadAt = await ResolveReadTimeAsync(
-            message.UserId, message.Id, channel.LastMessageId, channel.LastActivityAt, bus, logger);
-        lastRead.MessageCountAtRead = channel.MessageCount;
-        lastRead.UpdatedAt = DateTime.UtcNow;
-        await microserviceContext.SaveChangesAsync();
+        MoveCursor(lastRead);
+
+        try
+        {
+            await microserviceContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException) when (inserting)
+        {
+            // ix_read_states_member_id_channel_id refused the second row, which means a concurrent
+            // ack for this channel got there first. Move the row it wrote instead: a second row is
+            // how a channel ends up permanently unread, since the unread query joins both and only
+            // the stale one satisfies it.
+            microserviceContext.Entry(lastRead).State = EntityState.Detached;
+
+            var winner = await microserviceContext.ReadStates.FirstOrDefaultAsync(r =>
+                r.ChannelId == message.ChannelId && r.MemberId == member.Id);
+            if (winner is null) throw;
+
+            MoveCursor(winner);
+            await microserviceContext.SaveChangesAsync();
+        }
     }
 
     /// <summary>

@@ -67,6 +67,62 @@ internal static class MigrationSqlHarness
         await context.SaveChangesAsync();
     }
 
+    /// <summary>Creates a channel, through the real model, for the same reason as the member.</summary>
+    public static async Task SeedChannelAsync(string id, string guildId = GuildId)
+    {
+        await using var context = new PostgresGuildContext();
+
+        context.Channels.Add(new Guild.Domain.Aggregates.Channel
+        {
+            Id = id,
+            GuildId = guildId,
+            Name = "chat",
+            Description = "d",
+            Type = ChannelType.Text,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        });
+
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>Inserts a read state, bypassing the model so a pair can be stacked.</summary>
+    public static async Task SeedReadStateAsync(
+        NpgsqlConnection connection,
+        string id,
+        string memberId,
+        string channelId,
+        DateTimeOffset? lastReadAt,
+        DateTimeOffset? updatedAt = null)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO read_states (id, member_id, channel_id, last_read_message_id, last_read_at,
+                                     message_count_at_read, created_at, updated_at)
+            VALUES (@id, @member_id, @channel_id, @last_read_message_id, @last_read_at,
+                    0, @updated_at, @updated_at);
+            """;
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("member_id", memberId);
+        command.Parameters.AddWithValue("channel_id", channelId);
+        command.Parameters.AddWithValue("last_read_message_id", (object?)(lastReadAt is null ? null : $"mesg-{id}") ?? DBNull.Value);
+        command.Parameters.AddWithValue("last_read_at", (object?)lastReadAt ?? DBNull.Value);
+        command.Parameters.AddWithValue("updated_at", updatedAt ?? lastReadAt ?? DateTimeOffset.UtcNow);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    /// <summary>The ids still present in <c>read_states</c>.</summary>
+    public static async Task<List<string>> ReadReadStateIdsAsync(NpgsqlConnection connection)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id FROM read_states ORDER BY id;";
+
+        var ids = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync()) ids.Add(reader.GetString(0));
+        return ids;
+    }
+
     /// <summary>Inserts a role carrying an arbitrary raw mask, bypassing the model.</summary>
     public static async Task SeedRoleAsync(
         NpgsqlConnection connection,

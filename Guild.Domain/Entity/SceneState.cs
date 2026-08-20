@@ -70,6 +70,13 @@ public class SceneState
 
     public DateTimeOffset? LastNudgedAt { get; set; }
 
+    /// <summary>The archive folder this scene is filed under. Null means unfiled.</summary>
+    public string? FolderId { get; set; }
+
+    /// <summary>When the scene ended. UpdatedAt cannot answer this: an edit to a concluded scene's
+    /// note moves it, and the archive dates a campaign by when it finished.</summary>
+    public DateTimeOffset? ConcludedAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
 
@@ -203,6 +210,27 @@ public class SceneState
 
         UpdatedAt = now;
         return true;
+    }
+
+    /// <summary>
+    /// Ends the scene for good.
+    /// </summary>
+    /// <param name="note">The closing line, or null to keep the existing one.</param>
+    /// <param name="now">The instant the scene ended.</param>
+    public void Conclude(string? note, DateTimeOffset now)
+    {
+        Status = SceneStatus.Concluded;
+        if (note is not null) ConclusionNote = note;
+
+        // Stamped once. A later edit to the note is an edit to a chronicle, not a second ending.
+        ConcludedAt ??= now;
+
+        CurrentTurnPersonaId = null;
+        TurnStartedAt = null;
+        TurnDeadlineAt = null;
+        NudgeCount = 0;
+        LastNudgedAt = null;
+        UpdatedAt = now;
     }
 
     /// <summary>Records that the current turn has been chased once more.</summary>

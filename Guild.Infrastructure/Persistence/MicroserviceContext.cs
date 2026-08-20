@@ -35,6 +35,9 @@ public class MicroserviceContext : DbContext
     public DbSet<PersonaGrant> PersonaGrants { get; set; }
     public DbSet<PersonaAutoproxyState> PersonaAutoproxyStates { get; set; }
     public DbSet<SceneState> SceneStates { get; set; }
+    public DbSet<SceneFolder> SceneFolders { get; set; }
+    public DbSet<SceneTag> SceneTags { get; set; }
+    public DbSet<SceneTagAssignment> SceneTagAssignments { get; set; }
     public DbSet<DiceRoll> DiceRolls { get; set; }
 
     public DbSet<WebhookConfig> WebhookConfigs { get; set; }
@@ -690,8 +693,68 @@ public class MicroserviceContext : DbContext
                 .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            // Unfiling, never a cascade: deleting a folder must not delete a campaign.
+            sceneBuilder.HasOne<SceneFolder>()
+                .WithMany()
+                .HasForeignKey(x => x.FolderId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
             // The one question the stale-turn sweep asks: which scenes are being played and overdue.
             sceneBuilder.HasIndex(x => new { x.Status, x.TurnDeadlineAt });
+
+            // What the archive asks: one folder's scenes.
+            sceneBuilder.HasIndex(x => new { x.GuildId, x.FolderId });
+        });
+
+        modelBuilder.Entity<SceneFolder>(folderBuilder =>
+        {
+            folderBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Deleting a parent leaves its children standing at the root rather than taking a
+            // guild's whole arc structure with it.
+            folderBuilder.HasOne<SceneFolder>()
+                .WithMany()
+                .HasForeignKey(x => x.ParentFolderId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            folderBuilder.HasIndex(x => new { x.GuildId, x.Position });
+        });
+
+        modelBuilder.Entity<SceneTag>(sceneTagBuilder =>
+        {
+            sceneTagBuilder.HasOne<Domain.Aggregates.Guild>()
+                .WithMany()
+                .HasForeignKey(x => x.GuildId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            sceneTagBuilder.HasIndex(x => new { x.GuildId, x.Position });
+
+            // Backstop against exact-duplicate names only.
+            sceneTagBuilder.HasIndex(x => new { x.GuildId, x.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<SceneTagAssignment>(assignmentBuilder =>
+        {
+            assignmentBuilder.HasKey(x => new { x.SceneChannelId, x.TagId });
+
+            assignmentBuilder.HasOne<Domain.Aggregates.Channel>()
+                .WithMany()
+                .HasForeignKey(x => x.SceneChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            assignmentBuilder.HasOne<SceneTag>()
+                .WithMany()
+                .HasForeignKey(x => x.TagId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The PK covers "tags of this scene"; this covers the inverse, "scenes carrying this
+            // tag", which is what the archive filter runs.
+            assignmentBuilder.HasIndex(x => x.TagId);
         });
 
         modelBuilder.Entity<DiceRoll>(diceBuilder =>

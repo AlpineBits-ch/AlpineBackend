@@ -379,7 +379,13 @@ public class SceneEndpoint
 
         var wasConcluded = state.Status == SceneStatus.Concluded;
 
-        if (dto.Status is { } status) state.Status = status;
+        // Concluding is not just a status: it stamps the end date the archive sorts on and takes
+        // the scene off the clock. The note is already applied above, so it is not passed twice.
+        if (dto.Status is { } status)
+        {
+            if (status == SceneStatus.Concluded) state.Conclude(null, now);
+            else state.Status = status;
+        }
 
         // Starting a scene that nobody has the turn in is the one status change that has to do
         // something, or the first turn never begins and nothing is ever nudged.

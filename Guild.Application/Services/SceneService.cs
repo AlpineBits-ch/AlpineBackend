@@ -238,7 +238,7 @@ public class SceneService(
             ConclusionNote = scene.ConclusionNote,
             TurnNumber = scene.TurnNumber,
             PostCount = scene.PostCount,
-            ConcludedAt = scene.UpdatedAt,
+            ConcludedAt = scene.ConcludedAt ?? scene.UpdatedAt,
         });
 
     /// <summary>Tells the guild the turn moved.</summary>

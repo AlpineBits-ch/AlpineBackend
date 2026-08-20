@@ -416,7 +416,7 @@ public class PersonaProfileEndpoint
     /// Who may write a profile: the owner of a personal persona, or anybody holding
     /// ManageAnyPersona for one the guild owns.
     /// </summary>
-    private static async Task<IResult?> AuthorizeWriteAsync(
+    internal static async Task<IResult?> AuthorizeWriteAsync(
         GuildPermissionService permissionService, string guildId, string userId, Domain.Entity.Persona persona)
     {
         if (persona.Scope == PersonaScope.User)
@@ -446,7 +446,7 @@ public class PersonaProfileEndpoint
         return (persona, profile);
     }
 
-    private static async Task<bool> CanSpeakAsync(
+    internal static async Task<bool> CanSpeakAsync(
         PersonaService personas, string userId, string guildId, string personaId)
     {
         var usable = await personas.GetUsablePersonasAsync(userId, guildId);

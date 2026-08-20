@@ -886,6 +886,28 @@ A user-scoped persona is global, so it is not under `/guilds`.
 | GET | `/api/v1/personas/{personaId}` | Owner only |
 | PATCH | `/api/v1/personas/{personaId}` | Owner only |
 | DELETE | `/api/v1/personas/{personaId}` | Retires instead if the persona has messages, and says so in the response |
+| POST | `/api/v1/personas/{personaId}/avatar` | Owner, or `ManageAnyPersona` in the owning guild for a shared character. Multipart, field `file` |
+| DELETE | `/api/v1/personas/{personaId}/avatar` | Same gate |
+| GET | `/api/v1/personas/{personaId}/avatar` | Anonymous, and redirects to a presigned URL |
+
+`avatarUrl` is not settable to an arbitrary value: the display guard only accepts instance-hosted
+media, so the upload routes are the only way to produce something the create and patch routes will
+store. The upload writes `AvatarUrl` itself and answers with the updated DTO. Limits are 2 MB and
+PNG, JPEG, WebP or GIF, and the object is served with the content type from that allowlist rather
+than the one the request declared.
+
+Three rules a client has to follow.
+
+Creating a character with a picture is two calls. There is no id to key an upload against until the
+persona exists, so create first and upload second, and report a failed second leg: the character is
+created either way.
+
+The stored URL carries a `?v=` stamp. The object key is stable, so the stamp is the only thing that
+tells a cache, or an already-rendered `img` tag, that the picture changed. Treat the URL as opaque
+and re-read it from the response.
+
+Deleting an avatar deletes the bytes, so historic messages sent under that character show a broken
+image afterwards. This matches role icons.
 
 ### 15.2 Guild personas and grants
 
@@ -916,6 +938,13 @@ served as denormalized display data rather than as a lookup per row - the same r
 | POST | `/api/v1/guilds/{guildId}/personas/{personaId}/profile/approve` | `ApprovePersonas` |
 | POST | `/api/v1/guilds/{guildId}/personas/{personaId}/profile/request-changes` | `ApprovePersonas`. Body carries a reason |
 | GET | `/api/v1/guilds/{guildId}/personas/pending` | `ApprovePersonas`. The approval queue |
+| POST | `/api/v1/guilds/{guildId}/personas/{personaId}/profile/avatar` | Same gate as the profile PUT. Multipart, field `file`, and the character has to be adopted here already |
+| DELETE | `/api/v1/guilds/{guildId}/personas/{personaId}/profile/avatar` | Same gate |
+| GET | `/api/v1/guilds/{guildId}/personas/{personaId}/profile/avatar` | Anonymous, and redirects to a presigned URL |
+
+The profile PUT writes `avatarUrl` on every call, so it clears an override an upload had set. Send
+the PUT first and the upload second, or echo the current value back in the PUT. Neither route
+re-opens approval, matching what the PUT already does for every other field.
 
 ### 15.4 Autoproxy
 

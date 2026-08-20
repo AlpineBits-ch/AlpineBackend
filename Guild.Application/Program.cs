@@ -146,6 +146,7 @@ builder.Services.AddScoped<ChannelPrivacyService>();
 builder.Services.AddScoped<GuildThumbnailService>();
 builder.Services.AddScoped<GuildEmojiService>();
 builder.Services.AddScoped<RoleIconService>();
+builder.Services.AddScoped<PersonaAvatarService>();
 builder.Services.AddScoped<RoleReferenceCleanupService>();
 builder.Services.AddScoped<MfaElevationService>();
 builder.Services.AddScoped<AuditLogService>();

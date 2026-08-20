@@ -812,6 +812,23 @@ public class SceneTurnTests
     }
 
     [Test]
+    public void List_ArchivedOnlyKeepsConcludedAndChannelArchivedScenes()
+    {
+        using var postgres = new PostgresGuildContext();
+
+        var sql = SceneEndpoint.BuildListQuery(
+                postgres, GuildId, null, includeArchived: true, includeConcluded: true,
+                archivedOnly: true)
+            .ToQueryString();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sql, Does.Contain("is_archived"));
+            Assert.That(sql, Does.Contain("OR"));
+        });
+    }
+
+    [Test]
     public void List_NameSortCompilesToSql()
     {
         using var postgres = new PostgresGuildContext();

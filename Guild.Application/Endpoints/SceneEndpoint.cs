@@ -163,7 +163,7 @@ public class SceneEndpoint
         [NotBody] ClaimsPrincipal user,
         bool waitingOnMe = false, bool includeConcluded = false, bool includeArchived = false,
         int? limit = null, string? folderId = null, string? tagIds = null, string? q = null,
-        SceneSort sort = SceneSort.Board, int offset = 0)
+        SceneSort sort = SceneSort.Board, int offset = 0, bool archivedOnly = false)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -195,7 +195,7 @@ public class SceneEndpoint
 
         var rows = await BuildListQuery(
                 ctx, guildId, waitingOnMe ? mine : null, includeArchived, includeConcluded,
-                folderId, wantedTags, q, sort)
+                folderId, wantedTags, q, sort, archivedOnly)
             .Skip(Math.Max(0, offset))
             .Take(take + 1)
             .ToListAsync();
@@ -281,7 +281,8 @@ public class SceneEndpoint
     internal static IQueryable<SceneListRow> BuildListQuery(
         MicroserviceContext ctx, string guildId, IReadOnlyCollection<string>? waitingOnPersonaIds,
         bool includeArchived, bool includeConcluded, string? folderId = null,
-        IReadOnlyCollection<string>? tagIds = null, string? q = null, SceneSort sort = SceneSort.Board)
+        IReadOnlyCollection<string>? tagIds = null, string? q = null, SceneSort sort = SceneSort.Board,
+        bool archivedOnly = false)
     {
         var query = ctx.Set<SceneState>()
             .AsNoTracking()
@@ -291,6 +292,14 @@ public class SceneEndpoint
 
         if (!includeArchived) query = query.Where(row => !row.Channel.IsArchived);
         if (!includeConcluded) query = query.Where(row => row.State.Status != SceneStatus.Concluded);
+
+        // What the archive holds: a scene that finished, or one whose channel was archived out from
+        // under it. Filtering this after the page is cut would under-fill pages non-deterministically.
+        if (archivedOnly)
+        {
+            query = query.Where(row =>
+                row.State.Status == SceneStatus.Concluded || row.Channel.IsArchived);
+        }
 
         if (waitingOnPersonaIds is not null)
         {

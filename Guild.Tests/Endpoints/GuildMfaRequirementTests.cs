@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Endpoints;
+using Guild.Application.Endpoints.Guild;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;

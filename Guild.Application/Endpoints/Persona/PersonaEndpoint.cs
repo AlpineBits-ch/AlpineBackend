@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Persona;
 
 /// <summary>
 /// Characters, and who may speak as them. A persona is a costume rather than a subject of
@@ -27,7 +27,7 @@ public class PersonaEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var personas = await ctx.Set<Persona>()
+        var personas = await ctx.Set<Domain.Entity.Persona>()
             .AsNoTracking()
             .Where(p => p.Scope == PersonaScope.User && p.OwnerUserId == userId)
             .OrderBy(p => p.Name)
@@ -51,12 +51,12 @@ public class PersonaEndpoint
         if (PersonaDisplayGuard.ValidateCore(dto.Name, dto.AvatarUrl, dto.Pronouns, dto.Color, dto.ShortBio) is { } error)
             return Results.BadRequest(error);
 
-        var count = await ctx.Set<Persona>()
+        var count = await ctx.Set<Domain.Entity.Persona>()
             .CountAsync(p => p.Scope == PersonaScope.User && p.OwnerUserId == userId);
         if (count >= PersonaLimits.MaxPersonasPerUser)
             return Results.BadRequest($"You cannot have more than {PersonaLimits.MaxPersonasPerUser} personas.");
 
-        var persona = Persona.Create(new CreatePersonaParams
+        var persona = Domain.Entity.Persona.Create(new CreatePersonaParams
         {
             Scope = PersonaScope.User,
             OwnerUserId = userId,
@@ -67,7 +67,7 @@ public class PersonaEndpoint
             ShortBio = dto.ShortBio?.Trim(),
         });
 
-        ctx.Set<Persona>().Add(persona);
+        ctx.Set<Domain.Entity.Persona>().Add(persona);
 
         await realtime.PersonaCreatedAsync(persona);
 
@@ -82,7 +82,7 @@ public class PersonaEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var persona = await ctx.Set<Persona>().AsNoTracking().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().AsNoTracking().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null || persona.Scope != PersonaScope.User || persona.OwnerUserId != userId)
             return Results.NotFound();
 
@@ -99,7 +99,7 @@ public class PersonaEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null || persona.Scope != PersonaScope.User || persona.OwnerUserId != userId)
             return Results.NotFound();
 
@@ -124,7 +124,7 @@ public class PersonaEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null || persona.Scope != PersonaScope.User || persona.OwnerUserId != userId)
             return Results.NotFound();
 
@@ -165,7 +165,7 @@ public class PersonaEndpoint
         var requiresApproval = await personas.RequiresApprovalAsync(guildId);
         var ids = usable.Select(u => u.PersonaId).ToList();
 
-        var rows = await ctx.Set<Persona>().AsNoTracking().Where(p => ids.Contains(p.Id)).ToListAsync();
+        var rows = await ctx.Set<Domain.Entity.Persona>().AsNoTracking().Where(p => ids.Contains(p.Id)).ToListAsync();
         var profiles = await ctx.Set<PersonaGuildProfile>()
             .AsNoTracking()
             .Where(p => p.GuildId == guildId && ids.Contains(p.PersonaId))
@@ -224,7 +224,7 @@ public class PersonaEndpoint
         if (PersonaDisplayGuard.ValidateCore(dto.Name, dto.AvatarUrl, dto.Pronouns, dto.Color, dto.ShortBio) is { } error)
             return Results.BadRequest(error);
 
-        var count = await ctx.Set<Persona>()
+        var count = await ctx.Set<Domain.Entity.Persona>()
             .CountAsync(p => p.Scope == PersonaScope.Guild && p.OwnerGuildId == guildId);
         if (count >= PersonaLimits.MaxPersonasPerGuild)
             return Results.BadRequest($"A guild cannot have more than {PersonaLimits.MaxPersonasPerGuild} personas.");
@@ -232,7 +232,7 @@ public class PersonaEndpoint
         if (await displayGuard.FindNameCollisionAsync(guildId, dto.Name) is { } collision)
             return Results.Conflict($"That name is already {collision}.");
 
-        var persona = Persona.Create(new CreatePersonaParams
+        var persona = Domain.Entity.Persona.Create(new CreatePersonaParams
         {
             Scope = PersonaScope.Guild,
             OwnerGuildId = guildId,
@@ -251,7 +251,7 @@ public class PersonaEndpoint
             GuildId = guildId,
         });
 
-        ctx.Set<Persona>().Add(persona);
+        ctx.Set<Domain.Entity.Persona>().Add(persona);
         ctx.Set<PersonaGuildProfile>().Add(profile);
 
         auditLog.Log(guildId, userId, AuditActionType.PersonaCreated, persona.Id, new { persona.Name });
@@ -277,7 +277,7 @@ public class PersonaEndpoint
         if (await PersonaGate.CheckAsync(permissionService, ctx, guildId, userId, ModulePermissions.ManageAnyPersona) is { } denied)
             return denied;
 
-        var persona = await ctx.Set<Persona>()
+        var persona = await ctx.Set<Domain.Entity.Persona>()
             .FirstOrDefaultAsync(p => p.Id == personaId && p.Scope == PersonaScope.Guild && p.OwnerGuildId == guildId);
         if (persona is null) return Results.NotFound();
 
@@ -304,7 +304,7 @@ public class PersonaEndpoint
         if (await PersonaGate.CheckAsync(permissionService, ctx, guildId, userId, ModulePermissions.ManageAnyPersona) is { } denied)
             return denied;
 
-        var persona = await ctx.Set<Persona>()
+        var persona = await ctx.Set<Domain.Entity.Persona>()
             .FirstOrDefaultAsync(p => p.Id == personaId && p.Scope == PersonaScope.Guild && p.OwnerGuildId == guildId);
         if (persona is null) return Results.NotFound();
 
@@ -429,7 +429,7 @@ public class PersonaEndpoint
     // ══════════════════════════════════════════════════════════════════════════════════════════
 
     internal static async Task<PersonaGuildProfileDto> ToProfileDtoAsync(
-        PersonaPageService pages, Persona persona, PersonaGuildProfile profile, bool canSpeak) => new()
+        PersonaPageService pages, Domain.Entity.Persona persona, PersonaGuildProfile profile, bool canSpeak) => new()
     {
         PersonaId = profile.PersonaId,
         GuildId = profile.GuildId,
@@ -452,7 +452,7 @@ public class PersonaEndpoint
     /// <summary>Applies a patch, validating the display fields and the guild collisions they can
     /// cause. Returns the failing result, or null.</summary>
     private static async Task<IResult?> ApplyAsync(
-        Persona persona, UpdatePersonaDto dto, PersonaDisplayGuard displayGuard, string? guildId = null)
+        Domain.Entity.Persona persona, UpdatePersonaDto dto, PersonaDisplayGuard displayGuard, string? guildId = null)
     {
         var name = dto.Name?.Trim() ?? persona.Name;
 
@@ -494,7 +494,7 @@ public class PersonaEndpoint
     /// A persona that has spoken retires rather than deletes, so no message is left pointing at a
     /// row that is gone.
     /// </summary>
-    private static PersonaDeletionDto RemoveOrRetire(MicroserviceContext ctx, Persona persona)
+    private static PersonaDeletionDto RemoveOrRetire(MicroserviceContext ctx, Domain.Entity.Persona persona)
     {
         if (persona.HasSpoken)
         {
@@ -508,12 +508,12 @@ public class PersonaEndpoint
             };
         }
 
-        ctx.Set<Persona>().Remove(persona);
+        ctx.Set<Domain.Entity.Persona>().Remove(persona);
         return new PersonaDeletionDto { PersonaId = persona.Id, Retired = false };
     }
 
     private static async Task<bool> OwnedByGuildAsync(MicroserviceContext ctx, string guildId, string personaId) =>
-        await ctx.Set<Persona>()
+        await ctx.Set<Domain.Entity.Persona>()
             .AnyAsync(p => p.Id == personaId && p.Scope == PersonaScope.Guild && p.OwnerGuildId == guildId);
 
     /// <summary>Every user a proposed grant would newly reach.</summary>

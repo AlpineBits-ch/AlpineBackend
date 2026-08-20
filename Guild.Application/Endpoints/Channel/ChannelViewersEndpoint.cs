@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Channel;
 
 public class ChannelViewersDto
 {

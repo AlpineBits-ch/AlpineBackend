@@ -1,6 +1,7 @@
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Endpoints;
+using Guild.Application.Endpoints.Persona;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;

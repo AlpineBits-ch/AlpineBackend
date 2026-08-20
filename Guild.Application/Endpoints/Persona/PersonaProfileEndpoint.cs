@@ -9,7 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Persona;
 
 /// <summary>
 /// Adopting a character into a guild, its per-guild overrides, the approval queue, and the
@@ -35,7 +35,7 @@ public class PersonaProfileEndpoint
         if (await PersonaGate.CheckMembershipAsync(permissionService, ctx, guildId, userId) is { } blocked)
             return blocked;
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null) return Results.NotFound();
 
         if (await AuthorizeWriteAsync(permissionService, guildId, userId, persona) is { } denied)
@@ -63,7 +63,7 @@ public class PersonaProfileEndpoint
         if (profile is null)
         {
             var adopted = await ctx.Set<PersonaGuildProfile>()
-                .Join(ctx.Set<Persona>().Where(p => p.OwnerUserId == userId),
+                .Join(ctx.Set<Domain.Entity.Persona>().Where(p => p.OwnerUserId == userId),
                     p => p.PersonaId, p => p.Id, (p, _) => p.GuildId)
                 .CountAsync(g => g == guildId);
 
@@ -113,7 +113,7 @@ public class PersonaProfileEndpoint
         if (await PersonaGate.CheckMembershipAsync(permissionService, ctx, guildId, userId) is { } blocked)
             return blocked;
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null) return Results.NotFound();
 
         var isOwner = persona.Scope == PersonaScope.User && persona.OwnerUserId == userId;
@@ -153,7 +153,7 @@ public class PersonaProfileEndpoint
         if (await PersonaGate.CheckMembershipAsync(permissionService, ctx, guildId, userId) is { } blocked)
             return blocked;
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null) return Results.NotFound();
 
         if (await AuthorizeWriteAsync(permissionService, guildId, userId, persona) is { } denied)
@@ -288,7 +288,7 @@ public class PersonaProfileEndpoint
         if (profiles.Count == 0) return Results.Ok(new List<PersonaGuildProfileDto>());
 
         var personaIds = profiles.Select(p => p.PersonaId).ToList();
-        var rows = await ctx.Set<Persona>().AsNoTracking().Where(p => personaIds.Contains(p.Id)).ToListAsync();
+        var rows = await ctx.Set<Domain.Entity.Persona>().AsNoTracking().Where(p => personaIds.Contains(p.Id)).ToListAsync();
 
         var dtos = new List<PersonaGuildProfileDto>();
         foreach (var profile in profiles)
@@ -417,7 +417,7 @@ public class PersonaProfileEndpoint
     /// ManageAnyPersona for one the guild owns.
     /// </summary>
     private static async Task<IResult?> AuthorizeWriteAsync(
-        GuildPermissionService permissionService, string guildId, string userId, Persona persona)
+        GuildPermissionService permissionService, string guildId, string userId, Domain.Entity.Persona persona)
     {
         if (persona.Scope == PersonaScope.User)
         {
@@ -435,14 +435,14 @@ public class PersonaProfileEndpoint
             : Results.Forbid();
     }
 
-    private static async Task<(Persona?, PersonaGuildProfile?)> LoadAsync(
+    private static async Task<(Domain.Entity.Persona?, PersonaGuildProfile?)> LoadAsync(
         MicroserviceContext ctx, string guildId, string personaId)
     {
         var profile = await ctx.Set<PersonaGuildProfile>()
             .FirstOrDefaultAsync(p => p.GuildId == guildId && p.PersonaId == personaId);
         if (profile is null) return (null, null);
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         return (persona, profile);
     }
 

@@ -1,11 +1,8 @@
 ﻿using System.Security.Claims;
-using Amazon.Runtime;
 using Echo.Realtime;
-using Facet.Extensions;
 using FluentValidation;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
-
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
@@ -18,7 +15,7 @@ using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Channel;
 
 [Authorize]
 public class ChannelEndpoint
@@ -61,7 +58,7 @@ public class ChannelEndpoint
 
         try
         {
-            var channel = Channel.Create(new CreateChannelParams()
+            var channel = Domain.Aggregates.Channel.Create(new CreateChannelParams()
             {
                 Name = dto.Name,
                 Type = dto.Type,
@@ -199,7 +196,7 @@ public class ChannelEndpoint
 
         try
         {
-            channel.Update(new Channel.UpdateChannelParams
+            channel.Update(new Domain.Aggregates.Channel.UpdateChannelParams
             {
                 Name = dto.Name,
                 Description = dto.Description,

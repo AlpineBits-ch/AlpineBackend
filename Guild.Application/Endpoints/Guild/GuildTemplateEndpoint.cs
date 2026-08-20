@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using System.Text;
 using Guild.Application.Dtos.Request;
-using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;
@@ -16,7 +15,7 @@ using Wolverine;
 using Wolverine.Http;
 using MessagingMessageType = Messaging.Contracts.Bus.Commands.MessageType;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Guild;
 
 [Authorize]
 public class GuildTemplateEndpoint
@@ -227,7 +226,7 @@ public class GuildTemplateEndpoint
 
             foreach (var channelTemplate in categoryTemplate.Channels)
             {
-                var channel = Channel.Create(new CreateChannelParams
+                var channel = Domain.Aggregates.Channel.Create(new CreateChannelParams
                 {
                     Name = channelTemplate.Name,
                     Description = channelTemplate.Description ?? "",
@@ -245,7 +244,7 @@ public class GuildTemplateEndpoint
 
         foreach (var channelTemplate in template.Snapshot.UncategorizedChannels)
         {
-            var channel = Channel.Create(new CreateChannelParams
+            var channel = Domain.Aggregates.Channel.Create(new CreateChannelParams
             {
                 Name = channelTemplate.Name,
                 Description = channelTemplate.Description ?? "",

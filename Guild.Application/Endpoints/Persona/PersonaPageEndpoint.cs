@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Persona;
 
 /// <summary>
 /// A character page is an ordinary wiki page, served by the wiki endpoints. Only two operations
@@ -106,14 +106,14 @@ public class PersonaPageEndpoint
     /// The persona and its profile in this guild, plus the failing result when the caller may not
     /// touch either.
     /// </summary>
-    private static async Task<(Persona?, PersonaGuildProfile?, IResult?)> ResolveAsync(
+    private static async Task<(Domain.Entity.Persona?, PersonaGuildProfile?, IResult?)> ResolveAsync(
         GuildPermissionService permissionService, MicroserviceContext ctx,
         string guildId, string personaId, string userId)
     {
         if (await PersonaGate.CheckAsync(permissionService, ctx, guildId, userId, ModulePermissions.UsePersonas) is { } denied)
             return (null, null, denied);
 
-        var persona = await ctx.Set<Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
+        var persona = await ctx.Set<Domain.Entity.Persona>().FirstOrDefaultAsync(p => p.Id == personaId);
         if (persona is null) return (null, null, Results.NotFound());
 
         var profile = await ctx.Set<PersonaGuildProfile>()

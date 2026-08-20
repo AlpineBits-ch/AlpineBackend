@@ -5,6 +5,7 @@ using Guild.Application.Services;
 using Guild.Domain.Entity;
 using Guild.Tests.Helpers;
 using Domain;
+using Guild.Application.Endpoints.Guild;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 

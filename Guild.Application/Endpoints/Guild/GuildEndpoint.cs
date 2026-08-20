@@ -6,7 +6,6 @@ using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
-using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Messaging.Contracts.Bus.Commands;
@@ -17,10 +16,9 @@ using Social.Contracts.Bus.Integration.Request;
 using Social.Contracts.Bus.Integration.Response;
 using Wolverine;
 using Wolverine.Http;
-using Wolverine.Persistence.Durability;
 using MessagingMessageType = Messaging.Contracts.Bus.Commands.MessageType;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Guild;
 
 [Authorize]
 public class GuildEndpoint

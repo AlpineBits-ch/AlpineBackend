@@ -11,7 +11,7 @@ using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Household;
 
 /// <summary>The whole household in one request.</summary>
 [Authorize]

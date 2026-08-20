@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Wolverine;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Household;
 
 /// <summary>The three household modules that aren't channels: home status, quiet hours and
 /// time-boxed guest roles. All guild-scoped rather than channel-scoped, so they're gated on their

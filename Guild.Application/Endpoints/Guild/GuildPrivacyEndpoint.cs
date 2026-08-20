@@ -6,7 +6,7 @@ using Guild.Persistence.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Wolverine.Http;
 
-namespace Guild.Application.Endpoints;
+namespace Guild.Application.Endpoints.Guild;
 
 /// <summary>The per-guild DM toggle (privacy spec T2-14).</summary>
 [Authorize]

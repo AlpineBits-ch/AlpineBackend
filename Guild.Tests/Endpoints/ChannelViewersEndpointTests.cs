@@ -1,4 +1,5 @@
 using Guild.Application.Endpoints;
+using Guild.Application.Endpoints.Channel;
 using Guild.Application.Services;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Entity;

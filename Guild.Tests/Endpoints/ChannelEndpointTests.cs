@@ -70,9 +70,11 @@ public class ChannelEndpointTests
         await _context.SaveChangesAsync();
     }
 
-    private async Task<Channel> SeedChannel(ChannelType type = ChannelType.Text)
+    private async Task<Channel> SeedChannel(ChannelType type = ChannelType.Text, string? icon = null, string? iconColor = null)
     {
         var channel = Channel.Create(new CreateChannelParams { Name = "general", Type = type, GuildId = GuildId, Description = "d" });
+        channel.Icon = icon;
+        channel.IconColor = iconColor;
         _context.Channels.Add(channel);
         await _context.SaveChangesAsync();
         return channel;
@@ -266,6 +268,76 @@ public class ChannelEndpointTests
         Assert.That(reloaded.Name, Is.EqualTo("renamed"));
         Assert.That(reloaded.SlowModeSeconds, Is.EqualTo(5));
         Assert.That(_bus.Published.OfType<ChannelUpdatedForBots>().Any(e => e.ChannelId == channel.Id), Is.True);
+    }
+
+    [Test]
+    public async Task UpdateChannel_SetsIconAndColour()
+    {
+        await SeedManagerMember();
+        var channel = await SeedChannel();
+
+        var result = await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = channel.Name, Icon = "swords", IconColor = "#F87171" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var saved = await _context.Channels.AsNoTracking().FirstAsync(c => c.Id == channel.Id);
+        Assert.That(saved.Icon, Is.EqualTo("swords"));
+        Assert.That(saved.IconColor, Is.EqualTo("#F87171"));
+    }
+
+    [Test]
+    public async Task UpdateChannel_NullIconLeavesStoredValueAlone()
+    {
+        await SeedManagerMember();
+        var channel = await SeedChannel(icon: "swords", iconColor: "#F87171");
+
+        await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = channel.Name, Icon = null, IconColor = null },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var saved = await _context.Channels.AsNoTracking().FirstAsync(c => c.Id == channel.Id);
+        Assert.That(saved.Icon, Is.EqualTo("swords"));
+        Assert.That(saved.IconColor, Is.EqualTo("#F87171"));
+    }
+
+    [Test]
+    public async Task UpdateChannel_EmptyStringClearsIcon()
+    {
+        await SeedManagerMember();
+        var channel = await SeedChannel(icon: "swords", iconColor: "#F87171");
+
+        await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto { Name = channel.Name, Icon = "", IconColor = "" },
+            _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var saved = await _context.Channels.AsNoTracking().FirstAsync(c => c.Id == channel.Id);
+        Assert.That(saved.Icon, Is.Null);
+        Assert.That(saved.IconColor, Is.Null);
+    }
+
+    [Test]
+    public async Task UpdateChannel_ResponseCarriesEveryEditableField()
+    {
+        await SeedManagerMember();
+        var channel = await SeedChannel();
+
+        var result = await _endpoint.UpdateChannelAsync(channel.Id, new UpdateChannelDto
+        {
+            Name = "renamed",
+            Description = "a description",
+            SlowModeSeconds = 30,
+            Icon = "swords",
+            IconColor = "#F87171",
+        }, _permissionService, _context, _hub, _hydrateService, _auditLog, new ChannelPrivacyService(_context), _bus, TestPrincipal.Create(UserId));
+
+        var dto = ((Ok<Guild.Application.Dtos.Response.ChannelDto>)result).Value!;
+        Assert.That(dto.Name, Is.EqualTo("renamed"));
+        Assert.That(dto.Description, Is.EqualTo("a description"));
+        Assert.That(dto.SlowModeSeconds, Is.EqualTo(30));
+        Assert.That(dto.Icon, Is.EqualTo("swords"));
+        Assert.That(dto.IconColor, Is.EqualTo("#F87171"));
+        Assert.That(dto.Position, Is.EqualTo(channel.Position));
+        Assert.That(dto.CategoryId, Is.EqualTo(channel.CategoryId));
     }
 
     // ══════════════════════════════════════════════════════════════════════ ReorderChannels

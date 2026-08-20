@@ -194,6 +194,11 @@ public class ChannelEndpoint
         var canManage = await permissionService.CanUserPerformActionAsync(userId, channelId, Permissions.ManageChannel);
         if (!canManage) return Results.Forbid();
 
+        // Absent and explicit null both deserialise to null, which is what makes "null keeps" work
+        // for clients that do not send these fields at all.
+        var icon = dto.Icon is null ? channel.Icon : NullIfEmpty(dto.Icon);
+        var iconColor = dto.IconColor is null ? channel.IconColor : NullIfEmpty(dto.IconColor);
+
         try
         {
             channel.Update(new Domain.Aggregates.Channel.UpdateChannelParams
@@ -202,6 +207,8 @@ public class ChannelEndpoint
                 Description = dto.Description,
                 IsAgeRestricted = dto.IsAgeRestricted,
                 SlowModeSeconds = dto.SlowModeSeconds,
+                Icon = icon,
+                IconColor = iconColor,
             });
         }
         catch (ValidationException validationException)
@@ -244,12 +251,20 @@ public class ChannelEndpoint
             GuildId = channel.GuildId,
             Id = channel.Id,
             Name = channel.Name,
+            Description = channel.Description,
             CreatedAt = channel.CreatedAt,
             UpdatedAt = channel.UpdatedAt,
             IsAgeRestricted = channel.IsAgeRestricted,
             IsPrivate = channel.IsPrivate,
+            CategoryId = channel.CategoryId,
+            Position = channel.Position,
+            SlowModeSeconds = channel.SlowModeSeconds,
+            Icon = channel.Icon,
+            IconColor = channel.IconColor,
         });
     }
+
+    private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 
 
     [WolverinePatch("/api/v1/guilds/{guildId}/channels/reorder")]

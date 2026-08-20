@@ -14,4 +14,10 @@ public class UpdateChannelDto
     public bool? IsPrivate { get; set; }
 
     public int SlowModeSeconds { get; set; }
+
+    /// <summary>Null leaves the stored icon alone so a client that predates this field cannot wipe it; empty resets it to the channel type's icon.</summary>
+    public string? Icon { get; set; }
+
+    /// <summary>Same sentinel as <see cref="Icon"/>: null keeps, empty clears.</summary>
+    public string? IconColor { get; set; }
 }

@@ -151,6 +151,8 @@ public class MessageCreatedHandler
                     DomainMessageType.GuildMemberJoin => ChannelMessageType.GuildMemberJoin,
                     DomainMessageType.GuildMemberLeave => ChannelMessageType.GuildMemberLeave,
                     DomainMessageType.DiceRoll => ChannelMessageType.DiceRoll,
+                    DomainMessageType.SceneCharacterJoined => ChannelMessageType.SceneCharacterJoined,
+                    DomainMessageType.SceneCharacterLeft => ChannelMessageType.SceneCharacterLeft,
                     _ => ChannelMessageType.Message,
                 },
                 SystemMessageVariant = messageCreated.SystemMessageVariant,

@@ -151,7 +151,7 @@ public class MessageCreatedPrivacyTests
         return _handler.Handle(
             message, _hub, hydrate, _context, _cache, _bus,
             NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blockCache, privacy,
-            PersonaMentions(), Scenes(hydrate));
+            PersonaMentions(), Scenes(hydrate), Joins(hydrate));
     }
 
     private PersonaMentionService PersonaMentions() =>
@@ -161,6 +161,19 @@ public class MessageCreatedPrivacyTests
     /// the turn-advance branch never runs.</summary>
     private SceneService Scenes(GuildHydrateService hydrate) =>
         new(_context, PersonaMentions(), new PersonaCastService(_context), hydrate, _hub);
+
+    /// <summary>Same reason as <see cref="Scenes"/>: no scene is seeded, so nothing here runs.</summary>
+    private SceneJoinService Joins(GuildHydrateService hydrate)
+    {
+        var permissions = new GuildPermissionService(
+            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+
+        return new SceneJoinService(
+            _context, Scenes(hydrate),
+            new SceneVisibilityCache(_cache, _context, new PersonaService(_cache, _context)),
+            new PersonaCastService(_context),
+            new ModulePermissionHolderService(_context, permissions), _hub, _bus);
+    }
 
     private static UserPrivacySettingsSummary[] EveryonePermissive() =>
     [
@@ -274,7 +287,7 @@ public class MessageCreatedPrivacyTests
         await _handler.Handle(
             Message(mentions: [BlockerUserId, PeerUserId]), _hub, hydrate, _context, _cache, _bus,
             NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blocks, privacy,
-            PersonaMentions(), Scenes(hydrate));
+            PersonaMentions(), Scenes(hydrate), Joins(hydrate));
 
         Assert.Multiple(() =>
         {
@@ -360,7 +373,7 @@ public class MessageCreatedPrivacyTests
         await _handler.Handle(
             Message(), _hub, hydrate, _context, _cache, _bus,
             NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience, blocks, privacy,
-            PersonaMentions(), Scenes(hydrate));
+            PersonaMentions(), Scenes(hydrate), Joins(hydrate));
 
         Assert.Multiple(() =>
         {

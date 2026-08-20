@@ -25,7 +25,7 @@ public class MessageCreatedHandler
         MicroserviceContext context, IDistributedCache cache, IMessageBus bus, ILogger<MessageCreatedHandler> logger,
         NotificationResolutionService notificationService, ChannelAudienceService audience,
         BlockCache blocks, PrivacySettingsCache privacySettings, PersonaMentionService personaMentions,
-        SceneService scenes)
+        SceneService scenes, SceneJoinService joins)
     {
         var channelKey = GetChannelKey(message.ChannelId);
         var cachedGuildId = await cache.GetStringAsync(channelKey);
@@ -62,7 +62,12 @@ public class MessageCreatedHandler
         // The turn moving on its own is what makes a scene feel like play rather than
         // administration. One comparison on a row this handler already has decides it, so the
         // instance's whole message flow pays nothing for scenes it does not have.
-        if (channel is { Type: ChannelType.Scene })
+        // The scene's own log lines are not posts: counting them would inflate the chronicle, and
+        // the join line carries the character that just spoke, which would move the turn again.
+        var isSceneSystemLine = message.Type is Guild.Contracts.Bus.Events.MessageType.SceneCharacterJoined
+            or Guild.Contracts.Bus.Events.MessageType.SceneCharacterLeft;
+
+        if (channel is { Type: ChannelType.Scene } && !isSceneSystemLine)
         {
             var scene = await scenes.GetAsync(message.ChannelId);
             if (scene is not null)
@@ -70,6 +75,12 @@ public class MessageCreatedHandler
                 // Every message counts, not only the ones that moved the turn: "412 posts over two
                 // months" is what a concluded scene has to say about itself.
                 scene.PostCount++;
+
+                // Ahead of the advance so the character is in the rotation before the turn moves,
+                // and after the message so the join lands under what caused it.
+                await joins.AutoJoinOnPostAsync(
+                    scene, message.PersonaId, message.AuthorId, message.CreatedAt);
+
                 await scenes.AdvanceOnPostAsync(scene, message.PersonaId, message.CreatedAt);
             }
         }

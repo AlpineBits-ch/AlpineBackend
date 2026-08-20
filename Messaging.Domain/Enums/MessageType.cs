@@ -30,6 +30,16 @@ public enum MessageType
 
     /// <summary>A server-rolled dice expression and its result.</summary>
     DiceRoll,
+
+    /// <summary>
+    /// A character walked into a scene. The display fields carry the character it walked in as,
+    /// denormalised so a rename a year later still reads correctly at this point in the log.
+    /// </summary>
+    SceneCharacterJoined,
+
+    /// <summary>A character left a scene. Content is empty, or "removed" when a GM took it out
+    /// rather than the player leaving, the way GroupIconChanged tells its two cases apart.</summary>
+    SceneCharacterLeft,
 }
 
 /// <summary>

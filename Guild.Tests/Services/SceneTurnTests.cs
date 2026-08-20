@@ -45,6 +45,8 @@ public class SceneTurnTests
     private SceneService _scenes = null!;
     private SceneEndpoint _endpoint = null!;
     private AuditLogService _auditLog = null!;
+    private SceneVisibilityCache _sceneVisibility = null!;
+    private SceneJoinService _joins = null!;
 
     [SetUp]
     public void SetUp()
@@ -61,7 +63,13 @@ public class SceneTurnTests
             _context, new PersonaMentionService(_context, _personas), _cast, _hydrate, _hub);
         _endpoint = new SceneEndpoint();
         _auditLog = new AuditLogService(_context);
+        _sceneVisibility = new SceneVisibilityCache(_cache, _context, _personas);
+        _joins = JoinsFor(_scenes);
     }
+
+    private SceneJoinService JoinsFor(SceneService scenes) =>
+        new(_context, scenes, _sceneVisibility, _cast,
+            new ModulePermissionHolderService(_context, _permissions), _hub, _bus);
 
     [TearDown]
     public async Task TearDown() => await _context.DisposeAsync();
@@ -637,7 +645,7 @@ public class SceneTurnTests
         await SeedSceneAsync();
 
         var result = await _endpoint.RemoveParticipantAsync(
-            GuildId, "scene-1", PlayerPersonaId, _permissions, _scenes, _context,
+            GuildId, "scene-1", PlayerPersonaId, _permissions, _scenes, _joins, _context,
             TestPrincipal.Create(GameMasterId));
 
         var dto = (result as Ok<SceneDto>)?.Value;
@@ -987,7 +995,7 @@ public class SceneTurnTests
 
         var result = await _endpoint.UpdateAsync(
             GuildId, "scene-1", new UpdateSceneDto { Status = SceneStatus.Active },
-            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, _scenes, _joins, _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         var dto = (result as Ok<SceneDto>)?.Value;
 
@@ -1013,7 +1021,7 @@ public class SceneTurnTests
                 ParticipantPersonaIds = [PlayerPersonaId, OtherPersonaId, GmPersonaId],
                 TurnOrder = [PlayerPersonaId, GmPersonaId, OtherPersonaId],
             },
-            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, _scenes, _joins, _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         var dto = (result as Ok<SceneDto>)?.Value;
 
@@ -1034,7 +1042,7 @@ public class SceneTurnTests
         var result = await _endpoint.UpdateAsync(
             GuildId, "scene-1",
             new UpdateSceneDto {ParticipantPersonaIds = [OtherPersonaId]},
-            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, _scenes, _joins, _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         var dto = (result as Ok<SceneDto>)?.Value;
 
@@ -1055,7 +1063,7 @@ public class SceneTurnTests
         var result = await _endpoint.UpdateAsync(
             GuildId, "scene-1",
             new UpdateSceneDto {ParticipantPersonaIds = [PlayerPersonaId, OtherPersonaId, "pers_nobody"]},
-            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, _scenes, _joins, _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         Assert.That(result, Is.Not.InstanceOf<Ok<SceneDto>>());
     }
@@ -1069,7 +1077,7 @@ public class SceneTurnTests
         var result = await _endpoint.UpdateAsync(
             GuildId, "scene-1",
             new UpdateSceneDto { Status = SceneStatus.Concluded, ConclusionNote = "The siege broke at dawn." },
-            _permissions, _scenes, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, _scenes, _joins, _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         var dto = (result as Ok<SceneDto>)?.Value;
 
@@ -1087,7 +1095,7 @@ public class SceneTurnTests
                 Name = "The Siege of Blackwater", TurnLengthHours = 48,
                 TurnOrder = [PlayerPersonaId, OtherPersonaId],
             },
-            _permissions, Watched(), _auditLog, _hydrate, _hub, _bus, _context,
+            _permissions, Watched(), _auditLog, _hydrate, _hub, _bus, _sceneVisibility, _context,
             TestPrincipal.Create(GameMasterId));
 
         var sent = ((FakeHubClients)_hub.Clients).SentMessages
@@ -1116,13 +1124,13 @@ public class SceneTurnTests
 
         await _endpoint.UpdateAsync(GuildId, "scene-1",
             new UpdateSceneDto { Status = SceneStatus.Concluded, ConclusionNote = "The siege broke at dawn." },
-            _permissions, watched, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, watched, JoinsFor(watched), _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         // A second PATCH on an already concluded scene edits a chronicle rather than ending it
         // again.
         await _endpoint.UpdateAsync(GuildId, "scene-1",
             new UpdateSceneDto { ConclusionNote = "The siege broke at first light." },
-            _permissions, watched, _auditLog, _context, TestPrincipal.Create(GameMasterId));
+            _permissions, watched, JoinsFor(watched), _sceneVisibility, _auditLog, _context, TestPrincipal.Create(GameMasterId));
 
         var sent = ((FakeHubClients)_hub.Clients).SentMessages
             .Where(s => s.Method == SceneService.ConcludedEvent)
@@ -1315,7 +1323,7 @@ public class SceneTurnTests
 
     private Task<IResult> CreateAsync(CreateSceneDto dto, string userId = GameMasterId) =>
         _endpoint.CreateAsync(GuildId, ChannelId, dto, _permissions, _scenes, _auditLog, _hydrate,
-            _hub, _bus, _context, TestPrincipal.Create(userId));
+            _hub, _bus, _sceneVisibility, _context, TestPrincipal.Create(userId));
 
     private SceneNudgeService BuildNudges() =>
         new(_context, _scenes, _cast, new ModulePermissionHolderService(_context, _permissions),

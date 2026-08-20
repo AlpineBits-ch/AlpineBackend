@@ -39,6 +39,7 @@ public class SceneEndpoint
         [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
         [NotBody] AuditLogService auditLog, [NotBody] GuildHydrateService hydrate,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] IMessageBus bus,
+        [NotBody] SceneVisibilityCache sceneVisibility,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -59,6 +60,11 @@ public class SceneEndpoint
 
         if (dto.Status is { } wanted and not (SceneStatus.Open or SceneStatus.Active))
             return Fault("scene_status_not_openable", $"A scene cannot be created {wanted}.");
+
+        var joinPolicy = dto.JoinPolicy ?? SceneJoinPolicy.Open;
+        var visibility = dto.Visibility ?? SceneVisibility.Everyone;
+
+        if (!SceneState.IsAccessPairLegal(joinPolicy, visibility)) return VisibilityConflict();
 
         var order = (dto.TurnOrder ?? []).Distinct(StringComparer.Ordinal).ToList();
 
@@ -109,6 +115,8 @@ public class SceneEndpoint
                 OocThreadId = ooc.Id,
                 TurnLengthHours = dto.TurnLengthHours,
                 ParticipantPersonaIds = participants,
+                JoinPolicy = joinPolicy,
+                Visibility = visibility,
             });
 
             state.TurnOrder = [.. order];
@@ -138,6 +146,11 @@ public class SceneEndpoint
             // carry is one that never reaches a bot's THREAD_CREATE.
             await AnnounceThreadAsync(hub, hydrate, bus, scene, channelId);
             await AnnounceThreadAsync(hub, hydrate, bus, ooc, channelId);
+
+            // Before the announcement: a scene that opens private must not be readable in the
+            // window between the event and the next map read.
+            if (state.Visibility == SceneVisibility.Cast)
+                await sceneVisibility.InvalidateGuildAsync(guildId);
 
             await scenes.BroadcastCreatedAsync(state, scene);
 
@@ -260,6 +273,8 @@ public class SceneEndpoint
                 TagIds = tagsByScene.GetValueOrDefault(row.ChannelId, []),
                 ConcludedAt = row.ConcludedAt,
                 CreatedAt = row.CreatedAt,
+                JoinPolicy = row.JoinPolicy,
+                Visibility = row.Visibility,
             });
         }
 
@@ -272,7 +287,7 @@ public class SceneEndpoint
         string? CurrentTurnPersonaId, DateTimeOffset? TurnStartedAt, DateTimeOffset? TurnDeadlineAt,
         int TurnNumber, int PostCount, int NudgeCount, int ParticipantCount, string? OocThreadId,
         DateTimeOffset UpdatedAt, string? FolderId, DateTimeOffset? ConcludedAt,
-        DateTimeOffset CreatedAt);
+        DateTimeOffset CreatedAt, SceneJoinPolicy JoinPolicy, SceneVisibility Visibility);
 
     /// <summary>
     /// The scene list's query, extracted so the translation harness can prove it compiles to SQL -
@@ -363,7 +378,9 @@ public class SceneEndpoint
                 row.State.UpdatedAt,
                 row.State.FolderId,
                 row.State.ConcludedAt,
-                row.State.CreatedAt));
+                row.State.CreatedAt,
+                row.State.JoinPolicy,
+                row.State.Visibility));
     }
 
     /// <summary>One scene, its cast and whose turn it is.</summary>
@@ -391,6 +408,7 @@ public class SceneEndpoint
     [WolverinePatch("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}")]
     public async Task<IResult> UpdateAsync(string guildId, string sceneChannelId, UpdateSceneDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins, [NotBody] SceneVisibilityCache sceneVisibility,
         [NotBody] AuditLogService auditLog, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user)
     {
@@ -404,6 +422,20 @@ public class SceneEndpoint
 
         var (channel, state) = found.Value;
         var now = DateTimeOffset.UtcNow;
+
+        // Checked against the pair the scene would end up in, not against what was sent: a PATCH
+        // that only flips the policy can still land on the refused combination.
+        var joinPolicy = dto.JoinPolicy ?? state.JoinPolicy;
+        var visibility = dto.Visibility ?? state.Visibility;
+
+        if (!SceneState.IsAccessPairLegal(joinPolicy, visibility)) return VisibilityConflict();
+
+        var visibilityChanged = state.Visibility != visibility;
+
+        state.JoinPolicy = joinPolicy;
+        state.Visibility = visibility;
+
+        if (visibilityChanged) await sceneVisibility.InvalidateGuildAsync(guildId);
 
         if (dto.ParticipantPersonaIds is not null)
         {
@@ -419,13 +451,20 @@ public class SceneEndpoint
                 // Matches the add-participant route: a cast change that leaves an explicit rotation
                 // untouched would put somebody in the scene who never gets a turn.
                 if (dto.TurnOrder is null && state.TurnOrder.Count > 0) state.TurnOrder.Add(personaId);
+
+                await joins.AnnounceJoinedAsync(state, personaId, userId);
             }
 
             var leaving = state.ParticipantPersonaIds.Except(cast, StringComparer.Ordinal).ToList();
             if (leaving.Count > 0)
             {
                 var unavailable = await scenes.UnavailablePersonasAsync(guildId, state.Rotation, now);
-                foreach (var personaId in leaving) state.RemoveParticipant(personaId, unavailable, now);
+                foreach (var personaId in leaving)
+                {
+                    if (!state.RemoveParticipant(personaId, unavailable, now)) continue;
+
+                    await joins.AnnounceLeftAsync(state, personaId, userId, removedByGameMaster: true);
+                }
             }
         }
 
@@ -500,6 +539,7 @@ public class SceneEndpoint
     public async Task<IResult> AddParticipantAsync(
         string guildId, string sceneChannelId, AddSceneParticipantDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -528,6 +568,7 @@ public class SceneEndpoint
 
         state.UpdatedAt = DateTimeOffset.UtcNow;
 
+        await joins.AnnounceJoinedAsync(state, dto.PersonaId, userId);
         await scenes.BroadcastUpdatedAsync(state);
 
         return await OkAsync(scenes, state, channel, ctx);
@@ -538,6 +579,7 @@ public class SceneEndpoint
     public async Task<IResult> RemoveParticipantAsync(
         string guildId, string sceneChannelId, string personaId,
         [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -549,14 +591,12 @@ public class SceneEndpoint
         if (found is null) return Results.NotFound();
 
         var (channel, state) = found.Value;
-        var now = DateTimeOffset.UtcNow;
-        var wasTheirTurn = string.Equals(state.CurrentTurnPersonaId, personaId, StringComparison.Ordinal);
 
-        var unavailable = await scenes.UnavailablePersonasAsync(guildId, state.Rotation, now);
-        if (!state.RemoveParticipant(personaId, unavailable, now)) return Results.NotFound();
-
-        if (wasTheirTurn) await scenes.BroadcastTurnAsync(state, personaId);
-        await scenes.BroadcastUpdatedAsync(state);
+        if (!await joins.LeaveAsync(
+                state, personaId, userId, removedByGameMaster: true, DateTimeOffset.UtcNow))
+        {
+            return Results.NotFound();
+        }
 
         return await OkAsync(scenes, state, channel, ctx);
     }
@@ -650,12 +690,394 @@ public class SceneEndpoint
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
+    // Joining and asking
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Brings one of the caller's own characters into an open scene. Not /participants with a
+    /// different guard: that route is the GM adding anybody, this one accepts only a character the
+    /// caller may speak as, and only while the scene is open to it.
+    /// </summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join")]
+    public async Task<IResult> JoinAsync(string guildId, string sceneChannelId, JoinSceneDto dto,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins, [NotBody] PersonaService personas,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
+        if (found is null) return Results.NotFound();
+
+        var (channel, state) = found.Value;
+
+        if (!await permissionService.CanUserPerformActionAsync(
+                userId, sceneChannelId, Permissions.ViewChannel))
+        {
+            return Fault("scene_join_not_visible", "You cannot see that scene.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        if (state.Status == SceneStatus.Concluded)
+            return Fault("scene_concluded", "That scene has finished.");
+
+        if (state.JoinPolicy != SceneJoinPolicy.Open)
+            return Fault("scene_not_open", "That scene is not open to anyone walking in.");
+
+        if (!await CanSpeakAsAsync(personas, userId, guildId, dto.PersonaId))
+            return Fault("persona_not_usable", "You cannot speak as that character here.",
+                StatusCodes.Status403Forbidden);
+
+        if (state.IsInCast(dto.PersonaId))
+        {
+            return Fault("persona_already_in_scene", "That character is already in this scene.",
+                StatusCodes.Status409Conflict);
+        }
+
+        await joins.JoinAsync(state, dto.PersonaId, userId, DateTimeOffset.UtcNow);
+
+        return await OkAsync(scenes, state, channel, ctx);
+    }
+
+    /// <summary>Takes one of the caller's own characters back out of a scene.</summary>
+    [WolverineDelete("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join/{personaId}")]
+    public async Task<IResult> LeaveAsync(string guildId, string sceneChannelId, string personaId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins, [NotBody] PersonaService personas,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
+        if (found is null) return Results.NotFound();
+
+        var (channel, state) = found.Value;
+
+        if (!await CanSpeakAsAsync(personas, userId, guildId, personaId))
+            return Fault("persona_not_usable", "You cannot speak as that character here.",
+                StatusCodes.Status403Forbidden);
+
+        // Leaving is not a GM removal, so the log line carries no "removed".
+        if (!await joins.LeaveAsync(
+                state, personaId, userId, removedByGameMaster: false, DateTimeOffset.UtcNow))
+        {
+            return Results.NotFound();
+        }
+
+        return await OkAsync(scenes, state, channel, ctx);
+    }
+
+    /// <summary>Asks a GM to bring one of the caller's characters into a closed scene.</summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests")]
+    public async Task<IResult> RequestJoinAsync(
+        string guildId, string sceneChannelId, CreateSceneJoinRequestDto dto,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins, [NotBody] PersonaService personas,
+        [NotBody] PersonaCastService cast, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
+        if (found is null) return Results.NotFound();
+
+        var state = found.Value.State;
+
+        // Asking into a hidden scene is not a thing: you cannot see it, so the GM adds you by hand.
+        if (!await permissionService.CanUserPerformActionAsync(
+                userId, sceneChannelId, Permissions.ViewChannel))
+        {
+            return Fault("scene_join_not_visible", "You cannot see that scene.",
+                StatusCodes.Status403Forbidden);
+        }
+
+        if (state.Status == SceneStatus.Concluded)
+            return Fault("scene_concluded", "That scene has finished.");
+
+        if (!await CanSpeakAsAsync(personas, userId, guildId, dto.PersonaId))
+            return Fault("persona_not_usable", "You cannot speak as that character here.",
+                StatusCodes.Status403Forbidden);
+
+        if (state.IsInCast(dto.PersonaId))
+        {
+            return Fault("persona_already_in_scene", "That character is already in this scene.",
+                StatusCodes.Status409Conflict);
+        }
+
+        var queued = await ctx.SceneJoinRequests.AnyAsync(r =>
+            r.SceneChannelId == sceneChannelId
+            && r.PersonaId == dto.PersonaId
+            && r.Status == SceneJoinRequestStatus.Pending);
+
+        if (queued)
+        {
+            return Fault("join_request_exists", "That character is already waiting on the GM.",
+                StatusCodes.Status409Conflict);
+        }
+
+        var request = SceneJoinRequest.Create(new CreateSceneJoinRequestParams
+        {
+            SceneChannelId = sceneChannelId,
+            GuildId = guildId,
+            PersonaId = dto.PersonaId,
+            RequestedByUserId = userId,
+            Note = dto.Note,
+        });
+
+        ctx.SceneJoinRequests.Add(request);
+
+        await joins.RequestedAsync(request);
+
+        return Results.Ok(await DescribeAsync(cast, request));
+    }
+
+    /// <summary>
+    /// One scene's asks. A ManageScenes holder sees the queue; anybody else sees only their own
+    /// rows, so a player can tell that theirs is still pending without being told who else asked.
+    /// </summary>
+    [WolverineGet("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests")]
+    public async Task<IResult> ListJoinRequestsAsync(string guildId, string sceneChannelId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] PersonaCastService cast,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        SceneJoinRequestStatus? status = null)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        if (!await permissionService.CanUserPerformActionAsync(
+                userId, sceneChannelId, Permissions.ViewChannel))
+        {
+            return Results.Forbid();
+        }
+
+        var isGameMaster = await permissionService.CanUserPerformActionOnGuildAsync(
+            userId, guildId, ModulePermissions.ManageScenes);
+
+        var rows = await ReadRequestsAsync(
+            ctx, guildId, sceneChannelId, isGameMaster ? null : userId, status);
+
+        return Results.Ok(new SceneJoinRequestListDto
+        {
+            Requests = await DescribeAllAsync(cast, guildId, rows),
+        });
+    }
+
+    /// <summary>The guild's asks, for the GM's inbox and for a player's own queue across scenes.</summary>
+    [WolverineGet("/api/v1/guilds/{guildId}/scene-join-requests")]
+    public async Task<IResult> ListGuildJoinRequestsAsync(string guildId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] PersonaCastService cast,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user,
+        SceneJoinRequestStatus? status = SceneJoinRequestStatus.Pending)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        var isGameMaster = await permissionService.CanUserPerformActionOnGuildAsync(
+            userId, guildId, ModulePermissions.ManageScenes);
+
+        var rows = await ReadRequestsAsync(
+            ctx, guildId, sceneChannelId: null, isGameMaster ? null : userId, status);
+
+        return Results.Ok(new SceneJoinRequestListDto
+        {
+            Requests = await DescribeAllAsync(cast, guildId, rows),
+        });
+    }
+
+    /// <summary>Says yes: the character joins the cast, the log gets its line, the row is closed.</summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests/{requestId}/approve")]
+    public async Task<IResult> ApproveJoinRequestAsync(
+        string guildId, string sceneChannelId, string requestId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
+        [NotBody] SceneJoinService joins, [NotBody] PersonaCastService cast,
+        [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await Gate(permissionService, ctx, guildId, userId) is { } denied) return denied;
+
+        var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
+        if (found is null) return Results.NotFound();
+
+        var request = await FindRequestAsync(ctx, guildId, sceneChannelId, requestId);
+        if (request is null) return Results.NotFound();
+
+        if (request.Status != SceneJoinRequestStatus.Pending)
+            return NotPending();
+
+        var state = found.Value.State;
+        var now = DateTimeOffset.UtcNow;
+
+        request.Decide(SceneJoinRequestStatus.Approved, userId, null, now);
+
+        await joins.JoinAsync(state, request.PersonaId, userId, now);
+        await joins.ResolvedAsync(request);
+
+        return Results.Ok(await DescribeAsync(cast, request));
+    }
+
+    /// <summary>Says no, optionally with a reason. The character stays free to ask again.</summary>
+    [WolverinePost("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests/{requestId}/deny")]
+    public async Task<IResult> DenyJoinRequestAsync(
+        string guildId, string sceneChannelId, string requestId, DenySceneJoinRequestDto dto,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneJoinService joins,
+        [NotBody] PersonaCastService cast, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await Gate(permissionService, ctx, guildId, userId) is { } denied) return denied;
+
+        var request = await FindRequestAsync(ctx, guildId, sceneChannelId, requestId);
+        if (request is null) return Results.NotFound();
+
+        if (request.Status != SceneJoinRequestStatus.Pending) return NotPending();
+
+        request.Decide(SceneJoinRequestStatus.Denied, userId, dto.Reason, DateTimeOffset.UtcNow);
+
+        await joins.ResolvedAsync(request);
+
+        return Results.Ok(await DescribeAsync(cast, request));
+    }
+
+    /// <summary>Takes an ask back, which only the player who made it may do.</summary>
+    [WolverineDelete("/api/v1/guilds/{guildId}/scenes/{sceneChannelId}/join-requests/{requestId}")]
+    public async Task<IResult> WithdrawJoinRequestAsync(
+        string guildId, string sceneChannelId, string requestId,
+        [NotBody] GuildPermissionService permissionService, [NotBody] SceneJoinService joins,
+        [NotBody] PersonaCastService cast, [NotBody] MicroserviceContext ctx,
+        [NotBody] ClaimsPrincipal user)
+    {
+        var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
+
+        if (await PersonaGate.CheckMembershipAsync(
+                permissionService, ctx, guildId, userId, GuildFeatures.Scenes) is { } denied)
+        {
+            return denied;
+        }
+
+        var request = await FindRequestAsync(ctx, guildId, sceneChannelId, requestId);
+        if (request is null) return Results.NotFound();
+
+        if (!string.Equals(request.RequestedByUserId, userId, StringComparison.Ordinal))
+            return Results.Forbid();
+
+        if (request.Status != SceneJoinRequestStatus.Pending) return NotPending();
+
+        request.Withdraw(DateTimeOffset.UtcNow);
+
+        await joins.ResolvedAsync(request);
+
+        return Results.Ok(await DescribeAsync(cast, request));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
     // Helpers
     // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    private static IResult NotPending() => Fault(
+        "join_request_not_pending", "That request has already been answered.",
+        StatusCodes.Status409Conflict);
+
+    /// <summary>Whether the caller may speak as this character in this guild right now.</summary>
+    private static async Task<bool> CanSpeakAsAsync(
+        PersonaService personas, string userId, string guildId, string personaId)
+    {
+        var usable = await personas.GetUsablePersonasAsync(userId, guildId);
+        var chosen = usable.FirstOrDefault(p => p.PersonaId == personaId);
+        if (chosen is null) return false;
+
+        var requiresApproval = await personas.RequiresApprovalAsync(guildId);
+        return await personas.DenyReasonAsync(userId, guildId, chosen, requiresApproval) is null;
+    }
+
+    private static Task<SceneJoinRequest?> FindRequestAsync(
+        MicroserviceContext ctx, string guildId, string sceneChannelId, string requestId) =>
+        ctx.SceneJoinRequests.FirstOrDefaultAsync(r =>
+            r.Id == requestId && r.GuildId == guildId && r.SceneChannelId == sceneChannelId);
+
+    private static Task<List<SceneJoinRequest>> ReadRequestsAsync(
+        MicroserviceContext ctx, string guildId, string? sceneChannelId, string? onlyUserId,
+        SceneJoinRequestStatus? status)
+    {
+        var query = ctx.SceneJoinRequests.AsNoTracking().Where(r => r.GuildId == guildId);
+
+        if (sceneChannelId is not null) query = query.Where(r => r.SceneChannelId == sceneChannelId);
+        if (onlyUserId is not null) query = query.Where(r => r.RequestedByUserId == onlyUserId);
+        if (status is { } wanted) query = query.Where(r => r.Status == wanted);
+
+        return query.OrderBy(r => r.CreatedAt).ThenBy(r => r.Id).ToListAsync();
+    }
+
+    private static async Task<SceneJoinRequestDto> DescribeAsync(
+        PersonaCastService cast, SceneJoinRequest request)
+    {
+        var persona = (await cast.ResolveAsync(request.GuildId, [request.PersonaId]))
+            .GetValueOrDefault(request.PersonaId);
+
+        return SceneJoinRequestDto.From(request, persona);
+    }
+
+    private static async Task<List<SceneJoinRequestDto>> DescribeAllAsync(
+        PersonaCastService cast, string guildId, IReadOnlyCollection<SceneJoinRequest> requests)
+    {
+        if (requests.Count == 0) return [];
+
+        var rendered = await cast.ResolveAsync(
+            guildId, requests.Select(r => r.PersonaId).Distinct(StringComparer.Ordinal).ToList());
+
+        return requests
+            .Select(r => SceneJoinRequestDto.From(r, rendered.GetValueOrDefault(r.PersonaId)))
+            .ToList();
+    }
 
     /// <summary>A refusal a client can act on: a stable code to branch on, a sentence to show.</summary>
     private static IResult Fault(string error, string message, int status = StatusCodes.Status400BadRequest) =>
         Results.Json(new { error, message }, statusCode: status);
+
+    /// <summary>
+    /// The one refused access pair. A silent rewrite was the alternative: a PATCH that answers with
+    /// something the caller did not send is worse than a 400.
+    /// </summary>
+    private static IResult VisibilityConflict() => Fault(
+        "scene_visibility_conflict",
+        "A cast-only scene cannot also be open to anyone: nobody outside the cast can see it to join it.");
 
     /// <summary>The scene as clients read it, cast and absences included.</summary>
     private static async Task<IResult> OkAsync(

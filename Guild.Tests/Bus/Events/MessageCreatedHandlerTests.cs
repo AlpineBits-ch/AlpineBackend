@@ -172,12 +172,22 @@ public class MessageCreatedHandlerTests
         var blockCache = PrivacyTestFactory.Blocks(privacyBus, privacyCache, blocks);
 
         var mentions = new PersonaMentionService(_context, new PersonaService(_cache, _context));
+        var scenes = new SceneService(_context, mentions, new PersonaCastService(_context), hydrate, _hub);
+
+        var permissions = new GuildPermissionService(
+            _cache, _context, NullLogger<GuildPermissionService>.Instance);
+
+        // No scene is seeded here, so this only has to satisfy the handler's signature.
+        var joins = new SceneJoinService(
+            _context, scenes,
+            new SceneVisibilityCache(_cache, _context, new PersonaService(_cache, _context)),
+            new PersonaCastService(_context),
+            new ModulePermissionHolderService(_context, permissions), _hub, _bus);
 
         return _handler.Handle(
             message, _hub, hydrate, _context, _cache, _bus,
             NullLogger<MessageCreatedHandler>.Instance, _notifications, _audience,
-            blockCache, privacy, mentions,
-            new SceneService(_context, mentions, new PersonaCastService(_context), hydrate, _hub));
+            blockCache, privacy, mentions, scenes, joins);
     }
 
     /// <summary>Every recipient across the chunked index commands.</summary>

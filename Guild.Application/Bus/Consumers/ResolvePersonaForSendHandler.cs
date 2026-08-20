@@ -1,6 +1,7 @@
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
+using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -35,6 +36,19 @@ public class ResolvePersonaForSendHandler
                 : Denied("Personas can only be used in a guild channel.", request.Content);
         }
 
+        var resolved = await ResolveAsync(request, guildId, personas, permissionService, realtime);
+        if (!resolved.IsAllowed) return resolved;
+
+        return await GateClosedSceneAsync(request, guildId, resolved, permissionService, ctx);
+    }
+
+    private static async Task<ResolvePersonaForSendResponse> ResolveAsync(
+        ResolvePersonaForSendRequest request,
+        string guildId,
+        PersonaService personas,
+        GuildPermissionService permissionService,
+        RoleplayRealtimeService realtime)
+    {
         if (!await permissionService.IsFeatureEnabledAsync(guildId, GuildFeatures.Personas))
         {
             return string.IsNullOrWhiteSpace(request.PersonaId)
@@ -79,6 +93,42 @@ public class ResolvePersonaForSendHandler
             },
             _ => new ResolvePersonaForSendResponse { Content = resolution.Content },
         };
+    }
+
+    /// <summary>
+    /// In a scene whose policy is Ask, only the cast and whoever holds ManageScenes speak. Keyed on
+    /// the scene channel, so the out-of-character companion thread stays open to everyone who can
+    /// see the scene.
+    /// </summary>
+    private static async Task<ResolvePersonaForSendResponse> GateClosedSceneAsync(
+        ResolvePersonaForSendRequest request,
+        string guildId,
+        ResolvePersonaForSendResponse resolved,
+        GuildPermissionService permissionService,
+        MicroserviceContext ctx)
+    {
+        var cast = await ctx.Set<SceneState>()
+            .AsNoTracking()
+            .Where(s => s.ChannelId == request.ChannelId
+                        && s.JoinPolicy == SceneJoinPolicy.Ask)
+            .Select(s => s.ParticipantPersonaIds)
+            .FirstOrDefaultAsync();
+
+        if (cast is null) return resolved;
+
+        // A plain message with no character at all lands here too, which is what makes a closed
+        // scene actually closed.
+        if (resolved.PersonaId is { } personaId && cast.Contains(personaId, StringComparer.Ordinal))
+            return resolved;
+
+        if (await permissionService.CanUserPerformActionOnGuildAsync(
+                request.UserId, guildId, ModulePermissions.ManageScenes))
+        {
+            return resolved;
+        }
+
+        return Denied(
+            "Only the cast plays in this scene. Ask the GM to bring a character in.", request.Content);
     }
 
     private static ResolvePersonaForSendResponse Denied(string? error, string? content) => new()

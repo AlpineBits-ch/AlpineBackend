@@ -18,6 +18,12 @@ public enum MessageType
 
     /// <summary>A server-rolled dice expression, whose structured result rides on EmbedsJson.</summary>
     DiceRoll,
+
+    /// <summary>A character walked into a scene.</summary>
+    SceneCharacterJoined,
+
+    /// <summary>A character left a scene, or a GM took it out.</summary>
+    SceneCharacterLeft,
 }
 
 /// <summary>Mirrors Messaging.Domain.Enums.AuthorIdType so a consumer can tell a persona or webhook

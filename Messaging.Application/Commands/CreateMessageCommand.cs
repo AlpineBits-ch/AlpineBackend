@@ -41,6 +41,8 @@ public class CreateMessageCommandHandler
             ContractMessageType.GroupNameChanged => DomainMessageType.GroupNameChanged,
             ContractMessageType.GroupIconChanged => DomainMessageType.GroupIconChanged,
             ContractMessageType.DiceRoll => DomainMessageType.DiceRoll,
+            ContractMessageType.SceneCharacterJoined => DomainMessageType.SceneCharacterJoined,
+            ContractMessageType.SceneCharacterLeft => DomainMessageType.SceneCharacterLeft,
             _ => DomainMessageType.Message,
         };
 

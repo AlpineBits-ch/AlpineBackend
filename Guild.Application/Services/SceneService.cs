@@ -34,6 +34,12 @@ public class SceneService(
     /// <summary>A scene finished for good.</summary>
     public const string ConcludedEvent = "guild.SceneConcluded";
 
+    /// <summary>Somebody wants a character in a closed scene, addressed to whoever can say yes.</summary>
+    public const string JoinRequestedEvent = "guild.SceneJoinRequested";
+
+    /// <summary>One ask was answered, addressed to the player and to the GMs.</summary>
+    public const string JoinRequestResolvedEvent = "guild.SceneJoinRequestResolved";
+
     /// <summary>The scene's turn state, tracked so a caller can write to it.</summary>
     /// <param name="channelId">The scene channel.</param>
     /// <returns>The state row, or null when the channel is not a scene.</returns>
@@ -215,6 +221,8 @@ public class SceneService(
             Name = channel.Name,
             OocThreadId = scene.OocThreadId,
             Status = scene.Status.ToString(),
+            JoinPolicy = scene.JoinPolicy.ToString(),
+            Visibility = scene.Visibility.ToString(),
             ParticipantPersonaIds = scene.ParticipantPersonaIds,
             TurnOrder = scene.TurnOrder,
             CurrentTurnPersonaId = scene.CurrentTurnPersonaId,
@@ -267,6 +275,8 @@ public class SceneService(
             GuildId = scene.GuildId,
             ChannelId = scene.ChannelId,
             Status = scene.Status.ToString(),
+            JoinPolicy = scene.JoinPolicy.ToString(),
+            Visibility = scene.Visibility.ToString(),
             ParticipantPersonaIds = scene.ParticipantPersonaIds,
             TurnOrder = scene.TurnOrder,
             CurrentTurnPersonaId = scene.CurrentTurnPersonaId,

@@ -79,6 +79,12 @@ public enum MessageType
 
     /// <summary>See Messaging.Domain.Enums.MessageType.DiceRoll.</summary>
     DiceRoll,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.SceneCharacterJoined.</summary>
+    SceneCharacterJoined,
+
+    /// <summary>See Messaging.Domain.Enums.MessageType.SceneCharacterLeft.</summary>
+    SceneCharacterLeft,
 }
 
 public record MinimalAttachmentContract

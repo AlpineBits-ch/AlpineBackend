@@ -97,3 +97,22 @@ public sealed class PermissionTrace
             _ => PermissionSource.ChannelMemberAllow,
         };
 }
+
+/// <summary>Who a trace is being resolved for.</summary>
+public enum PermissionSubjectKind
+{
+    Role,
+    Member,
+}
+
+/// <summary>A role id or a guild member id, with which one it is.</summary>
+public readonly record struct PermissionSubject(PermissionSubjectKind Kind, string Id);
+
+/// <summary>One subject's resolved permissions in one channel, with the layer that decided each
+/// bit.</summary>
+public sealed class ResolvedChannelPermissions
+{
+    public required Permissions Permissions { get; init; }
+    public required ModulePermissions ModulePermissions { get; init; }
+    public required IReadOnlyDictionary<Permissions, PermissionSource> Sources { get; init; }
+}

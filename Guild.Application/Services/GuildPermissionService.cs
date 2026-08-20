@@ -344,6 +344,163 @@ public class GuildPermissionService(
     }
 
     /// <summary>
+    /// One subject's resolved permissions in one channel, plus which layer wrote each bit.
+    /// Deliberately uncached and not user-keyed: a role subject has no member row, so this answers
+    /// "what would a member whose only role is this one get here", the question a permission editor
+    /// asks. Returns null when the channel or the subject is gone.
+    /// </summary>
+    public async Task<ResolvedChannelPermissions?> TraceChannelPermissionsAsync(
+        string channelId, PermissionSubject subject)
+    {
+        var channel = await ctx.Channels
+            .AsNoTracking()
+            .Where(c => c.Id == channelId)
+            .Select(c => new { c.Id, c.GuildId, c.CategoryId, c.Type, c.ParentChannelId })
+            .FirstOrDefaultAsync();
+
+        if (channel is null) return null;
+
+        // A thread carries no overwrites of its own, so trace its parent and answer with that.
+        if (channel.Type.IsThreadShaped() && channel.ParentChannelId is not null)
+            return await TraceChannelPermissionsAsync(channel.ParentChannelId, subject);
+
+        var guildId = channel.GuildId;
+        var trace = new PermissionTrace();
+
+        string? memberId = null;
+        List<string> roleIds;
+        Permissions basePermissions;
+        ModulePermissions baseModulePermissions;
+        var mutedOrPending = false;
+
+        if (subject.Kind == PermissionSubjectKind.Role)
+        {
+            var roleExists = await ctx.Roles.AsNoTracking()
+                .AnyAsync(r => r.Id == subject.Id && r.GuildId == guildId);
+            if (!roleExists) return null;
+
+            roleIds = [subject.Id];
+            var (core, module) = await BaseFromRolesAsync(guildId, roleIds);
+            trace.Record(core, PermissionSource.Base);
+            basePermissions = core;
+            baseModulePermissions = module;
+        }
+        else
+        {
+            var userId = await ctx.GuildMembers.AsNoTracking()
+                .Where(m => m.Id == subject.Id && m.GuildId == guildId)
+                .Select(m => m.UserId)
+                .FirstOrDefaultAsync();
+
+            if (userId is null) return null;
+
+            var membership = await GetMembershipAsync(userId, guildId);
+
+            if (membership.isOwner)
+            {
+                var everything = ExpandImpliedPermissions(Permissions.Superadmin);
+                trace.Record(everything, PermissionSource.Superadmin);
+                return new ResolvedChannelPermissions
+                {
+                    Permissions = everything,
+                    ModulePermissions = AllModulePermissions,
+                    Sources = trace.Entries,
+                };
+            }
+
+            memberId = membership.memberId;
+            roleIds = membership.roleIds;
+
+            var (core, module) = await BaseFromRolesAsync(guildId, roleIds);
+            trace.Record(core, PermissionSource.Base);
+
+            var afterDeny = core & ~ExpandDeniedPermissions(membership.memberDeny);
+            // The guild-level member mask is not a category overwrite; RelabelMemberGuild gives
+            // it its own source instead of the category labels RecordDeny would hand out.
+            RelabelMemberGuild(trace, core & ~afterDeny, membership.memberDeny);
+
+            var afterAllow = afterDeny | membership.memberAllow;
+            trace.Record(afterAllow & ~afterDeny, PermissionSource.MemberGuildAllow);
+
+            basePermissions = afterAllow;
+            baseModulePermissions = (module & ~membership.memberModuleDeny) | membership.memberModuleAllow;
+
+            mutedOrPending = (membership.mutedUntil is not null && membership.mutedUntil > DateTimeOffset.UtcNow)
+                             || membership.onboardingPending;
+        }
+
+        var overwrites = await ctx.Set<ChannelPermission>()
+            .AsNoTracking()
+            .Include(p => p.Role)
+            .Where(p => p.ChannelId == channelId ||
+                        (channel.CategoryId != null && p.CategoryId == channel.CategoryId && p.ChannelId == null))
+            .ToListAsync();
+
+        var resolved = basePermissions;
+        var resolvedModule = baseModulePermissions;
+
+        var categoryOverwrites = overwrites.Where(p => p.CategoryId != null && p.ChannelId == null).ToList();
+        if (categoryOverwrites.Count > 0)
+        {
+            var tiers = BucketOverwrites(categoryOverwrites, memberId, roleIds);
+            resolved = ApplyOverwrites(resolved, tiers, trace, PermissionLayer.Category);
+            resolvedModule = ApplyModuleOverwrites(resolvedModule, tiers);
+        }
+
+        var channelOverwrites = overwrites.Where(p => p.ChannelId == channelId).ToList();
+        if (channelOverwrites.Count > 0)
+        {
+            var tiers = BucketOverwrites(channelOverwrites, memberId, roleIds);
+            resolved = ApplyOverwrites(resolved, tiers, trace, PermissionLayer.Channel);
+            resolvedModule = ApplyModuleOverwrites(resolvedModule, tiers);
+        }
+
+        if (mutedOrPending && !resolved.HasFlag(Permissions.Superadmin))
+        {
+            var muted = resolved & MuteRetainedPermissions;
+            trace.Record(resolved & ~muted, PermissionSource.Muted);
+            resolved = muted;
+        }
+
+        return new ResolvedChannelPermissions
+        {
+            Permissions = resolved,
+            ModulePermissions = ExpandModuleForSuperadmin(resolved, resolvedModule),
+            Sources = trace.Entries,
+        };
+    }
+
+    /// <summary>The role union for a set of role ids, always including @everyone, implications
+    /// closed.</summary>
+    private async Task<(Permissions Core, ModulePermissions Module)> BaseFromRolesAsync(
+        string guildId, IReadOnlyList<string> roleIds)
+    {
+        var rolePerms = await ctx.Roles
+            .AsNoTracking()
+            .Where(r => r.GuildId == guildId && (roleIds.Contains(r.Id) || r.Type == RoleType.Everyone))
+            .Select(r => new { r.Permissions, r.ModulePermissions })
+            .ToListAsync();
+
+        var core = Permissions.None;
+        var module = ModulePermissions.None;
+        foreach (var perm in rolePerms)
+        {
+            core |= perm.Permissions;
+            module |= perm.ModulePermissions;
+        }
+
+        return (ExpandImpliedPermissions(core), module);
+    }
+
+    /// <summary>The member's guild-level mask runs before any overwrite, so its entries need their
+    /// own source rather than the category labels RecordDeny hands out.</summary>
+    private static void RelabelMemberGuild(PermissionTrace trace, Permissions changed, Permissions named)
+    {
+        trace.Record(changed & named, PermissionSource.MemberGuildDeny);
+        trace.Record(changed & ~named, PermissionSource.Implied);
+    }
+
+    /// <summary>
     /// Batched form of <see cref="CanUserPerformActionAsync"/> for fan-out paths that need to know
     /// which of many users may see a channel (Gateway dispatch to installed bots, realtime audience
     /// resolution).

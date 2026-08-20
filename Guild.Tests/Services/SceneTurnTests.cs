@@ -777,6 +777,51 @@ public class SceneTurnTests
         });
     }
 
+    [Test]
+    public void List_TheArchiveFiltersCompileToSqlToo()
+    {
+        // The archive adds a subquery count, an ILIKE and a coalesced sort key, and every one of
+        // them is a shape InMemory would happily evaluate on the client instead of refusing.
+        using var postgres = new PostgresGuildContext();
+
+        var sql = SceneEndpoint.BuildListQuery(
+                postgres, GuildId, null, includeArchived: true, includeConcluded: true,
+                folderId: "scfd-1", tagIds: ["sctg-1", "sctg-2"], q: "siege", sort: SceneSort.Ended)
+            .ToQueryString();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(sql, Does.Contain("folder_id"));
+            Assert.That(sql, Does.Contain("scene_tag_assignments"));
+            Assert.That(sql, Does.Contain("ILIKE"));
+            Assert.That(sql, Does.Contain("concluded_at"));
+        });
+    }
+
+    [Test]
+    public void List_UnfiledMeansANullFolder()
+    {
+        using var postgres = new PostgresGuildContext();
+
+        var sql = SceneEndpoint.BuildListQuery(
+                postgres, GuildId, null, includeArchived: true, includeConcluded: true,
+                folderId: SceneEndpoint.UnfiledFolder)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain("folder_id IS NULL"));
+    }
+
+    [Test]
+    public void List_NameSortCompilesToSql()
+    {
+        using var postgres = new PostgresGuildContext();
+
+        Assert.That(
+            SceneEndpoint.BuildListQuery(postgres, GuildId, null, false, false, sort: SceneSort.Name)
+                .ToQueryString(),
+            Does.Contain("ORDER BY"));
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Absence on the wire
     // ══════════════════════════════════════════════════════════════════════
 

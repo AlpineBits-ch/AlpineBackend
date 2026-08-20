@@ -276,6 +276,7 @@ public class SceneService(
             PostCount = scene.PostCount,
             ConclusionNote = scene.ConclusionNote,
             OocThreadId = scene.OocThreadId,
+            FolderId = scene.FolderId,
         });
 
     private async Task BroadcastAsync(string guildId, string eventName, object payload)

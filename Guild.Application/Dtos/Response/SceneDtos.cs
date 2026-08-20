@@ -59,9 +59,20 @@ public class SceneDto
     /// </summary>
     public List<string> AwayPersonaIds { get; set; } = [];
 
+    /// <summary>The archive folder this scene is filed under. Null means unfiled.</summary>
+    public string? FolderId { get; set; }
+
+    public List<string> TagIds { get; set; } = [];
+
+    /// <summary>Null on a scene that has not ended, and on one that ended before the column did.</summary>
+    public DateTimeOffset? ConcludedAt { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
+
     public static SceneDto From(
         SceneState scene, Guild.Domain.Aggregates.Channel channel,
-        IReadOnlyCollection<SceneParticipantDto>? participants = null) => new()
+        IReadOnlyCollection<SceneParticipantDto>? participants = null,
+        IReadOnlyCollection<string>? tagIds = null) => new()
     {
         ChannelId = scene.ChannelId,
         GuildId = scene.GuildId,
@@ -85,6 +96,10 @@ public class SceneDto
         AwayPersonaIds = participants is null
             ? []
             : [.. participants.Where(p => p.IsAway).Select(p => p.PersonaId)],
+        FolderId = scene.FolderId,
+        TagIds = tagIds is null ? [] : [.. tagIds],
+        ConcludedAt = scene.ConcludedAt,
+        CreatedAt = scene.CreatedAt,
     };
 }
 
@@ -148,6 +163,16 @@ public class SceneListItemDto
     public int NudgeCount { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
+
+    /// <summary>The archive folder this scene is filed under. Null means unfiled.</summary>
+    public string? FolderId { get; set; }
+
+    public List<string> TagIds { get; set; } = [];
+
+    /// <summary>Null on a scene that has not ended, and on one that ended before the column did.</summary>
+    public DateTimeOffset? ConcludedAt { get; set; }
+
+    public DateTimeOffset CreatedAt { get; set; }
 }
 
 /// <summary>A guild's scenes, newest activity first.</summary>

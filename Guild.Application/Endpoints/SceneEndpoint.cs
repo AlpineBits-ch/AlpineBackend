@@ -30,6 +30,9 @@ public class SceneEndpoint
 
     public const int MaxListSize = 200;
 
+    /// <summary>The `folderId` value meaning "filed nowhere". A generated id never collides with it.</summary>
+    public const string UnfiledFolder = "unfiled";
+
     /// <summary>Opens a scene under a text channel, with its out-of-character companion thread.</summary>
     [WolverinePost("/api/v1/guilds/{guildId}/channels/{channelId}/scenes")]
     public async Task<IResult> CreateAsync(string guildId, string channelId, CreateSceneDto dto,
@@ -138,7 +141,7 @@ public class SceneEndpoint
 
             await scenes.BroadcastCreatedAsync(state, scene);
 
-            return await OkAsync(scenes, state, scene);
+            return await OkAsync(scenes, state, scene, ctx);
         }
         catch (ValidationException validationException)
         {
@@ -159,7 +162,8 @@ public class SceneEndpoint
         [NotBody] PersonaCastService cast, [NotBody] MicroserviceContext ctx,
         [NotBody] ClaimsPrincipal user,
         bool waitingOnMe = false, bool includeConcluded = false, bool includeArchived = false,
-        int? limit = null)
+        int? limit = null, string? folderId = null, string? tagIds = null, string? q = null,
+        SceneSort sort = SceneSort.Board, int offset = 0)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return Results.Unauthorized();
@@ -184,14 +188,31 @@ public class SceneEndpoint
         if (waitingOnMe && mine.Count == 0)
             return Results.Ok(new SceneListDto { Scenes = [], Truncated = false });
 
+        var wantedTags = (tagIds ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
         var rows = await BuildListQuery(
-                ctx, guildId, waitingOnMe ? mine : null, includeArchived, includeConcluded)
+                ctx, guildId, waitingOnMe ? mine : null, includeArchived, includeConcluded,
+                folderId, wantedTags, q, sort)
+            .Skip(Math.Max(0, offset))
             .Take(take + 1)
             .ToListAsync();
 
         var truncated = rows.Count > take;
         var mineSet = mine.ToHashSet(StringComparer.Ordinal);
         var scenes = new List<SceneListItemDto>(Math.Min(rows.Count, take));
+
+        // One query for the whole page, in the shape the cast lookup below already uses. A join
+        // would multiply rows and break the Take(take + 1) that decides `truncated`.
+        var pageChannelIds = rows.Take(take).Select(row => row.ChannelId).ToList();
+        var tagsByScene = (await ctx.Set<SceneTagAssignment>().AsNoTracking()
+                .Where(a => pageChannelIds.Contains(a.SceneChannelId))
+                .ToListAsync())
+            .GroupBy(a => a.SceneChannelId, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Select(a => a.TagId).ToList(),
+                StringComparer.Ordinal);
 
         // One lookup for the whole page: the character on the clock is what a row draws, and it is
         // usually somebody else's.
@@ -235,6 +256,10 @@ public class SceneEndpoint
                 OocThreadId = row.OocThreadId,
                 NudgeCount = row.NudgeCount,
                 UpdatedAt = row.UpdatedAt,
+                FolderId = row.FolderId,
+                TagIds = tagsByScene.GetValueOrDefault(row.ChannelId, []),
+                ConcludedAt = row.ConcludedAt,
+                CreatedAt = row.CreatedAt,
             });
         }
 
@@ -246,7 +271,8 @@ public class SceneEndpoint
         string ChannelId, string Name, string? ParentChannelId, SceneStatus Status,
         string? CurrentTurnPersonaId, DateTimeOffset? TurnStartedAt, DateTimeOffset? TurnDeadlineAt,
         int TurnNumber, int PostCount, int NudgeCount, int ParticipantCount, string? OocThreadId,
-        DateTimeOffset UpdatedAt);
+        DateTimeOffset UpdatedAt, string? FolderId, DateTimeOffset? ConcludedAt,
+        DateTimeOffset CreatedAt);
 
     /// <summary>
     /// The scene list's query, extracted so the translation harness can prove it compiles to SQL -
@@ -254,7 +280,8 @@ public class SceneEndpoint
     /// </summary>
     internal static IQueryable<SceneListRow> BuildListQuery(
         MicroserviceContext ctx, string guildId, IReadOnlyCollection<string>? waitingOnPersonaIds,
-        bool includeArchived, bool includeConcluded)
+        bool includeArchived, bool includeConcluded, string? folderId = null,
+        IReadOnlyCollection<string>? tagIds = null, string? q = null, SceneSort sort = SceneSort.Board)
     {
         var query = ctx.Set<SceneState>()
             .AsNoTracking()
@@ -272,12 +299,45 @@ public class SceneEndpoint
                                        && mine.Contains(row.State.CurrentTurnPersonaId));
         }
 
-        // Scenes on a clock first, soonest due at the top; everything else by recency, which is
-        // where a scene waiting on a GM to start it lands.
-        return query
-            .OrderBy(row => row.State.TurnDeadlineAt == null)
-            .ThenBy(row => row.State.TurnDeadlineAt)
-            .ThenByDescending(row => row.State.UpdatedAt)
+        if (string.Equals(folderId, UnfiledFolder, StringComparison.Ordinal))
+            query = query.Where(row => row.State.FolderId == null);
+        else if (!string.IsNullOrWhiteSpace(folderId))
+            query = query.Where(row => row.State.FolderId == folderId);
+
+        // A count match rather than a join: joining the assignments multiplies rows, and the page
+        // is cut with Take(take + 1), which is also how `truncated` is decided.
+        if (tagIds is { Count: > 0 })
+        {
+            var wanted = tagIds.ToList();
+            query = query.Where(row => ctx.Set<SceneTagAssignment>()
+                .Count(a => a.SceneChannelId == row.State.ChannelId && wanted.Contains(a.TagId)) == wanted.Count);
+        }
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var term = q.Trim();
+            query = query.Where(row => EF.Functions.ILike(row.Channel.Name, $"%{term}%"));
+        }
+
+        var ordered = sort switch
+        {
+            SceneSort.Name => query.OrderBy(row => row.Channel.Name).ThenBy(row => row.State.ChannelId),
+
+            // The archive's order. ConcludedAt is null on every scene that ended before the column
+            // existed, so UpdatedAt stands in rather than sorting them all to one end.
+            SceneSort.Ended => query
+                .OrderByDescending(row => row.State.ConcludedAt ?? row.State.UpdatedAt)
+                .ThenBy(row => row.State.ChannelId),
+
+            // Scenes on a clock first, soonest due at the top; everything else by recency, which is
+            // where a scene waiting on a GM to start it lands.
+            _ => query
+                .OrderBy(row => row.State.TurnDeadlineAt == null)
+                .ThenBy(row => row.State.TurnDeadlineAt)
+                .ThenByDescending(row => row.State.UpdatedAt),
+        };
+
+        return ordered
             .Select(row => new SceneListRow(
                 row.State.ChannelId,
                 row.Channel.Name,
@@ -291,7 +351,10 @@ public class SceneEndpoint
                 row.State.NudgeCount,
                 row.State.ParticipantPersonaIds.Count,
                 row.State.OocThreadId,
-                row.State.UpdatedAt));
+                row.State.UpdatedAt,
+                row.State.FolderId,
+                row.State.ConcludedAt,
+                row.State.CreatedAt));
     }
 
     /// <summary>One scene, its cast and whose turn it is.</summary>
@@ -312,7 +375,7 @@ public class SceneEndpoint
         var found = await ResolveAsync(ctx, scenes, guildId, sceneChannelId);
         if (found is null) return Results.NotFound();
 
-        return await OkAsync(scenes, found.Value.State, found.Value.Channel);
+        return await OkAsync(scenes, found.Value.State, found.Value.Channel, ctx);
     }
 
     /// <summary>Sets a scene's status, its clock or its turn order.</summary>
@@ -377,6 +440,19 @@ public class SceneEndpoint
         if (dto.TurnDeadlineAt.HasValue) state.TurnDeadlineAt = dto.TurnDeadlineAt.Value;
         if (dto.ConclusionNote is not null) state.ConclusionNote = dto.ConclusionNote;
 
+        if (dto.FolderId.HasValue)
+        {
+            var folderId = string.IsNullOrWhiteSpace(dto.FolderId.Value) ? null : dto.FolderId.Value;
+
+            if (folderId is not null
+                && !await ctx.SceneFolders.AnyAsync(f => f.Id == folderId && f.GuildId == guildId))
+            {
+                return Fault("scene_folder_not_found", "That folder does not exist in this guild.");
+            }
+
+            state.FolderId = folderId;
+        }
+
         var wasConcluded = state.Status == SceneStatus.Concluded;
 
         // Concluding is not just a status: it stamps the end date the archive sorts on and takes
@@ -407,7 +483,7 @@ public class SceneEndpoint
         if (!wasConcluded && state.Status == SceneStatus.Concluded)
             await scenes.BroadcastConcludedAsync(state);
 
-        return await OkAsync(scenes, state, channel);
+        return await OkAsync(scenes, state, channel, ctx);
     }
 
     /// <summary>Adds a character to the cast.</summary>
@@ -445,7 +521,7 @@ public class SceneEndpoint
 
         await scenes.BroadcastUpdatedAsync(state);
 
-        return await OkAsync(scenes, state, channel);
+        return await OkAsync(scenes, state, channel, ctx);
     }
 
     /// <summary>Removes a character from the cast, handing the turn on when it was theirs.</summary>
@@ -473,7 +549,7 @@ public class SceneEndpoint
         if (wasTheirTurn) await scenes.BroadcastTurnAsync(state, personaId);
         await scenes.BroadcastUpdatedAsync(state);
 
-        return await OkAsync(scenes, state, channel);
+        return await OkAsync(scenes, state, channel, ctx);
     }
 
     /// <summary>
@@ -510,7 +586,7 @@ public class SceneEndpoint
 
         await scenes.AdvanceAsync(state, DateTimeOffset.UtcNow);
 
-        return await OkAsync(scenes, state, channel);
+        return await OkAsync(scenes, state, channel, ctx);
     }
 
     /// <summary>Skips a turn that has gone quiet. GM only - passing your own turn is
@@ -535,7 +611,7 @@ public class SceneEndpoint
 
         await scenes.AdvanceAsync(state, DateTimeOffset.UtcNow);
 
-        return await OkAsync(scenes, state, channel);
+        return await OkAsync(scenes, state, channel, ctx);
     }
 
     /// <summary>
@@ -561,7 +637,7 @@ public class SceneEndpoint
         if (!await nudges.NudgeNowAsync(state, DateTimeOffset.UtcNow))
             return Fault("no_turn_to_nudge", "There is no turn to chase in this scene.");
 
-        return await OkAsync(scenes, state, channel);
+        return await OkAsync(scenes, state, channel, ctx);
     }
 
     // ══════════════════════════════════════════════════════════════════════════════════════════
@@ -573,11 +649,20 @@ public class SceneEndpoint
         Results.Json(new { error, message }, statusCode: status);
 
     /// <summary>The scene as clients read it, cast and absences included.</summary>
-    private static async Task<IResult> OkAsync(SceneService scenes, SceneState state, Domain.Aggregates.Channel channel)
+    private static async Task<IResult> OkAsync(
+        SceneService scenes, SceneState state, Domain.Aggregates.Channel channel,
+        MicroserviceContext? ctx = null)
     {
         var participants = await scenes.ParticipantsAsync(state, DateTimeOffset.UtcNow);
 
-        return Results.Ok(SceneDto.From(state, channel, participants));
+        var tagIds = ctx is null
+            ? []
+            : await ctx.Set<SceneTagAssignment>().AsNoTracking()
+                .Where(a => a.SceneChannelId == state.ChannelId)
+                .Select(a => a.TagId)
+                .ToListAsync();
+
+        return Results.Ok(SceneDto.From(state, channel, participants, tagIds));
     }
 
     private static Task<IResult?> Gate(

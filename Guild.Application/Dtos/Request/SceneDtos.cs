@@ -58,6 +58,10 @@ public class UpdateSceneDto
 
     /// <summary>The closing line for a scene being concluded, which is otherwise dropped.</summary>
     public string? ConclusionNote { get; set; }
+
+    /// <summary>Files the scene on an archive shelf. Omit to leave it where it is, send
+    /// <c>null</c> to unfile it.</summary>
+    public Optional<string> FolderId { get; set; }
 }
 
 /// <summary>Adds one character to a scene's cast.</summary>

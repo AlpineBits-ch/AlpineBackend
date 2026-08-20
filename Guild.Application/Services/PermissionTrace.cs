@@ -39,6 +39,13 @@ public enum PermissionSource
     Implied,
     Superadmin,
     Muted,
+
+    /// <summary>The permission belongs to a module the guild has switched off or its plan does not
+    /// cover, which no role or ownership can escalate past.</summary>
+    ModuleDisabled,
+
+    /// <summary>The channel is a cast-only scene the member has nobody in.</summary>
+    SceneRestricted,
 }
 
 /// <summary>Records which layer last wrote each bit, as <see cref="GuildPermissionService"/>

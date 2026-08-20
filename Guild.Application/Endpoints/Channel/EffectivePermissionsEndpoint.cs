@@ -35,7 +35,7 @@ public class EffectivePermissionsDto
 public class EffectivePermissionsEndpoint
 {
     /// <summary>Every permission a channel overwrite can express, in the order the client groups them.</summary>
-    private static readonly Permissions[] ChannelScoped =
+    internal static readonly Permissions[] ChannelScoped =
     [
         Permissions.ViewChannel, Permissions.CreateInvite, Permissions.UseApplicationCommands,
         Permissions.SendMessages, Permissions.ReadMessageHistory, Permissions.EditOwnMessages,

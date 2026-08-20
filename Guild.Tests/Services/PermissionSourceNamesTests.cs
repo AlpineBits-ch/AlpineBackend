@@ -30,6 +30,8 @@ public class PermissionSourceNamesTests
         nameof(PermissionSource.Implied),
         nameof(PermissionSource.Superadmin),
         nameof(PermissionSource.Muted),
+        nameof(PermissionSource.ModuleDisabled),
+        nameof(PermissionSource.SceneRestricted),
     ];
 
     [Test]

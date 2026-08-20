@@ -73,10 +73,28 @@ overwrite cannot express them.
 `Base`, `MemberGuildAllow`, `MemberGuildDeny`, `CategoryEveryoneAllow`, `CategoryEveryoneDeny`,
 `CategoryRoleAllow`, `CategoryRoleDeny`, `CategoryMemberAllow`, `CategoryMemberDeny`,
 `ChannelEveryoneAllow`, `ChannelEveryoneDeny`, `ChannelRoleAllow`, `ChannelRoleDeny`,
-`ChannelMemberAllow`, `ChannelMemberDeny`, `Implied`, `Superadmin`, `Muted`.
+`ChannelMemberAllow`, `ChannelMemberDeny`, `Implied`, `Superadmin`, `Muted`, `ModuleDisabled`,
+`SceneRestricted`.
 
 `Implied` means the bit was taken by the reverse closure of some other deny, not named by any
 overwrite directly. `Base` means the role union decided it and nothing overwrote it.
+
+### The two gates outside the overwrite pipeline
+
+Enforcement applies two checks that no overwrite can express, and the readout applies both so it
+cannot disagree with what the server will actually do.
+
+`ModuleDisabled` means the permission belongs to a module the guild has switched off, or that its
+plan does not cover. `Connect`, `Speak`, `Stream`, `MuteMembers`, `DeafenMembers` and `MoveMembers`
+need `VoiceChannels`; `CreateThreads`, `CreatePrivateThreads`, `SendMessagesInThreads`,
+`ManageOwnThreads` and `ManageAnyThread` need `Threads`. Nobody escalates past this, the guild owner
+included, and `modulePermissions` is clamped the same way. Present it as unavailable rather than as
+denied: turning the module back on restores it without touching a single overwrite.
+
+`SceneRestricted` means the channel is a cast-only scene the member has nobody in. Every permission
+comes back denied, because that is what every enforcement path answers. It applies to a `memberId`
+subject only: cast membership is a property of a person, so a `roleId` subject is left unclamped and
+its answer can be wider than what a given holder of that role gets in that one scene.
 
 ### What a role subject answers
 
@@ -90,7 +108,8 @@ would a member holding only this role get here", not any real member's actual re
 If `memberId` resolves to the guild owner, every permission in the list comes back granted with
 `decidedBy: "Superadmin"` and `modulePermissions` is every module bit, regardless of roles or
 overwrites. There is no owner-specific escape from this shape; it is the same short-circuit the
-resolver uses everywhere else.
+resolver uses everywhere else. The one thing the owner does not escape is `ModuleDisabled`, which is
+a product state rather than an authorization level.
 
 ### Muted or pending members
 
@@ -102,6 +121,9 @@ subject is never muted - mute is a member-row state.
 
 A thread carries no overwrites of its own. The endpoint traces the parent channel and returns that
 trace, but `channelId` in the response is still the thread's id, not the parent's.
+
+Posting in a thread is governed by `SendMessagesInThreads`, not `SendMessages`, so read the former
+when the channel is thread-shaped. `SendMessages` is still reported, as the parent's answer for it.
 
 ### Status codes
 
@@ -133,10 +155,20 @@ Every mask about to be copied is checked against what the caller could grant dir
 call is rejected with a bare `403` and nothing is written - copying a category row is not a way
 round the clamp a direct overwrite write already has.
 
-Once the clamp check passes: every existing overwrite on the channel is deleted, and a copy of
-every category-level overwrite is inserted in its place (same `roleId`/`memberId`, same four
-masks). `Channel.IsPrivate` is then re-derived from the @everyone row the sync just produced. One
-`ChannelPermissionChanged` invalidation is published for the guild.
+Every target on either side of the swap also has to be one the caller outranks, the same hierarchy
+check that writing or deleting that overwrite directly would run. Clearing a row is a grant to
+whoever it denied, so this covers the rows being deleted as well as the rows being created: a
+moderator cannot sync away their own channel mute, or a deny sitting on a role above them. A target
+the caller does not outrank is a bare `403` with nothing written.
+
+Once both checks pass: every existing overwrite on the channel is deleted, and a copy of every
+category-level overwrite is inserted in its place (same `roleId`/`memberId`, same four masks).
+`Channel.IsPrivate` is then re-derived from the @everyone row the sync just produced. One
+`ChannelPermissionChanged` invalidation is published per distinct target the swap moved.
+
+The audit entry is written whether or not the sync changed anything. A no-op sync, where the channel
+already held exactly the category's set, still logs. This is the opposite of the member permission
+overrides endpoint, which skips its entry on a no-op.
 
 ### Status codes
 
@@ -144,7 +176,7 @@ masks). `Channel.IsPrivate` is then re-derived from the @everyone row the sync j
 |---|---|
 | `200` | Synced. Body is the channel's new overwrite rows |
 | `401` | Not authenticated |
-| `403` | Missing `ManagePermissions`, MFA required (`{ "error": "mfaRequired", ... }` body), or a mask being copied exceeds what the caller can grant |
+| `403` | Missing `ManagePermissions`, MFA required (`{ "error": "mfaRequired", ... }` body), a mask being copied exceeds what the caller can grant, or a target on either side of the swap outranks the caller |
 | `404` | No such channel, or the channel has no category |
 
 ### There is no stored "synced" flag

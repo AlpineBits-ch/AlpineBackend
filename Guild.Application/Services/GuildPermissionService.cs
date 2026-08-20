@@ -350,6 +350,50 @@ public class GuildPermissionService(
     public async Task<ResolvedChannelPermissions?> TraceChannelPermissionsAsync(
         string channelId, PermissionSubject subject)
     {
+        var guildId = await ResolveGuildIdAsync(channelId);
+        if (guildId is null) return null;
+
+        var traced = await ResolveTraceAsync(channelId, subject);
+        if (traced is null) return null;
+
+        // The two gates that sit outside the overwrite pipeline but inside every enforcement path,
+        // read against the channel that was asked about rather than the parent a thread delegates to.
+        var features = await GetGuildFeaturesAsync(guildId);
+        var disabled = GuildFeatureMap.DisabledPermissions(features);
+
+        traced.Trace.Record(disabled, PermissionSource.ModuleDisabled);
+        var permissions = traced.Permissions & ~disabled;
+        var modulePermissions = GuildFeatureMap.ClampToEnabled(features, traced.ModulePermissions);
+
+        // Cast membership is a property of a person, so a role subject has no answer here; the owner
+        // is let through ahead of this gate everywhere it is enforced.
+        if (traced.UserId is not null && !traced.IsOwner &&
+            !await PassesSceneVisibilityAsync(traced.UserId, guildId, channelId))
+        {
+            traced.Trace.Record(~Permissions.None, PermissionSource.SceneRestricted);
+            permissions = Permissions.None;
+            modulePermissions = ModulePermissions.None;
+        }
+
+        return new ResolvedChannelPermissions
+        {
+            Permissions = permissions,
+            ModulePermissions = modulePermissions,
+            Sources = traced.Trace.Entries,
+        };
+    }
+
+    /// <summary>What the overwrite pipeline alone answers, before the gates that sit outside it.</summary>
+    private sealed record TracedPermissions(
+        Permissions Permissions,
+        ModulePermissions ModulePermissions,
+        PermissionTrace Trace,
+        string? UserId,
+        bool IsOwner);
+
+    private async Task<TracedPermissions?> ResolveTraceAsync(
+        string channelId, PermissionSubject subject)
+    {
         // Deliberately uncached and not user-keyed: a role subject has no member row, so this
         // answers what a member holding only that role would get here.
         var channel = await ctx.Channels
@@ -362,7 +406,7 @@ public class GuildPermissionService(
 
         // A thread carries no overwrites of its own, so trace its parent and answer with that.
         if (channel.Type.IsThreadShaped() && channel.ParentChannelId is not null)
-            return await TraceChannelPermissionsAsync(channel.ParentChannelId, subject);
+            return await ResolveTraceAsync(channel.ParentChannelId, subject);
 
         var guildId = channel.GuildId;
         var trace = new PermissionTrace();
@@ -372,6 +416,7 @@ public class GuildPermissionService(
         trace.Record(~Permissions.None, PermissionSource.Base);
 
         string? memberId = null;
+        string? subjectUserId = null;
         List<string> roleIds;
         Permissions basePermissions;
         ModulePermissions baseModulePermissions;
@@ -397,18 +442,14 @@ public class GuildPermissionService(
 
             if (userId is null) return null;
 
+            subjectUserId = userId;
             var membership = await GetMembershipAsync(userId, guildId);
 
             if (membership.isOwner)
             {
                 var everything = ExpandImpliedPermissions(Permissions.Superadmin);
                 trace.Record(everything, PermissionSource.Superadmin);
-                return new ResolvedChannelPermissions
-                {
-                    Permissions = everything,
-                    ModulePermissions = AllModulePermissions,
-                    Sources = trace.Entries,
-                };
+                return new TracedPermissions(everything, AllModulePermissions, trace, userId, true);
             }
 
             memberId = membership.memberId;
@@ -464,12 +505,8 @@ public class GuildPermissionService(
             resolved = muted;
         }
 
-        return new ResolvedChannelPermissions
-        {
-            Permissions = resolved,
-            ModulePermissions = ExpandModuleForSuperadmin(resolved, resolvedModule),
-            Sources = trace.Entries,
-        };
+        return new TracedPermissions(
+            resolved, ExpandModuleForSuperadmin(resolved, resolvedModule), trace, subjectUserId, false);
     }
 
     /// <summary>The role union for a set of role ids, always including @everyone, implications

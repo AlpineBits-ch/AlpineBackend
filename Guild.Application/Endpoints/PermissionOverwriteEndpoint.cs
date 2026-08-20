@@ -81,7 +81,7 @@ public class PermissionOverwriteEndpoint
         => RemoveAsync(ctx, user, permissionService, auditLog, mfa, channelPrivacy, categoryId: categoryId, memberId: memberId);
 
     /// <summary>Validates the overwrite's target.</summary>
-    private static async Task<IResult?> EnsureTargetIsInGuildAndOutrankedAsync(
+    internal static async Task<IResult?> EnsureTargetIsInGuildAndOutrankedAsync(
         MicroserviceContext ctx, GuildPermissionService permissionService,
         string userId, string guildId, string? roleId, string? memberId)
     {

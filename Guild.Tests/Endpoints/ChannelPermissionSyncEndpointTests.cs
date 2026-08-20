@@ -25,6 +25,7 @@ public class ChannelPermissionSyncEndpointTests
     private const string ManagerRoleId = "role-manager";
     private const string ManagerMemberId = "member-manager";
     private const string ManagerUserId = "manager-1";
+    private const string AdminRoleId = "role-admin";
 
     private TestGuildContext _context = null!;
     private FakeDistributedCache _cache = null!;
@@ -99,16 +100,35 @@ public class ChannelPermissionSyncEndpointTests
         await _context.SaveChangesAsync();
     }
 
+    private async Task AddMemberOverwriteAsync(string? channelId, string? categoryId, string memberId,
+        Permissions allow, Permissions deny)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _context.Set<ChannelPermission>().Add(new ChannelPermission
+        {
+            Id = ChannelPermission.GenerateId(),
+            ChannelId = channelId, CategoryId = categoryId, RoleId = null, MemberId = memberId,
+            AllowPermissions = allow, DenyPermissions = deny,
+            AllowModulePermissions = ModulePermissions.None,
+            DenyModulePermissions = ModulePermissions.None,
+            CreatedAt = now, UpdatedAt = now,
+        });
+        await _context.SaveChangesAsync();
+    }
+
     /// <param name="permissions">
     /// Includes ManagePermissions so the gate that reaches the clamp is satisfied; the clamp itself
     /// is what each escalation test exercises.
     /// </param>
-    private async Task SeedManagerAsync(Permissions permissions, ModulePermissions modulePermissions = ModulePermissions.None)
+    /// <param name="modulePermissions">The manager's module mask.</param>
+    /// <param name="position">Where the manager ranks, for the tests that seed a role above it.</param>
+    private async Task SeedManagerAsync(Permissions permissions,
+        ModulePermissions modulePermissions = ModulePermissions.None, int position = 0)
     {
         var now = DateTimeOffset.UtcNow;
         _context.Roles.Add(new Role
         {
-            Id = ManagerRoleId, GuildId = GuildId, Name = "manager",
+            Id = ManagerRoleId, GuildId = GuildId, Name = "manager", Position = position,
             Permissions = permissions, ModulePermissions = modulePermissions,
             CreatedAt = now, UpdatedAt = now,
         });
@@ -297,6 +317,120 @@ public class ChannelPermissionSyncEndpointTests
             Assert.That(evt, Is.Null);
             Assert.That(rows, Has.Count.EqualTo(1));
             Assert.That(rows[0].RoleId, Is.EqualTo(EveryoneRoleId));
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Hierarchy gate: whose permissions the sync moves, on the rows it
+    // deletes as well as the rows it creates.
+    // ══════════════════════════════════════════════════════════════════════
+
+    private async Task SeedAdminRoleAsync()
+    {
+        var now = DateTimeOffset.UtcNow;
+        _context.Roles.Add(new Role
+        {
+            Id = AdminRoleId, GuildId = GuildId, Name = "admins", Type = RoleType.None, Position = 100,
+            Permissions = Permissions.None, CreatedAt = now, UpdatedAt = now,
+        });
+        await _context.SaveChangesAsync();
+    }
+
+    [Test]
+    public async Task Sync_WouldClearTheActorsOwnMute_IsForbiddenAndWritesNothing()
+    {
+        await SeedAsync();
+        await SeedManagerAsync(Permissions.ManagePermissions | Permissions.SendMessages, position: 10);
+        await AddMemberOverwriteAsync(ChannelId, null, ManagerMemberId, Permissions.None, Permissions.SendMessages);
+
+        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+            ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
+
+        var rows = await _context.Set<ChannelPermission>()
+            .Where(p => p.ChannelId == ChannelId).ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(evt, Is.Null);
+            Assert.That(rows, Has.Count.EqualTo(1));
+            Assert.That(rows[0].MemberId, Is.EqualTo(ManagerMemberId));
+            Assert.That(rows[0].DenyPermissions, Is.EqualTo(Permissions.SendMessages));
+        });
+    }
+
+    [Test]
+    public async Task Sync_WouldFreeARoleTheActorCannotManage_IsForbiddenAndWritesNothing()
+    {
+        await SeedAsync();
+        await SeedAdminRoleAsync();
+        await SeedManagerAsync(Permissions.ManagePermissions | Permissions.SendMessages, position: 10);
+        await AddOverwriteAsync(ChannelId, null, AdminRoleId, Permissions.None, Permissions.SendMessages);
+
+        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+            ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
+
+        var rows = await _context.Set<ChannelPermission>()
+            .Where(p => p.ChannelId == ChannelId).ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(evt, Is.Null);
+            Assert.That(rows, Has.Count.EqualTo(1));
+            Assert.That(rows[0].RoleId, Is.EqualTo(AdminRoleId));
+            Assert.That(rows[0].DenyPermissions, Is.EqualTo(Permissions.SendMessages));
+        });
+    }
+
+    [Test]
+    public async Task Sync_WouldSilenceARoleTheActorCannotManage_IsForbiddenAndWritesNothing()
+    {
+        await SeedAsync();
+        await SeedAdminRoleAsync();
+        // SendMessages comes from @everyone, so the grant clamp passes and the hierarchy gate is
+        // the only thing left that can reject.
+        await SeedManagerAsync(Permissions.ManagePermissions, position: 10);
+        await AddOverwriteAsync(null, CategoryId, AdminRoleId, Permissions.None, Permissions.SendMessages);
+        await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
+
+        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+            ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
+
+        var rows = await _context.Set<ChannelPermission>()
+            .Where(p => p.ChannelId == ChannelId).ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<ForbidHttpResult>());
+            Assert.That(evt, Is.Null);
+            Assert.That(rows, Has.Count.EqualTo(1));
+            Assert.That(rows[0].RoleId, Is.EqualTo(EveryoneRoleId));
+            Assert.That(rows[0].AllowPermissions, Is.EqualTo(Permissions.ViewChannel));
+        });
+    }
+
+    [Test]
+    public async Task Sync_ByAnActorWhoOutranksEveryTarget_Succeeds()
+    {
+        await SeedAsync();
+        await SeedManagerAsync(Permissions.ManagePermissions | Permissions.AddReactions, position: 10);
+        await AddOverwriteAsync(null, CategoryId, PlayerRoleId, Permissions.AddReactions, Permissions.None);
+        await AddOverwriteAsync(ChannelId, null, EveryoneRoleId, Permissions.ViewChannel, Permissions.None);
+
+        var (result, evt) = await ChannelPermissionSyncEndpoint.SyncChannelPermissionsAsync(
+            ChannelId, _context, TestPrincipal.Create(ManagerUserId), _service, _auditLog, _mfa, _privacy);
+        await _context.SaveChangesAsync();
+
+        var rows = await _context.Set<ChannelPermission>()
+            .Where(p => p.ChannelId == ChannelId).ToListAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result, Is.InstanceOf<Ok<List<ChannelPermissionDto>>>());
+            Assert.That(evt, Is.Not.Null);
+            Assert.That(rows, Has.Count.EqualTo(1));
+            Assert.That(rows[0].RoleId, Is.EqualTo(PlayerRoleId));
         });
     }
 

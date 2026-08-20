@@ -62,6 +62,19 @@ public class ChannelPermissionSyncEndpoint
                 return (Results.Forbid(), null);
         }
 
+        var existing = await ctx.Set<ChannelPermission>()
+            .Where(p => p.ChannelId == channelId)
+            .ToListAsync();
+
+        // Clearing a row is a grant to whoever it denied, so the hierarchy gate a direct write runs
+        // covers both sides of the swap, not just the rows being created.
+        foreach (var (targetRoleId, targetMemberId) in TargetsOf(existing, source))
+        {
+            if (await PermissionOverwriteEndpoint.EnsureTargetIsInGuildAndOutrankedAsync(
+                    ctx, permissionService, userId, guildId, targetRoleId, targetMemberId) is not null)
+                return (Results.Forbid(), null);
+        }
+
         // Independent of the rows being copied, so this can be read now rather than after the
         // change tracker holds the new set.
         var everyoneRoleId = await ctx.Roles
@@ -69,10 +82,6 @@ public class ChannelPermissionSyncEndpoint
             .Where(r => r.GuildId == guildId && r.Type == RoleType.Everyone)
             .Select(r => r.Id)
             .FirstOrDefaultAsync();
-
-        var existing = await ctx.Set<ChannelPermission>()
-            .Where(p => p.ChannelId == channelId)
-            .ToListAsync();
 
         ctx.Set<ChannelPermission>().RemoveRange(existing);
 
@@ -125,4 +134,9 @@ public class ChannelPermissionSyncEndpoint
 
         return (Results.Ok(dtos), new ChannelPermissionChanged { GuildId = guildId });
     }
+
+    /// <summary>Everybody a sync moves: the targets of the rows going away and of the rows arriving.</summary>
+    private static IEnumerable<(string? RoleId, string? MemberId)> TargetsOf(
+        IEnumerable<ChannelPermission> removed, IEnumerable<ChannelPermission> created) =>
+        removed.Concat(created).Select(p => (p.RoleId, p.MemberId)).Distinct();
 }

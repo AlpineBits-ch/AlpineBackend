@@ -121,14 +121,31 @@ public class ChannelPrivacyService(MicroserviceContext ctx)
         var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (channel is null) return;
 
-        var denied = await ctx.Set<ChannelPermission>()
-            .AsNoTracking()
-            .AnyAsync(p => p.ChannelId == channelId && p.CategoryId == null && p.MemberId == null &&
-                           p.Role.GuildId == channel.GuildId && p.Role.Type == RoleType.Everyone &&
-                           (p.DenyPermissions & Permissions.ViewChannel) == Permissions.ViewChannel);
+        // The filters in BuildDenyPermissionsQuery match at most one row.
+        var denyPermissions = await BuildDenyPermissionsQuery(ctx, channelId, channel.GuildId)
+            .FirstOrDefaultAsync();
+
+        var denied = denyPermissions is { } deny && (deny & Permissions.ViewChannel) == Permissions.ViewChannel;
 
         if (channel.IsPrivate != denied) channel.IsPrivate = denied;
     }
+
+    /// <summary>
+    /// The @everyone channel overwrite's deny mask for <paramref name="channelId"/>, or null when
+    /// there is no such row. Postgres has no <c>&amp;</c> operator for numeric, which is what a
+    /// ulong-backed <see cref="Permissions"/> column maps to, so callers must bit-test the result
+    /// in memory rather than push the comparison into this query.
+    /// </summary>
+    /// <param name="ctx">The database context.</param>
+    /// <param name="channelId">The channel the overwrite belongs to.</param>
+    /// <param name="guildId">The channel's guild, to identify its @everyone role.</param>
+    public static IQueryable<Permissions?> BuildDenyPermissionsQuery(
+        MicroserviceContext ctx, string channelId, string guildId) =>
+        ctx.Set<ChannelPermission>()
+            .AsNoTracking()
+            .Where(p => p.ChannelId == channelId && p.CategoryId == null && p.MemberId == null &&
+                        p.Role.GuildId == guildId && p.Role.Type == RoleType.Everyone)
+            .Select(p => (Permissions?)p.DenyPermissions);
 
     /// <summary>
     /// The in-memory twin of <see cref="SyncFlagAsync"/>: derives <see cref="Channel.IsPrivate"/>

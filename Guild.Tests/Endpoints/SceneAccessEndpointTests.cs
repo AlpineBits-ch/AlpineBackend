@@ -66,7 +66,8 @@ public class SceneAccessEndpointTests
         _hydrate = new GuildHydrateService(
             RedisTestFactory.Create(), NullLogger<GuildHydrateService>.Instance);
         _scenes = new SceneService(
-            _context, new PersonaMentionService(_context, _personas), _cast, _hydrate, _hub);
+            _context, new PersonaMentionService(_context, _personas), _cast, _hydrate,
+            _permissions, _hub);
         _joins = new SceneJoinService(
             _context, _scenes, _visibility, _cast,
             new ModulePermissionHolderService(_context, _permissions), _hub, _bus);
@@ -615,12 +616,69 @@ public class SceneAccessEndpointTests
         });
     }
 
+    // ══════════════════════════════════════════════════════════════════════ The fan-out
+    // ══════════════════════════════════════════════════════════════════════
+
+    [Test]
+    public async Task Update_OnAPrivateScene_ReachesTheCastAndTheGameMasterOnly()
+    {
+        await SeedAsync();
+        await SeedSceneAsync(SceneJoinPolicy.Ask, SceneVisibility.Cast);
+
+        await _endpoint.UpdateAsync(GuildId, SceneChannelId,
+            new UpdateSceneDto { Status = SceneStatus.Paused },
+            _permissions, Watched(), _joins, _visibility, _auditLog, _context,
+            TestPrincipal.Create(GameMasterId));
+
+        var reached = ((FakeHubClients)_hub.Clients).RecipientsOf(SceneService.UpdatedEvent);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(reached, Does.Contain(CastPlayerId));
+            Assert.That(reached, Does.Contain(GameMasterId));
+            Assert.That(reached, Does.Not.Contain(OutsiderId),
+                "a hidden scene that announces itself is not hidden");
+        });
+    }
+
+    /// <summary>There is no removal event, so the update that hides the scene is what tells the
+    /// members losing it to drop the row.</summary>
+    [Test]
+    public async Task Update_ThatHidesTheScene_StillReachesEverybodyOnce()
+    {
+        await SeedAsync();
+        await SeedSceneAsync();
+
+        await _endpoint.UpdateAsync(GuildId, SceneChannelId,
+            new UpdateSceneDto { JoinPolicy = SceneJoinPolicy.Ask, Visibility = SceneVisibility.Cast },
+            _permissions, Watched(), _joins, _visibility, _auditLog, _context,
+            TestPrincipal.Create(GameMasterId));
+
+        Assert.That(
+            ((FakeHubClients)_hub.Clients).RecipientsOf(SceneService.UpdatedEvent),
+            Does.Contain(OutsiderId));
+    }
+
     // ══════════════════════════════════════════════════════════════════════ Helpers
     // ══════════════════════════════════════════════════════════════════════
 
+    /// <summary>A scene service with the whole guild present, so a fan-out has somebody to reach.</summary>
+    private SceneService Watched() =>
+        new(_context, new PersonaMentionService(_context, _personas), _cast,
+            new GuildHydrateService(
+                RedisTestFactory.CreateWithPresence(
+                    new MemberPresenceState { MemberId = "memb-gm", UserId = GameMasterId, Status = "Online" },
+                    new MemberPresenceState { MemberId = "memb-cast", UserId = CastPlayerId, Status = "Online" },
+                    new MemberPresenceState
+                    {
+                        MemberId = "memb-outsider", UserId = OutsiderId, Status = "Online",
+                    }),
+                NullLogger<GuildHydrateService>.Instance),
+            _permissions, _hub);
+
     private Task<IResult> CreateAsync(CreateSceneDto dto) =>
         _endpoint.CreateAsync(GuildId, ParentChannelId, dto, _permissions, _scenes, _auditLog,
-            _hydrate, _hub, _bus, _visibility, _context, TestPrincipal.Create(GameMasterId));
+            _hub, _bus, _visibility, _context, TestPrincipal.Create(GameMasterId));
 
     private Task<IResult> UpdateAsync(UpdateSceneDto dto) =>
         _endpoint.UpdateAsync(GuildId, SceneChannelId, dto, _permissions, _scenes, _joins,

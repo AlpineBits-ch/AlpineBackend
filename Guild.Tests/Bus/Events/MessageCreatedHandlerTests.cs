@@ -172,9 +172,10 @@ public class MessageCreatedHandlerTests
         var blockCache = PrivacyTestFactory.Blocks(privacyBus, privacyCache, blocks);
 
         var mentions = new PersonaMentionService(_context, new PersonaService(_cache, _context));
-        var scenes = new SceneService(_context, mentions, new PersonaCastService(_context), hydrate, _hub);
-
         var permissions = PermissionTestFactory.Create(_cache, _context);
+
+        var scenes = new SceneService(
+            _context, mentions, new PersonaCastService(_context), hydrate, permissions, _hub);
 
         // No scene is seeded here, so this only has to satisfy the handler's signature.
         var joins = new SceneJoinService(

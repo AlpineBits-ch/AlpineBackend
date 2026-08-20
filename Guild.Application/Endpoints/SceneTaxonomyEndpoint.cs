@@ -433,8 +433,13 @@ public class SceneTaxonomyEndpoint
 
         auditLog.Log(guildId, userId, AuditActionType.SceneTagsApplied, sceneChannelId, new { TagIds = wanted });
 
+        // Named on one scene, so it follows that scene's audience: a cast-only game's labels are
+        // not announced to the guild it is hidden from.
         var presence = await hydrate.GetGuildPresenceAsync(guildId);
-        await hub.Clients.Users(presence.Select(p => p.UserId))
+        var recipients = await permissionService.FilterUsersWithChannelPermissionAsync(
+            sceneChannelId, presence.Select(p => p.UserId).ToList(), Permissions.ViewChannel);
+
+        await hub.Clients.Users(recipients)
             .SendAsync("guild.SceneTagsChanged",
                 new { GuildId = guildId, ChannelId = sceneChannelId, TagIds = wanted });
 

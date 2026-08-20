@@ -37,7 +37,7 @@ public class SceneEndpoint
     [WolverinePost("/api/v1/guilds/{guildId}/channels/{channelId}/scenes")]
     public async Task<IResult> CreateAsync(string guildId, string channelId, CreateSceneDto dto,
         [NotBody] GuildPermissionService permissionService, [NotBody] SceneService scenes,
-        [NotBody] AuditLogService auditLog, [NotBody] GuildHydrateService hydrate,
+        [NotBody] AuditLogService auditLog,
         [NotBody] IHubContext<EchoRealtimeHub> hub, [NotBody] IMessageBus bus,
         [NotBody] SceneVisibilityCache sceneVisibility,
         [NotBody] MicroserviceContext ctx, [NotBody] ClaimsPrincipal user)
@@ -142,15 +142,22 @@ public class SceneEndpoint
             auditLog.Log(guildId, userId, AuditActionType.ChannelCreated, scene.Id,
                 new { ParentChannelId = channelId, Type = nameof(ChannelType.Scene), OocThreadId = ooc.Id });
 
-            // Both halves announce as threads, because both are: a scene the thread fan-out does not
-            // carry is one that never reaches a bot's THREAD_CREATE.
-            await AnnounceThreadAsync(hub, hydrate, bus, scene, channelId);
-            await AnnounceThreadAsync(hub, hydrate, bus, ooc, channelId);
+            // Ahead of the announcements, not left to the transactional middleware: a client that
+            // refetches the channel list on the event would otherwise race the commit and read a
+            // guild without the scene in it.
+            await ctx.SaveChangesAsync();
 
             // Before the announcement: a scene that opens private must not be readable in the
             // window between the event and the next map read.
             if (state.Visibility == SceneVisibility.Cast)
                 await sceneVisibility.InvalidateGuildAsync(guildId);
+
+            // Both halves announce as threads, because both are: a scene the thread fan-out does not
+            // carry is one that never reaches a bot's THREAD_CREATE.
+            var audience = await scenes.AudienceAsync(state);
+
+            await AnnounceThreadAsync(hub, bus, audience, scene, channelId);
+            await AnnounceThreadAsync(hub, bus, audience, ooc, channelId);
 
             await scenes.BroadcastCreatedAsync(state, scene);
 
@@ -524,7 +531,7 @@ public class SceneEndpoint
         auditLog.Log(guildId, userId, AuditActionType.ChannelUpdated, sceneChannelId,
             new { Scene = true, state.Status, state.CurrentTurnPersonaId });
 
-        await scenes.BroadcastUpdatedAsync(state);
+        await scenes.BroadcastUpdatedAsync(state, visibilityChanged);
 
         // Only on the transition: a PATCH that touches the note of an already concluded scene is
         // an edit to a chronicle, not a second ending.
@@ -1134,12 +1141,10 @@ public class SceneEndpoint
 
     /// <summary>Announces a newly created thread-shaped channel to clients and to bots.</summary>
     private static async Task AnnounceThreadAsync(
-        IHubContext<EchoRealtimeHub> hub, GuildHydrateService hydrate, IMessageBus bus,
+        IHubContext<EchoRealtimeHub> hub, IMessageBus bus, IReadOnlyList<string> audience,
         Domain.Aggregates.Channel channel, string parentChannelId)
     {
-        var presence = await hydrate.GetGuildPresenceAsync(channel.GuildId);
-
-        await hub.Clients.Users(presence.Select(p => p.UserId)).SendAsync("guild.ThreadCreated", new
+        await hub.Clients.Users(audience).SendAsync("guild.ThreadCreated", new
         {
             ChannelId = channel.Id,
             ParentChannelId = parentChannelId,

@@ -17,6 +17,7 @@ public class SceneService(
     PersonaMentionService personaMentions,
     PersonaCastService cast,
     GuildHydrateService hydrate,
+    GuildPermissionService permissions,
     IHubContext<EchoRealtimeHub> hub)
 {
     /// <summary>The turn moved, for whatever reason.</summary>
@@ -213,7 +214,7 @@ public class SceneService(
     /// <param name="scene">The scene's turn state.</param>
     /// <param name="channel">The scene channel.</param>
     public async Task BroadcastCreatedAsync(SceneState scene, Channel channel) =>
-        await BroadcastAsync(scene.GuildId, CreatedEvent, new
+        await BroadcastAsync(scene, CreatedEvent, new
         {
             GuildId = scene.GuildId,
             ChannelId = scene.ChannelId,
@@ -238,7 +239,7 @@ public class SceneService(
     /// </summary>
     /// <param name="scene">The scene's turn state.</param>
     public async Task BroadcastConcludedAsync(SceneState scene) =>
-        await BroadcastAsync(scene.GuildId, ConcludedEvent, new
+        await BroadcastAsync(scene, ConcludedEvent, new
         {
             GuildId = scene.GuildId,
             ChannelId = scene.ChannelId,
@@ -253,7 +254,7 @@ public class SceneService(
     /// <param name="scene">The scene's turn state.</param>
     /// <param name="previousPersonaId">Whose turn it was, so a client can render the handover.</param>
     public async Task BroadcastTurnAsync(SceneState scene, string? previousPersonaId) =>
-        await BroadcastAsync(scene.GuildId, TurnChangedEvent, new
+        await BroadcastAsync(scene, TurnChangedEvent, new
         {
             GuildId = scene.GuildId,
             ChannelId = scene.ChannelId,
@@ -269,8 +270,12 @@ public class SceneService(
 
     /// <summary>Tells the guild the scene itself changed.</summary>
     /// <param name="scene">The scene's turn state.</param>
-    public async Task BroadcastUpdatedAsync(SceneState scene) =>
-        await BroadcastAsync(scene.GuildId, UpdatedEvent, new
+    /// <param name="visibilityChanged">
+    /// True when this write moved <c>Visibility</c>. The one update a cast-only scene sends to the
+    /// whole guild: there is no removal event, so the members losing it learn from this payload.
+    /// </param>
+    public async Task BroadcastUpdatedAsync(SceneState scene, bool visibilityChanged = false) =>
+        await BroadcastAsync(scene, UpdatedEvent, new
         {
             GuildId = scene.GuildId,
             ChannelId = scene.ChannelId,
@@ -287,13 +292,29 @@ public class SceneService(
             ConclusionNote = scene.ConclusionNote,
             OocThreadId = scene.OocThreadId,
             FolderId = scene.FolderId,
-        });
+        }, guildWide: visibilityChanged);
 
-    private async Task BroadcastAsync(string guildId, string eventName, object payload)
+    /// <summary>
+    /// Who hears about a scene. A cast-only one goes through the same permission path its channel
+    /// does, so a private game is not announced to the guild it is hidden from.
+    /// </summary>
+    public async Task<List<string>> AudienceAsync(SceneState scene, bool guildWide = false)
     {
-        var presence = await hydrate.GetGuildPresenceAsync(guildId);
-        if (presence.Count == 0) return;
+        var presence = await hydrate.GetGuildPresenceAsync(scene.GuildId);
+        var userIds = presence.Select(p => p.UserId).ToList();
 
-        await hub.Clients.Users(presence.Select(p => p.UserId).ToList()).SendAsync(eventName, payload);
+        if (guildWide || userIds.Count == 0 || scene.Visibility != SceneVisibility.Cast) return userIds;
+
+        return await permissions.FilterUsersWithChannelPermissionAsync(
+            scene.ChannelId, userIds, Permissions.ViewChannel);
+    }
+
+    private async Task BroadcastAsync(
+        SceneState scene, string eventName, object payload, bool guildWide = false)
+    {
+        var recipients = await AudienceAsync(scene, guildWide);
+        if (recipients.Count == 0) return;
+
+        await hub.Clients.Users(recipients).SendAsync(eventName, payload);
     }
 }

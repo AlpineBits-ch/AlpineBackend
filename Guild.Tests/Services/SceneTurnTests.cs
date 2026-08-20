@@ -60,7 +60,8 @@ public class SceneTurnTests
         _personas = new PersonaService(_cache, _context);
         _cast = new PersonaCastService(_context);
         _scenes = new SceneService(
-            _context, new PersonaMentionService(_context, _personas), _cast, _hydrate, _hub);
+            _context, new PersonaMentionService(_context, _personas), _cast, _hydrate,
+            _permissions, _hub);
         _endpoint = new SceneEndpoint();
         _auditLog = new AuditLogService(_context);
         _sceneVisibility = new SceneVisibilityCache(_cache, _context, _personas);
@@ -965,7 +966,7 @@ public class SceneTurnTests
                     MemberId = "memb-other", UserId = OtherPlayerId, Status = "Online",
                 }),
                 NullLogger<GuildHydrateService>.Instance),
-            _hub);
+            _permissions, _hub);
 
         await watched.AdvanceOnPostAsync(state, PlayerPersonaId, DateTimeOffset.UtcNow);
 
@@ -1095,7 +1096,7 @@ public class SceneTurnTests
                 Name = "The Siege of Blackwater", TurnLengthHours = 48,
                 TurnOrder = [PlayerPersonaId, OtherPersonaId],
             },
-            _permissions, Watched(), _auditLog, _hydrate, _hub, _bus, _sceneVisibility, _context,
+            _permissions, Watched(), _auditLog, _hub, _bus, _sceneVisibility, _context,
             TestPrincipal.Create(GameMasterId));
 
         var sent = ((FakeHubClients)_hub.Clients).SentMessages
@@ -1151,7 +1152,7 @@ public class SceneTurnTests
                     MemberId = "memb-other", UserId = OtherPlayerId, Status = "Online",
                 }),
                 NullLogger<GuildHydrateService>.Instance),
-            _hub);
+            _permissions, _hub);
 
     // ══════════════════════════════════════════════════════════════════════ The nudge push
     // ══════════════════════════════════════════════════════════════════════
@@ -1322,7 +1323,7 @@ public class SceneTurnTests
     }
 
     private Task<IResult> CreateAsync(CreateSceneDto dto, string userId = GameMasterId) =>
-        _endpoint.CreateAsync(GuildId, ChannelId, dto, _permissions, _scenes, _auditLog, _hydrate,
+        _endpoint.CreateAsync(GuildId, ChannelId, dto, _permissions, _scenes, _auditLog,
             _hub, _bus, _sceneVisibility, _context, TestPrincipal.Create(userId));
 
     private SceneNudgeService BuildNudges() =>

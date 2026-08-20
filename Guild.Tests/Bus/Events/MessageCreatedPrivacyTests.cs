@@ -160,7 +160,8 @@ public class MessageCreatedPrivacyTests
     /// <summary>These tests seed no scene, so this only has to satisfy the handler's signature -
     /// the turn-advance branch never runs.</summary>
     private SceneService Scenes(GuildHydrateService hydrate) =>
-        new(_context, PersonaMentions(), new PersonaCastService(_context), hydrate, _hub);
+        new(_context, PersonaMentions(), new PersonaCastService(_context), hydrate,
+            PermissionTestFactory.Create(_cache, _context), _hub);
 
     /// <summary>Same reason as <see cref="Scenes"/>: no scene is seeded, so nothing here runs.</summary>
     private SceneJoinService Joins(GuildHydrateService hydrate)

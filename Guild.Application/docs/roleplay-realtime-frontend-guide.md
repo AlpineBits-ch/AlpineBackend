@@ -13,9 +13,14 @@ Three audiences, and which one an event gets is a privacy decision rather than a
 
 | Audience | Which events | Why |
 |---|---|---|
-| Every present guild member | character, adoption, page and scene events | the same data the cast route already serves to any member |
+| Every present guild member | character, adoption, page events, and scene events on a scene whose `visibility` is `Everyone` | the same data the cast route already serves to any member |
+| Whoever can see the scene channel | every `guild.Scene*` event on a scene whose `visibility` is `Cast`, and the two `guild.ThreadCreated` beside a private scene's creation | hidden means hidden everywhere, the realtime fan-out included |
 | The character's players plus the module's permission holders | `guild.PersonaReviewRequested`, `guild.PersonaReviewCompleted`, `guild.PersonaGrant*` | a reviewer's reason and a grant say who plays whom, and their REST routes are gated |
 | The caller alone | `guild.AutoproxyChanged` | it is that user's own composer state on their other devices |
+
+The scene audience is resolved through the same permission path the channel read uses, so a game
+master keeps seeing everything and a player is reached through any character of theirs in the cast.
+The one exception is spelled out under `guild.SceneUpdated`.
 
 Nothing on this surface ever carries the account behind a character to a third party. Where a payload
 has a user id it is either the recipient's own, a reviewer acting in a moderation capacity, or a
@@ -241,10 +246,19 @@ instead.
 
 ### `guild.SceneUpdated`
 
-Fires when the cast, the order, the status, the clock or the access settings change. There is no
-visibility-changed event: this one carries the new value, and a scene that stops matching
-`visibility === "Everyone" || canManage || cast ∩ speakable` should be dropped from the board, the
-archive, the folder rail and the thread list on the same rule.
+Fires when the cast, the order, the status, the clock, the folder or the access settings change.
+There is no visibility-changed event: this one carries the new value, and a scene that stops
+matching `visibility === "Everyone" || canManage || cast ∩ speakable` should be dropped from the
+board, the archive, the folder rail and the thread list on the same rule.
+
+That rule is why the write which takes a scene private is the one `guild.SceneUpdated` still sent to
+the whole guild: it is the only thing telling the members losing the scene to drop it. Every later
+update to that scene reaches its cast and the game masters only. So a client that receives one for a
+scene it cannot satisfy the predicate on is being told to forget it, not to draw it.
+
+`folderId` is on the payload and is a full value, not a patch: `null` means unfiled. A shelf cache
+keyed by folder has to move the row between shelves on this event, or a scene filed elsewhere stays
+where it was drawn until the next read.
 
 ```jsonc
 {
@@ -261,7 +275,8 @@ archive, the folder rail and the thread list on the same rule.
   "turnNumber": 47,
   "postCount": 312,
   "conclusionNote": null,
-  "oocThreadId": "chan_01J…"
+  "oocThreadId": "chan_01J…",
+  "folderId": "scfd_01J…"    // null when the scene is unfiled
 }
 ```
 
@@ -338,6 +353,34 @@ To the player who asked, and to `ManageScenes` holders so a second banner clears
 ```
 
 A denial keeps its row and does not stop the character asking again.
+
+### `guild.SceneTaxonomyChanged`
+
+The guild's whole archive vocabulary, to every present member. Never a delta: replace the held
+folders and tags with what arrives. Fires on every folder and tag write, reorders included.
+
+```jsonc
+{
+  "guildId": "gild_01J…",
+  "folders": [
+    {"id": "scfd_01J…", "guildId": "gild_01J…", "name": "Act One",
+     "position": 0, "parentFolderId": null, "icon": null, "color": null}
+  ],
+  "tags": [
+    {"id": "sctg_01J…", "guildId": "gild_01J…", "name": "combat", "color": "#8a3b3b",
+     "emojiId": null, "emojiName": null, "position": 0, "moderated": false}
+  ]
+}
+```
+
+### `guild.SceneTagsChanged`
+
+One scene's labels, rewritten. Follows that scene's audience, so a cast-only game's labels do not
+reach the guild it is hidden from.
+
+```jsonc
+{ "guildId": "gild_01J…", "channelId": "chan_01J…", "tagIds": ["sctg_01J…"] }
+```
 
 ---
 

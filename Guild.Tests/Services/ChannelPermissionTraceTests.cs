@@ -98,6 +98,24 @@ public class ChannelPermissionTraceTests
         });
     }
 
+    /// <summary>Record only visits set bits, so a bit nothing ever grants or overwrites has to be
+    /// seeded up front or it is missing from Sources entirely, not just defaulted.</summary>
+    [Test]
+    public async Task UngrantedPermission_StillHasABaseSourceEntry()
+    {
+        await SeedAsync();
+
+        var result = await _service.TraceChannelPermissionsAsync(
+            ChannelId, new PermissionSubject(PermissionSubjectKind.Role, PlayerRoleId));
+
+        Assert.That(result, Is.Not.Null);
+        Assert.Multiple(() =>
+        {
+            Assert.That(result!.Permissions.HasFlag(Permissions.ManageChannel), Is.False);
+            Assert.That(result.Sources[Permissions.ManageChannel], Is.EqualTo(PermissionSource.Base));
+        });
+    }
+
     [Test]
     public async Task ChannelDenyBeatsCategoryAllow_AndIsAttributed()
     {

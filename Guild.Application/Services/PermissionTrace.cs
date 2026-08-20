@@ -41,8 +41,8 @@ public enum PermissionSource
     Muted,
 }
 
-/// <summary>Records which layer last wrote each bit, as GuildPermissionService resolves. Passed as
-/// null on the hot path, where it costs nothing.</summary>
+/// <summary>Records which layer last wrote each bit, as <see cref="GuildPermissionService"/>
+/// resolves. Passed as null on the hot path, where it costs nothing.</summary>
 public sealed class PermissionTrace
 {
     private readonly Dictionary<Permissions, PermissionSource> _entries = new();

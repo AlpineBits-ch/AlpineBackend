@@ -343,15 +343,15 @@ public class GuildPermissionService(
                && await PassesSceneVisibilityAsync(userId, guildId, channelId);
     }
 
-    /// <summary>
-    /// One subject's resolved permissions in one channel, plus which layer wrote each bit.
-    /// Deliberately uncached and not user-keyed: a role subject has no member row, so this answers
-    /// "what would a member whose only role is this one get here", the question a permission editor
-    /// asks. Returns null when the channel or the subject is gone.
-    /// </summary>
+    /// <summary>One subject's resolved permissions in one channel, plus which layer wrote each bit.</summary>
+    /// <param name="channelId">The channel to resolve permissions for.</param>
+    /// <param name="subject">The role or member to resolve permissions for.</param>
+    /// <returns>The resolved permissions, or null when the channel or the subject does not exist.</returns>
     public async Task<ResolvedChannelPermissions?> TraceChannelPermissionsAsync(
         string channelId, PermissionSubject subject)
     {
+        // Deliberately uncached and not user-keyed: a role subject has no member row, so this
+        // answers what a member holding only that role would get here.
         var channel = await ctx.Channels
             .AsNoTracking()
             .Where(c => c.Id == channelId)
@@ -367,6 +367,10 @@ public class GuildPermissionService(
         var guildId = channel.GuildId;
         var trace = new PermissionTrace();
 
+        // Seed the whole space as Base before any layer runs: Record only visits set bits, so an
+        // unset bit nothing ever denies or allows would otherwise be missing from Sources entirely.
+        trace.Record(~Permissions.None, PermissionSource.Base);
+
         string? memberId = null;
         List<string> roleIds;
         Permissions basePermissions;
@@ -381,7 +385,6 @@ public class GuildPermissionService(
 
             roleIds = [subject.Id];
             var (core, module) = await BaseFromRolesAsync(guildId, roleIds);
-            trace.Record(core, PermissionSource.Base);
             basePermissions = core;
             baseModulePermissions = module;
         }
@@ -412,7 +415,6 @@ public class GuildPermissionService(
             roleIds = membership.roleIds;
 
             var (core, module) = await BaseFromRolesAsync(guildId, roleIds);
-            trace.Record(core, PermissionSource.Base);
 
             var afterDeny = core & ~ExpandDeniedPermissions(membership.memberDeny);
             // The guild-level member mask is not a category overwrite; RelabelMemberGuild gives

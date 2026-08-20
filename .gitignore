@@ -495,3 +495,5 @@ sixlabors.lic
 *.crt
 *.p8
 *.pem
+# Agent scratch: plan ledgers, briefs and review packages.
+.superpowers/

@@ -129,4 +129,20 @@ public class ChannelPrivacyService(MicroserviceContext ctx)
 
         if (channel.IsPrivate != denied) channel.IsPrivate = denied;
     }
+
+    /// <summary>
+    /// The in-memory twin of <see cref="SyncFlagAsync"/>: derives <see cref="Channel.IsPrivate"/>
+    /// from a set of rows already held by the caller instead of a fresh query, for a caller that
+    /// just built those rows in the same unit of work and cannot see them again before it commits.
+    /// </summary>
+    /// <param name="channel">The channel to bring into agreement with itself, already tracked.</param>
+    /// <param name="rows">The channel's full overwrite set after whatever change just happened.</param>
+    /// <param name="everyoneRoleId">The guild's @everyone role id.</param>
+    public void SyncFlagFrom(Channel channel, IEnumerable<ChannelPermission> rows, string everyoneRoleId)
+    {
+        var denied = rows.Any(p => p.CategoryId == null && p.MemberId == null && p.RoleId == everyoneRoleId &&
+                                    (p.DenyPermissions & Permissions.ViewChannel) == Permissions.ViewChannel);
+
+        if (channel.IsPrivate != denied) channel.IsPrivate = denied;
+    }
 }

@@ -32,16 +32,15 @@ public class ChannelPermissionSyncEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return (Results.Unauthorized(), null);
 
-        var channel = await ctx.Channels
-            .AsNoTracking()
-            .Where(c => c.Id == channelId)
-            .Select(c => new { c.Id, c.GuildId, c.CategoryId })
-            .FirstOrDefaultAsync();
+        // Tracked, not projected: SyncFlagFrom below writes IsPrivate onto this same instance and
+        // leaves it for the trailing commit rather than saving here.
+        var channel = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
 
         if (channel is null || string.IsNullOrWhiteSpace(channel.CategoryId))
             return (Results.NotFound(), null);
 
         var guildId = channel.GuildId;
+        var categoryId = channel.CategoryId;
 
         if (!await permissionService.CanUserPerformActionOnGuildAsync(userId, guildId, Permissions.ManagePermissions))
             return (Results.Forbid(), null);
@@ -50,7 +49,7 @@ public class ChannelPermissionSyncEndpoint
 
         var source = await ctx.Set<ChannelPermission>()
             .AsNoTracking()
-            .Where(p => p.CategoryId == channel.CategoryId && p.ChannelId == null)
+            .Where(p => p.CategoryId == categoryId && p.ChannelId == null)
             .ToListAsync();
 
         // Copying a category row must not be a way round the clamp a direct write already has.
@@ -62,6 +61,14 @@ public class ChannelPermissionSyncEndpoint
                 !await permissionService.CanGrantPermissionsAsync(userId, guildId, row.DenyModulePermissions))
                 return (Results.Forbid(), null);
         }
+
+        // Independent of the rows being copied, so this can be read now rather than after the
+        // change tracker holds the new set.
+        var everyoneRoleId = await ctx.Roles
+            .AsNoTracking()
+            .Where(r => r.GuildId == guildId && r.Type == RoleType.Everyone)
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync();
 
         var existing = await ctx.Set<ChannelPermission>()
             .Where(p => p.ChannelId == channelId)
@@ -93,15 +100,13 @@ public class ChannelPermissionSyncEndpoint
             created.Add(overwrite);
         }
 
-        // SyncFlagAsync re-reads ChannelPermission with AsNoTracking, so it cannot see the rows
-        // above until they are actually persisted - the trailing middleware commit is too late for it.
-        await ctx.SaveChangesAsync();
-
-        // The flag is a reading of the @everyone overwrite, and the set was just replaced wholesale.
-        await channelPrivacy.SyncFlagAsync(channelId);
+        // The in-memory form of the flag sync: the copied set replaces the channel's rows wholesale,
+        // and nothing has been saved yet for a fresh query to see.
+        if (everyoneRoleId is not null)
+            channelPrivacy.SyncFlagFrom(channel, created, everyoneRoleId);
 
         auditLog.Log(guildId, userId, AuditActionType.ChannelPermissionChanged, channelId,
-            new { ChannelId = channelId, CategoryId = channel.CategoryId, Synced = true });
+            new { ChannelId = channelId, CategoryId = categoryId, Synced = true });
 
         var dtos = created.Select(p => new ChannelPermissionDto
         {

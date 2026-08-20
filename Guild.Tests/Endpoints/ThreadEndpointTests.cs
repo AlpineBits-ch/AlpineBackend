@@ -320,6 +320,63 @@ public class ThreadEndpointTests
         Assert.That(result, Is.InstanceOf<BadRequest<string>>());
     }
 
+    /// <summary>A room hanging off <paramref name="under"/>, which is what both halves of a scene
+    /// are and what an ordinary message thread is.</summary>
+    private async Task<Channel> SeedChildChannel(string under, ChannelType type, string name = "child")
+    {
+        var child = Channel.Create(new CreateChannelParams
+        {
+            Name = name, Description = "", Type = type, GuildId = GuildId, ParentChannelId = under,
+        });
+        _context.Channels.Add(child);
+        await _context.SaveChangesAsync();
+        return child;
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentIsSceneUnderTextChannel_Succeeds()
+    {
+        var text = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        var scene = await SeedChildChannel(text.Id, ChannelType.Scene, "a scene");
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        var result = await CreateFromMessage(scene.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentIsOutOfCharacterRoom_Succeeds()
+    {
+        // The OOC half of a scene is an ordinary Thread hanging off the same text channel.
+        var text = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        var ooc = await SeedChildChannel(text.Id, ChannelType.Thread, "a scene (OOC)");
+        AttachReturns(AttachThreadOutcome.Attached);
+
+        var result = await CreateFromMessage(ooc.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.ChannelDto>>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentIsForumPost_ReturnsBadRequest()
+    {
+        var forum = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel, ChannelType.Forum);
+        var post = await SeedChildChannel(forum.Id, ChannelType.Thread, "a post");
+
+        var result = await CreateFromMessage(post.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
+    public async Task CreateThreadFromMessage_ParentIsTwoDeep_ReturnsBadRequest()
+    {
+        var text = await SeedMemberAndParentChannel(Permissions.CreateThreads | Permissions.ViewChannel);
+        var scene = await SeedChildChannel(text.Id, ChannelType.Scene, "a scene");
+        var nested = await SeedChildChannel(scene.Id, ChannelType.Thread, "already deep");
+
+        var result = await CreateFromMessage(nested.Id, new CreateThreadDto { Name = "t" });
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
     [Test]
     public async Task CreateThreadFromMessage_ParentIsEncrypted_ReturnsBadRequest()
     {

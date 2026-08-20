@@ -52,7 +52,7 @@ public class ThreadEndpoint
 
         try
         {
-            var thread = Channel.Create(new CreateChannelParams
+            var thread = Domain.Aggregates.Channel.Create(new CreateChannelParams
             {
                 Name = dto.Name,
                 Description = dto.Description ?? "",
@@ -163,10 +163,20 @@ public class ThreadEndpoint
         var parent = await ctx.Channels.FirstOrDefaultAsync(c => c.Id == channelId);
         if (parent is null) return Results.NotFound();
 
-        // Text only. A forum post already is the thread, and a thread-shaped parent would nest -
-        // both are covered by the plain-channel route above.
+        // Text, plus the two rooms a scene is made of: the in-character channel and its OOC thread,
+        // which both hang off a text channel. The grandparent check is what bounds the depth, and it
+        // is also what refuses a forum or media post, whose parent is the board rather than a channel.
         if (parent.Type != ChannelType.Text)
-            return Results.BadRequest("A thread can only be started from a message in a Text channel.");
+        {
+            var grandparent = parent.ParentChannelId is null
+                ? null
+                : await ctx.Channels.AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.Id == parent.ParentChannelId);
+
+            if (!parent.Type.IsThreadShaped() || grandparent?.Type != ChannelType.Text)
+                return Results.BadRequest(
+                    "A thread can only be started from a message in a text channel, or in a room that hangs directly off one.");
+        }
 
         // Channel.Create never sets EncryptionState, so a thread under an MLS channel would be a
         // plaintext room hanging off an encrypted one. Refused rather than silently downgraded.
@@ -185,11 +195,11 @@ public class ThreadEndpoint
         if (existing is not null)
             return Results.Conflict(new ThreadConflictDto { ThreadId = existing.Id });
 
-        Channel thread;
+        Domain.Aggregates.Channel thread;
         try
         {
             // In memory only - nothing may reach the context until the attach below has succeeded.
-            thread = Channel.Create(new CreateChannelParams
+            thread = Domain.Aggregates.Channel.Create(new CreateChannelParams
             {
                 Name = dto.Name,
                 Description = dto.Description ?? "",

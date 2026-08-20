@@ -16,8 +16,11 @@ POST https://api.venta.gg/api/v1/guild/channels/{channelId}/messages/{messageId}
 { "name": "about that message", "content": "optional first reply" }
 ```
 
-- `{channelId}` is the channel the message is in, and it must be a **Text** channel. Forum and
-  Media posts already are threads, and a thread cannot be started inside a thread.
+- `{channelId}` is the channel the message is in. It must be a **Text** channel, or a thread-shaped
+  room hanging directly off one: a `Thread`, or either half of a scene (the in-character `Scene`
+  channel and its out-of-character `Thread`). That bounds nesting at one level below a text channel.
+  Forum and Media posts are refused, since their parent is the board rather than a channel, and so
+  is anything already two deep.
 - `name` is required. Clients typically pre-fill it from the first few words of the message.
 - `content`, when present, is posted as the thread's first message. The starter message is *not*
   copied into the thread - it stays in the parent channel.
@@ -42,7 +45,7 @@ Returns `200` with a `ChannelDto`, which now carries `starterMessageId`:
 
 | Status | When |
 | --- | --- |
-| `400` | The parent is not a Text channel, or it is end-to-end encrypted (see below). |
+| `400` | The parent is neither a Text channel nor a room hanging directly off one, or it is end-to-end encrypted (see below). |
 | `403` | The caller lacks `CreateThreads`. |
 | `404` | No such channel, or no such message in that channel. |
 | `409` | The message already has a thread. The body is `{ "threadId": "chan_..." }` - open that one. |

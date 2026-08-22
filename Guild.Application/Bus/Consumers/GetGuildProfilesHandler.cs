@@ -1,6 +1,8 @@
+using Guild.Application.Services;
 using Guild.Contracts.Bus.Request;
 using Guild.Persistence.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Guild.Application.Bus.Consumers;
 
@@ -11,7 +13,11 @@ public class GetGuildProfilesHandler
     private const int MaxGuildIds = 200;
 
     public static async Task<GetGuildProfilesResponse> Handle(
-        GetGuildProfilesRequest request, MicroserviceContext ctx, CancellationToken ct)
+        GetGuildProfilesRequest request,
+        MicroserviceContext ctx,
+        GuildHydrateService presence,
+        ILogger<GetGuildProfilesHandler> logger,
+        CancellationToken ct)
     {
         var guildIds = request.GuildIds.Take(MaxGuildIds).ToList();
 
@@ -29,6 +35,8 @@ public class GetGuildProfilesHandler
             })
             .ToListAsync(ct);
 
+        var onlineCounts = await OnlineCountsAsync(guildIds, presence, logger);
+
         var profiles = rows.Select(r => new GuildProfileDto
         {
             GuildId = r.Id,
@@ -37,11 +45,35 @@ public class GetGuildProfilesHandler
             // Guild has no banner concept yet; guild_profile carries a nullable column for when it does.
             BannerUrl = null,
             MemberCount = r.MemberCount,
-            // Guild does not track per-member activity, so this stands in for "active" until it does.
-            ActiveMemberCount = r.MemberCount,
+            // Online-now from presence, not a 14-day activity figure - Guild has no activity
+            // history to give one.
+            ActiveMemberCount = onlineCounts.GetValueOrDefault(r.Id, 0),
             Features = r.Features.ToString(),
         }).ToList();
 
         return new GetGuildProfilesResponse { Profiles = profiles };
+    }
+
+    // One presence lookup per guild rather than a batch call - GuildHydrateService has no batch
+    // API, and a Redis miss on one guild must not take the others down with it.
+    private static async Task<Dictionary<string, int>> OnlineCountsAsync(
+        IReadOnlyList<string> guildIds, GuildHydrateService presence, ILogger logger)
+    {
+        var pairs = await Task.WhenAll(guildIds.Select(async guildId =>
+        {
+            try
+            {
+                var online = await presence.GetGuildPresenceAsync(guildId);
+                return (guildId, count: online.Count);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception,
+                    "Could not read presence for guild {GuildId}, treating it as zero online", guildId);
+                return (guildId, count: 0);
+            }
+        }));
+
+        return pairs.ToDictionary(p => p.guildId, p => p.count);
     }
 }

@@ -410,8 +410,21 @@ carry the feed.
 
 **freshness** decays exponentially from `last_bumped_at` with a 7-day half-life.
 
-**health** is log-scaled active members over the last 14 days from `guild_profile`. This is what
-stops a dead guild bumping its way to the top of a feed forever.
+**health** is log-scaled currently-online members, read from Guild's existing presence set and
+mirrored onto `guild_profile`. This is what stops a dead guild bumping its way to the top of a feed
+forever.
+
+Online-now rather than active-over-14-days, which is what this section originally specified. Guild
+tracks no per-member activity history, so a 14-day figure has no source; the only honest
+alternatives were to invent one or to let the term fall back to raw member count. Member count is
+the worse of the two by a distance: it measures size, not life, so a dead guild with five thousand
+members would score full health and the sentence above would be false. Presence is real, already
+Redis-backed, and already load-bearing on four hot paths including `GuildInviteAudienceService`.
+
+The cost is a timezone bias: a European guild sampled at 04:00 CET reads emptier than it is. That
+is tolerable because the term carries 20 percent and the sample refreshes on the profile's TTL, and
+the fix when it stops being tolerable is a stored rolling counter on Guild, not a cleverer query
+here.
 
 **With a text query**, `ts_rank_cd` over `search_vector` multiplies in and dominates. Relevance
 first, then the score above as the tiebreak.

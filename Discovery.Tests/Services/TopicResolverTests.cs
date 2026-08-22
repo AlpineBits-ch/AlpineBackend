@@ -3,6 +3,7 @@ using Discovery.Api.Services;
 using Discovery.Domain.Entities;
 using Discovery.Domain.Topics;
 using Discovery.Tests.Helpers;
+using Microsoft.EntityFrameworkCore;
 
 namespace Discovery.Tests.Services;
 
@@ -91,7 +92,7 @@ public class TopicResolverTests
     {
         await using var ctx = TestDiscoveryContext.New();
         var resolver = new TopicResolver(ctx);
-        var topic = TopicRef.Parse("tag:west-marches");
+        var topic = new TopicInput(TopicRef.Parse("tag:west-marches"), "West Marches");
 
         await resolver.EnsureTagsAsync([topic], CancellationToken.None);
         await ctx.SaveChangesAsync();
@@ -106,6 +107,52 @@ public class TopicResolverTests
         {
             Assert.That(ctx.Tags.Count(), Is.EqualTo(1));
             Assert.That(ctx.Tags.Single().Id, Is.EqualTo(mintedId));
+        });
+    }
+
+    [Test]
+    public async Task Minting_a_tag_uses_the_typed_display_name_and_keeps_it_on_recasing()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var resolver = new TopicResolver(ctx);
+        var topic = TopicRef.Parse("tag:play-by-post");
+
+        // The slug the wire format carries is already lossy ("play-by-post"); the raw text is what
+        // TopicInput exists to carry alongside it.
+        await resolver.EnsureTagsAsync([new TopicInput(topic, "Play By Post")], CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        Assert.That(ctx.Tags.Single().DisplayName, Is.EqualTo("Play By Post"));
+
+        // A second mint with different casing must not clobber what is already there - first writer
+        // wins, a staff merge is the tool for fixing a bad display name.
+        await resolver.EnsureTagsAsync([new TopicInput(topic, "PLAY BY POST")], CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ctx.Tags.Count(), Is.EqualTo(1));
+            Assert.That(ctx.Tags.Single().DisplayName, Is.EqualTo("Play By Post"));
+        });
+    }
+
+    /// <summary>
+    /// Guards against SearchAsync quietly reverting to fetching the whole table and filtering in
+    /// memory: asserts against the real Npgsql provider (no live database - ToQueryString never
+    /// executes) that the candidate queries carry a WHERE clause rather than being a bare scan.
+    /// </summary>
+    [Test]
+    public async Task Search_filters_in_sql_rather_than_scanning_the_whole_catalogue()
+    {
+        await using var postgres = new PostgresDiscoveryContext();
+
+        var gamesSql = TopicResolver.GameCandidatesQuery(postgres, "isle").ToQueryString();
+        var tagsSql = TopicResolver.TagCandidatesQuery(postgres, "isle").ToQueryString();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(gamesSql, Does.Contain("WHERE"));
+            Assert.That(tagsSql, Does.Contain("WHERE"));
         });
     }
 }

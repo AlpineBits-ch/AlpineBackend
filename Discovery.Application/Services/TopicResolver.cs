@@ -1,3 +1,4 @@
+using System.Text;
 using Discovery.Api.Dtos.Response;
 using Discovery.Domain.Entities;
 using Discovery.Domain.Topics;
@@ -15,30 +16,60 @@ namespace Discovery.Api.Services;
 public class TopicResolver(MicroserviceContext ctx)
 {
     /// <summary>
-    /// Filters against the database, then hands off to <see cref="RankOrder"/> for ordering. Only
-    /// IsEnabled/AliasOf are pushed to the database: Aliases is a Postgres array column and a nested
-    /// Contains over its elements is not guaranteed to translate, so name/alias text matching runs
-    /// over the materialized rows instead.
+    /// Filters against the database, then hands off to <see cref="RankOrder"/> for ordering.
     /// </summary>
     public async Task<IReadOnlyList<TopicDto>> SearchAsync(string query, int limit, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(query)) return [];
         var trimmed = query.Trim();
 
-        var games = await ctx.GameTopics.Where(g => g.IsEnabled).ToListAsync(ct);
-        var tags = await ctx.Tags.Where(t => t.AliasOf == null).ToListAsync(ct);
+        // At least 10x the requested limit reaches memory, so RankOrder still has enough candidates
+        // to pick from once games and tags are merged. It is the WHERE clause in
+        // GameCandidatesQuery/TagCandidatesQuery, not this cap, that keeps an autocomplete keystroke
+        // from pulling the whole catalog (tens of thousands of rows at the seeded size) over the wire.
+        var candidateCap = Math.Max(limit * 10, 50);
+
+        var games = await GameCandidatesQuery(ctx, trimmed).Take(candidateCap).ToListAsync(ct);
+        var tags = await TagCandidatesQuery(ctx, trimmed).Take(candidateCap).ToListAsync(ct);
 
         var candidates = new List<TopicDto>();
-
-        candidates.AddRange(games
-            .Where(g => Matches(g.Name, trimmed) || g.Aliases.Any(alias => Matches(alias, trimmed)))
-            .Select(g => new TopicDto { Kind = "game", Id = g.GameApplicationId, Name = g.Name, SteamAppId = g.SteamAppId }));
-
-        candidates.AddRange(tags
-            .Where(t => Matches(t.DisplayName, trimmed))
-            .Select(t => new TopicDto { Kind = "tag", Id = t.Slug, Name = t.DisplayName }));
+        candidates.AddRange(games.Select(g =>
+            new TopicDto { Kind = "game", Id = g.GameApplicationId, Name = g.Name, SteamAppId = g.SteamAppId }));
+        candidates.AddRange(tags.Select(t => new TopicDto { Kind = "tag", Id = t.Slug, Name = t.DisplayName }));
 
         return RankOrder(candidates, trimmed).Take(limit).ToList();
+    }
+
+    /// <summary>
+    /// The SQL-side game filter: enabled, and the name contains <paramref name="query"/>
+    /// (case-insensitively) or an alias matches it exactly. Public and static so a translation test
+    /// can call ToQueryString() on it without a live database.
+    ///
+    /// Name uses lower()+Contains rather than EF.Functions.ILike: ILike translates cleanly on
+    /// Npgsql (confirmed via ToQueryString), but throws NotSupportedException the moment the
+    /// InMemory provider tries to evaluate it rather than translate it, and this query's callers are
+    /// exercised against InMemory in this project's tests. Aliases can only be an exact match
+    /// (Array.Contains, not a substring) for the same InMemory reason one level deeper: InMemory's
+    /// translator accepts a bare equality inside `Any`/`Contains` over a string[] property but
+    /// rejects any method call - even `.Contains()` alone - inside that nested lambda, so a
+    /// substring alias match cannot be one query that also runs under InMemory. Confirmed empirically
+    /// (see task 7's fix report); Aliases carries Social's curated short names, so an exact hit is
+    /// still the common case this loses.
+    /// </summary>
+    public static IQueryable<GameTopic> GameCandidatesQuery(MicroserviceContext ctx, string query)
+    {
+        var term = query.ToLowerInvariant();
+        return ctx.GameTopics.Where(g => g.IsEnabled &&
+            (g.Name.ToLower().Contains(term) || g.Aliases.Contains(query)));
+    }
+
+    /// <summary>The SQL-side tag filter: not aliased away, display name or slug contains
+    /// <paramref name="query"/> case-insensitively.</summary>
+    public static IQueryable<Tag> TagCandidatesQuery(MicroserviceContext ctx, string query)
+    {
+        var term = query.ToLowerInvariant();
+        return ctx.Tags.Where(t => t.AliasOf == null &&
+            (t.DisplayName.ToLower().Contains(term) || t.Slug.Contains(term)));
     }
 
     /// <summary>
@@ -63,9 +94,6 @@ public class TopicResolver(MicroserviceContext ctx)
         if (name.StartsWith(query, StringComparison.OrdinalIgnoreCase)) return 1;
         return 0;
     }
-
-    private static bool Matches(string text, string query) =>
-        text.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Turns references into rows. A disabled game still resolves here - only SearchAsync excludes
@@ -112,44 +140,82 @@ public class TopicResolver(MicroserviceContext ctx)
     }
 
     /// <summary>
-    /// Mints a Tag row for any tag TopicRef with no existing row. Mutates the tracked context and
+    /// Mints a Tag row for any tag TopicInput with no existing row. Mutates the tracked context and
     /// returns without saving - the caller's Wolverine endpoint commits, same contract as
     /// GuildProfileMirror.EnsureFreshAsync.
     ///
-    /// TopicRef.Id for a tag has already been through TagSlug.Normalize by the time it reaches this
-    /// seam (TopicRef.Parse/TryParse do it internally - see TopicRefTests), so the caller's original
-    /// casing and punctuation never survive to here. DisplayName is set from that same slug text,
-    /// which is the only text this method has.
+    /// An existing tag's DisplayName is never touched here: first writer wins, and a staff merge is
+    /// the tool for fixing a bad one, not a later caller's casing.
     /// </summary>
-    public async Task EnsureTagsAsync(IEnumerable<TopicRef> topics, CancellationToken ct)
+    public async Task EnsureTagsAsync(IEnumerable<TopicInput> topics, CancellationToken ct)
     {
         var candidates = topics
-            .Where(t => t.Kind == TopicKind.Tag)
-            .Select(t => new { Raw = t.Id, Slug = TagSlug.Normalize(t.Id) })
-            .Where(t => t.Slug is not null)
-            .GroupBy(t => t.Slug!)
+            .Where(t => t.Topic.Kind == TopicKind.Tag)
+            .GroupBy(t => t.Topic.Id)
             .Select(g => g.First())
             .ToList();
 
         if (candidates.Count == 0) return;
 
-        var slugs = candidates.Select(c => c.Slug!).ToList();
+        var slugs = candidates.Select(c => c.Topic.Id).ToList();
         var existing = await ctx.Tags.Where(t => slugs.Contains(t.Slug)).Select(t => t.Slug).ToListAsync(ct);
         var existingSet = existing.ToHashSet();
 
         foreach (var candidate in candidates)
         {
-            if (existingSet.Contains(candidate.Slug!)) continue;
+            if (existingSet.Contains(candidate.Topic.Id)) continue;
 
             // Tag has no static factory (unlike GameTopic/GuildProfile) - Id is set explicitly here,
             // the same trap task 6 hit: BaseEntity<T>.GenerateId() does not auto-populate Id on save.
             ctx.Tags.Add(new Tag
             {
                 Id = Tag.GenerateId(),
-                Slug = candidate.Slug!,
-                DisplayName = candidate.Raw,
+                Slug = candidate.Topic.Id,
+                DisplayName = DisplayNameFor(candidate),
             });
-            existingSet.Add(candidate.Slug!);
+            existingSet.Add(candidate.Topic.Id);
         }
+    }
+
+    private const int MaxDisplayNameLength = 80;
+
+    /// <summary>
+    /// DisplayName from what the caller actually typed: trimmed, internal whitespace collapsed to a
+    /// single space, capped at Tag.DisplayName's column length (80). Falls back to the slug when
+    /// there is no raw text.
+    /// </summary>
+    private static string DisplayNameFor(TopicInput input)
+    {
+        var raw = input.RawText?.Trim();
+        if (string.IsNullOrEmpty(raw)) return input.Topic.Id;
+
+        var collapsed = CollapseWhitespace(raw);
+        return collapsed.Length > MaxDisplayNameLength
+            ? collapsed[..MaxDisplayNameLength].TrimEnd()
+            : collapsed;
+    }
+
+    private static string CollapseWhitespace(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+        var pendingSpace = false;
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                if (builder.Length > 0) pendingSpace = true;
+                continue;
+            }
+
+            if (pendingSpace)
+            {
+                builder.Append(' ');
+                pendingSpace = false;
+            }
+
+            builder.Append(ch);
+        }
+
+        return builder.ToString();
     }
 }

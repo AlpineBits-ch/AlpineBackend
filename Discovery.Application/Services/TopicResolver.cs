@@ -170,8 +170,6 @@ public class TopicResolver(MicroserviceContext ctx)
         if (candidates.Count == 0) return [];
 
         var slugs = candidates.Select(c => c.Topic.Id).ToList();
-        // Tracked, unlike every read above: this is the write seam, and a later change that updates
-        // an existing tag here would be silently dropped under AsNoTracking.
         var existing = await ctx.Tags.Where(t => slugs.Contains(t.Slug)).ToListAsync(ct);
         var bySlug = existing.ToDictionary(t => t.Slug);
 

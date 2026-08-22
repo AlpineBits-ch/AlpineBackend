@@ -338,7 +338,7 @@ Applied on create and on every update, not only on publish:
 
 - Length caps as specified per field above.
 - Invite codes and bare URLs stripped from `listing.pitch` and `posting.body`. Links live only in
-  the dedicated `links` field, at most three, against a host allowlist in configuration.
+  the dedicated `links` field, at most three, against a host allowlist.
 - `application.pitch` and answers are exempt. They are private to the reviewing guild, never
   indexed, and an applicant linking their own writing is the point rather than the abuse.
 - A banned-term list from configuration.
@@ -346,6 +346,15 @@ Applied on create and on every update, not only on publish:
 
 The link restriction is the load-bearing one. A free-text field that renders links on a
 publicly-indexed page is an SEO and phishing surface, and the allowlist is cheaper than the abuse.
+
+Two limitations of the allowlist as built, both accepted for this phase rather than discovered
+later. It is a hardcoded list in `ListingWriteService`, not configuration: there is no config
+surface for it and inventing one would mean touching `AppEnvironment` and the Helm chart for a list
+that changes rarely. And it means **a community cannot link its own website, forum or wiki**, which
+is the most legitimate link there is and will be the first complaint. That is tolerated only
+because the page is publicly indexed and staff takedown does not exist until the third plan. The
+refusal says so in one sentence rather than reading as a generic validation error, because a user
+who pastes their own domain and is told "invalid link" will reasonably assume a bug.
 
 ### 8.3 An age floor of 16 on recruitment
 

@@ -1,5 +1,6 @@
 using AppEnvironment;
 using Discovery.Api.Bus;
+using Discovery.Api.Services;
 using Discovery.Infrastructure;
 using Discovery.Infrastructure.Persistence;
 using Echo.Auth;
@@ -18,6 +19,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddInfrastructure();
 builder.Services.AddMemoryCache();
+builder.Services.AddScoped<TopicResolver>();
 
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>

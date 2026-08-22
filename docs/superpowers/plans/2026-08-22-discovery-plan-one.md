@@ -2457,3 +2457,129 @@ Never `bun run format`. It is `prettier --write .` and rewrites the whole reposi
 - [ ] **Step 4: State what is unverified**
 
 The Helm chart, the Argo application and the Terraform database entry cannot be exercised locally. Report them as unverified and pushed, per the repository's own working rules.
+
+---
+
+## Task 19: Ban a guild out of discovery, server side
+
+Implements spec section 8.3. The ban lives on the GUILD, not the listing, because `Listing.Publish` clears `SuspendedReason` from any state, so a listing-level ban would be defeated by one click of publish.
+
+**Files:**
+- Create: `Discovery.Domain/Entities/DiscoveryBan.cs`, `Discovery.Application/Services/DiscoveryBanService.cs`, `Discovery.Contracts/Bus/Admin/DiscoveryBanContracts.cs`, `Discovery.Application/Bus/Admin/DiscoveryBanHandlers.cs`
+- Modify: `Discovery.Infrastructure/Persistence/MicroserviceContext.cs`, `Discovery.Application/Services/ListingWriteService.cs`, `Discovery.Application/Dtos/Response/ListingDto.cs`, `Discovery.Application/Program.cs`
+- Test: `Discovery.Tests/Services/DiscoveryBanServiceTests.cs`
+
+**Interfaces:**
+- Produces: `DiscoveryBanService.IsBannedAsync(guildId, now, ct)`, `.BanAsync(...)`, `.LiftAsync(...)`, `.ListAsync(...)`; bus contracts `BanGuildFromDiscoveryRequest/Response`, `LiftDiscoveryBanRequest/Response`, `ListDiscoveryBansRequest/Response`, `SearchDiscoveryListingsRequest/Response`. Task 20 consumes the contracts.
+
+- [ ] **Step 1: The entity**
+
+```csharp
+public class DiscoveryBan : BaseEntity<DiscoveryBan>, IPrefixedEntity
+{
+    public static string Prefix { get; } = "dban";
+
+    public string GuildId { get; set; } = null!;
+
+    /// <summary>Written to be read by the owner.</summary>
+    public string Reason { get; set; } = null!;
+
+    /// <summary>Never leaves the console.</summary>
+    public string? StaffNote { get; set; }
+
+    public string BannedByUserId { get; set; } = null!;
+    public DateTimeOffset BannedAt { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
+    public DateTimeOffset? LiftedAt { get; set; }
+    public string? LiftedByUserId { get; set; }
+
+    public bool IsActiveAt(DateTimeOffset now) =>
+        LiftedAt is null && (ExpiresAt is null || ExpiresAt > now);
+
+    public static DiscoveryBan Create(
+        string guildId, string reason, string? note, string byUserId,
+        DateTimeOffset now, DateTimeOffset? expiresAt) =>
+        new()
+        {
+            Id = GenerateId(), GuildId = guildId, Reason = reason, StaffNote = note,
+            BannedByUserId = byUserId, BannedAt = now, ExpiresAt = expiresAt,
+        };
+}
+```
+
+A UNIQUE index on `GuildId` would be wrong: a lifted ban keeps its row and a guild can be banned again. Index `GuildId` non-uniquely.
+
+- [ ] **Step 2: Write the failing tests**
+
+Seven, each pinning one rule:
+
+```csharp
+[Test] public async Task A_ban_with_no_expiry_stays_active() { }
+[Test] public async Task An_expired_ban_is_not_active() { }
+[Test] public async Task A_lifted_ban_is_not_active() { }
+[Test] public async Task Lifting_keeps_the_row_and_records_who() { }
+[Test] public async Task A_guild_can_be_banned_again_after_a_lift() { }
+[Test] public async Task Banning_suspends_a_published_listing_with_staff_action() { }
+[Test] public async Task Lifting_does_not_republish() { }
+```
+
+The last two matter most. `SuspensionReason.StaffAction` has been unreachable in this codebase until now, and this is what finally produces it. And lifting must never republish, for exactly the reason a regained plan does not: returning a community to a public feed is the owner's decision, not a side effect of a staff action.
+
+Take the clock as a parameter, as `GuildProfileMirror` does, or the expiry tests are not deterministic.
+
+- [ ] **Step 3: The service and the publish gate**
+
+`IsBannedAsync` evaluates on read via `IsActiveAt`. No sweeper: a temporary ban that needs a background job to expire is a temporary ban that outlives a failed job.
+
+In `ListingWriteService.PublishAsync`, check the ban BEFORE the entitlement. A banned guild being told to upgrade its plan is worse than useless. Refuse with a 403 carrying `error: "discovery_banned"` and the owner-facing `Reason`, never `StaffNote`.
+
+Add `SuspendedMessage` to `ListingDto`, populated from the ban's `Reason` when the state is `Suspended` and the reason is `StaffAction`. This is what gives the client's currently-inert suspended banner something real to show.
+
+- [ ] **Step 4: Realtime and bus contracts**
+
+`BanAsync` suspends a `Published` listing via `Listing.Suspend(SuspensionReason.StaffAction)` and calls the existing `ListingRealtime.ListingSuspendedAsync` with reason `"staff_action"`. Do not write a new realtime method; that one already exists and takes the reason.
+
+Bus contracts go in `Discovery.Contracts/Bus/Admin/`, request and response in the same file, matching `CreateBotGuildMemberCommand`. `SearchDiscoveryListingsRequest` takes a query and a cursor and returns enough to identify a guild: guild id, guild name, headline, state, published-at.
+
+- [ ] **Step 5: Migration, then verify**
+
+`dotnet ef migrations add DiscoveryBans --project Discovery.Infrastructure --startup-project Discovery.Application`
+
+Then `dotnet build Echo.sln`, `dotnet test Discovery.Tests/Discovery.Tests.csproj`, and `dotnet test Echo.Tests/Echo.Tests.csproj`.
+
+---
+
+## Task 20: The admin endpoints in the gateway
+
+**Files:**
+- Create: `Echo/Controllers/Admin/AdminDiscoveryController.cs`
+- Test: `Echo.Tests/Controllers/AdminDiscoveryControllerTests.cs`
+
+Copy `Echo/Controllers/Admin/AdminWikiController.cs` as the shape: routed at `api/v1/admin/discovery`, injecting `StaffAccess` and `IMessageBus`, resolving the caller's tier on every request and reaching Discovery over the bus. Discovery stays free of any notion of staff.
+
+```
+GET    /api/v1/admin/discovery/listings          browse and search, for finding the guild
+GET    /api/v1/admin/discovery/bans              active by default, all with includeLifted=true
+POST   /api/v1/admin/discovery/bans              guildId, reason, staffNote, expiresAt
+DELETE /api/v1/admin/discovery/bans/{guildId}    lift
+```
+
+Moderator and Admin both pass. Every ban and lift records the acting staff user id from the RESOLVED PRINCIPAL, never from the request body.
+
+`StaffAccess` sets `UnavailableItemKey` on the context when the check could not be completed, which is a different thing from completing and saying no. Handle that the way the existing admin controllers do rather than collapsing it into a plain 403.
+
+---
+
+## Task 21: The admin dashboard page
+
+**Files:**
+- Create: `src/app/features/admin/admin-modal/pages/discovery/`
+- Modify: `src/app/features/admin/admin-modal/admin-modal.component.ts` and its spec, `src/assets/i18n/locales/en.json`
+
+The admin modal is table-driven and its spec asserts the page list, so this is one table entry, one component, and the matching spec entry.
+
+Two panes: a search over published listings to find the guild, and the ban list with lift actions. Banning opens a small form for reason, optional internal note, optional expiry.
+
+The reason field's label must say it is shown to the guild owner, and the note's must say it is not. That distinction is the whole point of having two fields, and a mislabelled form defeats it.
+
+UI copy stays short, one sentence maximum, per the standing constraint.

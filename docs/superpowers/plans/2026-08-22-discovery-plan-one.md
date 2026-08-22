@@ -608,11 +608,15 @@ public class TagSlugTests
 {
     [Test]
     public void Punctuation_drops_without_leaving_a_separator() =>
-        Assert.That(TagSlug.Normalize("D&D 5e"), Is.EqualTo("dnd-5e"));
+        Assert.That(TagSlug.Normalize("D&D 5e"), Is.EqualTo("dd-5e"));
 
     [Test]
     public void Runs_of_whitespace_collapse_to_one_hyphen() =>
         Assert.That(TagSlug.Normalize("  Play  By   Post "), Is.EqualTo("play-by-post"));
+
+    [Test]
+    public void A_hyphen_separates_rather_than_dropping() =>
+        Assert.That(TagSlug.Normalize("Sci-Fi Play-By-Post"), Is.EqualTo("sci-fi-play-by-post"));
 
     [Test]
     public void Combining_marks_are_stripped() =>
@@ -666,7 +670,7 @@ public class TopicRefTests
     public void A_tag_reference_normalizes_its_id()
     {
         var topic = TopicRef.Parse("tag:D&D 5e");
-        Assert.That(topic.Id, Is.EqualTo("dnd-5e"));
+        Assert.That(topic.Id, Is.EqualTo("dd-5e"));
     }
 
     [Test]
@@ -719,7 +723,9 @@ public static class TagSlug
                 continue;
             }
 
-            pendingSeparator = true;
+            // Only whitespace and hyphens separate. Everything else drops silently, so "D&D" is
+            // one word while "sci-fi" stays two.
+            if (Rune.IsWhiteSpace(rune) || rune.Value == '-') pendingSeparator = true;
         }
 
         var slug = builder.ToString();

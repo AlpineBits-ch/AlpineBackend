@@ -1,6 +1,7 @@
 using Discovery.Api.Bus;
 using Discovery.Domain.Entities;
 using Discovery.Tests.Helpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Social.Contracts.Bus.Integration.Request;
 
 namespace Discovery.Tests.Bus;
@@ -67,5 +68,65 @@ public class GameCatalogSyncTests
 
         var gone = ctx.GameTopics.Single(g => g.GameApplicationId == "gapp_gone");
         Assert.That(gone.IsEnabled, Is.False);
+    }
+}
+
+[TestFixture]
+public class GameCatalogSyncServiceRetryLoopTests
+{
+    /// <summary>
+    /// Drives GameCatalogSyncService.RunLoopAsync with a fake sync and a fake delay: no real bus,
+    /// no real timer. The fake delay records what it was asked to wait and cancels the loop once it
+    /// has seen enough calls, instead of a real cancellation racing a real sleep.
+    /// </summary>
+    private static async Task<List<TimeSpan>> RunAsync(Func<int, bool> failsOnAttempt, int stopAfterCalls)
+    {
+        var delays = new List<TimeSpan>();
+        var cts = new CancellationTokenSource();
+        var attempt = 0;
+
+        Task SyncOnce(CancellationToken _)
+        {
+            attempt++;
+            if (failsOnAttempt(attempt)) throw new InvalidOperationException("sync failed");
+            return Task.CompletedTask;
+        }
+
+        Task Delay(TimeSpan requested, CancellationToken _)
+        {
+            delays.Add(requested);
+            if (delays.Count >= stopAfterCalls) cts.Cancel();
+            return Task.CompletedTask;
+        }
+
+        await GameCatalogSyncService.RunLoopAsync(SyncOnce, Delay, NullLogger.Instance, cts.Token);
+        return delays;
+    }
+
+    [Test]
+    public async Task A_failed_sync_retries_on_the_short_backoff_not_the_daily_interval()
+    {
+        var delays = await RunAsync(failsOnAttempt: _ => true, stopAfterCalls: 2);
+
+        Assert.That(delays, Is.EqualTo(new[]
+        {
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromMinutes(1),
+        }));
+    }
+
+    [Test]
+    public async Task A_success_returns_to_the_daily_cadence_and_a_later_failure_restarts_the_backoff()
+    {
+        // Attempts 1 and 2 fail, 3 succeeds, 4 fails again.
+        var delays = await RunAsync(failsOnAttempt: n => n != 3, stopAfterCalls: 4);
+
+        Assert.That(delays, Is.EqualTo(new[]
+        {
+            TimeSpan.FromSeconds(30),
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromDays(1),
+            TimeSpan.FromSeconds(30),
+        }));
     }
 }

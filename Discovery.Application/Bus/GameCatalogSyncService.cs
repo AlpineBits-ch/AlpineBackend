@@ -53,31 +53,111 @@ public static class GameCatalogSync
     }
 }
 
-/// <summary>Syncs at startup and daily. The event handler covers everything in between.</summary>
-public class GameCatalogSyncService(IServiceProvider services, ILogger<GameCatalogSyncService> logger)
-    : BackgroundService
+/// <summary>
+/// The retry schedule for <see cref="GameCatalogSyncService"/>. Pulled out as plain functions so a
+/// test can pin the delay sequence without waiting on any of them.
+/// </summary>
+internal static class GameCatalogSyncSchedule
 {
-    private static readonly TimeSpan Interval = TimeSpan.FromDays(1);
+    public static readonly TimeSpan SuccessInterval = TimeSpan.FromDays(1);
 
+    private static readonly TimeSpan[] FailureBackoff =
+    [
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(2),
+        TimeSpan.FromMinutes(5),
+        TimeSpan.FromMinutes(10),
+    ];
+
+    /// <summary>Escalate to ERROR once a streak reaches this length: by the fifth failure (about 18
+    /// minutes of backoff elapsed) an empty mirror stops being a blip a WARNING can carry alone.</summary>
+    public const int ConsecutiveFailuresBeforeError = 5;
+
+    /// <summary>attempt counts from 1. Stays on the longest step rather than growing past it.</summary>
+    public static TimeSpan DelayAfterFailure(int attempt) =>
+        FailureBackoff[Math.Min(Math.Max(attempt, 1), FailureBackoff.Length) - 1];
+}
+
+/// <summary>
+/// Syncs once the host has started, then daily. The event handler covers everything in between. A
+/// failed attempt retries on <see cref="GameCatalogSyncSchedule"/>'s short backoff instead of
+/// waiting for the next daily tick.
+/// </summary>
+public class GameCatalogSyncService(
+    IServiceProvider services,
+    IHostApplicationLifetime lifetime,
+    ILogger<GameCatalogSyncService> logger) : BackgroundService
+{
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(Interval);
-        do
+        // Hosted services start before Wolverine's runtime does; InvokeAsync throws
+        // WolverineHasNotStartedException until ApplicationStarted fires.
+        await WaitUntilStartedAsync(lifetime, stoppingToken);
+
+        await RunLoopAsync(SyncOnceAsync, (delay, ct) => Task.Delay(delay, ct), logger, stoppingToken);
+    }
+
+    private static async Task WaitUntilStartedAsync(IHostApplicationLifetime lifetime, CancellationToken stoppingToken)
+    {
+        if (lifetime.ApplicationStarted.IsCancellationRequested) return;
+
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var registration = lifetime.ApplicationStarted.Register(() => started.TrySetResult());
+        await started.Task.WaitAsync(stoppingToken);
+    }
+
+    private async Task SyncOnceAsync(CancellationToken ct)
+    {
+        using var scope = services.CreateScope();
+        var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
+        await GameCatalogSync.RunAsync(ctx, scope.ServiceProvider.GetRequiredService<IMessageBus>(), ct);
+        await ctx.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The retry loop, static and driven entirely by its parameters so a test can pin the delay
+    /// sequence with a fake sync and a fake delay, without a live bus or a real timer.
+    /// </summary>
+    internal static async Task RunLoopAsync(
+        Func<CancellationToken, Task> syncOnce,
+        Func<TimeSpan, CancellationToken, Task> delay,
+        ILogger logger,
+        CancellationToken stoppingToken)
+    {
+        var consecutiveFailures = 0;
+
+        while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                using var scope = services.CreateScope();
-                var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
-                await GameCatalogSync.RunAsync(
-                    ctx,
-                    scope.ServiceProvider.GetRequiredService<IMessageBus>(),
-                    stoppingToken);
-                await ctx.SaveChangesAsync(stoppingToken);
+                await syncOnce(stoppingToken);
+                consecutiveFailures = 0;
+                await delay(GameCatalogSyncSchedule.SuccessInterval, stoppingToken);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
-                logger.LogWarning(ex, "Game catalog sync failed, retrying on the next tick");
+                break;
             }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+            catch (Exception ex)
+            {
+                consecutiveFailures++;
+                var nextDelay = GameCatalogSyncSchedule.DelayAfterFailure(consecutiveFailures);
+
+                logger.LogWarning(ex,
+                    "Game catalog sync failed on attempt {Attempt}, retrying in {Delay}",
+                    consecutiveFailures, nextDelay);
+
+                if (consecutiveFailures >= GameCatalogSyncSchedule.ConsecutiveFailuresBeforeError)
+                {
+                    logger.LogError(
+                        "Game catalog sync has failed {Attempt} times in a row; the mirror may "
+                        + "still be empty and topic search is returning no results with no other trace",
+                        consecutiveFailures);
+                }
+
+                await delay(nextDelay, stoppingToken);
+            }
+        }
     }
 }

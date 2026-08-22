@@ -765,6 +765,37 @@ A new service touches two other repositories. Both are Argo-synced from `main`.
   `image: discovery-application`.
 - `Echo/Proxy/ProxyConfig.cs`: route `/api/v1/discovery/{**catch-all}`, cluster, health destination,
   and `Services__Discovery` defaulting to `http://discovery.default.svc.cluster.local`.
+- `Discovery.Application/appsettings.json`: `Microsoft.AspNetCore` at `Warning`. Without it the
+  health probes log four lines every ten seconds per replica and bury everything else.
+
+### 15.1 What this list was missing, and what it cost
+
+Every item below was absent when the service first deployed, and each one produced a failure that
+no test could catch. They are recorded because the next new service will hit exactly these.
+
+- **The gateway's `Services__<Name>` configmap entry, WITH the port.** `ProxyConfig`'s hardcoded
+  fallbacks all omit the port, so a missing entry resolves to port 80 while every Service listens on
+  8080. The result is a gateway timeout, not a clean failure, and the service's own logs stay empty
+  because no request ever arrives.
+- **`LICENSE_MODE: "hosted"` for any service that resolves entitlements.** Absent, `LicenseModes.Parse`
+  defaults to self-host, `SelfHostEverythingSource` short-circuits above every other source, and every
+  entitlement resolves granted. A plan gate can be perfectly correct in code and wide open in
+  production because of one missing key.
+- **The full entitlement wiring in `Program.cs`**, not just the cache. `AddEntitlements`,
+  `AddLicenseMode`, the Billing sources behind the `IsHosted && IsBillingConfigured` guard, then
+  `AddEntitlementCache`. Registering only the cache is worse than registering nothing: with no
+  source, every key answers from its catalogue default, so a `false`-defaulting flag denies everyone.
+- **A mirror must never declare a narrower column than its source.** `GameTopic.Name` was capped at
+  200 against a source that allows 256, and one long game name failed every sync attempt. Nothing in
+  either service's types or tests can see that relationship, so mirrored columns carry no length at
+  all and a test asserts it.
+- **A hosted service starts before the framework it depends on.** A `BackgroundService` that calls
+  the bus in its first pass throws `WolverineHasNotStartedException` every time. Await
+  `ApplicationStarted` first.
+- **Session-scoped Postgres advisory locks do not work through PgBouncer.** The lock is released when
+  the SERVER connection drops, and behind a pooler that connection outlives the pod, so a restart
+  mid-hold leaks the lock permanently. Use a Redis lease with a TTL. Two other services in this repo
+  still carry this defect.
 
 ---
 

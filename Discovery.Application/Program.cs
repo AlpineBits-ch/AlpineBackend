@@ -1,13 +1,10 @@
 using AppEnvironment;
-using Billing.Contracts.Clients;
+using Discovery.Api;
 using Discovery.Api.Bus;
 using Discovery.Api.Services;
 using Discovery.Infrastructure;
 using Discovery.Infrastructure.Persistence;
 using Echo.Auth;
-using Echo.Entitlements;
-using Echo.Entitlements.Caching;
-using Echo.Entitlements.Sources;
 using JasperFx;
 using JasperFx.RuntimeCompiler;
 using Messaging;
@@ -32,20 +29,7 @@ builder.Services.AddScoped<ListingWriteService>();
 builder.Services.AddScoped<GuildProfileMirror>();
 builder.Services.AddScoped<DiscoveryFeedQuery>();
 
-// The public-listing plan gate, and what backs it.
-builder.Services.AddEntitlements(builder.Configuration);
-builder.Services.AddLicenseMode(
-    LicenseModes.Parse(Env.License.Mode), OperatorCeilings.Parse(Env.License.OperatorCeilings));
-
-// Billing-backed sources, hosted only - self-host runs on SelfHostEverythingSource alone.
-if (Env.License.IsHosted && Env.License.IsBillingConfigured)
-{
-    builder.Services.AddBillingGrantSource();
-    builder.Services.AddBillingPlanSource();
-}
-
-// The cache in front of the resolver above.
-builder.Services.AddEntitlementCache();
+builder.Services.AddDiscoveryEntitlements(builder.Configuration);
 
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>

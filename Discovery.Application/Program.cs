@@ -22,6 +22,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddScoped<TopicResolver>();
 builder.Services.AddScoped<InterestService>();
 builder.Services.AddScoped<ListingRealtime>();
+builder.Services.AddScoped<ListingWriteService>();
 
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>

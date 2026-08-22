@@ -136,14 +136,17 @@ public class TopicResolver(MicroserviceContext ctx)
     }
 
     /// <summary>
-    /// Mints a Tag row for any tag TopicInput with no existing row. Mutates the tracked context and
-    /// returns without saving - the caller's Wolverine endpoint commits, same contract as
-    /// GuildProfileMirror.EnsureFreshAsync.
+    /// Mints a Tag row for any tag TopicInput with no existing row, and returns a resolved DTO for
+    /// every distinct tag topic passed in - including the ones it just minted. Mutates the tracked
+    /// context and returns without saving - the caller's Wolverine endpoint commits, same contract
+    /// as GuildProfileMirror.EnsureFreshAsync - so a freshly minted row is not yet queryable and a
+    /// caller needing it in the same call must read it off this return value, not re-query.
     ///
     /// An existing tag's DisplayName is never touched here: first writer wins, and a staff merge is
-    /// the tool for fixing a bad one, not a later caller's casing.
+    /// the tool for fixing a bad one, not a later caller's casing. This does not follow AliasOf -
+    /// that is ResolveAsync's job, and it always finds anything already saved.
     /// </summary>
-    public async Task EnsureTagsAsync(IEnumerable<TopicInput> topics, CancellationToken ct)
+    public async Task<IReadOnlyList<TopicDto>> EnsureTagsAsync(IEnumerable<TopicInput> topics, CancellationToken ct)
     {
         var candidates = topics
             .Where(t => t.Topic.Kind == TopicKind.Tag)
@@ -151,26 +154,34 @@ public class TopicResolver(MicroserviceContext ctx)
             .Select(g => g.First())
             .ToList();
 
-        if (candidates.Count == 0) return;
+        if (candidates.Count == 0) return [];
 
         var slugs = candidates.Select(c => c.Topic.Id).ToList();
-        var existing = await ctx.Tags.Where(t => slugs.Contains(t.Slug)).Select(t => t.Slug).ToListAsync(ct);
-        var existingSet = existing.ToHashSet();
+        var existing = await ctx.Tags.Where(t => slugs.Contains(t.Slug)).ToListAsync(ct);
+        var bySlug = existing.ToDictionary(t => t.Slug);
 
+        var results = new List<TopicDto>(candidates.Count);
         foreach (var candidate in candidates)
         {
-            if (existingSet.Contains(candidate.Topic.Id)) continue;
-
-            // Tag has no static factory (unlike GameTopic/GuildProfile) - Id is set explicitly here,
-            // the same trap task 6 hit: BaseEntity<T>.GenerateId() does not auto-populate Id on save.
-            ctx.Tags.Add(new Tag
+            if (!bySlug.TryGetValue(candidate.Topic.Id, out var tag))
             {
-                Id = Tag.GenerateId(),
-                Slug = candidate.Topic.Id,
-                DisplayName = DisplayNameFor(candidate),
-            });
-            existingSet.Add(candidate.Topic.Id);
+                // Tag has no static factory (unlike GameTopic/GuildProfile) - Id is set explicitly
+                // here, the same trap task 6 hit: BaseEntity<T>.GenerateId() does not auto-populate
+                // Id on save.
+                tag = new Tag
+                {
+                    Id = Tag.GenerateId(),
+                    Slug = candidate.Topic.Id,
+                    DisplayName = DisplayNameFor(candidate),
+                };
+                ctx.Tags.Add(tag);
+                bySlug[candidate.Topic.Id] = tag;
+            }
+
+            results.Add(new TopicDto { Kind = "tag", Id = tag.Slug, Name = tag.DisplayName });
         }
+
+        return results;
     }
 
     private const int MaxDisplayNameLength = 80;

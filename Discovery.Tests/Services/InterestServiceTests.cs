@@ -87,6 +87,25 @@ public class InterestServiceTests
     }
 
     [Test]
+    public async Task The_cap_is_checked_after_dedup_not_against_the_raw_request()
+    {
+        // 30 entries, only 10 distinct topics - the cap must bound what the user ends up with, not
+        // how many times their client repeated itself.
+        await using var ctx = TestDiscoveryContext.New();
+        var distinctTopics = Enumerable.Range(0, 10).Select(i => TopicRef.Parse($"tag:topic-{i}")).ToList();
+        var topics = distinctTopics
+            .SelectMany(t => Enumerable.Repeat(new TopicInput(t, t.Id), 3))
+            .ToList();
+
+        Assert.That(topics, Has.Count.EqualTo(30));
+
+        await Service(ctx).ReplaceAsync("user_6", topics, true, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        Assert.That(ctx.UserInterests.Count(i => i.UserId == "user_6"), Is.EqualTo(10));
+    }
+
+    [Test]
     public async Task Hiding_interests_does_not_remove_them()
     {
         await using var ctx = TestDiscoveryContext.New();

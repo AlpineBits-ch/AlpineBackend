@@ -47,10 +47,13 @@ public static class InterestEndpoint
             topics.Add(new TopicInput(topic, rawText));
         }
 
-        if (topics.Count > InterestService.MaxInterests)
+        // The cap bounds how many interests the user ends up with, not how verbose the request was
+        // - dedup before counting, or a client that resent duplicates would get refused for it.
+        var distinct = topics.GroupBy(t => t.Topic).Select(g => g.First()).ToList();
+        if (distinct.Count > InterestService.MaxInterests)
             return Results.BadRequest($"At most {InterestService.MaxInterests} interests.");
 
-        var result = await interests.ReplaceAsync(userId, topics, dto.Visible, ct);
+        var result = await interests.ReplaceAsync(userId, distinct, dto.Visible, ct);
         await realtime.InterestsChangedAsync(userId, ct);
         return Results.Ok(result);
     }

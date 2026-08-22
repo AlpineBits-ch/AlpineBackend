@@ -13,11 +13,17 @@ public readonly record struct GameCatalogSyncResult(int Inserted, int Updated, i
 public static class GameCatalogSync
 {
     /// <summary>
-    /// Mutates the tracked context and returns without saving. The event handler that calls this
-    /// runs inside Wolverine's transactional middleware, which commits on a successful return; a
-    /// save here would double-commit. The hosted service below owns its own commit instead.
+    /// Pages the whole catalog, committing through <paramref name="commit"/> at each page boundary
+    /// (ListGameTopicsRequest already pages at 500) instead of accumulating all ~10,400 rows into one
+    /// transaction. A failure past a given page's commit has already persisted that page; a resumed
+    /// run reloads existing rows fresh and re-pages from the start, so an already-committed row is
+    /// just re-upserted rather than duplicated. The disable pass below only runs once every page has
+    /// been seen in this same run, so a partial run never disables rows an earlier page just wrote.
+    /// Both the hosted service and GameCatalogChangedHandler drive this through
+    /// GameCatalogSyncService.SyncOnceAsync, which supplies the real commit.
     /// </summary>
-    public static async Task<GameCatalogSyncResult> RunAsync(MicroserviceContext ctx, IMessageBus bus, CancellationToken ct)
+    public static async Task<GameCatalogSyncResult> RunAsync(
+        MicroserviceContext ctx, IMessageBus bus, Func<CancellationToken, Task> commit, CancellationToken ct)
     {
         var existing = await ctx.GameTopics.ToDictionaryAsync(g => g.GameApplicationId, ct);
         var seen = new HashSet<string>();
@@ -55,16 +61,24 @@ public static class GameCatalogSync
             }
 
             cursor = page.NextCursor;
+
+            // Commits this page before the next page's bus round trip: a crash from here on has
+            // already persisted every page committed so far.
+            await commit(ct);
         } while (cursor is not null);
 
         // Disabled, not deleted: a listing already tagged with a game that left the catalogue must
-        // keep rendering its chip.
+        // keep rendering its chip. Gated behind the full loop above: seen only reflects every page
+        // once the loop finishes, so a run that dies partway never reaches this and never wrongly
+        // disables a row an earlier page in the same run just wrote.
         var disabled = 0;
         foreach (var row in existing.Values.Where(r => !seen.Contains(r.GameApplicationId)))
         {
             if (row.IsEnabled) disabled++;
             row.IsEnabled = false;
         }
+
+        await commit(ct);
 
         return new GameCatalogSyncResult(inserted, updated, disabled);
     }
@@ -172,6 +186,13 @@ public class GameCatalogSyncService(
     /// <summary>Well under half the TTL, so one missed renewal never lets the lease lapse.</summary>
     private static readonly TimeSpan LeaseRenewInterval = TimeSpan.FromSeconds(40);
 
+    /// <summary>
+    /// A bulk mirror, not an interactive query: Npgsql's 30s default is sized for the latter. Set on
+    /// this sync's own DbContext instance only, never the shared connection string, so nothing else
+    /// in the process inherits it.
+    /// </summary>
+    private const int SyncCommandTimeoutSeconds = 120;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Hosted services start before Wolverine's runtime does; InvokeAsync throws
@@ -195,11 +216,18 @@ public class GameCatalogSyncService(
         logger.LogInformation("Game catalog sync host start wait complete");
     }
 
-    private async Task<GameCatalogSyncOutcome> SyncOnceAsync(CancellationToken ct)
+    /// <summary>
+    /// Acquires the lease, pages and chunk-commits the whole catalog, releases the lease. Internal,
+    /// not private: GameCatalogChangedHandler calls this directly too, so an event-triggered sync
+    /// gets the same lease guard and per-page commits as the daily one, rather than paging the
+    /// catalog itself inside Wolverine's transactional handler.
+    /// </summary>
+    internal async Task<GameCatalogSyncOutcome> SyncOnceAsync(CancellationToken ct)
     {
         using var scope = services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
         var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+        ctx.Database.SetCommandTimeout(SyncCommandTimeoutSeconds);
 
         var store = new RedisGameCatalogSyncLeaseStore(redis.GetDatabase());
         // Unique per attempt: release (and renewal) below only ever act on the lease this attempt
@@ -213,8 +241,7 @@ public class GameCatalogSyncService(
             {
                 await using var renewal = StartLeaseRenewal(store, token, logger, c);
 
-                var result = await GameCatalogSync.RunAsync(ctx, bus, c);
-                await ctx.SaveChangesAsync(c);
+                var result = await GameCatalogSync.RunAsync(ctx, bus, cc => ctx.SaveChangesAsync(cc), c);
 
                 logger.LogInformation(
                     "Game catalog sync applied: {Inserted} inserted, {Updated} updated, {Disabled} disabled",

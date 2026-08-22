@@ -53,7 +53,10 @@ builder.Services.AddSignalR(config => { config.EnableDetailedErrors = true; })
 
 builder.Services.AddWolverineHttp();
 builder.Services.AddVentaJwtBearer();
-builder.Services.AddHostedService<GameCatalogSyncService>();
+// Singleton, not just a hosted service: GameCatalogChangedHandler injects it directly to reuse the
+// same lease-guarded, chunk-committing sync instead of duplicating it.
+builder.Services.AddSingleton<GameCatalogSyncService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<GameCatalogSyncService>());
 
 builder.UseWolverine(opts =>
 {

@@ -26,8 +26,7 @@ public class GameCatalogSyncTests
                 ? Page(next: "gapp_2", Game("gapp_1", "The Isle"))
                 : Page(next: null, Game("gapp_2", "MSFS 2024")));
 
-        await GameCatalogSync.RunAsync(ctx, bus, CancellationToken.None);
-        await ctx.SaveChangesAsync();
+        await GameCatalogSync.RunAsync(ctx, bus, c => ctx.SaveChangesAsync(c), CancellationToken.None);
 
         Assert.That(ctx.GameTopics.Select(g => g.Name), Is.EquivalentTo(new[] {"The Isle", "MSFS 2024"}));
     }
@@ -43,8 +42,7 @@ public class GameCatalogSyncTests
         bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(_ =>
             Page(next: null, Game("gapp_1", "New")));
 
-        await GameCatalogSync.RunAsync(ctx, bus, CancellationToken.None);
-        await ctx.SaveChangesAsync();
+        await GameCatalogSync.RunAsync(ctx, bus, c => ctx.SaveChangesAsync(c), CancellationToken.None);
 
         Assert.Multiple(() =>
         {
@@ -64,8 +62,7 @@ public class GameCatalogSyncTests
         bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(_ =>
             Page(next: null, Game("gapp_1", "Here")));
 
-        await GameCatalogSync.RunAsync(ctx, bus, CancellationToken.None);
-        await ctx.SaveChangesAsync();
+        await GameCatalogSync.RunAsync(ctx, bus, c => ctx.SaveChangesAsync(c), CancellationToken.None);
 
         var gone = ctx.GameTopics.Single(g => g.GameApplicationId == "gapp_gone");
         Assert.That(gone.IsEnabled, Is.False);
@@ -83,7 +80,7 @@ public class GameCatalogSyncTests
         bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(_ =>
             Page(next: null, Game("gapp_stay", "Stay"), Game("gapp_new", "New")));
 
-        var result = await GameCatalogSync.RunAsync(ctx, bus, CancellationToken.None);
+        var result = await GameCatalogSync.RunAsync(ctx, bus, c => ctx.SaveChangesAsync(c), CancellationToken.None);
 
         Assert.Multiple(() =>
         {
@@ -91,6 +88,107 @@ public class GameCatalogSyncTests
             Assert.That(result.Updated, Is.EqualTo(1));
             Assert.That(result.Disabled, Is.EqualTo(1));
         });
+    }
+
+    [Test]
+    public async Task The_page_boundary_is_the_commit_boundary_not_the_whole_run()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var bus = new FakeMessageBus();
+        bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(request =>
+            request.After switch
+            {
+                null => Page(next: "gapp_2", Game("gapp_1", "The Isle")),
+                "gapp_2" => Page(next: "gapp_3", Game("gapp_2", "MSFS 2024")),
+                _ => Page(next: null, Game("gapp_3", "Flight Sim World")),
+            });
+
+        var commits = 0;
+        Task Commit(CancellationToken c)
+        {
+            commits++;
+            return ctx.SaveChangesAsync(c);
+        }
+
+        await GameCatalogSync.RunAsync(ctx, bus, Commit, CancellationToken.None);
+
+        // 3 pages plus the trailing disable-pass commit; never one commit for the whole run.
+        Assert.That(commits, Is.EqualTo(4));
+    }
+
+    [Test]
+    public async Task A_run_that_fails_partway_has_still_persisted_the_pages_it_completed()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var bus = new FakeMessageBus();
+        bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(request =>
+            request.After is null
+                ? Page(next: "gapp_2", Game("gapp_1", "The Isle"))
+                : Page(next: null, Game("gapp_2", "MSFS 2024")));
+
+        var commits = 0;
+        Task Commit(CancellationToken c)
+        {
+            commits++;
+            // Simulates the second page's commit hitting the production failure: a command timeout
+            // surfacing from SaveChangesAsync, whatever its exact exception type.
+            if (commits == 2) throw new TimeoutException("simulated command timeout on page two");
+            return ctx.SaveChangesAsync(c);
+        }
+
+        Assert.ThrowsAsync<TimeoutException>(() =>
+            GameCatalogSync.RunAsync(ctx, bus, Commit, CancellationToken.None));
+
+        Assert.That(ctx.GameTopics.Select(g => g.Name), Is.EquivalentTo(new[] {"The Isle"}));
+    }
+
+    [Test]
+    public async Task A_resumed_run_after_a_partial_failure_converges_including_the_disable_pass()
+    {
+        var dbName = Guid.NewGuid().ToString();
+
+        await using (var seed = new TestDiscoveryContext(dbName))
+        {
+            seed.GameTopics.Add(new GameTopic {Id = "gmtp_gone", GameApplicationId = "gapp_gone", Name = "Gone", IsEnabled = true});
+            await seed.SaveChangesAsync();
+        }
+
+        var bus = new FakeMessageBus();
+        bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(request =>
+            request.After is null
+                ? Page(next: "gapp_2", Game("gapp_1", "The Isle"))
+                : Page(next: null, Game("gapp_2", "MSFS 2024")));
+
+        // First attempt: a fresh scope, page one commits, page two's commit fails partway.
+        await using (var ctx = new TestDiscoveryContext(dbName))
+        {
+            var commits = 0;
+            Task Commit(CancellationToken c)
+            {
+                commits++;
+                if (commits == 2) throw new TimeoutException("simulated command timeout on page two");
+                return ctx.SaveChangesAsync(c);
+            }
+
+            Assert.ThrowsAsync<TimeoutException>(() =>
+                GameCatalogSync.RunAsync(ctx, bus, Commit, CancellationToken.None));
+        }
+
+        // Resumed attempt: another fresh scope over the same store, no injected failure this time.
+        await using (var ctx = new TestDiscoveryContext(dbName))
+        {
+            var result = await GameCatalogSync.RunAsync(ctx, bus, c => ctx.SaveChangesAsync(c), CancellationToken.None);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(ctx.GameTopics.Select(g => g.Name), Is.EquivalentTo(new[] {"The Isle", "MSFS 2024", "Gone"}));
+                Assert.That(ctx.GameTopics.Single(g => g.GameApplicationId == "gapp_gone").IsEnabled, Is.False);
+                // gapp_1 was already persisted by the failed first attempt: this run updates it, not inserts it.
+                Assert.That(result.Inserted, Is.EqualTo(1));
+                Assert.That(result.Updated, Is.EqualTo(1));
+                Assert.That(result.Disabled, Is.EqualTo(1));
+            });
+        }
     }
 }
 

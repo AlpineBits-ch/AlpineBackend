@@ -1,9 +1,8 @@
-using System.Data;
 using Discovery.Domain.Entities;
 using Discovery.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using Social.Contracts.Bus.Integration.Request;
+using StackExchange.Redis;
 using Wolverine;
 
 namespace Discovery.Api.Bus;
@@ -105,22 +104,73 @@ public enum GameCatalogSyncOutcome
 }
 
 /// <summary>
+/// The lease operations GameCatalogSyncService needs, narrowed from IDatabase so a test can fake it
+/// without standing up the rest of the StackExchange.Redis surface.
+/// </summary>
+internal interface IGameCatalogSyncLeaseStore
+{
+    /// <summary>SET key value NX PX ttl. False means someone else holds the lease; a connectivity
+    /// failure is left to propagate rather than being reported as false.</summary>
+    Task<bool> TryAcquireAsync(string key, string token, TimeSpan ttl, CancellationToken ct);
+
+    /// <summary>Deletes the key only if it still holds <paramref name="token"/>. False means this
+    /// attempt's lease had already expired and someone else holds it now.</summary>
+    Task<bool> ReleaseAsync(string key, string token, CancellationToken ct);
+
+    /// <summary>Resets the TTL only if the key still holds <paramref name="token"/>.</summary>
+    Task<bool> ExtendAsync(string key, string token, TimeSpan ttl, CancellationToken ct);
+}
+
+/// <summary>
+/// Backed by StackExchange.Redis's own lock primitives: LockTakeAsync is SET NX PX, LockReleaseAsync
+/// and LockExtendAsync are a Lua compare-value-then-act, so the token check in each is already
+/// atomic against a concurrent write from another instance.
+/// </summary>
+internal sealed class RedisGameCatalogSyncLeaseStore(IDatabase db) : IGameCatalogSyncLeaseStore
+{
+    public Task<bool> TryAcquireAsync(string key, string token, TimeSpan ttl, CancellationToken ct) =>
+        db.LockTakeAsync(key, token, ttl);
+
+    public Task<bool> ReleaseAsync(string key, string token, CancellationToken ct) =>
+        db.LockReleaseAsync(key, token);
+
+    public Task<bool> ExtendAsync(string key, string token, TimeSpan ttl, CancellationToken ct) =>
+        db.LockExtendAsync(key, token, ttl);
+}
+
+/// <summary>
 /// Syncs once the host has started, then daily. The event handler covers everything in between. A
 /// failed attempt retries on <see cref="GameCatalogSyncSchedule"/>'s short backoff instead of
 /// waiting for the next daily tick.
 ///
 /// Discovery runs more than one replica, so every pod's ExecuteAsync fires this on the same cold
-/// start. Each takes an advisory lock before writing so only one pod pages the catalog in at a time;
-/// the rest skip quietly. Matches the lock GameCatalogSeeder (Social) already ships for the identical
-/// race.
+/// start. Each takes a Redis lease before writing so only one pod pages the catalog in at a time;
+/// the rest skip quietly. This is a Redis lease and not the session-scoped
+/// pg_try_advisory_lock/pg_advisory_unlock that GameCatalogSeeder (Social) and
+/// ProductCatalogAutoImportService (Guild) use for the identical race: every service here connects
+/// through PgBouncer, so the server-side session a session-scoped lock rides on belongs to the
+/// pooler, not the pod, and a pod that dies mid-sync leaks the lock until PgBouncer itself is
+/// restarted. Do not copy that precedent for a new pooled service.
 /// </summary>
 public class GameCatalogSyncService(
     IServiceProvider services,
+    IConnectionMultiplexer redis,
     IHostApplicationLifetime lifetime,
     ILogger<GameCatalogSyncService> logger) : BackgroundService
 {
-    /// <summary>Advisory-lock key.</summary>
-    private const long AdvisoryLockKey = 0x47414D45544F5043L;
+    private const string LeaseKey = "discovery:game-catalog-sync:lease";
+
+    /// <summary>
+    /// A full sync pages roughly 10,400 rows in batches of 500, about 21 request/response round
+    /// trips over the bus; each normally completes in well under a second, so two minutes is
+    /// comfortably longer than a normal pass. Kept short rather than raised further because the
+    /// lease is also renewed below: a stuck pod frees this on the TTL clock, not on the size of this
+    /// constant.
+    /// </summary>
+    private static readonly TimeSpan LeaseTtl = TimeSpan.FromMinutes(2);
+
+    /// <summary>Well under half the TTL, so one missed renewal never lets the lease lapse.</summary>
+    private static readonly TimeSpan LeaseRenewInterval = TimeSpan.FromSeconds(40);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -151,59 +201,115 @@ public class GameCatalogSyncService(
         var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
         var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
-        var connection = (NpgsqlConnection)ctx.Database.GetDbConnection();
-        var opened = false;
+        var store = new RedisGameCatalogSyncLeaseStore(redis.GetDatabase());
+        // Unique per attempt: release (and renewal) below only ever act on the lease this attempt
+        // itself took, never one a later pod has since acquired after this one's lease expired.
+        var token = Guid.NewGuid().ToString("N");
 
-        if (connection.State != ConnectionState.Open)
-        {
-            await connection.OpenAsync(ct);
-            opened = true;
-        }
+        return await RunOnceWithLockAsync(
+            c => TryAcquireLeaseAsync(store, token, c),
+            c => ReleaseLeaseAsync(store, token, logger, c),
+            async c =>
+            {
+                await using var renewal = StartLeaseRenewal(store, token, logger, c);
 
-        try
-        {
-            return await RunOnceWithLockAsync(
-                c => TryAcquireLockAsync(connection, c),
-                c => ReleaseLockAsync(connection, c),
-                async c =>
-                {
-                    var result = await GameCatalogSync.RunAsync(ctx, bus, c);
-                    await ctx.SaveChangesAsync(c);
+                var result = await GameCatalogSync.RunAsync(ctx, bus, c);
+                await ctx.SaveChangesAsync(c);
 
-                    logger.LogInformation(
-                        "Game catalog sync applied: {Inserted} inserted, {Updated} updated, {Disabled} disabled",
-                        result.Inserted, result.Updated, result.Disabled);
-                },
-                logger,
-                ct);
-        }
-        finally
-        {
-            if (opened) await connection.CloseAsync();
-        }
-    }
-
-    private static async Task<bool> TryAcquireLockAsync(NpgsqlConnection connection, CancellationToken ct)
-    {
-        // try_ rather than the blocking form: a pod that cannot have the lock has nothing to wait
-        // for, because whoever holds it is doing the same work.
-        await using var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", connection);
-        command.Parameters.AddWithValue("key", AdvisoryLockKey);
-        return await command.ExecuteScalarAsync(ct) is true;
-    }
-
-    private static async Task ReleaseLockAsync(NpgsqlConnection connection, CancellationToken ct)
-    {
-        await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock(@key)", connection);
-        command.Parameters.AddWithValue("key", AdvisoryLockKey);
-        await command.ExecuteScalarAsync(ct);
+                logger.LogInformation(
+                    "Game catalog sync applied: {Inserted} inserted, {Updated} updated, {Disabled} disabled",
+                    result.Inserted, result.Updated, result.Disabled);
+            },
+            logger,
+            ct);
     }
 
     /// <summary>
-    /// Acquires the lock, runs the sync, and always releases it. Session-scoped: Postgres frees the
-    /// lock when the holding connection closes, including a crash, so a dead pod cannot hold it past
-    /// that connection's lifetime. Static and parameterized so a test can fake the lock and the sync
-    /// without a live database.
+    /// SET key value NX PX ttl under the hood. A connectivity exception here propagates out of
+    /// RunOnceWithLockAsync uncaught, so an unreachable lease store is a failed attempt that goes
+    /// through the retry backoff below, never an unguarded sync and never a crash. Internal, not
+    /// private, so a test can drive it against a fake store without a live Redis.
+    /// </summary>
+    internal static Task<bool> TryAcquireLeaseAsync(IGameCatalogSyncLeaseStore store, string token, CancellationToken ct) =>
+        store.TryAcquireAsync(LeaseKey, token, LeaseTtl, ct);
+
+    /// <summary>
+    /// Deletes the lease only if it still holds the token this attempt took, so an attempt whose
+    /// lease already expired cannot delete the lease a later pod has since acquired. Swallows a
+    /// store failure here rather than propagating it: the sync itself already succeeded or was
+    /// already reported as failed, and the lease is a TTL, so a release that cannot reach the store
+    /// still clears on its own.
+    /// </summary>
+    internal static async Task ReleaseLeaseAsync(IGameCatalogSyncLeaseStore store, string token, ILogger logger, CancellationToken ct)
+    {
+        try
+        {
+            var released = await store.ReleaseAsync(LeaseKey, token, ct);
+            if (!released)
+                logger.LogWarning("Game catalog sync lease had already expired and moved to another instance before release");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Game catalog sync could not release its lease; it will expire on its own");
+        }
+    }
+
+    /// <summary>
+    /// Keeps the lease alive for a sync that runs longer than one renewal interval, so the TTL can
+    /// stay short instead of being sized for a worst case that mostly never happens. Extending, like
+    /// releasing, only takes effect while this attempt's token still holds the lease.
+    /// </summary>
+    internal static IAsyncDisposable StartLeaseRenewal(IGameCatalogSyncLeaseStore store, string token, ILogger logger, CancellationToken ct)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var loop = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(LeaseRenewInterval, cts.Token);
+                    try
+                    {
+                        await store.ExtendAsync(LeaseKey, token, LeaseTtl, cts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Game catalog sync lease renewal failed; the lease may expire before the sync finishes");
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Sync finished; the loop is being torn down, not the lease being lost.
+            }
+        }, ct);
+
+        return new LeaseRenewalHandle(cts, loop);
+    }
+
+    private sealed class LeaseRenewalHandle(CancellationTokenSource cts, Task loop) : IAsyncDisposable
+    {
+        public async ValueTask DisposeAsync()
+        {
+            cts.Cancel();
+            try
+            {
+                await loop;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Acquires the lease, runs the sync, and always releases it. Static and parameterized so a test
+    /// can fake the lease and the sync without a live Redis.
     /// </summary>
     internal static async Task<GameCatalogSyncOutcome> RunOnceWithLockAsync(
         Func<CancellationToken, Task<bool>> tryAcquireLock,
@@ -214,7 +320,7 @@ public class GameCatalogSyncService(
     {
         if (!await tryAcquireLock(ct))
         {
-            logger.LogInformation("Game catalog sync skipped: advisory lock held by another instance");
+            logger.LogInformation("Game catalog sync skipped: lease held by another instance");
             return GameCatalogSyncOutcome.SkippedLockHeld;
         }
 

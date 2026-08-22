@@ -3,6 +3,7 @@ using Discovery.Domain.Entities;
 using Discovery.Tests.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;
 using Social.Contracts.Bus.Integration.Request;
+using StackExchange.Redis;
 
 namespace Discovery.Tests.Bus;
 
@@ -154,45 +155,94 @@ public class GameCatalogSyncServiceRetryLoopTests
 }
 
 /// <summary>
-/// Hand-rolled advisory lock: an atomic test-and-set flag, standing in for
-/// pg_try_advisory_lock/pg_advisory_unlock across two callers racing for the same key. No mocking
-/// framework, and a real Postgres lock cannot be exercised without a live database.
+/// Hand-rolled fake of the Redis lease store: a compare-and-swap slot keyed by an owner token,
+/// standing in for SET key value NX PX ttl and its compare-and-delete release/extend. No mocking
+/// framework exists in this repo, and a real Redis cannot be exercised without a live instance.
 /// </summary>
-internal sealed class FakeAdvisoryLock
+internal sealed class FakeLeaseStore : IGameCatalogSyncLeaseStore
 {
-    private int _held;
+    private readonly object gate = new();
+    private string? owner;
 
-    public Task<bool> TryAcquireAsync(CancellationToken ct) =>
-        Task.FromResult(Interlocked.CompareExchange(ref _held, 1, 0) == 0);
+    /// <summary>Simulates Redis being unreachable: acquire throws instead of returning false, the
+    /// same shape a RedisConnectionException takes in production.</summary>
+    public bool ThrowOnAcquire { get; init; }
 
-    public Task ReleaseAsync(CancellationToken ct)
+    public Task<bool> TryAcquireAsync(string key, string token, TimeSpan ttl, CancellationToken ct)
     {
-        Volatile.Write(ref _held, 0);
-        return Task.CompletedTask;
+        if (ThrowOnAcquire)
+            throw new RedisConnectionException(ConnectionFailureType.UnableToConnect, "lease store unreachable");
+
+        lock (gate)
+        {
+            if (owner is not null) return Task.FromResult(false);
+            owner = token;
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<bool> ReleaseAsync(string key, string token, CancellationToken ct)
+    {
+        lock (gate)
+        {
+            if (owner != token) return Task.FromResult(false);
+            owner = null;
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<bool> ExtendAsync(string key, string token, TimeSpan ttl, CancellationToken ct)
+    {
+        lock (gate)
+        {
+            return Task.FromResult(owner == token);
+        }
+    }
+
+    public bool IsHeldBy(string token)
+    {
+        lock (gate) return owner == token;
+    }
+
+    public bool IsFree
+    {
+        get { lock (gate) return owner is null; }
     }
 }
 
 [TestFixture]
 public class GameCatalogSyncServiceLockTests
 {
+    private static Task<GameCatalogSyncOutcome> AttemptAsync(
+        FakeLeaseStore store, Func<CancellationToken, Task> sync, CancellationToken ct = default)
+    {
+        var token = Guid.NewGuid().ToString("N");
+        return GameCatalogSyncService.RunOnceWithLockAsync(
+            c => GameCatalogSyncService.TryAcquireLeaseAsync(store, token, c),
+            c => GameCatalogSyncService.ReleaseLeaseAsync(store, token, NullLogger.Instance, c),
+            sync,
+            NullLogger.Instance,
+            ct);
+    }
+
     [Test]
     public async Task A_second_concurrent_runner_skips_without_throwing_or_running_the_sync_twice()
     {
-        var gate = new FakeAdvisoryLock();
+        var store = new FakeLeaseStore();
         var syncCount = 0;
 
-        Task<GameCatalogSyncOutcome> Attempt() => GameCatalogSyncService.RunOnceWithLockAsync(
-            gate.TryAcquireAsync,
-            gate.ReleaseAsync,
-            async _ =>
-            {
-                Interlocked.Increment(ref syncCount);
-                await Task.Delay(20);
-            },
-            NullLogger.Instance,
-            CancellationToken.None);
+        var first = AttemptAsync(store, async _ =>
+        {
+            Interlocked.Increment(ref syncCount);
+            await Task.Delay(20);
+        });
+        var second = AttemptAsync(store, async _ =>
+        {
+            Interlocked.Increment(ref syncCount);
+            await Task.Delay(20);
+        });
 
-        var results = await Task.WhenAll(Attempt(), Attempt());
+        var results = await Task.WhenAll(first, second);
 
         Assert.Multiple(() =>
         {
@@ -203,36 +253,28 @@ public class GameCatalogSyncServiceLockTests
     }
 
     [Test]
-    public async Task A_failed_sync_still_releases_the_lock()
+    public void A_failed_sync_still_releases_the_lease()
     {
-        var gate = new FakeAdvisoryLock();
+        var store = new FakeLeaseStore();
 
-        Assert.ThrowsAsync<InvalidOperationException>(() => GameCatalogSyncService.RunOnceWithLockAsync(
-            gate.TryAcquireAsync,
-            gate.ReleaseAsync,
-            _ => throw new InvalidOperationException("sync failed"),
-            NullLogger.Instance,
-            CancellationToken.None));
+        Assert.ThrowsAsync<InvalidOperationException>(() =>
+            AttemptAsync(store, _ => throw new InvalidOperationException("sync failed")));
 
-        Assert.That(await gate.TryAcquireAsync(CancellationToken.None), Is.True);
+        Assert.That(store.IsFree, Is.True);
     }
 
     [Test]
     public async Task A_lock_skip_does_not_trigger_the_failure_backoff_or_the_error_escalation()
     {
-        // Someone else holds the lock for the whole test; this replica never gets to sync.
-        var gate = new FakeAdvisoryLock();
-        Assert.That(await gate.TryAcquireAsync(CancellationToken.None), Is.True);
+        // Someone else holds the lease for the whole test; this replica never gets to sync.
+        var store = new FakeLeaseStore();
+        var holderToken = Guid.NewGuid().ToString("N");
+        Assert.That(await GameCatalogSyncService.TryAcquireLeaseAsync(store, holderToken, CancellationToken.None), Is.True);
 
         var delays = new List<TimeSpan>();
         var cts = new CancellationTokenSource();
 
-        Task SyncOnce(CancellationToken ct) => GameCatalogSyncService.RunOnceWithLockAsync(
-            gate.TryAcquireAsync,
-            gate.ReleaseAsync,
-            _ => Task.CompletedTask,
-            NullLogger.Instance,
-            ct);
+        Task SyncOnce(CancellationToken ct) => AttemptAsync(store, _ => Task.CompletedTask, ct);
 
         Task Delay(TimeSpan requested, CancellationToken _)
         {
@@ -249,5 +291,52 @@ public class GameCatalogSyncServiceLockTests
             TimeSpan.FromDays(1),
             TimeSpan.FromDays(1),
         }));
+    }
+
+    [Test]
+    public async Task A_release_does_not_delete_a_lease_owned_by_someone_else()
+    {
+        var store = new FakeLeaseStore();
+        var ownerToken = Guid.NewGuid().ToString("N");
+        var staleToken = Guid.NewGuid().ToString("N");
+
+        Assert.That(await GameCatalogSyncService.TryAcquireLeaseAsync(store, ownerToken, CancellationToken.None), Is.True);
+
+        // Simulates an attempt whose own lease already expired: it still tries to release the token
+        // it originally took, which must not be the token currently holding the lease.
+        await GameCatalogSyncService.ReleaseLeaseAsync(store, staleToken, NullLogger.Instance, CancellationToken.None);
+
+        Assert.That(store.IsHeldBy(ownerToken), Is.True);
+    }
+
+    [Test]
+    public async Task An_unreachable_lease_store_is_a_failed_attempt_not_an_unguarded_sync()
+    {
+        var store = new FakeLeaseStore { ThrowOnAcquire = true };
+        var syncRan = false;
+
+        Task SyncOnce(CancellationToken ct) => AttemptAsync(store, _ =>
+        {
+            syncRan = true;
+            return Task.CompletedTask;
+        }, ct);
+
+        var delays = new List<TimeSpan>();
+        var cts = new CancellationTokenSource();
+
+        Task Delay(TimeSpan requested, CancellationToken _)
+        {
+            delays.Add(requested);
+            if (delays.Count >= 2) cts.Cancel();
+            return Task.CompletedTask;
+        }
+
+        await GameCatalogSyncService.RunLoopAsync(SyncOnce, Delay, NullLogger.Instance, cts.Token);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(syncRan, Is.False);
+            Assert.That(delays, Is.EqualTo(new[] { TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1) }));
+        });
     }
 }

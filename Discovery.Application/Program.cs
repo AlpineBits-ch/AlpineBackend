@@ -9,6 +9,7 @@ using JasperFx;
 using JasperFx.RuntimeCompiler;
 using Messaging;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using StackExchange.Redis;
 using System.Text.Json.Serialization;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -37,6 +38,11 @@ builder.Services.AddStackExchangeRedisCache(config =>
 {
     config.Configuration = $"{redis.Host}:{redis.Port},password={redis.Password}";
 });
+
+// Distinct from the cache above: the game catalog sync lease needs SET NX / compare-and-delete,
+// which IDistributedCache does not expose.
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
+    ConnectionMultiplexer.Connect($"{redis.Host}:{redis.Port},password={redis.Password}"));
 
 builder.Services.AddSignalR(config => { config.EnableDetailedErrors = true; })
     .AddJsonProtocol(options =>

@@ -133,6 +133,21 @@ public class DiscoveryFeedQueryTests
     }
 
     [Test]
+    public async Task A_topic_id_does_not_match_across_kinds()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.Listings.AddRange(
+            BuildListing("gild_has_tag", "Has the tag", ListingState.Published, Now, TopicRef.Parse("tag:abc")),
+            BuildListing("gild_has_game", "Has the game", ListingState.Published, Now, TopicRef.Parse("game:abc")));
+        await ctx.SaveChangesAsync();
+
+        var page = await Query(ctx).RunAsync(
+            Request(topics: [TopicRef.Parse("game:abc"), TopicRef.Parse("tag:xyz")]), CancellationToken.None);
+
+        Assert.That(page.Cards.Select(c => c.GuildId), Is.EquivalentTo(new[] { "gild_has_game" }));
+    }
+
+    [Test]
     public async Task A_card_carries_guild_identity_from_the_mirror()
     {
         await using var ctx = TestDiscoveryContext.New();

@@ -3,14 +3,9 @@ using System.Text;
 
 namespace Discovery.Api.Services;
 
-/// <summary>
-/// Opaque paging cursor over (score, listingId, now). The id breaks ties: score alone repeats or
-/// skips rows whenever two listings tie, which happens constantly at zero interest overlap. `now`
-/// rides along and is reused as the scoring clock for every later page in the same session - without
-/// it, freshness keeps decaying between page loads, two candidates whose bump times are close stop
-/// re-scoring equal, and the id tie-break above silently stops firing because the `==` branch it
-/// depends on almost never matches a live clock.
-/// </summary>
+/// <summary>Opaque paging cursor over (score, listingId, now). The id breaks ties on equal scores;
+/// now is frozen at first-page time so every later page in the session scores against the same
+/// instant.</summary>
 public static class FeedCursor
 {
     public static string Encode(double score, string listingId, DateTimeOffset now) =>

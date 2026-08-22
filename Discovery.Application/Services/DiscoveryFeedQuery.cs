@@ -40,12 +40,8 @@ public class DiscoveryFeedQuery(
 
         var listingsQuery = PublishedCandidatesQuery(ctx, request.Language, request.Query);
 
-        // OR across the requested set: a listing needs only one of the requested topics, not every
-        // one of them. Under AND, every card on a filtered page would necessarily carry every
-        // requested chip, which makes MatchedTopics informationally empty - the one thing spec 9.2
-        // exists for is cards differing in what they matched. Grouped by kind rather than one
-        // combined Contains over (kind, id) pairs: Contains() against two independent lists loses
-        // the pairing between them and would match a Tag id against a Game-kind row.
+        // Grouped by kind: matching id lists across kinds independently would pair a tag id against
+        // a game-kind row that happens to share it.
         if (request.Topics.Count > 0)
         {
             var matchingListingIds = new List<string>();
@@ -70,10 +66,8 @@ public class DiscoveryFeedQuery(
             .Where(p => guildIds.Contains(p.GuildId))
             .ToDictionaryAsync(p => p.GuildId, ct);
 
-        // A cursor carries the clock it was minted against - see FeedCursor's doc comment. Reusing
-        // it keeps every page of one pagination session scored against the same instant; re-reading
-        // the live clock per page would let freshness decay between requests and quietly defeat the
-        // score+id tie-break the cursor exists to guarantee.
+        // A cursor carries the clock it was minted against, so every later page scores against that
+        // frozen instant rather than a fresh one.
         var hasCursor = FeedCursor.TryDecode(request.Cursor, out var cursorScore, out var cursorId, out var cursorNow);
         var now = hasCursor ? cursorNow : clock.GetUtcNow();
 

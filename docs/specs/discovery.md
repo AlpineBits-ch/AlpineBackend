@@ -319,9 +319,10 @@ keeps review queues meaningful.
 
 ---
 
-## 8. Moderation
+## 8. Moderation and safety
 
-Public, instance-wide, user-authored content. Report and takedown plus automated write-time rules.
+Public, instance-wide, user-authored content. Report and takedown, automated write-time rules, and
+an age floor on the half of this that puts strangers in touch with each other.
 
 ### 8.1 Reports
 
@@ -342,6 +343,52 @@ Applied on create and on every update, not only on publish:
 
 The link restriction is the load-bearing one. A free-text field that renders links on a
 publicly-indexed page is an SEO and phishing surface, and the allowlist is cheaper than the abuse.
+
+### 8.3 An age floor of 16 on recruitment
+
+Recruitment is gated at 16. Community discovery is not.
+
+The distinction is what each one actually does. Browsing communities and joining one is the same act
+as redeeming an invite, which has no age floor today and does not acquire one here. Recruitment is
+different in kind: it advertises a small group to strangers, collects a written application from a
+named individual, and ends with an adult deciding whether to bring that person into a private space.
+That is a contact pattern, not a directory, and it gets a floor.
+
+**What is gated:** the Looking-for-players surface, creating a posting, and submitting an
+application. Nothing else. A 14-year-old still browses communities, still joins open ones, still
+uses every other part of the product.
+
+**Discovery never learns a birth date.** It asks Identity a question and gets a boolean:
+
+```
+MeetsMinimumAgeRequest  { UserId, MinimumAge }
+MeetsMinimumAgeResponse { Meets }
+```
+
+Answering with the date instead would put a minor's birth date in a second service's database for no
+gain, and the privacy spec's purge (T1-9) would then have two places to reach.
+
+**The gate fails closed, and the existing helper fails open.** `AgeVerification.IsMinorAt` returns
+`false` when no birth date was ever recorded, because a bot account and a purged account both leave
+the default `DateOnly` and neither should be treated as a child. That default is right for its
+callers and wrong for this one. `MeetsMinimumAgeRequest` must answer `false` on an unknown age, not
+reuse `IsMinorAt`. A bot has no birth date and cannot apply to anything, which is correct anyway.
+
+**Self-declared is the bar.** `AgeVerification.Level` distinguishes self-declaration from AI
+estimation from government ID. Requiring anything above `SelfDeclaration` would mean an ID check to
+join a D&D game. The birth date collected at registration is what this reads.
+
+**16, not the age of majority.** `ApplicationUser.AgeOfMajority` is 18 and governs a different
+question. This is its own named constant; a deployment that wants a different floor changes one
+value and does not touch majority.
+
+**Caching.** Discovery caches the boolean per user for 6 hours. A user who turns 16 waits at most
+that long. Caching the answer rather than the input is what keeps the birth date out of Discovery,
+and a longer TTL would be a worse answer to a question that changes exactly once per user.
+
+**In the client** the tab is absent rather than disabled, matching how every gated module entry point
+behaves. A direct link to a posting answers a plain sentence saying recruitment is 16 and over,
+because a blank 403 on a link a friend sent you reads as a bug.
 
 ---
 
@@ -636,6 +683,9 @@ was rejected. Not narration, not rationale essays, not restating the next line.
 | Relevance then decaying freshness, damped by activity | Newest first, or paid placement |
 | Any signed-in user may browse and apply | Gating the demand side of a marketplace |
 | Instance-only, federation designed | Federating from day one |
+| Recruitment has an age floor of 16, discovery has none | One floor over the whole feature, or none |
+| Identity answers a boolean, Discovery never stores a birth date | Projecting the birth date like any other profile fact |
+| The age gate fails closed on an unknown age | Reusing `IsMinorAt`, which fails open by design |
 
 ---
 
@@ -646,10 +696,12 @@ Three plans, each independently useful.
 **One.** The service, its infrastructure, the topic model, user interests, listings, the ranked
 feed, and the Discover destination. Ships public communities in full.
 
-**Two.** Postings, applications, the bound-invite prerequisite in Guild, the review queue and the
-applicant tracker. Ships recruitment.
+**Two.** Postings, applications, the bound-invite prerequisite in Guild, the age gate from section
+8.3, the review queue and the applicant tracker. Ships recruitment.
 
 **Three.** Reports, staff takedown, and the write-time content rules.
 
-The bound-invite work in section 7.1 is the only cross-service prerequisite and belongs at the front
-of plan two, not discovered in the middle of it.
+Plan two has two cross-service prerequisites and both belong at its front rather than in the middle
+of it: the bound invite in section 7.1, and `MeetsMinimumAgeRequest` in section 8.3. Neither is
+discoverable from Discovery's own code, and the age gate in particular must exist before the first
+posting endpoint does, not after.

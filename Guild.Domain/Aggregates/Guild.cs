@@ -90,6 +90,12 @@ public class Guild : Aggregate<Guild>, IPrefixedEntity
     /// <summary>The ordinary invite a vanity URL resolves to.</summary>
     public string? VanityInviteId { get; set; }
 
+    /// <summary>BCP-47. What this guild speaks, and what a Discovery card renders.</summary>
+    public string PrimaryLanguage { get; set; } = "en";
+
+    /// <summary>Up to <see cref="LanguageTag.MaxOtherLanguages"/> more it can accommodate.</summary>
+    public List<string> OtherLanguages { get; set; } = [];
+
     public static Guild Create(CreateGuildParams parameters)
     {
         var id = Guild.GenerateId();

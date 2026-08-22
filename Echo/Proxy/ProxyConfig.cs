@@ -40,6 +40,14 @@ public static class ProxyConfig
             ClusterId = "social-cluster",
             Match = new RouteMatch { Path = "/api/v1/social/{**catch-all}" }
         }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+
+        new RouteConfig
+        {
+            RouteId = "discovery-route",
+            ClusterId = "discovery-cluster",
+            Match = new RouteMatch { Path = "/api/v1/discovery/{**catch-all}" }
+        }.WithTransformPathRouteValues(pattern: new PathString("/api/v1/{**catch-all}")),
+
         new RouteConfig
         {
             RouteId = "isle-route",
@@ -222,6 +230,7 @@ public static class ProxyConfig
         var guild     = Environment.GetEnvironmentVariable("Services__Guild")     ?? "http://guild.default.svc.cluster.local";
         var messaging = Environment.GetEnvironmentVariable("Services__Messaging") ?? "http://messaging.default.svc.cluster.local";
         var social    = Environment.GetEnvironmentVariable("Services__Social")    ?? "http://social.default.svc.cluster.local";
+        var discovery = Environment.GetEnvironmentVariable("Services__Discovery") ?? "http://discovery.default.svc.cluster.local";
         var federation    = Environment.GetEnvironmentVariable("Services__Federation")    ?? "http://federation.default.svc.cluster.local";
         var isle    = Environment.GetEnvironmentVariable("Services__Isle")    ?? "http://isle.default.svc.cluster.local:8080";
         var bots    = Environment.GetEnvironmentVariable("Services__Bots")    ?? "http://bots.default.svc.cluster.local";
@@ -451,7 +460,31 @@ public static class ProxyConfig
                 },
             }
         },
-        
+
+        new ClusterConfig
+        {
+            ClusterId = "discovery-cluster",
+            Destinations = new Dictionary<string, DestinationConfig>
+            {
+                { "dest1", new DestinationConfig { Address = discovery } }
+            },
+            HealthCheck = new HealthCheckConfig()
+            {
+                Active = new ActiveHealthCheckConfig()
+                {
+                    Path = "discovery/health",
+                    Timeout = TimeSpan.FromSeconds(10),
+                    Interval = TimeSpan.FromSeconds(15),
+                },
+                Passive = new PassiveHealthCheckConfig
+                {
+                    Enabled = true,
+                    Policy = "TransportFailureRate",
+                    ReactivationPeriod = TimeSpan.FromSeconds(10)
+                },
+            }
+        },
+
         
         
         new ClusterConfig

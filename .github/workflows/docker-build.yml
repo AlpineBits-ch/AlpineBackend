@@ -204,6 +204,10 @@ jobs:
             context: .
             dockerfile: Billing.Application/Dockerfile
             image: billing-application
+          - project: discovery
+            context: .
+            dockerfile: Discovery.Application/Dockerfile
+            image: discovery-application
 
     steps:
       - name: Checkout

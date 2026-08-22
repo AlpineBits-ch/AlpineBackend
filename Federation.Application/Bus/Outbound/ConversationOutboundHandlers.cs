@@ -10,7 +10,7 @@ namespace Federation.Application.Bus.Outbound;
 /// the real broker even for Messaging's own in-service handlers, meaning any other service can
 /// subscribe by type with no extra publish point needed.
 /// </summary>
-public class ConversationOutboundHandlers
+public class ConversationOutboundHandler
 {
     public static Task Handle(ConversationCreated message, IFederationProvider provider, UserService userService, CancellationToken ct)
     {

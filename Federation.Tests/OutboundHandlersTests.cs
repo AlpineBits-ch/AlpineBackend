@@ -55,14 +55,14 @@ public class OutboundHandlersTests
         return instance;
     }
 
-    // ── ConversationOutboundHandlers ─────────────────────────────────────────
+    // ── ConversationOutboundHandler ──────────────────────────────────────────
 
     [Test]
     public async Task Conversation_Created_NoFederatedMembers_DoesNothing()
     {
         var message = new ConversationCreated { ConversationId = "conv1", MemberIds = ["localA", "localB"] };
 
-        await ConversationOutboundHandlers.Handle(message, _provider, _userService, default);
+        await ConversationOutboundHandler.Handle(message, _provider, _userService, default);
 
         Assert.That(_provider.Calls, Is.Empty);
     }
@@ -72,7 +72,7 @@ public class OutboundHandlersTests
     {
         var message = new ConversationCreated { ConversationId = "conv1", MemberIds = ["localA", "usr_1:remote.example.com"] };
 
-        await ConversationOutboundHandlers.Handle(message, _provider, _userService, default);
+        await ConversationOutboundHandler.Handle(message, _provider, _userService, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         var call = _provider.Calls[0];
@@ -86,7 +86,7 @@ public class OutboundHandlersTests
     {
         var message = new ConversationMemberAdded { ConversationId = "conv1", UserId = "usr_1:remote.example.com" };
 
-        await ConversationOutboundHandlers.Handle(message, _provider, default);
+        await ConversationOutboundHandler.Handle(message, _provider, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.AddConversationMemberAsync)));
@@ -97,7 +97,7 @@ public class OutboundHandlersTests
     {
         var message = new ConversationMemberAdded { ConversationId = "conv1", UserId = "localUser" };
 
-        await ConversationOutboundHandlers.Handle(message, _provider, default);
+        await ConversationOutboundHandler.Handle(message, _provider, default);
 
         Assert.That(_provider.Calls, Is.Empty);
     }
@@ -107,7 +107,7 @@ public class OutboundHandlersTests
     {
         var message = new ConversationMemberRemoved { ConversationId = "conv1", UserId = "usr_1:remote.example.com" };
 
-        await ConversationOutboundHandlers.Handle(message, _provider, default);
+        await ConversationOutboundHandler.Handle(message, _provider, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.RemoveConversationMemberAsync)));
@@ -118,20 +118,20 @@ public class OutboundHandlersTests
     {
         var message = new ConversationDeleted { ConversationId = "conv1" };
 
-        await ConversationOutboundHandlers.Handle(message, _provider, default);
+        await ConversationOutboundHandler.Handle(message, _provider, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.DeleteConversationAsync)));
     }
 
-    // ── GuildOutboundHandlers ────────────────────────────────────────────────
+    // ── GuildOutboundHandler ─────────────────────────────────────────────────
 
     [Test]
     public async Task Guild_MemberJoined_NoLinkedInstances_DoesNothing()
     {
         var message = new MemberJoinedForBots { GuildId = "gld_1", UserId = "usr_1" };
 
-        await GuildOutboundHandlers.Handle(message, _provider, _userService, _db, default);
+        await GuildOutboundHandler.Handle(message, _provider, _userService, _db, default);
 
         Assert.That(_provider.Calls, Is.Empty);
     }
@@ -142,7 +142,7 @@ public class OutboundHandlersTests
         await SeedLinkedGuildAsync("gld_1");
         var message = new MemberJoinedForBots { GuildId = "gld_1", UserId = "usr_1" };
 
-        await GuildOutboundHandlers.Handle(message, _provider, _userService, _db, default);
+        await GuildOutboundHandler.Handle(message, _provider, _userService, _db, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.JoinChannelAsync)));
@@ -155,7 +155,7 @@ public class OutboundHandlersTests
         await SeedLinkedGuildAsync("gld_1");
         var message = new MemberRemovedForBots { GuildId = "gld_1", UserId = "usr_1", Reason = "Banned" };
 
-        await GuildOutboundHandlers.Handle(message, _provider, _userService, _db, default);
+        await GuildOutboundHandler.Handle(message, _provider, _userService, _db, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.BanGuildMemberAsync)));
@@ -167,20 +167,20 @@ public class OutboundHandlersTests
         await SeedLinkedGuildAsync("gld_1");
         var message = new MemberRemovedForBots { GuildId = "gld_1", UserId = "usr_1", Reason = "Left" };
 
-        await GuildOutboundHandlers.Handle(message, _provider, _userService, _db, default);
+        await GuildOutboundHandler.Handle(message, _provider, _userService, _db, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.LeaveChannelAsync)));
     }
 
-    // ── MessagingOutboundHandlers ────────────────────────────────────────────
+    // ── MessagingOutboundHandler ─────────────────────────────────────────────
 
     [Test]
     public async Task Messaging_MessageCreated_FederatedAuthor_SkipsEcho()
     {
         var message = new MessageCreatedForChannel { ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_1:remote.example.com", Content = []};
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.Calls, Is.Empty);
         Assert.That(_bus.Invoked, Is.Empty, "Should short-circuit before even resolving the channel's guild");
@@ -192,7 +192,7 @@ public class OutboundHandlersTests
         _bus.ChannelResponse = new GetChannelResponse { Channel = null };
         var message = new MessageCreatedForChannel { ChannelId = "ch_1", MessageId = "m1", AuthorId = "localUser", Content = [] };
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.Calls, Is.Empty);
     }
@@ -204,7 +204,7 @@ public class OutboundHandlersTests
         _bus.ChannelResponse = new GetChannelResponse { Channel = new ChannelInfo { Id = "ch_1", GuildId = "gld_1", Name = "general", Type = "Text" } };
         var message = new MessageCreatedForChannel { ChannelId = "ch_1", MessageId = "m1", AuthorId = "localUser", Content = "hi"u8.ToArray() };
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.SendMessageAsync)));
@@ -216,19 +216,19 @@ public class OutboundHandlersTests
     {
         var message = new ReactionCreatedEvent { ChannelId = "ch_1", MessageId = "m1", UserId = "usr_1:remote.example.com", Emoji = "👍" };
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.Calls, Is.Empty);
     }
 
-    // ── SocialOutboundHandlers ───────────────────────────────────────────────
+    // ── SocialOutboundHandler ────────────────────────────────────────────────
 
     [Test]
     public async Task Social_FriendRequestCreated_FederatedTarget_SendsRequest()
     {
         var message = new FriendRequestCreatedEvent { InitiatorUserId = "localUser", TargetUserId = "usr_1:remote.example.com" };
 
-        await SocialOutboundHandlers.Handle(message, _provider, _userService, default);
+        await SocialOutboundHandler.Handle(message, _provider, _userService, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.SendFriendRequestAsync)));
@@ -239,7 +239,7 @@ public class OutboundHandlersTests
     {
         var message = new FriendRequestCreatedEvent { InitiatorUserId = "localUser", TargetUserId = "otherLocalUser" };
 
-        await SocialOutboundHandlers.Handle(message, _provider, _userService, default);
+        await SocialOutboundHandler.Handle(message, _provider, _userService, default);
 
         Assert.That(_provider.Calls, Is.Empty);
     }
@@ -249,7 +249,7 @@ public class OutboundHandlersTests
     {
         var message = new FriendRemovedEvent { InitiatorUserId = "localUser", TargetUserId = "usr_1:remote.example.com" };
 
-        await SocialOutboundHandlers.Handle(message, _provider, _userService, default);
+        await SocialOutboundHandler.Handle(message, _provider, _userService, default);
 
         Assert.That(_provider.Calls, Has.Count.EqualTo(1));
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.RemoveFriendAsync)));

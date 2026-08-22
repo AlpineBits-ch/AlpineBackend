@@ -9,7 +9,7 @@ namespace Federation.Application.Bus.Outbound;
 /// <summary>
 /// Subscribes to the same *ForBots membership events Bots.Application already consumes (Guild.
 /// </summary>
-public class GuildOutboundHandlers
+public class GuildOutboundHandler
 {
     public static async Task Handle(MemberJoinedForBots message, IFederationProvider provider, UserService userService, MicroserviceContext db, CancellationToken ct)
     {

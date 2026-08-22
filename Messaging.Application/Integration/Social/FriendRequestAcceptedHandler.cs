@@ -11,7 +11,7 @@ public class FriendRequestAcceptedHandler
     public static async Task Handle(FriendshipAcceptedEvent acceptedEvent, IHubContext<EchoRealtimeHub> hubContext, ConversationPermissionService conversationPermissionService)
     {
         // Superseded by social.FriendRequestAccepted (Social.Application's
-        // RelationshipRealtimeHandlers), which reaches both parties instead of just the initiator
+        // RelationshipRealtimeHandler), which reaches both parties instead of just the initiator
         // and carries each side's own relationship row.
         await hubContext.Clients.User(acceptedEvent.InitiatorUserId).SendAsync("conversation.FriendRequestAccepted", acceptedEvent);
 

@@ -8,7 +8,7 @@ using Messaging.Tests.Helpers;
 namespace Messaging.Tests.Bus.Federation;
 
 /// <summary>
-/// Covers MessagingMaterializationHandlers: materializes remote channel-message federation events
+/// Covers MessagingMaterializationHandler: materializes remote channel-message federation events
 /// via IMessageRepository and re-publishes the same local domain events a normal message
 /// create/edit/delete raises, idempotent via GetMessageAsync-before-write rather than EventId.
 /// </summary>
@@ -64,7 +64,7 @@ public class MessagingMaterializationHandlersTests
             Content = "hello"u8.ToArray(),
         };
 
-        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var stored = await _repo.GetMessageAsync("fed-msg-1");
@@ -92,7 +92,7 @@ public class MessagingMaterializationHandlersTests
             Content = "duplicate delivery"u8.ToArray(),
         };
 
-        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None);
 
         Assert.That(_bus.Published, Is.Empty, "Re-delivery of an already-materialized message must not re-publish");
     }
@@ -116,7 +116,7 @@ public class MessagingMaterializationHandlersTests
             Content = "edited content"u8.ToArray(),
         };
 
-        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var stored = await _repo.GetMessageAsync("fed-msg-1");
@@ -146,7 +146,7 @@ public class MessagingMaterializationHandlersTests
             Content = "edited content"u8.ToArray(),
         };
 
-        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         var published = (MessageUpdated)_bus.Published.Single();
@@ -171,7 +171,7 @@ public class MessagingMaterializationHandlersTests
             Content = "edited"u8.ToArray(),
         };
 
-        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None);
 
         Assert.That(_bus.Published, Is.Empty);
     }
@@ -194,7 +194,7 @@ public class MessagingMaterializationHandlersTests
             MessageId = "fed-msg-1",
         };
 
-        await MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None);
+        await MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None);
         await _context.SaveChangesAsync();
 
         Assert.Multiple(() =>
@@ -217,6 +217,6 @@ public class MessagingMaterializationHandlersTests
             MessageId = "nonexistent",
         };
 
-        Assert.DoesNotThrowAsync(() => MessagingMaterializationHandlers.Handle(message, _repo, _bus, CancellationToken.None));
+        Assert.DoesNotThrowAsync(() => MessagingMaterializationHandler.Handle(message, _repo, _bus, CancellationToken.None));
     }
 }

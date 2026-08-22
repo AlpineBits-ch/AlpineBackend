@@ -167,7 +167,7 @@ public class PrivacyCacheTests
         await cache.GetAsync("user-1");
         Assert.That(_cache.HasEntry(PrivacySettingsCache.KeyFor("user-1")), Is.True);
 
-        await PrivacyCacheInvalidationHandlers.Handle(
+        await PrivacyCacheInvalidationHandler.Handle(
             new UserPrivacySettingsChangedEvent { UserId = "user-1", Version = 4 }, cache);
 
         Assert.That(_cache.HasEntry(PrivacySettingsCache.KeyFor("user-1")), Is.False);
@@ -264,7 +264,7 @@ public class PrivacyCacheTests
         await cache.GetAsync("user-1");
         await cache.GetAsync("user-2");
 
-        await PrivacyCacheInvalidationHandlers.Handle(
+        await PrivacyCacheInvalidationHandler.Handle(
             new UserBlockedEvent { BlockerId = "user-1", BlockedId = "user-2" }, cache);
 
         Assert.Multiple(() =>
@@ -287,7 +287,7 @@ public class PrivacyCacheTests
         await cache.GetAsync("user-1");
         await cache.GetAsync("user-2");
 
-        await PrivacyCacheInvalidationHandlers.Handle(
+        await PrivacyCacheInvalidationHandler.Handle(
             new UserUnblockedEvent { BlockerId = "user-1", BlockedId = "user-2" }, cache);
 
         Assert.Multiple(() =>

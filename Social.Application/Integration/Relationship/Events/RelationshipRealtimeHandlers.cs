@@ -9,7 +9,7 @@ using Social.Infrastructure.Persistence;
 namespace Social.Api.Integration.Relationship.Events;
 
 /// <summary>Websocket fan-out for the friend-request lifecycle.</summary>
-public class RelationshipRealtimeHandlers
+public class RelationshipRealtimeHandler
 {
     public static Task Handle(FriendRequestCreatedEvent created, MicroserviceContext ctx, IHubContext<EchoRealtimeHub> hub)
         => PushBothSidesAsync(ctx, hub, created.RelationshipId, "social.FriendRequestCreated");

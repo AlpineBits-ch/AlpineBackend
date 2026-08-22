@@ -66,7 +66,7 @@ public class PersonaFederationTests
         await SeedLinkedGuildAsync();
         var message = PersonaMessage();
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.AuthorDisplays, Has.Count.EqualTo(1));
         var author = _provider.AuthorDisplays[0];
@@ -98,7 +98,7 @@ public class PersonaFederationTests
             AuthorIdType = Guild.Contracts.Bus.Events.AuthorIdType.Persona,
         };
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.Calls[0].Method, Is.EqualTo(nameof(_provider.EditMessageAsync)));
         Assert.That(_provider.AuthorDisplays[0].DisplayName, Is.EqualTo("Kaelen the Grey"));
@@ -114,7 +114,7 @@ public class PersonaFederationTests
             ChannelId = "ch_1", MessageId = "m1", AuthorId = "usr_writer", Content = "hi"u8.ToArray(),
         };
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.AuthorDisplays[0], Is.EqualTo(FederatedAuthorDisplay.RealUser));
     }
@@ -128,7 +128,7 @@ public class PersonaFederationTests
         var message = PersonaMessage();
         message.AuthorId = "usr_writer:origin.example.com";
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         Assert.That(_provider.Calls, Is.Empty);
         Assert.That(_bus.Invoked, Is.Empty, "A foreign author short-circuits before the channel lookup");
@@ -140,7 +140,7 @@ public class PersonaFederationTests
         await SeedLinkedGuildAsync();
         var message = PersonaMessage();
 
-        await MessagingOutboundHandlers.Handle(message, _provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, _provider, _userService, _db, _bus, default);
 
         // Echo detects a foreign id by the colon in <localId>:<domain>. A local persona id is
         // unqualified, so carrying one must not make its message look like an inbound echo.
@@ -246,7 +246,7 @@ public class PersonaFederationTests
         using var handler = new CapturingHandler();
         var provider = new WiretappedProvider(new VentaDomainResolver(), handler);
 
-        await MessagingOutboundHandlers.Handle(message, provider, _userService, _db, _bus, default);
+        await MessagingOutboundHandler.Handle(message, provider, _userService, _db, _bus, default);
 
         Assert.That(handler.Bodies, Has.Count.EqualTo(1));
         var signed = SignedFederationEvent.Parse(handler.Bodies[0]);

@@ -49,7 +49,7 @@ public class FriendRequestLifecycleHandlersTests
     [Test]
     public async Task Handle_FriendRequestCreated_ResolvesUserIdsFromProfileIds()
     {
-        await FriendRequestLifecycleHandlers.Handle(new FriendRequestCreated
+        await FriendRequestLifecycleHandler.Handle(new FriendRequestCreated
         {
             InitiatorProfileId = _initiator.Id,
             TargetProfileId = _target.Id,
@@ -68,7 +68,7 @@ public class FriendRequestLifecycleHandlersTests
     [Test]
     public async Task Handle_FriendRequestRejected_ResolvesUserIdsFromProfileIds()
     {
-        await FriendRequestLifecycleHandlers.Handle(new FriendRequestRejected
+        await FriendRequestLifecycleHandler.Handle(new FriendRequestRejected
         {
             InitiatorProfileId = _initiator.Id,
             TargetProfileId = _target.Id,
@@ -87,7 +87,7 @@ public class FriendRequestLifecycleHandlersTests
     [Test]
     public async Task Handle_FriendRemoved_ResolvesUserIdsFromProfileIds()
     {
-        await FriendRequestLifecycleHandlers.Handle(new FriendRemoved
+        await FriendRequestLifecycleHandler.Handle(new FriendRemoved
         {
             InitiatorProfileId = _initiator.Id,
             TargetProfileId = _target.Id,
@@ -110,7 +110,7 @@ public class FriendRequestLifecycleHandlersTests
     {
         await SeedBlockAsync(_target, _initiator);
 
-        await FriendRequestLifecycleHandlers.Handle(new FriendRequestCreated
+        await FriendRequestLifecycleHandler.Handle(new FriendRequestCreated
         {
             InitiatorProfileId = _initiator.Id,
             TargetProfileId = _target.Id,
@@ -126,7 +126,7 @@ public class FriendRequestLifecycleHandlersTests
     {
         await SeedBlockAsync(_initiator, _target);
 
-        await FriendRequestLifecycleHandlers.Handle(new FriendRequestRejected
+        await FriendRequestLifecycleHandler.Handle(new FriendRequestRejected
         {
             InitiatorProfileId = _initiator.Id,
             TargetProfileId = _target.Id,
@@ -145,7 +145,7 @@ public class FriendRequestLifecycleHandlersTests
         // ended - that is exactly the "same as not friends" view the spec grants them.
         await SeedBlockAsync(_initiator, _target);
 
-        await FriendRequestLifecycleHandlers.Handle(new FriendRemoved
+        await FriendRequestLifecycleHandler.Handle(new FriendRemoved
         {
             InitiatorProfileId = _initiator.Id,
             TargetProfileId = _target.Id,

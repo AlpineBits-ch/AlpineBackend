@@ -52,7 +52,7 @@ public class RelationshipRealtimeHandlersTests
     {
         await SeedPair(RelationshipStatus.PendingOutgoing, RelationshipStatus.PendingIncoming);
 
-        await RelationshipRealtimeHandlers.Handle(
+        await RelationshipRealtimeHandler.Handle(
             new FriendRequestCreatedEvent
             {
                 InitiatorUserId = "user-initiator",
@@ -89,7 +89,7 @@ public class RelationshipRealtimeHandlersTests
     {
         await SeedPair(RelationshipStatus.Friends, RelationshipStatus.Friends);
 
-        await RelationshipRealtimeHandlers.Handle(
+        await RelationshipRealtimeHandler.Handle(
             new FriendshipAcceptedEvent
             {
                 InitiatorUserId = "user-initiator",
@@ -119,7 +119,7 @@ public class RelationshipRealtimeHandlersTests
     {
         await SeedPair(RelationshipStatus.None, RelationshipStatus.None);
 
-        await RelationshipRealtimeHandlers.Handle(
+        await RelationshipRealtimeHandler.Handle(
             new FriendRequestRejectedEvent
             {
                 InitiatorUserId = "user-initiator",
@@ -138,7 +138,7 @@ public class RelationshipRealtimeHandlersTests
     {
         await SeedPair(RelationshipStatus.None, RelationshipStatus.None);
 
-        await RelationshipRealtimeHandlers.Handle(
+        await RelationshipRealtimeHandler.Handle(
             new FriendRemovedEvent
             {
                 InitiatorUserId = "user-initiator",
@@ -162,7 +162,7 @@ public class RelationshipRealtimeHandlersTests
         });
         await _context.SaveChangesAsync();
 
-        await RelationshipRealtimeHandlers.PushBothSidesAsync(
+        await RelationshipRealtimeHandler.PushBothSidesAsync(
             _context, _hub, "rlsp_local", "social.FriendRequestCreated");
 
         Assert.That(_hub.Sent, Has.Count.EqualTo(1));
@@ -175,7 +175,7 @@ public class RelationshipRealtimeHandlersTests
     {
         // Account deletion purges relationship rows; the bus hop is asynchronous, so the row can
         // legitimately have vanished before the push handler runs.
-        await RelationshipRealtimeHandlers.PushBothSidesAsync(
+        await RelationshipRealtimeHandler.PushBothSidesAsync(
             _context, _hub, "rlsp_deleted", "social.FriendRemoved");
 
         Assert.That(_hub.Sent, Is.Empty);
@@ -203,7 +203,7 @@ public class RelationshipRealtimeHandlersTests
         await SeedPair(RelationshipStatus.PendingOutgoing, RelationshipStatus.PendingIncoming);
         await SeedBlock(_target, _initiator);
 
-        await RelationshipRealtimeHandlers.PushBothSidesAsync(_context, _hub, "rlsp_out", eventName);
+        await RelationshipRealtimeHandler.PushBothSidesAsync(_context, _hub, "rlsp_out", eventName);
 
         Assert.That(_hub.Sent, Is.Empty);
     }
@@ -217,7 +217,7 @@ public class RelationshipRealtimeHandlersTests
         await SeedPair(RelationshipStatus.None, RelationshipStatus.None);
         await SeedBlock(_initiator, _target);
 
-        await RelationshipRealtimeHandlers.PushBothSidesAsync(_context, _hub, "rlsp_out", "social.FriendRemoved");
+        await RelationshipRealtimeHandler.PushBothSidesAsync(_context, _hub, "rlsp_out", "social.FriendRemoved");
 
         Assert.That(_hub.Sent, Has.Count.EqualTo(2));
     }
@@ -229,7 +229,7 @@ public class RelationshipRealtimeHandlersTests
         await SeedPair(RelationshipStatus.PendingOutgoing, RelationshipStatus.PendingIncoming);
         await SeedBlock(_initiator, _target);
 
-        await RelationshipRealtimeHandlers.PushBothSidesAsync(
+        await RelationshipRealtimeHandler.PushBothSidesAsync(
             _context, _hub, "rlsp_in", "social.FriendRequestCreated");
 
         Assert.That(_hub.Sent, Is.Empty);

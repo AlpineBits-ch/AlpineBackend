@@ -8,7 +8,7 @@ using Messaging.Tests.Helpers;
 namespace Messaging.Tests.Bus.Federation;
 
 /// <summary>
-/// Covers ConversationMaterializationHandlers: materializing remote DM-conversation federation
+/// Covers ConversationMaterializationHandler: materializing remote DM-conversation federation
 /// events as shadow Conversation/ConversationMember rows, idempotent by natural business key
 /// rather than EventId.
 /// </summary>
@@ -54,7 +54,7 @@ public class ConversationMaterializationHandlersTests
             MemberIds = ["user-1:instance-a", "user-2:instance-a"],
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None);
+        await ConversationMaterializationHandler.Handle(message, _context, CancellationToken.None);
 
         var stored = _context.Conversations.SingleOrDefault(c => c.Id == "conv-remote-1");
         Assert.Multiple(() =>
@@ -86,7 +86,7 @@ public class ConversationMaterializationHandlersTests
             MemberIds = ["user-1:instance-a"],
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None);
+        await ConversationMaterializationHandler.Handle(message, _context, CancellationToken.None);
 
         Assert.That(_context.Conversations.Count(c => c.Id == "conv-remote-1"), Is.EqualTo(1));
         Assert.That(_context.Members.Any(m => m.ConversationId == "conv-remote-1"), Is.False,
@@ -109,7 +109,7 @@ public class ConversationMaterializationHandlersTests
             UserId = "user-3:instance-b",
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None);
+        await ConversationMaterializationHandler.Handle(message, _context, CancellationToken.None);
 
         var member = _context.Members.SingleOrDefault(m => m.ConversationId == "conv-1" && m.UserId == "user-3:instance-b");
         Assert.Multiple(() =>
@@ -134,7 +134,7 @@ public class ConversationMaterializationHandlersTests
             UserId = "user-3:instance-b",
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None);
+        await ConversationMaterializationHandler.Handle(message, _context, CancellationToken.None);
 
         Assert.That(_context.Members.Count(m => m.ConversationId == "conv-1" && m.UserId == "user-3:instance-b"), Is.EqualTo(1));
     }
@@ -158,7 +158,7 @@ public class ConversationMaterializationHandlersTests
             UserId = "user-3",
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, Permissions(), CancellationToken.None);
+        await ConversationMaterializationHandler.Handle(message, _context, Permissions(), CancellationToken.None);
 
         Assert.That(_context.Members.Any(m => m.ConversationId == "conv-1" && m.UserId == "user-3"), Is.False);
     }
@@ -175,7 +175,7 @@ public class ConversationMaterializationHandlersTests
             UserId = "ghost",
         };
 
-        Assert.DoesNotThrowAsync(() => ConversationMaterializationHandlers.Handle(message, _context, Permissions(), CancellationToken.None));
+        Assert.DoesNotThrowAsync(() => ConversationMaterializationHandler.Handle(message, _context, Permissions(), CancellationToken.None));
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -202,7 +202,7 @@ public class ConversationMaterializationHandlersTests
             ConversationId = "conv-1",
         };
 
-        await ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None);
+        await ConversationMaterializationHandler.Handle(message, _context, CancellationToken.None);
 
         Assert.That(_context.Conversations.Any(c => c.Id == "conv-1"), Is.False);
     }
@@ -218,6 +218,6 @@ public class ConversationMaterializationHandlersTests
             ConversationId = "conv-ghost",
         };
 
-        Assert.DoesNotThrowAsync(() => ConversationMaterializationHandlers.Handle(message, _context, CancellationToken.None));
+        Assert.DoesNotThrowAsync(() => ConversationMaterializationHandler.Handle(message, _context, CancellationToken.None));
     }
 }

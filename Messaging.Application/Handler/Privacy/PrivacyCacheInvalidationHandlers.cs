@@ -7,7 +7,7 @@ namespace Messaging.Application.Handler.Privacy;
 
 /// <summary>Keeps Messaging's two policy caches honest.</summary>
 [NonTransactional]
-public class PrivacyCacheInvalidationHandlers
+public class PrivacyCacheInvalidationHandler
 {
     public static Task Handle(UserPrivacySettingsChangedEvent evt, PrivacySettingsCache cache) =>
         cache.InvalidateAsync(evt.UserId);

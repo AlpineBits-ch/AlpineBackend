@@ -9,7 +9,7 @@ namespace Guild.Application.Bus.Federation;
 /// Materializes remote guild-membership federation events as shadow GuildMember rows, flagged via
 /// the existing (previously unused) GuildMember.FederatedServerId field.
 /// </summary>
-public class GuildMaterializationHandlers
+public class GuildMaterializationHandler
 {
     public static Task Handle(FederatedGuildMemberJoinedReceived message, MicroserviceContext db, CancellationToken ct) =>
         AddShadowMemberIfMissingAsync(db, message.GuildId, message.UserId, message.OriginInstanceId, ct);

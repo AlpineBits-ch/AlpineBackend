@@ -10,7 +10,7 @@ using Social.Infrastructure.Persistence;
 namespace Social.Api.Bus.Federation;
 
 /// <summary>Materializes remote friend-request-lifecycle federation events.</summary>
-public class SocialMaterializationHandlers
+public class SocialMaterializationHandler
 {
     public static async Task Handle(FederatedFriendRequestReceived message, MicroserviceContext db,
         IHubContext<EchoRealtimeHub> hub, CancellationToken ct)
@@ -113,7 +113,7 @@ public class SocialMaterializationHandlers
         if (existing is not null) return existing;
 
         // No display name is available in-band on these federation events - same limitation as
-        // GuildMaterializationHandlers, same fix path (IFederationProvider.GetUserProfileAsync).
+        // GuildMaterializationHandler, same fix path (IFederationProvider.GetUserProfileAsync).
         var profile = Profile.Create(new CreateProfileParams
         {
             UserId = federatedUserId,

@@ -9,7 +9,7 @@ using Wolverine;
 namespace Messaging.Application.Bus.Federation;
 
 /// <summary>Materializes remote channel-message federation events.</summary>
-public class MessagingMaterializationHandlers
+public class MessagingMaterializationHandler
 {
     /// <summary>
     /// A federated persona is display data, not an entity: the name and avatar that arrived are

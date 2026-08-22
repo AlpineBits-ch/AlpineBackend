@@ -12,7 +12,7 @@ namespace Messaging.Application.Bus.Federation;
 /// rows, flagged via Conversation.OriginInstanceId (Phase 1) and the existing (previously unused)
 /// ConversationMember.FederatedServerId field respectively.
 /// </summary>
-public class ConversationMaterializationHandlers
+public class ConversationMaterializationHandler
 {
     public static async Task Handle(FederatedConversationCreatedReceived message, MicroserviceContext db, CancellationToken ct)
     {
@@ -88,6 +88,6 @@ public class ConversationMaterializationHandlers
     }
 
     // No handler for FederatedConversationEditedReceived: Messaging.Application has no
-    // edit/rename endpoint for conversations at all yet (see ConversationOutboundHandlers'
+    // edit/rename endpoint for conversations at all yet (see ConversationOutboundHandler's
     // header comment) - nothing to apply the edit to.
 }

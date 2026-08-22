@@ -7,7 +7,7 @@ using Wolverine.Transports;
 namespace Federation.Tests.Helpers;
 
 /// <summary>
-/// Hand-rolled no-op IMessageBus for MessagingOutboundHandlers/InboundEventDispatcher tests -
+/// Hand-rolled no-op IMessageBus for MessagingOutboundHandler/InboundEventDispatcher tests -
 /// mirrors this repo's no-mocking-framework convention (Guild.Tests/Helpers/FakeMessageBus.cs,
 /// Import.Tests/Helpers/FakeSyncMessageBus.cs).
 /// </summary>

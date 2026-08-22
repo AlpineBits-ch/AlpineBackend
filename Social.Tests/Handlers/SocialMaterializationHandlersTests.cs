@@ -34,7 +34,7 @@ public class SocialMaterializationHandlersTests
         // is even looked up (see GetOrCreateShadowProfileAsync call order in the handler), so it
         // exists regardless of whether the local target profile does - only relationship creation
         // is actually gated on the local profile existing.
-        await SocialMaterializationHandlers.Handle(new FederatedFriendRequestReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendRequestReceived
         {
             EventId = "evt-1",
             OriginInstanceId = "instance-a",
@@ -53,7 +53,7 @@ public class SocialMaterializationHandlersTests
         _context.Profiles.Add(localProfile);
         await _context.SaveChangesAsync();
 
-        await SocialMaterializationHandlers.Handle(new FederatedFriendRequestReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendRequestReceived
         {
             EventId = "evt-1",
             OriginInstanceId = "instance-a",
@@ -98,7 +98,7 @@ public class SocialMaterializationHandlersTests
         _context.Profiles.AddRange(localProfile, existingShadow);
         await _context.SaveChangesAsync();
 
-        await SocialMaterializationHandlers.Handle(new FederatedFriendRequestReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendRequestReceived
         {
             EventId = "evt-1",
             OriginInstanceId = "instance-a",
@@ -126,7 +126,7 @@ public class SocialMaterializationHandlersTests
         });
         await _context.SaveChangesAsync();
 
-        await SocialMaterializationHandlers.Handle(new FederatedFriendRequestReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendRequestReceived
         {
             EventId = "evt-2",
             OriginInstanceId = "instance-a",
@@ -156,7 +156,7 @@ public class SocialMaterializationHandlersTests
         });
         await _context.SaveChangesAsync();
 
-        await SocialMaterializationHandlers.Handle(new FederatedFriendAcceptedReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendAcceptedReceived
         {
             EventId = "evt-3",
             OriginInstanceId = "instance-a",
@@ -202,8 +202,8 @@ public class SocialMaterializationHandlersTests
             InitiatorUserId = "local-user",
         };
 
-        await SocialMaterializationHandlers.Handle(message, _context, _hub, CancellationToken.None);
-        await SocialMaterializationHandlers.Handle(message, _context, _hub, CancellationToken.None);
+        await SocialMaterializationHandler.Handle(message, _context, _hub, CancellationToken.None);
+        await SocialMaterializationHandler.Handle(message, _context, _hub, CancellationToken.None);
 
         Assert.That(_hub.Sent, Has.Count.EqualTo(1));
         Assert.That(_context.Relationships.Count(), Is.EqualTo(1), "a redelivery must not materialize a second row");
@@ -212,7 +212,7 @@ public class SocialMaterializationHandlersTests
     [Test]
     public async Task AcceptedReceived_NoRemoteShadowProfile_DoesNotThrow()
     {
-        Assert.DoesNotThrowAsync(() => SocialMaterializationHandlers.Handle(new FederatedFriendAcceptedReceived
+        Assert.DoesNotThrowAsync(() => SocialMaterializationHandler.Handle(new FederatedFriendAcceptedReceived
         {
             EventId = "evt-4",
             OriginInstanceId = "instance-a",
@@ -238,7 +238,7 @@ public class SocialMaterializationHandlersTests
         });
         await _context.SaveChangesAsync();
 
-        await SocialMaterializationHandlers.Handle(new FederatedFriendRejectedReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendRejectedReceived
         {
             EventId = "evt-5",
             OriginInstanceId = "instance-a",
@@ -267,7 +267,7 @@ public class SocialMaterializationHandlersTests
         });
         await _context.SaveChangesAsync();
 
-        await SocialMaterializationHandlers.Handle(new FederatedFriendRemovedReceived
+        await SocialMaterializationHandler.Handle(new FederatedFriendRemovedReceived
         {
             EventId = "evt-6",
             OriginInstanceId = "instance-a",
@@ -282,7 +282,7 @@ public class SocialMaterializationHandlersTests
     [Test]
     public async Task RemovedReceived_NoRemoteShadowProfile_DoesNotThrow()
     {
-        Assert.DoesNotThrowAsync(() => SocialMaterializationHandlers.Handle(new FederatedFriendRemovedReceived
+        Assert.DoesNotThrowAsync(() => SocialMaterializationHandler.Handle(new FederatedFriendRemovedReceived
         {
             EventId = "evt-7",
             OriginInstanceId = "instance-a",

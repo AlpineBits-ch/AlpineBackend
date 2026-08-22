@@ -10,7 +10,7 @@ namespace Federation.Application.Bus.Outbound;
 /// other party's id is already in federated (&lt;id&gt;:&lt;domain&gt;) form, same check
 /// VentaFederationProvider.CreateConversationAsync already uses.
 /// </summary>
-public class SocialOutboundHandlers
+public class SocialOutboundHandler
 {
     public static Task Handle(FriendRequestCreatedEvent message, IFederationProvider provider, UserService userService, CancellationToken ct) =>
         IsFederated(message.TargetUserId)

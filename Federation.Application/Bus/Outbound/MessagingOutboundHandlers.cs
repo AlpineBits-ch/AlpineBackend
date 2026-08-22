@@ -15,7 +15,7 @@ namespace Federation.Application.Bus.Outbound;
 /// (Messaging.Application publishes them for Guild's realtime/bots fan-out - Federation just
 /// piggybacks on the existing contracts rather than requiring new publish points).
 /// </summary>
-public class MessagingOutboundHandlers
+public class MessagingOutboundHandler
 {
     public static Task Handle(MessageCreatedForChannel message, IFederationProvider provider, UserService userService, MicroserviceContext db, IMessageBus bus, CancellationToken ct) =>
         IsFederated(message.AuthorId) ? Task.CompletedTask : ForEachLinkedInstanceAsync(message.ChannelId, db, bus, ct,

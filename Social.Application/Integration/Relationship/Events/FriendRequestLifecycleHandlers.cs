@@ -13,7 +13,7 @@ namespace Social.Api.Integration.Relationship.Events;
 /// (FriendRequestCreated was actually raised with all-null fields until now; nothing had ever
 /// consumed it to notice).
 /// </summary>
-public class FriendRequestLifecycleHandlers
+public class FriendRequestLifecycleHandler
 {
     public static async Task Handle(FriendRequestCreated created, MicroserviceContext ctx, IMessageBus bus)
     {

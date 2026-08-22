@@ -38,6 +38,8 @@ Every task's requirements implicitly include this section.
 
 **Angular.** `inject()` not constructor params, `input()`/`output()`/`model()` not decorators, `ChangeDetectionStrategy.OnPush` on every new component, standalone, control-flow blocks (`@if`/`@for`/`@switch`), signals for component state. Four-space indent, single quotes, no bracket spacing in imports.
 
+**UI copy is short.** A label is a label. No paragraph explaining why a control exists, no narrated rationale in an empty state, no help text restating what the button already says. A screen that needs an essay to be usable is a screen with the wrong shape. The longest string in this feature is one sentence.
+
 **Locale strings go in `src/assets/i18n/locales/en.json` only.** `de.json` and `fr.json` lag deliberately (2045 keys against en's 4237). Do not backfill them.
 
 **No god objects.** Spec section 16 is binding: the feed query, listing writes, and the mirrors each get their own class. A single `DiscoveryService` holding all of them is the failure this plan exists to avoid.

@@ -33,6 +33,8 @@ public class TopicResolverTests
             GameApplicationId = "gapp_cs2",
             Name = "Counter-Strike 2",
             Aliases = ["CS2", "CSGO"],
+            // What GameCatalogSync.RunAsync would populate: Name + every Alias, lower-invariant.
+            SearchText = "counter-strike 2 cs2 csgo",
         });
         await ctx.SaveChangesAsync();
 
@@ -44,6 +46,33 @@ public class TopicResolverTests
         {
             Assert.That(results[0].Kind, Is.EqualTo("game"));
             Assert.That(results[0].Name, Is.EqualTo("Counter-Strike 2"));
+        });
+    }
+
+    [Test]
+    public async Task A_lowercase_alias_fragment_finds_the_game_under_its_canonical_name()
+    {
+        // The alias is uppercase, the query is a lowercase fragment of it - an exact-match
+        // implementation (the alias regression this test pins) would find nothing here.
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.GameTopics.Add(new GameTopic
+        {
+            Id = GameTopic.GenerateId(),
+            GameApplicationId = "gapp_msfs",
+            Name = "Microsoft Flight Simulator",
+            Aliases = ["MSFS 2024", "MSFS2024"],
+            SearchText = "microsoft flight simulator msfs 2024 msfs2024",
+        });
+        await ctx.SaveChangesAsync();
+
+        var resolver = new TopicResolver(ctx);
+        var results = await resolver.SearchAsync("msfs", 10, CancellationToken.None);
+
+        Assert.That(results, Has.Count.EqualTo(1));
+        Assert.Multiple(() =>
+        {
+            Assert.That(results[0].Kind, Is.EqualTo("game"));
+            Assert.That(results[0].Name, Is.EqualTo("Microsoft Flight Simulator"));
         });
     }
 

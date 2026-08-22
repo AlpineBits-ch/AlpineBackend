@@ -38,6 +38,9 @@ public static class GameCatalogSync
                 row.Aliases = dto.Aliases;
                 row.SteamAppId = dto.SteamAppId;
                 row.IsEnabled = dto.IsEnabled;
+                // Name plus every alias, lower-invariant - see GameTopic.SearchText. Set here on
+                // both the insert and the update path so a rename or a new alias list is not stale.
+                row.SearchText = string.Join(' ', new[] { dto.Name }.Concat(dto.Aliases)).ToLowerInvariant();
             }
 
             cursor = page.NextCursor;

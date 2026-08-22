@@ -41,26 +41,22 @@ public class TopicResolver(MicroserviceContext ctx)
     }
 
     /// <summary>
-    /// The SQL-side game filter: enabled, and the name contains <paramref name="query"/>
-    /// (case-insensitively) or an alias matches it exactly. Public and static so a translation test
-    /// can call ToQueryString() on it without a live database.
+    /// The SQL-side game filter: enabled, and SearchText contains <paramref name="query"/>
+    /// (case-insensitively). Public and static so a translation test can call ToQueryString() on it
+    /// without a live database.
     ///
-    /// Name uses lower()+Contains rather than EF.Functions.ILike: ILike translates cleanly on
-    /// Npgsql (confirmed via ToQueryString), but throws NotSupportedException the moment the
-    /// InMemory provider tries to evaluate it rather than translate it, and this query's callers are
-    /// exercised against InMemory in this project's tests. Aliases can only be an exact match
-    /// (Array.Contains, not a substring) for the same InMemory reason one level deeper: InMemory's
-    /// translator accepts a bare equality inside `Any`/`Contains` over a string[] property but
-    /// rejects any method call - even `.Contains()` alone - inside that nested lambda, so a
-    /// substring alias match cannot be one query that also runs under InMemory. Confirmed empirically
-    /// (see task 7's fix report); Aliases carries Social's curated short names, so an exact hit is
-    /// still the common case this loses.
+    /// Filters on the denormalized GameTopic.SearchText (name plus every alias, already
+    /// lower-invariant) rather than on Name and Aliases separately: a nested lambda over the
+    /// Aliases array translates fine on Npgsql but EF's InMemory provider refuses any method call
+    /// inside it, so a substring match over the array could not be one query that also runs under
+    /// InMemory (this project's own tests exercise SearchAsync against InMemory). SearchText is a
+    /// scalar column, so one Contains() call on it has no such problem on either provider - and it
+    /// is what the trigram index in the TrigramSearchTextColumn migration actually covers.
     /// </summary>
     public static IQueryable<GameTopic> GameCandidatesQuery(MicroserviceContext ctx, string query)
     {
         var term = query.ToLowerInvariant();
-        return ctx.GameTopics.Where(g => g.IsEnabled &&
-            (g.Name.ToLower().Contains(term) || g.Aliases.Contains(query)));
+        return ctx.GameTopics.Where(g => g.IsEnabled && g.SearchText.Contains(term));
     }
 
     /// <summary>The SQL-side tag filter: not aliased away, display name or slug contains

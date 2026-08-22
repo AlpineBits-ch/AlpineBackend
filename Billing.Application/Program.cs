@@ -187,6 +187,15 @@ using (var seedScope = app.Services.CreateScope())
         seedScope.ServiceProvider.GetRequiredService<MicroserviceContext>(),
         seedScope.ServiceProvider.GetRequiredService<StripeCatalogueSync>(),
         seedScope.ServiceProvider.GetRequiredService<ILogger<Program>>());
+
+    // And for the other half of the same defect: the seeder returns on the first existing plan, so
+    // an entitlement key added to configuration after a database's first start never reaches it and
+    // silently resolves to its catalogue default.
+    await PlanEntitlementBackfill.RunAsync(
+        seedScope.ServiceProvider.GetRequiredService<MicroserviceContext>(),
+        seedScope.ServiceProvider.GetRequiredService<PlanCatalogue>(),
+        seedScope.ServiceProvider.GetRequiredService<PlanService>(),
+        seedScope.ServiceProvider.GetRequiredService<ILogger<Program>>());
 }
 
 await app.RunAsync();

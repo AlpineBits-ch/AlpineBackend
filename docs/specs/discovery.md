@@ -400,7 +400,57 @@ because the page is publicly indexed and staff takedown does not exist until the
 refusal says so in one sentence rather than reading as a generic validation error, because a user
 who pastes their own domain and is told "invalid link" will reasonably assume a bug.
 
-### 8.3 An age floor of 16 on recruitment
+### 8.3 Banning a guild from discovery
+
+Report and takedown handles one bad listing. This handles a guild that should not be in the
+directory at all.
+
+**The ban lives on the guild, not on the listing.** `Listing.Publish` clears `SuspendedReason` from
+any state, so a staff suspension can be undone by the owner pressing publish again. A ban attached
+to a listing would be defeated by one click. A row keyed on the guild also survives the listing
+being deleted and recreated, and covers recruitment postings for free when they arrive.
+
+```
+discovery_ban
+  id            dban_ prefixed
+  guild_id      unique
+  reason        <= 500, written to be read by the owner
+  staff_note    <= 1000, nullable, never leaves the console
+  banned_by     staff user id
+  banned_at
+  expires_at    nullable, null means indefinite
+  lifted_at     nullable
+  lifted_by     nullable
+```
+
+A ban is active when `lifted_at` is null and `expires_at` is either null or in the future. That is
+evaluated on read, so a temporary ban needs no sweeper and cannot be left hanging by one that failed
+to run. A lifted ban keeps its row: the history of who banned whom and why is the point, and
+deleting it destroys the only record.
+
+**Two reasons, deliberately.** `reason` is shown to the owner. `staff_note` is not. You often cannot
+tell an abuser exactly what tripped detection without teaching them how to evade it, and telling
+them nothing at all produces a support ticket and looks arbitrary. Both fields exist so neither
+compromise is forced.
+
+**Effects.** Publishing is refused with `{"error": "discovery_banned"}` carrying the owner-facing
+reason. Placing a ban suspends any published listing with `SuspensionReason.StaffAction`, which
+until now was a value the codebase could produce nowhere, and pushes `discovery.ListingSuspended`
+with `reason: "staff_action"`.
+
+**Lifting a ban does not republish.** Same rule as a lapsed plan, for the same reason: returning a
+community to a public feed is the owner's decision, not a side effect of a staff action.
+
+**The console is in the gateway, not in Discovery.** `AdminDiscoveryController` follows
+`AdminWikiController`: `StaffAccess` resolves the caller's tier, and the work goes to Discovery over
+the bus. Discovery stays free of any notion of staff. Moderator and Admin can both ban and lift, and
+every action records who took it, matching how reports, tickets and appeals already work. Moderation
+that needs an Admin for routine work does not get done.
+
+The console needs to find the guild before it can ban it, so it browses and searches published
+listings as well as listing existing bans.
+
+### 8.4 An age floor of 16 on recruitment
 
 Recruitment is gated at 16. Community discovery is not.
 

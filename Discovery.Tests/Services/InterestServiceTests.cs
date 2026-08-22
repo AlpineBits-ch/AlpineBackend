@@ -126,4 +126,80 @@ public class InterestServiceTests
             Assert.That(ctx.UserInterests.Count(i => i.UserId == "user_5"), Is.EqualTo(1));
         });
     }
+
+    [Test]
+    public async Task Replacing_with_a_known_game_topic_succeeds()
+    {
+        // None of the other tests exercise the game half of this endpoint at all.
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.GameTopics.Add(new GameTopic
+        {
+            Id = GameTopic.GenerateId(),
+            GameApplicationId = "gapp_isle",
+            Name = "The Isle: Evrima",
+        });
+        await ctx.SaveChangesAsync();
+
+        var topics = new[] { new TopicInput(TopicRef.Parse("game:gapp_isle"), "The Isle: Evrima") };
+        var result = await Service(ctx).ReplaceAsync("user_7", topics, true, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ctx.UserInterests.Single(i => i.UserId == "user_7").TopicId, Is.EqualTo("gapp_isle"));
+            Assert.That(result.Topics.Single().Kind, Is.EqualTo("game"));
+            Assert.That(result.Topics.Single().Name, Is.EqualTo("The Isle: Evrima"));
+        });
+    }
+
+    [Test]
+    public async Task An_unknown_game_topic_is_refused_and_nothing_is_written()
+    {
+        // Unlike a tag, a game is never minted - ResolveAsync silently omits a game with no row,
+        // so without this check DescribeAsync's minted-tag fallback would throw
+        // KeyNotFoundException on a game ref instead of refusing cleanly.
+        await using var ctx = TestDiscoveryContext.New();
+        var topics = new[] { new TopicInput(TopicRef.Parse("game:gapp_doesnotexist"), "Does Not Exist") };
+
+        Assert.ThrowsAsync<ArgumentException>(async () =>
+            await Service(ctx).ReplaceAsync("user_8", topics, true, CancellationToken.None));
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(ctx.UserInterests.Any(i => i.UserId == "user_8"), Is.False);
+            Assert.That(ctx.Tags.Any(), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task An_unchanged_interest_keeps_its_source()
+    {
+        // Pins diff-and-keep, not truncate-and-reinsert: every other fixture leaves Source at its
+        // Manual default, so a wholesale delete-and-reinsert would pass every other test here.
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.Tags.AddRange(
+            new Tag { Id = Tag.GenerateId(), Slug = "kept", DisplayName = "Kept" },
+            new Tag { Id = Tag.GenerateId(), Slug = "added", DisplayName = "Added" });
+        ctx.UserInterests.Add(new UserInterest
+        {
+            Id = UserInterest.GenerateId(),
+            UserId = "user_9",
+            Kind = TopicKind.Tag,
+            TopicId = "kept",
+            Source = InterestSource.Suggested,
+        });
+        await ctx.SaveChangesAsync();
+
+        var topics = new[]
+        {
+            new TopicInput(TopicRef.Parse("tag:kept"), "Kept"),
+            new TopicInput(TopicRef.Parse("tag:added"), "Added"),
+        };
+
+        await Service(ctx).ReplaceAsync("user_9", topics, true, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        var kept = ctx.UserInterests.Single(i => i.UserId == "user_9" && i.TopicId == "kept");
+        Assert.That(kept.Source, Is.EqualTo(InterestSource.Suggested));
+    }
 }

@@ -39,6 +39,21 @@ public class InterestService(MicroserviceContext ctx, TopicResolver resolver)
         if (distinct.Count > MaxInterests)
             throw new ArgumentException($"At most {MaxInterests} interests are allowed.");
 
+        // Games are never minted - unlike a tag, an unknown game id is a bad request, not a new
+        // row. Checked before EnsureTagsAsync touches the context, so a request naming one game
+        // that does not exist mints no tags either.
+        var gameIds = distinct.Where(t => t.Topic.Kind == TopicKind.Game).Select(t => t.Topic.Id).ToList();
+        if (gameIds.Count > 0)
+        {
+            var knownGameIds = await ctx.GameTopics
+                .Where(g => gameIds.Contains(g.GameApplicationId))
+                .Select(g => g.GameApplicationId)
+                .ToListAsync(ct);
+            var unknown = gameIds.Except(knownGameIds).ToList();
+            if (unknown.Count > 0)
+                throw new ArgumentException($"Unknown topic: game:{unknown[0]}");
+        }
+
         var minted = await resolver.EnsureTagsAsync(distinct, ct);
 
         var existing = await ctx.UserInterests.Where(i => i.UserId == userId).ToListAsync(ct);

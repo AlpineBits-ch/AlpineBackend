@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Discovery.Api.Dtos.Request;
+using Discovery.Api.Dtos.Response;
 using Discovery.Api.Services;
 using Discovery.Domain.Topics;
 using Microsoft.AspNetCore.Authorization;
@@ -53,7 +54,19 @@ public static class InterestEndpoint
         if (distinct.Count > InterestService.MaxInterests)
             return Results.BadRequest($"At most {InterestService.MaxInterests} interests.");
 
-        var result = await interests.ReplaceAsync(userId, distinct, dto.Visible, ct);
+        // An unknown game topic is refused inside ReplaceAsync, before anything is written - caught
+        // here rather than pre-checked, since telling a real game id from a fake one needs the same
+        // database round trip the service already makes.
+        InterestsDto result;
+        try
+        {
+            result = await interests.ReplaceAsync(userId, distinct, dto.Visible, ct);
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(ex.Message);
+        }
+
         await realtime.InterestsChangedAsync(userId, ct);
         return Results.Ok(result);
     }

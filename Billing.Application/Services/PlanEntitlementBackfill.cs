@@ -16,8 +16,9 @@ public static class PlanEntitlementBackfill
         "Entitlement keys added to the configured plan after this plan was seeded. Values already "
         + "stored were left alone.";
 
-    /// <summary>Returns how many plans gained a new version, which is zero once each configured
-    /// key exists on its plan.</summary>
+    /// <summary>Returns how many plans were amended, which is zero once each configured key exists
+    /// on every live version of its plan. Idempotent, so the second replica finds nothing to do.
+    /// </summary>
     public static async Task<int> RunAsync(
         MicroserviceContext db,
         PlanCatalogue configured,
@@ -43,55 +44,26 @@ public static class PlanEntitlementBackfill
         {
             if (!wanted.TryGetValue(plan.Name, out var configuredValues)) continue;
 
-            var current = await db.PlanVersions
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    version => version.PlanId == plan.Id
-                               && version.VersionNumber == plan.CurrentVersionNumber,
-                    cancellationToken);
-
-            if (current is null) continue;
-
-            var stored = PlanCatalogueService.ReadValues(current.ValuesJson);
-            var missing = configuredValues
-                .Where(pair => !stored.ContainsKey(pair.Key))
-                .ToList();
-
-            if (missing.Count == 0) continue;
-
-            var merged = new Dictionary<string, string>(stored, StringComparer.OrdinalIgnoreCase);
-            foreach (var (key, value) in missing) merged[key] = value;
-
             try
             {
-                await plans.EditAsync(
-                    plan.Name,
-                    new EditPlan(merged, current.PriceMinorUnits, current.Currency, Reason),
-                    PlanSeeder.SystemActor,
-                    cancellationToken);
+                var keys = await plans.BackfillMissingValuesAsync(
+                    plan.Name, configuredValues, Reason, PlanSeeder.SystemActor, cancellationToken);
+
+                if (keys.Count == 0) continue;
 
                 // PlanService is written for Wolverine handlers, where the middleware commits. This
                 // runs at startup, so nothing else will. Per plan, so one failure keeps the rest.
                 await db.SaveChangesAsync(cancellationToken);
+                filled++;
             }
             catch (Exception ex)
             {
-                // One unbackfillable plan must not stop the service starting, or a Stripe outage
-                // becomes a boot loop.
-                logger?.LogError(ex,
-                    "Could not backfill {Count} entitlement key(s) onto plan {Plan}: {Keys}",
-                    missing.Count, plan.Name, string.Join(", ", missing.Select(pair => pair.Key)));
+                // One unbackfillable plan must not stop the service starting.
+                logger?.LogError(ex, "Could not backfill entitlement keys onto plan {Plan}", plan.Name);
 
-                // A half-applied edit must not ride along with the next plan's save.
+                // A half-applied amendment must not ride along with the next plan's save.
                 db.ChangeTracker.Clear();
-                continue;
             }
-
-            filled++;
-            logger?.LogWarning(
-                "Plan {Plan} was missing {Count} configured entitlement key(s) and gained them in a "
-                + "new version: {Keys}. Until now they resolved to their catalogue defaults.",
-                plan.Name, missing.Count, string.Join(", ", missing.Select(pair => pair.Key)));
         }
 
         return filled;

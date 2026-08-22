@@ -219,6 +219,70 @@ public sealed class PlanService(
         return (version, announcements);
     }
 
+    /// <summary>
+    /// Writes keys a version never carried into it, in place, across every live version of the
+    /// plan. Returns the keys that were filled.
+    ///
+    /// <see cref="EditAsync"/> cannot do this job: <see cref="PlanAssignment.VersionNumber"/> pins
+    /// a subject to one version, so a new version never reaches anyone already on an older one.
+    /// A key absent from the stored values was never a decision, only a gap, so filling it changes
+    /// no answer anybody chose. A key already stored is left alone.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> BackfillMissingValuesAsync(
+        string name,
+        IReadOnlyDictionary<string, string> configured,
+        string reason,
+        string actor,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configured);
+        RequireActor(actor);
+        RequireReason(reason);
+
+        var plan = await RequirePlanAsync(name, cancellationToken);
+        var live = await db.PlanVersions
+            .Where(version => version.PlanId == plan.Id && version.ArchivedAt == null)
+            .ToListAsync(cancellationToken);
+
+        var filled = new SortedSet<string>(StringComparer.Ordinal);
+        var now = clock.GetUtcNow();
+
+        foreach (var version in live)
+        {
+            var stored = PlanCatalogueService.ReadValues(version.ValuesJson);
+            var missing = configured.Where(pair => !stored.ContainsKey(pair.Key)).ToList();
+            if (missing.Count == 0) continue;
+
+            var merged = new Dictionary<string, string>(stored, StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, value) in missing) merged[key] = value;
+
+            // The same validation an edit goes through, so a bad configured value refuses here
+            // rather than becoming a stored version nothing can read.
+            var parsed = Validate(merged);
+
+            version.ValuesJson = JsonSerializer.Serialize(parsed.ToDictionary(
+                entry => entry.Key.Name, entry => entry.Key.Format(entry.Value)));
+
+            foreach (var (key, _) in missing) filled.Add(key);
+
+            Record(plan, version.VersionNumber, PlanChangeAction.VersionBackfilled, actor, reason,
+                now, null);
+        }
+
+        if (filled.Count == 0) return [];
+
+        await AnnounceAsync(plan, [.. filled], now, cancellationToken);
+        catalogue.Invalidate();
+
+        logger?.LogWarning(
+            "Plan {Plan} was missing {Count} configured entitlement key(s) on its live version(s) "
+            + "and they were written in place: {Keys}. Until now they resolved to their catalogue "
+            + "defaults for every subject on this plan.",
+            plan.Name, filled.Count, string.Join(", ", filled));
+
+        return [.. filled];
+    }
+
     /// <summary>Makes an existing version current again.</summary>
     public async Task<(PlanVersion Version, IReadOnlyList<EntitlementsChanged> Announcements)> ActivateAsync(
         string name, int versionNumber, string reason, string actor, CancellationToken cancellationToken)

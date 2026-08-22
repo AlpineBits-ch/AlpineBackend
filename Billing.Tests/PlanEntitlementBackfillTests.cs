@@ -178,6 +178,51 @@ public class PlanEntitlementBackfillTests
     }
 
     [Test]
+    public async Task A_version_that_is_no_longer_current_is_filled_too()
+    {
+        // Production, exactly: the guild's grant read pro@1 while the plan had moved on, so writing
+        // the key into a new version would never have reached it.
+        var plan = await SeedProAsync(new Dictionary<string, string>
+        {
+            ["voice.max_participants"] = "75",
+        });
+
+        _db.PlanVersions.Add(new PlanVersion
+        {
+            Id = PlanVersion.GenerateId(),
+            PlanId = plan.Id,
+            VersionNumber = 2,
+            ValuesJson = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string>
+            {
+                ["voice.max_participants"] = "80",
+            }),
+            Reason = "A later edit.",
+            CreatedBy = "user_admin",
+        });
+
+        plan.CurrentVersionNumber = 2;
+        await _db.SaveChangesAsync();
+
+        await PlanEntitlementBackfill.RunAsync(
+            _db,
+            CatalogueWith(new Dictionary<string, string>
+            {
+                ["voice.max_participants"] = "75",
+                ["guild.public_listing"] = "true",
+            }),
+            _plans,
+            null,
+            CancellationToken.None);
+
+        var first = await _db.PlanVersions.AsNoTracking()
+            .SingleAsync(v => v.PlanId == plan.Id && v.VersionNumber == 1);
+
+        Assert.That(
+            PlanCatalogueService.ReadValues(first.ValuesJson)["guild.public_listing"],
+            Is.EqualTo("true"));
+    }
+
+    [Test]
     public async Task A_second_run_changes_nothing()
     {
         var plan = await SeedProAsync(new Dictionary<string, string>
@@ -192,15 +237,14 @@ public class PlanEntitlementBackfillTests
         });
 
         await PlanEntitlementBackfill.RunAsync(_db, catalogue, _plans, null, CancellationToken.None);
-        var afterFirst = (await _db.Plans.AsNoTracking().SingleAsync(p => p.Id == plan.Id)).CurrentVersionNumber;
-
         var filled = await PlanEntitlementBackfill.RunAsync(_db, catalogue, _plans, null, CancellationToken.None);
-        var afterSecond = (await _db.Plans.AsNoTracking().SingleAsync(p => p.Id == plan.Id)).CurrentVersionNumber;
+
+        var refreshed = await _db.Plans.AsNoTracking().SingleAsync(p => p.Id == plan.Id);
 
         Assert.Multiple(() =>
         {
             Assert.That(filled, Is.EqualTo(0));
-            Assert.That(afterSecond, Is.EqualTo(afterFirst));
+            Assert.That(refreshed.CurrentVersionNumber, Is.EqualTo(1));
         });
     }
 }

@@ -19,6 +19,10 @@ public enum PlanChangeAction
 
     /// <summary>A subject was put on a plan version, or moved between versions.</summary>
     SubjectAssigned,
+
+    /// <summary>An entitlement key the version never carried was written into it in place. Only
+    /// ever adds; a value already stored is a decision and is never overwritten.</summary>
+    VersionBackfilled,
 }
 
 /// <summary>The plan catalogue's audit trail.</summary>

@@ -49,7 +49,7 @@ Mirrored locally, never a synchronous cross-service read on the query path:
 
 | Mirror | Source | Why it is projected |
 |---|---|---|
-| `guild_profile` | Pulled from Guild on a 6-hour TTL | Name, icon, banner, member count, active-member count, enabled modules, rendered on every card and used by the ranking function. Pull, not event-projected: Guild publishes no guild-lifecycle events today, only the `...ForBots` family, and adding five to feed a card is a larger change to Guild than this feature earns. |
+| `guild_profile` | Pulled from Guild on a 6-hour TTL | Name, icon, banner, member count, active-member count, enabled modules, primary and other languages, rendered on every card and used by the ranking function. Pull, not event-projected: Guild publishes no guild-lifecycle events today, only the `...ForBots` family, and adding five to feed a card is a larger change to Guild than this feature earns. |
 | `game_topic` | Social's game catalog | Must be joinable inside the ranked query. About 900 KB gzipped for the whole catalog, so a local copy is cheap. |
 
 Deliberately not projected: **entitlement standing**. The plan gate is checked live through
@@ -190,13 +190,11 @@ listing
   headline          <= 80 chars
   pitch             <= 600 chars
   topics            1..8 TopicRef
-  language          BCP-47
   join_policy       Open | Application
   links             0..3, host allowlist, see section 8
   state             Draft | Published | Suspended | Unlisted
   published_at      nullable
   last_bumped_at    nullable
-  search_vector     generated, GIN indexed
   created_at, updated_at
 ```
 
@@ -206,6 +204,52 @@ changes its card without touching Discovery.
 `Unlisted` is owner-initiated withdrawal. `Suspended` is imposed, either by plan loss or by staff.
 They render differently to the owner and identically to everyone else, which is the whole reason
 they are separate states.
+
+Language is not on the listing. See 5.1.
+
+### 5.1 Languages
+
+A recruitment posting shown to someone who does not speak the language is noise to them and a wasted
+slot to the guild. Nothing in the platform models language today: not Guild, not Identity, not the
+user. This adds it.
+
+**Languages belong to the guild, not to the listing.** A guild speaks a language whether or not it
+ever publishes a listing, and the same fact will be wanted later by automod, by moderation routing
+and by any digest that has to pick a wording. Putting it on the listing would mean re-declaring it
+on every posting, which is precisely the duplication this exists to remove.
+
+```
+guild
+  primary_language    BCP-47, required, one
+  other_languages     0..4 BCP-47, the rest it can accommodate
+```
+
+The match set is `{primary} union other`. Primary is the one a card renders; the others exist so a
+bilingual guild is findable by both audiences without pretending to be equally either.
+
+Discovery mirrors both onto `guild_profile` alongside name and icon, on the same TTL and through the
+same batch request. It is a mirror, not a source: the guild service owns the value and a guild
+settings screen is where it is set.
+
+**The match excludes, it does not rank.** A viewer who shares no language with a guild does not see
+its listing. Ranking it down instead would not solve the problem: the reader who cannot read it
+still gets it, just later. The feed carries a visible toggle that drops the filter, so the exclusion
+is discoverable rather than a silently shorter feed.
+
+**A viewer who has declared no languages sees everything.** This is the rule that keeps the feature
+from being hostile. A hard filter against an unset preference empties the feed for exactly the
+people least equipped to work out why, so absence of a preference means absence of a filter, never
+an empty screen.
+
+The viewer's own languages sit beside their interests in Discovery rather than on Identity, because
+they are a private feed preference rather than a public profile fact, and because the two are edited
+on the same screen and answer the same question. The first value is seeded from the client's current
+UI locale, which the app already knows, so the common case needs no interaction at all.
+
+The three UI locales the client ships (en, de, fr) are not the vocabulary here. A guild may declare
+any well-formed BCP-47 tag; the server validates the shape and accepts it. The client offers a
+curated list of common languages with search, so declaring Portuguese does not require the app to
+have been translated into it.
 
 ---
 
@@ -435,8 +479,15 @@ is tolerable because the term carries 20 percent and the sample refreshes on the
 the fix when it stops being tolerable is a stored rolling counter on Guild, not a cleverer query
 here.
 
-**With a text query**, `ts_rank_cd` over `search_vector` multiplies in and dominates. Relevance
-first, then the score above as the tiebreak.
+**With a text query**, the query is a FILTER over headline and pitch, and the score above still
+decides the order within the matches.
+
+Not a relevance term. The original design multiplied a `ts_rank_cd` over a generated `search_vector`
+into the score so that relevance led and the score above broke ties. That column was never built and
+the first release ships without it, so a text search returns matches ordered by interest, freshness
+and health rather than by how well they match. That is defensible while listing counts are small,
+because a query narrow enough to be typed is usually narrow enough that ordering within it barely
+matters, and it stops being defensible at the same point the in-memory scoring does.
 
 No paid placement. Selling feed position makes the ordering a thing users distrust, and it is not
 recoverable once shipped.
@@ -491,7 +542,7 @@ Behind `/api/v1/discovery/{**catch-all}` on the gateway. Wolverine endpoints thr
 rules, with state-changing operations as Wolverine handlers relying on middleware for the commit.
 
 ```
-GET    /discover                      the ranked feed. query, topics, kind, language, cursor
+GET    /discover                      the ranked feed. query, topics, kind, cursor, allLanguages
 GET    /discover/postings             the postings tab, same filter vocabulary
 GET    /topics/search                 the shared autocomplete, games and tags in one result
 
@@ -708,6 +759,9 @@ was rejected. Not narration, not rationale essays, not restating the next line.
 | Relevance then decaying freshness, damped by activity | Newest first, or paid placement |
 | Any signed-in user may browse and apply | Gating the demand side of a marketplace |
 | Instance-only, federation designed | Federating from day one |
+| Languages belong to the guild, mirrored into Discovery | Putting them on the listing and re-declaring them per posting |
+| A language mismatch excludes rather than ranks down | Sinking it, which still shows unreadable text to the reader |
+| No declared viewer language means no filter at all | A hard filter that empties the feed for anyone who skipped the question |
 | Recruitment has an age floor of 16, discovery has none | One floor over the whole feature, or none |
 | Identity answers a boolean, Discovery never stores a birth date | Projecting the birth date like any other profile fact |
 | The age gate fails closed on an unknown age | Reusing `IsMinorAt`, which fails open by design |
@@ -721,8 +775,14 @@ Three plans, each independently useful.
 **One.** The service, its infrastructure, the topic model, user interests, listings, the ranked
 feed, and the Discover destination. Ships public communities in full.
 
+**One point five.** Guild languages: the fields and migration on Guild, a settings surface, the
+mirror, the viewer own languages beside their interests, and the feed filter with its toggle.
+After plan one because it touches Guild, and before plan two because a posting inherits the guild
+languages and shipping recruitment language-blind is the gap this closes.
+
 **Two.** Postings, applications, the bound-invite prerequisite in Guild, the age gate from section
-8.3, the review queue and the applicant tracker. Ships recruitment.
+8.3, the review queue and the applicant tracker. Ships recruitment. A posting inherits the guild
+languages the way it inherits topics, and may narrow but never widen them.
 
 **Three.** Reports, staff takedown, and the write-time content rules.
 

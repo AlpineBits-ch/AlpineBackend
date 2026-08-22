@@ -27,6 +27,9 @@ public class TopicResolver(MicroserviceContext ctx)
         // to pick from once games and tags are merged. It is the WHERE clause in
         // GameCandidatesQuery/TagCandidatesQuery, not this cap, that keeps an autocomplete keystroke
         // from pulling the whole catalog (tens of thousands of rows at the seeded size) over the wire.
+        // Both queries order best-match-first for this Take: a common substring matches thousands of
+        // rows, and an unordered Take hands RankOrder an arbitrary slice that need not contain the
+        // row the user meant.
         var candidateCap = Math.Max(limit * 10, 50);
 
         var games = await GameCandidatesQuery(ctx, trimmed).Take(candidateCap).ToListAsync(ct);
@@ -56,7 +59,12 @@ public class TopicResolver(MicroserviceContext ctx)
     public static IQueryable<GameTopic> GameCandidatesQuery(MicroserviceContext ctx, string query)
     {
         var term = query.ToLowerInvariant();
-        return ctx.GameTopics.Where(g => g.IsEnabled && g.SearchText.Contains(term));
+        return ctx.GameTopics
+            .AsNoTracking()
+            .Where(g => g.IsEnabled && g.SearchText.Contains(term))
+            .OrderByDescending(g => g.SearchText.StartsWith(term))
+            .ThenBy(g => g.Name.Length)
+            .ThenBy(g => g.Name);
     }
 
     /// <summary>The SQL-side tag filter: not aliased away, display name or slug contains
@@ -64,8 +72,13 @@ public class TopicResolver(MicroserviceContext ctx)
     public static IQueryable<Tag> TagCandidatesQuery(MicroserviceContext ctx, string query)
     {
         var term = query.ToLowerInvariant();
-        return ctx.Tags.Where(t => t.AliasOf == null &&
-            (t.DisplayName.ToLower().Contains(term) || t.Slug.Contains(term)));
+        return ctx.Tags
+            .AsNoTracking()
+            .Where(t => t.AliasOf == null &&
+                (t.DisplayName.ToLower().Contains(term) || t.Slug.Contains(term)))
+            .OrderByDescending(t => t.Slug.StartsWith(term))
+            .ThenBy(t => t.DisplayName.Length)
+            .ThenBy(t => t.DisplayName);
     }
 
     /// <summary>
@@ -105,7 +118,7 @@ public class TopicResolver(MicroserviceContext ctx)
         var gameIds = refs.Where(t => t.Kind == TopicKind.Game).Select(t => t.Id).Distinct().ToList();
         if (gameIds.Count > 0)
         {
-            var games = await ctx.GameTopics.Where(g => gameIds.Contains(g.GameApplicationId)).ToListAsync(ct);
+            var games = await ctx.GameTopics.AsNoTracking().Where(g => gameIds.Contains(g.GameApplicationId)).ToListAsync(ct);
             results.AddRange(games.Select(g =>
                 new TopicDto { Kind = "game", Id = g.GameApplicationId, Name = g.Name, SteamAppId = g.SteamAppId }));
         }
@@ -113,14 +126,14 @@ public class TopicResolver(MicroserviceContext ctx)
         var tagSlugs = refs.Where(t => t.Kind == TopicKind.Tag).Select(t => t.Id).Distinct().ToList();
         if (tagSlugs.Count > 0)
         {
-            var tags = await ctx.Tags.Where(t => tagSlugs.Contains(t.Slug)).ToListAsync(ct);
+            var tags = await ctx.Tags.AsNoTracking().Where(t => tagSlugs.Contains(t.Slug)).ToListAsync(ct);
 
             // AliasOf stores the target's slug, the same key everything else here uses. Staff
             // re-point a merge directly at its target rather than chaining, so one hop is enough.
             var targetSlugs = tags.Where(t => t.AliasOf != null).Select(t => t.AliasOf!).Distinct().ToList();
             var targets = targetSlugs.Count == 0
                 ? []
-                : await ctx.Tags.Where(t => targetSlugs.Contains(t.Slug)).ToListAsync(ct);
+                : await ctx.Tags.AsNoTracking().Where(t => targetSlugs.Contains(t.Slug)).ToListAsync(ct);
             var targetsBySlug = targets.ToDictionary(t => t.Slug);
 
             foreach (var tag in tags)
@@ -157,6 +170,8 @@ public class TopicResolver(MicroserviceContext ctx)
         if (candidates.Count == 0) return [];
 
         var slugs = candidates.Select(c => c.Topic.Id).ToList();
+        // Tracked, unlike every read above: this is the write seam, and a later change that updates
+        // an existing tag here would be silently dropped under AsNoTracking.
         var existing = await ctx.Tags.Where(t => slugs.Contains(t.Slug)).ToListAsync(ct);
         var bySlug = existing.ToDictionary(t => t.Slug);
 

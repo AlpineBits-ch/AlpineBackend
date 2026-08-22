@@ -166,6 +166,44 @@ public class TopicResolverTests
     }
 
     /// <summary>
+    /// The catalogue is tens of thousands of rows, so a common substring matches far more than the
+    /// candidate cap. Without an order on the candidate query the database is free to return any
+    /// slice of them, and the row the user actually typed simply is not in it.
+    /// </summary>
+    [Test]
+    public async Task A_match_past_the_candidate_cap_still_reaches_the_results()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+
+        // The cap is max(limit * 10, 50), so 60 fillers overflow it at any small limit. Added
+        // before the target, so insertion order alone would push the target out.
+        for (var i = 0; i < 60; i++)
+        {
+            ctx.GameTopics.Add(new GameTopic
+            {
+                Id = GameTopic.GenerateId(),
+                GameApplicationId = $"gapp_filler_{i}",
+                Name = $"A Game That Mentions Microsoft In Passing {i}",
+                SearchText = $"a game that mentions microsoft in passing {i}",
+            });
+        }
+
+        ctx.GameTopics.Add(new GameTopic
+        {
+            Id = GameTopic.GenerateId(),
+            GameApplicationId = "gapp_msfs",
+            Name = "Microsoft Flight Simulator",
+            SearchText = "microsoft flight simulator",
+        });
+        await ctx.SaveChangesAsync();
+
+        var resolver = new TopicResolver(ctx);
+        var results = await resolver.SearchAsync("microsoft", 5, CancellationToken.None);
+
+        Assert.That(results.Select(t => t.Name), Does.Contain("Microsoft Flight Simulator"));
+    }
+
+    /// <summary>
     /// Guards against SearchAsync quietly reverting to fetching the whole table and filtering in
     /// memory: asserts against the real Npgsql provider (no live database - ToQueryString never
     /// executes) that the candidate queries carry a WHERE clause rather than being a bare scan.

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Discovery.Api</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="..\.dockerignore" Link=".dockerignore" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="JasperFx.RuntimeCompiler" Version="5.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Common" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.10" />
+    <PackageReference Include="WolverineFx" Version="6.24.6" />
+    <PackageReference Include="WolverineFx.EntityFrameworkCore" Version="6.24.6" />
+    <PackageReference Include="WolverineFx.Http" Version="6.24.6" />
+    <PackageReference Include="WolverineFx.Postgresql" Version="6.24.6" />
+    <PackageReference Include="WolverineFx.RabbitMQ" Version="6.24.6" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\Echo.Realtime\Echo.Realtime.csproj" />
+    <ProjectReference Include="..\Echo.Auth\Echo.Auth.csproj" />
+    <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
+    <ProjectReference Include="..\Discovery.Contracts\Discovery.Contracts.csproj" />
+    <ProjectReference Include="..\Discovery.Infrastructure\Discovery.Infrastructure.csproj" />
+    <ProjectReference Include="..\Guild.Contracts\Guild.Contracts.csproj" />
+    <ProjectReference Include="..\Social.Contracts\Social.Contracts.csproj" />
+    <ProjectReference Include="..\Billing.Contracts\Billing.Contracts.csproj" />
+  </ItemGroup>
+</Project>

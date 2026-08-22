@@ -1,10 +1,15 @@
+using System.Data;
 using Discovery.Domain.Entities;
 using Discovery.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Social.Contracts.Bus.Integration.Request;
 using Wolverine;
 
 namespace Discovery.Api.Bus;
+
+/// <summary>The row counts from one reconciliation pass, for the caller to log.</summary>
+public readonly record struct GameCatalogSyncResult(int Inserted, int Updated, int Disabled);
 
 public static class GameCatalogSync
 {
@@ -13,10 +18,12 @@ public static class GameCatalogSync
     /// runs inside Wolverine's transactional middleware, which commits on a successful return; a
     /// save here would double-commit. The hosted service below owns its own commit instead.
     /// </summary>
-    public static async Task RunAsync(MicroserviceContext ctx, IMessageBus bus, CancellationToken ct)
+    public static async Task<GameCatalogSyncResult> RunAsync(MicroserviceContext ctx, IMessageBus bus, CancellationToken ct)
     {
         var existing = await ctx.GameTopics.ToDictionaryAsync(g => g.GameApplicationId, ct);
         var seen = new HashSet<string>();
+        var inserted = 0;
+        var updated = 0;
 
         string? cursor = null;
         do
@@ -32,6 +39,11 @@ public static class GameCatalogSync
                     row = new GameTopic { Id = GameTopic.GenerateId(), GameApplicationId = dto.Id };
                     ctx.GameTopics.Add(row);
                     existing[dto.Id] = row;
+                    inserted++;
+                }
+                else
+                {
+                    updated++;
                 }
 
                 row.Name = dto.Name;
@@ -48,13 +60,18 @@ public static class GameCatalogSync
 
         // Disabled, not deleted: a listing already tagged with a game that left the catalogue must
         // keep rendering its chip.
+        var disabled = 0;
         foreach (var row in existing.Values.Where(r => !seen.Contains(r.GameApplicationId)))
+        {
+            if (row.IsEnabled) disabled++;
             row.IsEnabled = false;
+        }
+
+        return new GameCatalogSyncResult(inserted, updated, disabled);
     }
 }
 
-/// <summary>
-/// The retry schedule for <see cref="GameCatalogSyncService"/>. Pulled out as plain functions so a
+/// <summary>The retry schedule for <see cref="GameCatalogSyncService"/>. Pulled out as plain functions so a
 /// test can pin the delay sequence without waiting on any of them.
 /// </summary>
 internal static class GameCatalogSyncSchedule
@@ -79,45 +96,144 @@ internal static class GameCatalogSyncSchedule
         FailureBackoff[Math.Min(Math.Max(attempt, 1), FailureBackoff.Length) - 1];
 }
 
+/// <summary>Outcome of one sync attempt. A lock skip is not a failure: it means another replica is
+/// doing the work, not that nothing happened.</summary>
+public enum GameCatalogSyncOutcome
+{
+    SkippedLockHeld,
+    Applied,
+}
+
 /// <summary>
 /// Syncs once the host has started, then daily. The event handler covers everything in between. A
 /// failed attempt retries on <see cref="GameCatalogSyncSchedule"/>'s short backoff instead of
 /// waiting for the next daily tick.
+///
+/// Discovery runs more than one replica, so every pod's ExecuteAsync fires this on the same cold
+/// start. Each takes an advisory lock before writing so only one pod pages the catalog in at a time;
+/// the rest skip quietly. Matches the lock GameCatalogSeeder (Social) already ships for the identical
+/// race.
 /// </summary>
 public class GameCatalogSyncService(
     IServiceProvider services,
     IHostApplicationLifetime lifetime,
     ILogger<GameCatalogSyncService> logger) : BackgroundService
 {
+    /// <summary>Advisory-lock key.</summary>
+    private const long AdvisoryLockKey = 0x47414D45544F5043L;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Hosted services start before Wolverine's runtime does; InvokeAsync throws
         // WolverineHasNotStartedException until ApplicationStarted fires.
-        await WaitUntilStartedAsync(lifetime, stoppingToken);
+        await WaitUntilStartedAsync(lifetime, logger, stoppingToken);
 
         await RunLoopAsync(SyncOnceAsync, (delay, ct) => Task.Delay(delay, ct), logger, stoppingToken);
     }
 
-    private static async Task WaitUntilStartedAsync(IHostApplicationLifetime lifetime, CancellationToken stoppingToken)
+    private static async Task WaitUntilStartedAsync(IHostApplicationLifetime lifetime, ILogger logger, CancellationToken stoppingToken)
     {
-        if (lifetime.ApplicationStarted.IsCancellationRequested) return;
+        logger.LogInformation("Game catalog sync waiting for the host to finish starting");
 
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        await using var registration = lifetime.ApplicationStarted.Register(() => started.TrySetResult());
-        await started.Task.WaitAsync(stoppingToken);
+        if (!lifetime.ApplicationStarted.IsCancellationRequested)
+        {
+            var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            await using var registration = lifetime.ApplicationStarted.Register(() => started.TrySetResult());
+            await started.Task.WaitAsync(stoppingToken);
+        }
+
+        logger.LogInformation("Game catalog sync host start wait complete");
     }
 
-    private async Task SyncOnceAsync(CancellationToken ct)
+    private async Task<GameCatalogSyncOutcome> SyncOnceAsync(CancellationToken ct)
     {
         using var scope = services.CreateScope();
         var ctx = scope.ServiceProvider.GetRequiredService<MicroserviceContext>();
-        await GameCatalogSync.RunAsync(ctx, scope.ServiceProvider.GetRequiredService<IMessageBus>(), ct);
-        await ctx.SaveChangesAsync(ct);
+        var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
+
+        var connection = (NpgsqlConnection)ctx.Database.GetDbConnection();
+        var opened = false;
+
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(ct);
+            opened = true;
+        }
+
+        try
+        {
+            return await RunOnceWithLockAsync(
+                c => TryAcquireLockAsync(connection, c),
+                c => ReleaseLockAsync(connection, c),
+                async c =>
+                {
+                    var result = await GameCatalogSync.RunAsync(ctx, bus, c);
+                    await ctx.SaveChangesAsync(c);
+
+                    logger.LogInformation(
+                        "Game catalog sync applied: {Inserted} inserted, {Updated} updated, {Disabled} disabled",
+                        result.Inserted, result.Updated, result.Disabled);
+                },
+                logger,
+                ct);
+        }
+        finally
+        {
+            if (opened) await connection.CloseAsync();
+        }
+    }
+
+    private static async Task<bool> TryAcquireLockAsync(NpgsqlConnection connection, CancellationToken ct)
+    {
+        // try_ rather than the blocking form: a pod that cannot have the lock has nothing to wait
+        // for, because whoever holds it is doing the same work.
+        await using var command = new NpgsqlCommand("SELECT pg_try_advisory_lock(@key)", connection);
+        command.Parameters.AddWithValue("key", AdvisoryLockKey);
+        return await command.ExecuteScalarAsync(ct) is true;
+    }
+
+    private static async Task ReleaseLockAsync(NpgsqlConnection connection, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand("SELECT pg_advisory_unlock(@key)", connection);
+        command.Parameters.AddWithValue("key", AdvisoryLockKey);
+        await command.ExecuteScalarAsync(ct);
+    }
+
+    /// <summary>
+    /// Acquires the lock, runs the sync, and always releases it. Session-scoped: Postgres frees the
+    /// lock when the holding connection closes, including a crash, so a dead pod cannot hold it past
+    /// that connection's lifetime. Static and parameterized so a test can fake the lock and the sync
+    /// without a live database.
+    /// </summary>
+    internal static async Task<GameCatalogSyncOutcome> RunOnceWithLockAsync(
+        Func<CancellationToken, Task<bool>> tryAcquireLock,
+        Func<CancellationToken, Task> releaseLock,
+        Func<CancellationToken, Task> sync,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        if (!await tryAcquireLock(ct))
+        {
+            logger.LogInformation("Game catalog sync skipped: advisory lock held by another instance");
+            return GameCatalogSyncOutcome.SkippedLockHeld;
+        }
+
+        try
+        {
+            await sync(ct);
+            return GameCatalogSyncOutcome.Applied;
+        }
+        finally
+        {
+            await releaseLock(ct);
+        }
     }
 
     /// <summary>
     /// The retry loop, static and driven entirely by its parameters so a test can pin the delay
-    /// sequence with a fake sync and a fake delay, without a live bus or a real timer.
+    /// sequence with a fake sync and a fake delay, without a live bus or a real timer. A lock skip
+    /// returns normally rather than throwing, so it falls into the same branch as a real success:
+    /// the failure streak resets and the next attempt waits for the daily cadence, not the backoff.
     /// </summary>
     internal static async Task RunLoopAsync(
         Func<CancellationToken, Task> syncOnce,

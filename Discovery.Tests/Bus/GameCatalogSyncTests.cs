@@ -69,6 +69,28 @@ public class GameCatalogSyncTests
         var gone = ctx.GameTopics.Single(g => g.GameApplicationId == "gapp_gone");
         Assert.That(gone.IsEnabled, Is.False);
     }
+
+    [Test]
+    public async Task A_sync_reports_how_many_rows_it_inserted_updated_and_disabled()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.GameTopics.Add(new GameTopic {Id = "gmtp_1", GameApplicationId = "gapp_stay", Name = "Stay"});
+        ctx.GameTopics.Add(new GameTopic {Id = "gmtp_2", GameApplicationId = "gapp_gone", Name = "Gone", IsEnabled = true});
+        await ctx.SaveChangesAsync();
+
+        var bus = new FakeMessageBus();
+        bus.RespondWith<ListGameTopicsRequest, ListGameTopicsResponse>(_ =>
+            Page(next: null, Game("gapp_stay", "Stay"), Game("gapp_new", "New")));
+
+        var result = await GameCatalogSync.RunAsync(ctx, bus, CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result.Inserted, Is.EqualTo(1));
+            Assert.That(result.Updated, Is.EqualTo(1));
+            Assert.That(result.Disabled, Is.EqualTo(1));
+        });
+    }
 }
 
 [TestFixture]
@@ -127,6 +149,105 @@ public class GameCatalogSyncServiceRetryLoopTests
             TimeSpan.FromMinutes(1),
             TimeSpan.FromDays(1),
             TimeSpan.FromSeconds(30),
+        }));
+    }
+}
+
+/// <summary>
+/// Hand-rolled advisory lock: an atomic test-and-set flag, standing in for
+/// pg_try_advisory_lock/pg_advisory_unlock across two callers racing for the same key. No mocking
+/// framework, and a real Postgres lock cannot be exercised without a live database.
+/// </summary>
+internal sealed class FakeAdvisoryLock
+{
+    private int _held;
+
+    public Task<bool> TryAcquireAsync(CancellationToken ct) =>
+        Task.FromResult(Interlocked.CompareExchange(ref _held, 1, 0) == 0);
+
+    public Task ReleaseAsync(CancellationToken ct)
+    {
+        Volatile.Write(ref _held, 0);
+        return Task.CompletedTask;
+    }
+}
+
+[TestFixture]
+public class GameCatalogSyncServiceLockTests
+{
+    [Test]
+    public async Task A_second_concurrent_runner_skips_without_throwing_or_running_the_sync_twice()
+    {
+        var gate = new FakeAdvisoryLock();
+        var syncCount = 0;
+
+        Task<GameCatalogSyncOutcome> Attempt() => GameCatalogSyncService.RunOnceWithLockAsync(
+            gate.TryAcquireAsync,
+            gate.ReleaseAsync,
+            async _ =>
+            {
+                Interlocked.Increment(ref syncCount);
+                await Task.Delay(20);
+            },
+            NullLogger.Instance,
+            CancellationToken.None);
+
+        var results = await Task.WhenAll(Attempt(), Attempt());
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(results, Has.One.EqualTo(GameCatalogSyncOutcome.Applied));
+            Assert.That(results, Has.One.EqualTo(GameCatalogSyncOutcome.SkippedLockHeld));
+            Assert.That(syncCount, Is.EqualTo(1));
+        });
+    }
+
+    [Test]
+    public async Task A_failed_sync_still_releases_the_lock()
+    {
+        var gate = new FakeAdvisoryLock();
+
+        Assert.ThrowsAsync<InvalidOperationException>(() => GameCatalogSyncService.RunOnceWithLockAsync(
+            gate.TryAcquireAsync,
+            gate.ReleaseAsync,
+            _ => throw new InvalidOperationException("sync failed"),
+            NullLogger.Instance,
+            CancellationToken.None));
+
+        Assert.That(await gate.TryAcquireAsync(CancellationToken.None), Is.True);
+    }
+
+    [Test]
+    public async Task A_lock_skip_does_not_trigger_the_failure_backoff_or_the_error_escalation()
+    {
+        // Someone else holds the lock for the whole test; this replica never gets to sync.
+        var gate = new FakeAdvisoryLock();
+        Assert.That(await gate.TryAcquireAsync(CancellationToken.None), Is.True);
+
+        var delays = new List<TimeSpan>();
+        var cts = new CancellationTokenSource();
+
+        Task SyncOnce(CancellationToken ct) => GameCatalogSyncService.RunOnceWithLockAsync(
+            gate.TryAcquireAsync,
+            gate.ReleaseAsync,
+            _ => Task.CompletedTask,
+            NullLogger.Instance,
+            ct);
+
+        Task Delay(TimeSpan requested, CancellationToken _)
+        {
+            delays.Add(requested);
+            if (delays.Count >= 3) cts.Cancel();
+            return Task.CompletedTask;
+        }
+
+        await GameCatalogSyncService.RunLoopAsync(SyncOnce, Delay, NullLogger.Instance, cts.Token);
+
+        Assert.That(delays, Is.EqualTo(new[]
+        {
+            TimeSpan.FromDays(1),
+            TimeSpan.FromDays(1),
+            TimeSpan.FromDays(1),
         }));
     }
 }

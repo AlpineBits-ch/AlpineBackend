@@ -7,6 +7,7 @@ using Echo.Auth;
 using JasperFx;
 using JasperFx.RuntimeCompiler;
 using Messaging;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Text.Json.Serialization;
 using Wolverine;
 using Wolverine.EntityFrameworkCore;
@@ -19,10 +20,13 @@ builder.Services.AddOpenApi();
 builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddInfrastructure();
 builder.Services.AddMemoryCache();
+builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TopicResolver>();
 builder.Services.AddScoped<InterestService>();
 builder.Services.AddScoped<ListingRealtime>();
 builder.Services.AddScoped<ListingWriteService>();
+builder.Services.AddScoped<GuildProfileMirror>();
+builder.Services.AddScoped<DiscoveryFeedQuery>();
 
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>

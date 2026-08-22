@@ -136,45 +136,43 @@ public class GuildEndpoint
 
         if (await mfa.RequireAsync(id, user) is { } mfaRejection) return mfaRejection;
 
-        // Guarded like every other field on this PATCH: assigning unconditionally meant a request
-        // that only switched a module on sent no name and nulled the column.
-        if (!string.IsNullOrWhiteSpace(dto.Name)) guild.Name = dto.Name;
-        if (dto.Description is not null) guild.Description = dto.Description;
-
+        // Every refusal below returns normally, and AutoApplyTransactions commits a normal return,
+        // so validation runs before the first assignment. Interleaving them persisted the fields
+        // that had already been reached and answered 400.
         if (dto.SystemChannelId is not null)
         {
             var channel = guild.Channels.FirstOrDefault(c => c.Id == dto.SystemChannelId);
             if (channel is null || (channel.Type != ChannelType.Text && channel.Type != ChannelType.Announcement))
                 return Results.BadRequest("System channel must be a text or announcement channel in this guild");
-
-            guild.SystemChannelId = dto.SystemChannelId;
         }
 
-        if (dto.VerificationLevel is not null)
+        // Nothing is a valid *member* preference but not a valid guild default - it would
+        // silence the server for everyone who never opened its settings.
+        if (dto.DefaultMessageNotifications is { } notifications && notifications == NotificationLevel.Nothing)
+            return Results.BadRequest("A guild default of Nothing is not allowed; members can set that for themselves.");
+
+        var languagesChanged = dto.PrimaryLanguage is not null || dto.OtherLanguages is not null;
+        var primaryLanguage = guild.PrimaryLanguage;
+        var otherLanguages = guild.OtherLanguages;
+
+        if (languagesChanged && !LanguageTag.TryNormalizeSet(
+                dto.PrimaryLanguage ?? guild.PrimaryLanguage,
+                dto.OtherLanguages ?? guild.OtherLanguages,
+                out primaryLanguage, out otherLanguages, out var languageProblem))
         {
-            guild.VerificationLevel = dto.VerificationLevel.Value;
+            return Results.BadRequest(languageProblem);
         }
 
-        if (dto.DefaultMessageNotifications is not null)
+        // Guarded like every other field on this PATCH: assigning unconditionally meant a request
+        // that only switched a module on sent no name and nulled the column.
+        if (!string.IsNullOrWhiteSpace(dto.Name)) guild.Name = dto.Name;
+        if (dto.Description is not null) guild.Description = dto.Description;
+        if (dto.SystemChannelId is not null) guild.SystemChannelId = dto.SystemChannelId;
+        if (dto.VerificationLevel is not null) guild.VerificationLevel = dto.VerificationLevel.Value;
+        if (dto.DefaultMessageNotifications is not null) guild.DefaultMessageNotifications = dto.DefaultMessageNotifications.Value;
+
+        if (languagesChanged)
         {
-            // Nothing is a valid *member* preference but not a valid guild default - it would
-            // silence the server for everyone who never opened its settings.
-            if (dto.DefaultMessageNotifications.Value == NotificationLevel.Nothing)
-                return Results.BadRequest("A guild default of Nothing is not allowed; members can set that for themselves.");
-
-            guild.DefaultMessageNotifications = dto.DefaultMessageNotifications.Value;
-        }
-
-        if (dto.PrimaryLanguage is not null || dto.OtherLanguages is not null)
-        {
-            if (!LanguageTag.TryNormalizeSet(
-                    dto.PrimaryLanguage ?? guild.PrimaryLanguage,
-                    dto.OtherLanguages ?? guild.OtherLanguages,
-                    out var primaryLanguage, out var otherLanguages, out var languageProblem))
-            {
-                return Results.BadRequest(languageProblem);
-            }
-
             guild.PrimaryLanguage = primaryLanguage;
             guild.OtherLanguages = otherLanguages;
         }

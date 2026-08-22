@@ -107,6 +107,36 @@ public class GuildLanguageUpdateTests
         Assert.That(reloaded.PrimaryLanguage, Is.EqualTo("en"), "the rejected value must not have been written");
     }
 
+    /// <summary>
+    /// A refusal returns normally, so Wolverine's AutoApplyTransactions commits whatever the
+    /// handler already assigned. Every field on this PATCH has to be validated before the first
+    /// mutation, not beside its own assignment.
+    /// </summary>
+    [Test]
+    public async Task A_refusal_anywhere_leaves_every_other_field_untouched()
+    {
+        await SeedManagerMember();
+
+        var result = await _endpoint.UpdateGuild(
+            GuildId,
+            new UpdateGuildDto
+            {
+                Name = "renamed",
+                PrimaryLanguage = "de",
+                DefaultMessageNotifications = NotificationLevel.Nothing,
+            },
+            _context, TestPrincipal.Create(UserId), _permissionService, _auditLog, _hub, _hydrateService, _mfa);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+        var reloaded = await _context.Guilds.AsNoTracking().FirstAsync(g => g.Id == GuildId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.Name, Is.EqualTo("Test Guild"));
+            Assert.That(reloaded.PrimaryLanguage, Is.EqualTo("en"));
+        });
+    }
+
     [Test]
     public async Task Omitting_the_fields_leaves_them_alone()
     {

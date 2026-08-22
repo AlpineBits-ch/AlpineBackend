@@ -74,8 +74,36 @@ public class AdminDiscoveryControllerTests
             {
                 BanGuildFromDiscoveryRequest ban => RecordBan(ban),
                 LiftDiscoveryBanRequest lift => RecordLift(lift),
-                ListDiscoveryBansRequest => new ListDiscoveryBansResponse(),
-                SearchDiscoveryListingsRequest => new SearchDiscoveryListingsResponse(),
+                ListDiscoveryBansRequest => new ListDiscoveryBansResponse
+                {
+                    Bans =
+                    [
+                        new DiscoveryBanSummary
+                        {
+                            Id = "dban_1",
+                            GuildId = "gld_1",
+                            Reason = "Abuse reports",
+                            StaffNote = "internal only",
+                            BannedByUserId = "user_admin_1",
+                            BannedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                        },
+                    ],
+                },
+                SearchDiscoveryListingsRequest => new SearchDiscoveryListingsResponse
+                {
+                    Listings =
+                    [
+                        new DiscoveryListingSummary
+                        {
+                            GuildId = "gld_2",
+                            GuildName = "Example Guild",
+                            Headline = "Come join us",
+                            State = "Published",
+                            PublishedAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                        },
+                    ],
+                    NextCursor = "cursor_1",
+                },
                 _ => throw new NotSupportedException(message.GetType().Name),
             };
 
@@ -179,6 +207,57 @@ public class AdminDiscoveryControllerTests
         Assert.That(result.Code, Is.EqualTo("staff_check_unavailable"));
         Assert.That(result.Code, Is.Not.EqualTo("staff_required"), "an outage must not read as a plain refusal");
         Assert.That(bus.DiscoveryCalls, Is.Zero);
+    }
+
+    /// <summary>The catch block every handler shares. One route is enough to pin it; the point is
+    /// that its code is a third thing, not a relabelling of either staff refusal.</summary>
+    [Test]
+    public async Task A_discovery_outage_is_refused_with_its_own_code_distinct_from_the_staff_codes()
+    {
+        var (console, bus, _) = Console(role: "Admin", userId: "user_admin_1");
+        bus.DiscoveryUnavailable = true;
+
+        var result = Refusal(await console.BanAsync(
+            new BanGuildRequest { GuildId = "gld_1", Reason = "Abuse" }, CancellationToken.None));
+
+        Assert.That(result.Status, Is.EqualTo(StatusCodes.Status503ServiceUnavailable));
+        Assert.That(result.Code, Is.EqualTo("discovery_service_unavailable"));
+        Assert.That(result.Code, Is.Not.EqualTo("staff_check_unavailable"),
+            "a Discovery outage must not read as a staff-check outage");
+        Assert.That(result.Code, Is.Not.EqualTo("staff_required"),
+            "a Discovery outage must not read as a plain refusal");
+    }
+
+    // ── What a passing principal actually gets back ──────────────────────────────────────────────
+
+    [Test]
+    public async Task A_passing_principal_reads_the_shaped_listings_and_bans_responses()
+    {
+        var (console, _, _) = Console(role: "Moderator", userId: "user_moderator_1");
+
+        var listingsResult = (OkObjectResult)await console.ListingsAsync(
+            query: "isle", cursor: null, CancellationToken.None);
+        var bansResult = (OkObjectResult)await console.BansAsync(includeLifted: true, CancellationToken.None);
+
+        Assert.That(listingsResult.StatusCode, Is.EqualTo(200));
+        var listingsValue = listingsResult.Value!;
+        var listings = (IEnumerable<DiscoveryListingSummary>)listingsValue.GetType()
+            .GetProperty("listings")!.GetValue(listingsValue)!;
+        var nextCursor = listingsValue.GetType().GetProperty("nextCursor")!.GetValue(listingsValue) as string;
+
+        Assert.That(listings.Single().GuildId, Is.EqualTo("gld_2"));
+        Assert.That(listings.Single().GuildName, Is.EqualTo("Example Guild"));
+        Assert.That(nextCursor, Is.EqualTo("cursor_1"));
+
+        Assert.That(bansResult.StatusCode, Is.EqualTo(200));
+        var bansValue = bansResult.Value!;
+        var bans = (IEnumerable<DiscoveryBanSummary>)bansValue.GetType()
+            .GetProperty("bans")!.GetValue(bansValue)!;
+
+        Assert.That(bans.Single().GuildId, Is.EqualTo("gld_1"));
+        // StaffNote is present, unlike anything a guild member could reach - this console is
+        // staff-only, so returning it here is correct rather than a leak.
+        Assert.That(bans.Single().StaffNote, Is.EqualTo("internal only"));
     }
 
     // ── Who gets recorded ─────────────────────────────────────────────────────────────────────

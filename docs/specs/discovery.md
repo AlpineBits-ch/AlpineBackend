@@ -862,12 +862,12 @@ After plan one because it touches Guild, and before plan two because a posting i
 languages and shipping recruitment language-blind is the gap this closes.
 
 **Two.** Postings, applications, the bound-invite prerequisite in Guild, the age gate from section
-8.3, the review queue and the applicant tracker. Ships recruitment. A posting inherits the guild
+8.4, the review queue and the applicant tracker. Ships recruitment. A posting inherits the guild
 languages the way it inherits topics, and may narrow but never widen them.
 
 **Three.** Reports, staff takedown, and the write-time content rules.
 
 Plan two has two cross-service prerequisites and both belong at its front rather than in the middle
-of it: the bound invite in section 7.1, and `MeetsMinimumAgeRequest` in section 8.3. Neither is
+of it: the bound invite in section 7.1, and `MeetsMinimumAgeRequest` in section 8.4. Neither is
 discoverable from Discovery's own code, and the age gate in particular must exist before the first
 posting endpoint does, not after.

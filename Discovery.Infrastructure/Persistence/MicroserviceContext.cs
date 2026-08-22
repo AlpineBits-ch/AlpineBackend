@@ -72,7 +72,12 @@ public class MicroserviceContext : DbContext
 
         modelBuilder.Entity<InterestVisibility>(v => v.HasIndex(x => x.UserId).IsUnique());
 
-        modelBuilder.Entity<GuildProfile>(profile => profile.HasIndex(p => p.GuildId).IsUnique());
+        modelBuilder.Entity<GuildProfile>(profile =>
+        {
+            profile.HasIndex(p => p.GuildId).IsUnique();
+            profile.Property(p => p.PrimaryLanguage).HasMaxLength(35).HasDefaultValue("en");
+            profile.Property(p => p.OtherLanguages).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
+        });
 
         modelBuilder.Entity<DiscoveryBan>(ban =>
         {

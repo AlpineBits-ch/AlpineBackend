@@ -100,6 +100,50 @@ public class GuildProfileMirrorTests
     }
 
     [Test]
+    public async Task Languages_are_carried_and_a_shorter_list_replaces_rather_than_merges()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var staleAt = Now - GuildProfileMirror.Ttl - TimeSpan.FromMinutes(1);
+        ctx.GuildProfiles.Add(new GuildProfile
+        {
+            Id = GuildProfile.GenerateId(),
+            GuildId = "gild_5",
+            Name = "Multilingual",
+            PrimaryLanguage = "de",
+            OtherLanguages = ["en", "fr"],
+            ProjectedAt = staleAt,
+        });
+        await ctx.SaveChangesAsync();
+
+        var bus = new FakeMessageBus();
+        bus.RespondWith<GetGuildProfilesRequest, GetGuildProfilesResponse>(_ =>
+            new GetGuildProfilesResponse
+            {
+                Profiles =
+                [
+                    new GuildProfileDto
+                    {
+                        GuildId = "gild_5",
+                        Name = "Multilingual",
+                        MemberCount = 10,
+                        ActiveMemberCount = 4,
+                        Features = "VoiceChannels",
+                        PrimaryLanguage = "de",
+                        OtherLanguages = ["en"],
+                    },
+                ],
+            });
+
+        var result = await Mirror(ctx, bus).EnsureFreshAsync(["gild_5"], CancellationToken.None);
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(result["gild_5"].PrimaryLanguage, Is.EqualTo("de"));
+            Assert.That(result["gild_5"].OtherLanguages, Is.EquivalentTo(new[] { "en" }));
+        });
+    }
+
+    [Test]
     public async Task A_guild_the_request_could_not_answer_keeps_its_stale_copy()
     {
         await using var ctx = TestDiscoveryContext.New();

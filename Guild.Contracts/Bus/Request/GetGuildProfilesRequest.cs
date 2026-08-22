@@ -19,4 +19,6 @@ public class GuildProfileDto
     public int MemberCount { get; set; }
     public int ActiveMemberCount { get; set; }
     public string Features { get; set; } = string.Empty;
+    public string PrimaryLanguage { get; set; } = "en";
+    public IReadOnlyList<string> OtherLanguages { get; set; } = [];
 }

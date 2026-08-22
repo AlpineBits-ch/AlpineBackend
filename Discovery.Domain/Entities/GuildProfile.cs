@@ -15,5 +15,7 @@ public class GuildProfile : BaseEntity<GuildProfile>, IPrefixedEntity
     public int MemberCount { get; set; }
     public int ActiveMemberCount { get; set; }
     public string Features { get; set; } = string.Empty;
+    public string PrimaryLanguage { get; set; } = "en";
+    public List<string> OtherLanguages { get; set; } = [];
     public DateTimeOffset ProjectedAt { get; set; }
 }

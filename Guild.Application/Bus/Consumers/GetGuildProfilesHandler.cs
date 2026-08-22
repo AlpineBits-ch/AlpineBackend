@@ -31,6 +31,8 @@ public class GetGuildProfilesHandler
                 g.Id,
                 g.Name,
                 g.Features,
+                g.PrimaryLanguage,
+                g.OtherLanguages,
                 MemberCount = g.Members.Count,
             })
             .ToListAsync(ct);
@@ -49,6 +51,8 @@ public class GetGuildProfilesHandler
             // history to give one.
             ActiveMemberCount = onlineCounts.GetValueOrDefault(r.Id, 0),
             Features = r.Features.ToString(),
+            PrimaryLanguage = r.PrimaryLanguage,
+            OtherLanguages = r.OtherLanguages,
         }).ToList();
 
         return new GetGuildProfilesResponse { Profiles = profiles };

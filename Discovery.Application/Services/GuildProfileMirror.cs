@@ -84,6 +84,8 @@ public class GuildProfileMirror(
             row.MemberCount = dto.MemberCount;
             row.ActiveMemberCount = dto.ActiveMemberCount;
             row.Features = dto.Features;
+            row.PrimaryLanguage = dto.PrimaryLanguage;
+            row.OtherLanguages = [.. dto.OtherLanguages];
             row.ProjectedAt = now;
         }
 

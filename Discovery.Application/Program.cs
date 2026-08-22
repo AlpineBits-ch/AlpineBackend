@@ -20,6 +20,8 @@ builder.Services.AddGracefulShutdownHealthCheck();
 builder.Services.AddInfrastructure();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<TopicResolver>();
+builder.Services.AddScoped<InterestService>();
+builder.Services.AddScoped<ListingRealtime>();
 
 var redis = Env.Redis;
 builder.Services.AddStackExchangeRedisCache(config =>

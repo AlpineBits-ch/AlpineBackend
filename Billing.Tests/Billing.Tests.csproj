@@ -46,4 +46,9 @@
                Link="TestConventions\AsyncVoidTestConventionTests.cs" />
     </ItemGroup>
 
+    <ItemGroup>
+      <Compile Include="..\TestConventions\WolverineHandlerNamingConventionTests.cs"
+               Link="TestConventions\WolverineHandlerNamingConventionTests.cs" />
+    </ItemGroup>
+
 </Project>

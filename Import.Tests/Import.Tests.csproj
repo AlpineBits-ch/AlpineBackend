@@ -34,4 +34,15 @@
       <ProjectReference Include="..\Import.Application\Import.Application.csproj" />
     </ItemGroup>
 
+    <!--
+      Shared architecture test: fails the build if a class with a Wolverine handler method
+      (Handle/Handles/Consume/Consumes) is not named so conventional discovery finds it. Linked
+      into each test project rather than shared through a library, because the only thing worth
+      sharing is the failure message and no existing project is referenced by all of them.
+    -->
+    <ItemGroup>
+      <Compile Include="..\TestConventions\WolverineHandlerNamingConventionTests.cs"
+               Link="TestConventions\WolverineHandlerNamingConventionTests.cs" />
+    </ItemGroup>
+
 </Project>

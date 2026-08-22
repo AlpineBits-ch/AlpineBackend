@@ -247,7 +247,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -276,7 +276,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(false);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(OutsiderId), bus, CancellationToken.None);
@@ -292,7 +292,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(topicCount: 9), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -310,7 +310,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var dto = ValidDraft(links: ["https://not-on-the-list.example.com/invite"]);
@@ -333,7 +333,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var dto = ValidDraft(links: [link]);
@@ -349,7 +349,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var dto = ValidDraft(links: [link]);
@@ -366,7 +366,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var dto = ValidDraft(links: ["ftp://discord.gg/x"]);
@@ -381,7 +381,7 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
 
         var dto = ValidDraft(topics: ["game:gapp_nonexistent"]);
@@ -410,6 +410,7 @@ public class ListingEndpointTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<EntitlementResolver>(new StubEntitlementResolver(true));
         services.AddScoped<MicroserviceContext>(_ => TestDiscoveryContext.New());
         services.AddScoped<TopicResolver>();
         services.AddScoped<ListingWriteService>();

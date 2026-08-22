@@ -48,7 +48,7 @@ public class ListingWriteService(
     TopicResolver resolver,
     TimeProvider clock,
     ILogger<ListingWriteService> logger,
-    EntitlementResolver? entitlements = null)
+    EntitlementResolver entitlements)
 {
     private const int HeadlineMaxLength = 80;
     private const int PitchMaxLength = 600;
@@ -202,13 +202,9 @@ public class ListingWriteService(
     /// The entitlement read behind <see cref="PublishAsync"/> only. Strict: unlike the display path
     /// (<c>VanityUrlService.IsEntitledAsync(strict: false)</c>), a published listing is a persistent
     /// public artifact, so an unreadable Billing service must fail closed rather than let one out.
-    /// No resolver at all is a host with no billing wired up - self-hosted, or a test - which every
-    /// source in this repo treats as "everything included".
     /// </summary>
     private async Task<bool> IsEntitledAsync(string guildId, CancellationToken ct)
     {
-        if (entitlements is null) return true;
-
         try
         {
             var set = await entitlements.ResolveAsync(EntitlementSubject.ForGuild(guildId), ct);

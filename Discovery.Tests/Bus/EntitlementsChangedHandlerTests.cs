@@ -3,6 +3,7 @@ using Discovery.Api.Bus;
 using Discovery.Api.Services;
 using Discovery.Domain.Entities;
 using Discovery.Tests.Helpers;
+using Echo.Entitlements.Caching;
 using Echo.Entitlements.Keys;
 using Echo.Entitlements.Model;
 using Echo.Entitlements.Resolution;
@@ -10,21 +11,24 @@ using Echo.Realtime;
 using Guild.Contracts.Bus.Request;
 using Guild.Contracts.Bus.Response;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Discovery.Tests.Bus;
 
 /// <summary>
 /// A lapsed plan suspends a published listing without deleting it, leaves a draft alone, ignores
-/// billing traffic for an unrelated key or a user subject, and never republishes on its own when the
-/// flag comes back - see the class doc on <see cref="EntitlementsChangedHandler"/>.
+/// billing traffic for an unrelated key or a user subject, never republishes on its own when the
+/// flag comes back, and only suspends when the resolution is unambiguous - see the class doc on
+/// <see cref="EntitlementsChangedHandler"/>.
 /// </summary>
 [TestFixture]
 public class EntitlementsChangedHandlerTests
 {
     private const string GuildId = "gld_1";
 
-    /// <summary>Answers a fixed grant for <see cref="EntitlementKeys.GuildPublicListing"/> and counts
-    /// calls, so a filtered-out event can be pinned as never having reached Billing.</summary>
+    /// <summary>Answers a fixed grant for <see cref="EntitlementKeys.GuildPublicListing"/>, at
+    /// <see cref="EntitlementPrecedence.PlanDefault"/>, and counts calls so a filtered-out event can
+    /// be pinned as never having reached Billing.</summary>
     private sealed class StubEntitlementResolver(bool granted) : EntitlementResolver([])
     {
         public int CallCount { get; private set; }
@@ -36,6 +40,18 @@ public class EntitlementsChangedHandlerTests
                 .Flag(EntitlementKeys.GuildPublicListing, granted)
                 .Build());
         }
+    }
+
+    /// <summary>Answers with nothing set for any key - the shape a catalogue outage produces, per
+    /// <see cref="EntitlementSet.ProvenanceOf"/> falling back to <see cref="EntitlementPrecedence.CatalogueDefault"/>.</summary>
+    private sealed class OutageEntitlementResolver : EntitlementResolver
+    {
+        public OutageEntitlementResolver() : base([])
+        {
+        }
+
+        public override Task<EntitlementSet> ResolveAsync(EntitlementSubject subject, CancellationToken cancellationToken = default) =>
+            Task.FromResult(EntitlementSet.Empty);
     }
 
     /// <summary>Hand-rolled no-op IHubContext&lt;EchoRealtimeHub&gt; - local to this suite the same
@@ -87,6 +103,15 @@ public class EntitlementsChangedHandlerTests
         return bus;
     }
 
+    // DisabledEntitlementCacheStore is a real no-op, so this exercises the actual invalidation path
+    // without needing Redis.
+    private static EntitlementCacheInvalidator NoOpCacheInvalidator() => new(
+        new DisabledEntitlementCacheStore(),
+        new EntitlementCacheKeyspace("test", "abcdef01"),
+        new EntitlementSetCodec(),
+        new EntitlementCacheOptions(),
+        NullLogger<EntitlementCacheInvalidator>.Instance);
+
     private static EntitlementsChanged Event(SubjectKind kind, string subjectId, params string[] changedKeys) => new()
     {
         SubjectKind = kind,
@@ -121,7 +146,7 @@ public class EntitlementsChangedHandlerTests
 
         await EntitlementsChangedHandler.Handle(
             Event(SubjectKind.Guild, GuildId, EntitlementKeys.GuildPublicListing.Name),
-            ctx, realtime, resolver, CancellationToken.None);
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
         await ctx.SaveChangesAsync();
 
         var listing = ctx.Listings.Single(l => l.GuildId == GuildId);
@@ -133,6 +158,58 @@ public class EntitlementsChangedHandlerTests
             Assert.That(hub.Sent, Has.Count.EqualTo(1));
             Assert.That(hub.Sent[0].Method, Is.EqualTo("discovery.ListingSuspended"));
             Assert.That(hub.Sent[0].UserIds, Is.EquivalentTo(new[] { "usr_member_1" }), "the bot must not be in the audience");
+        });
+    }
+
+    [Test]
+    public async Task An_empty_ChangedKeys_still_suspends_a_real_lapse()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        AddListing(ctx, ListingState.Published);
+        await ctx.SaveChangesAsync();
+
+        var bus = BusWithMembers();
+        var hub = new FakeHub();
+        var realtime = new ListingRealtime(hub, bus);
+        var resolver = new StubEntitlementResolver(granted: false);
+
+        // ChangedKeys is advisory (EntitlementsChanged.cs) and a plan version authored before this
+        // key existed omits it even on a real downgrade - an empty list must not be read as "nothing
+        // relevant changed".
+        await EntitlementsChangedHandler.Handle(
+            Event(SubjectKind.Guild, GuildId),
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        var listing = ctx.Listings.Single(l => l.GuildId == GuildId);
+        Assert.That(listing.State, Is.EqualTo(ListingState.Suspended));
+    }
+
+    [Test]
+    public async Task A_catalogue_default_provenance_does_not_suspend()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        AddListing(ctx, ListingState.Published);
+        await ctx.SaveChangesAsync();
+
+        var bus = BusWithMembers();
+        var hub = new FakeHub();
+        var realtime = new ListingRealtime(hub, bus);
+        var resolver = new OutageEntitlementResolver();
+
+        // A resolution that answers false only because nothing configured the key (a catalogue
+        // outage) is not a plan saying no - suspending on it would take a listing down for good,
+        // since regaining the flag never republishes.
+        await EntitlementsChangedHandler.Handle(
+            Event(SubjectKind.Guild, GuildId, EntitlementKeys.GuildPublicListing.Name),
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        var listing = ctx.Listings.Single(l => l.GuildId == GuildId);
+        Assert.Multiple(() =>
+        {
+            Assert.That(listing.State, Is.EqualTo(ListingState.Published));
+            Assert.That(hub.Sent, Is.Empty);
         });
     }
 
@@ -150,7 +227,7 @@ public class EntitlementsChangedHandlerTests
 
         await EntitlementsChangedHandler.Handle(
             Event(SubjectKind.Guild, GuildId, EntitlementKeys.GuildPublicListing.Name),
-            ctx, realtime, resolver, CancellationToken.None);
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
         await ctx.SaveChangesAsync();
 
         var listing = ctx.Listings.Single(l => l.GuildId == GuildId);
@@ -175,7 +252,7 @@ public class EntitlementsChangedHandlerTests
 
         await EntitlementsChangedHandler.Handle(
             Event(SubjectKind.Guild, GuildId, EntitlementKeys.GuildRecruitment.Name),
-            ctx, realtime, resolver, CancellationToken.None);
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
         await ctx.SaveChangesAsync();
 
         var listing = ctx.Listings.Single(l => l.GuildId == GuildId);
@@ -203,7 +280,7 @@ public class EntitlementsChangedHandlerTests
 
         await EntitlementsChangedHandler.Handle(
             Event(SubjectKind.Guild, GuildId, EntitlementKeys.GuildPublicListing.Name),
-            ctx, realtime, resolver, CancellationToken.None);
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
         await ctx.SaveChangesAsync();
 
         var listing = ctx.Listings.Single(l => l.GuildId == GuildId);
@@ -230,7 +307,7 @@ public class EntitlementsChangedHandlerTests
 
         await EntitlementsChangedHandler.Handle(
             Event(SubjectKind.User, "usr_someone", EntitlementKeys.GuildPublicListing.Name),
-            ctx, realtime, resolver, CancellationToken.None);
+            ctx, realtime, resolver, NoOpCacheInvalidator(), CancellationToken.None);
         await ctx.SaveChangesAsync();
 
         var listing = ctx.Listings.Single(l => l.GuildId == GuildId);

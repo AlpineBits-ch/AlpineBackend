@@ -2,6 +2,7 @@ using Billing.Contracts.Bus.Events;
 using Discovery.Api.Services;
 using Discovery.Domain.Entities;
 using Discovery.Infrastructure.Persistence;
+using Echo.Entitlements.Caching;
 using Echo.Entitlements.Keys;
 using Echo.Entitlements.Model;
 using Echo.Entitlements.Resolution;
@@ -22,19 +23,29 @@ public class EntitlementsChangedHandler
         MicroserviceContext ctx,
         ListingRealtime realtime,
         EntitlementResolver entitlements,
+        EntitlementCacheInvalidator cache,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        // Every key change on every plan raises this event - without both filters this resolves and
-        // writes on unrelated billing traffic.
         if (message.SubjectKind != SubjectKind.Guild) return;
-        if (!message.ChangedKeys.Contains(EntitlementKeys.GuildPublicListing.Name)) return;
+
+        // ChangedKeys is advisory and may be empty or omit a real change (EntitlementsChanged.cs) -
+        // only skip when it is populated and names other keys.
+        if (message.ChangedKeys.Count > 0
+            && !message.ChangedKeys.Contains(EntitlementKeys.GuildPublicListing.Name)) return;
+
+        // EntitlementCacheHandler races this handler with no ordering guarantee - invalidate first
+        // so a win by this handler cannot read the still-fresh pre-change cached set. Idempotent if
+        // the cache handler also runs.
+        await cache.InvalidateAsync(EntitlementSubject.ForGuild(message.SubjectId), ct);
 
         var set = await entitlements.ResolveAsync(EntitlementSubject.ForGuild(message.SubjectId), ct);
 
-        // Still (or again) granted. A regain is never republished here - only the owner publishes.
+        // Only the plan saying false suspends. Anything ambiguous does nothing and waits for the
+        // next event: under-suspending recovers on the next event, over-suspending never does.
         if (set.Flag(EntitlementKeys.GuildPublicListing)) return;
+        if (set.ProvenanceOf(EntitlementKeys.GuildPublicListing).Source == EntitlementPrecedence.CatalogueDefault) return;
 
         var listing = await ctx.Listings.FirstOrDefaultAsync(l => l.GuildId == message.SubjectId, ct);
         if (listing is null) return;

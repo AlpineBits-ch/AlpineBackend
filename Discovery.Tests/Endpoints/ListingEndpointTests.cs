@@ -274,10 +274,29 @@ public class ListingEndpointTests
         var dto = ValidDraft(links: ["https://not-on-the-list.example.com/invite"]);
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
 
+        var badRequest = (BadRequest<string>)result;
         Assert.Multiple(() =>
         {
-            Assert.That(result, Is.InstanceOf<BadRequest<string>>());
-            Assert.That(ctx.Listings.Any(), Is.False);
+            // A user pasting their own domain must be told a known set of sites is all that is
+            // allowed right now, not shown a generic validation error that reads as a bug.
+            Assert.That(badRequest.Value, Does.Contain("known set of sites"));
+            Assert.That(ctx.Listings.Any(), Is.False, "a rejected request must not write a partial listing");
         });
+    }
+
+    [TestCase("https://discord.gg/abc123", TestName = "An_allowed_link_host_is_accepted_Original")]
+    [TestCase("https://roll20.net/campaigns/details/12345", TestName = "An_allowed_link_host_is_accepted_NewlyAdded")]
+    public async Task An_allowed_link_host_is_accepted(string link)
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var bus = BusWithPermission(true);
+        var hub = new FakeHub();
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance);
+        var realtime = new ListingRealtime(hub, bus);
+
+        var dto = ValidDraft(links: [link]);
+        var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
+
+        Assert.That(result, Is.InstanceOf<Ok<ListingDto>>());
     }
 }

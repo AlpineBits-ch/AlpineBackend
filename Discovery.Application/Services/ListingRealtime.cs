@@ -1,4 +1,3 @@
-using Discovery.Contracts.Bus.Events;
 using Discovery.Domain.Entities;
 using Echo.Realtime;
 using Guild.Contracts.Bus.Request;
@@ -22,20 +21,12 @@ public class ListingRealtime(IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
         hub.Clients.User(userId).SendAsync("discovery.InterestsChanged", new { userId }, ct);
 
     /// <summary>
-    /// Publishes <see cref="ListingStateChanged"/> unconditionally, then fans the SignalR push out
-    /// to the guild's members. Discovery holds no membership data and the hub has no guild group -
-    /// its one convention is <c>device:{userId}:{deviceId}</c> - so the audience is resolved fresh
-    /// from Guild every call.
+    /// Fans a listing change out over SignalR. Discovery holds no membership data and the hub has
+    /// no guild group - its one convention is <c>device:{userId}:{deviceId}</c> - so the audience is
+    /// resolved fresh from Guild every call.
     /// </summary>
     public async Task ListingChangedAsync(string eventName, Listing listing, CancellationToken ct)
     {
-        await bus.PublishAsync(new ListingStateChanged
-        {
-            ListingId = listing.Id,
-            GuildId = listing.GuildId,
-            State = listing.State.ToString(),
-        });
-
         var members = await bus.InvokeAsync<ListGuildMembersResponse>(
             new ListGuildMembersRequest { GuildId = listing.GuildId, Limit = FanOutLimit }, ct);
 

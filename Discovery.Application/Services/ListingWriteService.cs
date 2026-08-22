@@ -53,11 +53,8 @@ public class ListingWriteService(
     private const int MaxTopics = 8;
     private const int MaxLinks = 3;
 
-    /// <summary>
-    /// Where a listing may point people off-platform. Not read from configuration: every allowed
-    /// host is a well-known community or social platform, not an operator-tunable setting, and
-    /// nothing in this repo yet has a per-service config surface to hang it on.
-    /// </summary>
+    // Not yet configurable - no per-service config surface exists for this. Lift it out into one
+    // the day an operator needs to tune it.
     private static readonly HashSet<string> AllowedLinkHosts = new(StringComparer.OrdinalIgnoreCase)
     {
         "discord.gg", "discord.com",
@@ -69,6 +66,11 @@ public class ListingWriteService(
         "reddit.com",
         "steamcommunity.com",
         "patreon.com",
+        "roll20.net",
+        "dndbeyond.com",
+        "startplaying.games",
+        "worldanvil.com",
+        "bsky.app",
     };
 
     // Well-formed, not valid: RFC 5646 draws that line deliberately, and checking against the
@@ -261,7 +263,7 @@ public class ListingWriteService(
         foreach (var link in dto.Links)
         {
             if (!Uri.TryCreate(link, UriKind.Absolute, out var uri) || !AllowedLinkHosts.Contains(uri.Host))
-                return $"Link is not on an allowed host: {link}";
+                return $"Only links to a known set of sites can be added right now, and {link} is not one of them.";
         }
 
         if (!Bcp47.IsMatch(dto.Language)) return "Language must be a well-formed BCP-47 tag.";

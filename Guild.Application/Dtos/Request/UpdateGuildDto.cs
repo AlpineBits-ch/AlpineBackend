@@ -29,4 +29,10 @@ public class UpdateGuildDto
 
     /// <summary>What members who have set no preference of their own fall back to.</summary>
     public NotificationLevel? DefaultMessageNotifications { get; set; }
+
+    /// <summary>Null/omitted leaves the guild's primary language untouched.</summary>
+    public string? PrimaryLanguage { get; set; }
+
+    /// <summary>Null leaves the list alone; an empty list clears it.</summary>
+    public List<string>? OtherLanguages { get; set; }
 }

@@ -5,6 +5,7 @@ using Facet.Extensions;
 using Guild.Application.Dtos.Request;
 using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
+using Guild.Domain;
 using Guild.Domain.Aggregates;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
@@ -162,6 +163,20 @@ public class GuildEndpoint
                 return Results.BadRequest("A guild default of Nothing is not allowed; members can set that for themselves.");
 
             guild.DefaultMessageNotifications = dto.DefaultMessageNotifications.Value;
+        }
+
+        if (dto.PrimaryLanguage is not null || dto.OtherLanguages is not null)
+        {
+            if (!LanguageTag.TryNormalizeSet(
+                    dto.PrimaryLanguage ?? guild.PrimaryLanguage,
+                    dto.OtherLanguages ?? guild.OtherLanguages,
+                    out var primaryLanguage, out var otherLanguages, out var languageProblem))
+            {
+                return Results.BadRequest(languageProblem);
+            }
+
+            guild.PrimaryLanguage = primaryLanguage;
+            guild.OtherLanguages = otherLanguages;
         }
 
         if (dto.Kind is not null) guild.Kind = dto.Kind.Value;

@@ -156,46 +156,58 @@ jobs:
     strategy:
       matrix:
         include:
+          # `chart` is the directory name of this service's chart in alpine-infra, used only by
+          # the "Pin this chart's version" step below to know which values.yaml to edit.
           - project: echo
             context: .
             dockerfile: Echo/Dockerfile
             image: echo
+            chart: echo
           - project: guild
             context: .
             dockerfile: Guild.Application/Dockerfile
             image: guild-application
+            chart: guild
           - project: messaging
             context: .
             dockerfile: Messaging.Application/Dockerfile
             image: messaging-application
+            chart: messaging
           - project: identity
             context: .
             dockerfile: Identity.Application/Dockerfile
             image: identity-application
+            chart: identity
           - project: social
             context: .
             dockerfile: Social.Application/Dockerfile
             image: social-application
+            chart: social
           - project: federation
             context: .
             dockerfile: Federation.Application/Dockerfile
             image: federation-application
+            chart: federation
           - project: Isle
             context: .
             dockerfile: Isle.Application/Dockerfile
             image: isle-application
+            chart: isle
           - project: Bot
             context: .
             dockerfile: Bots.Application/Dockerfile
             image: bots-application
+            chart: bots
           - project: import
             context: .
             dockerfile: Import.Application/Dockerfile
             image: import-application
+            chart: import
           - project: unfurl
             context: .
             dockerfile: Unfurl.Application/Dockerfile
             image: unfurl-application
+            chart: unfurl
           # Built and published like every other service even though a self-hosted instance never
           # starts it: LICENSE_MODE decides whether it runs, not whether an image exists. Publishing
           # it unconditionally keeps the tag set uniform, so the E2E dispatch below and anything
@@ -204,10 +216,12 @@ jobs:
             context: .
             dockerfile: Billing.Application/Dockerfile
             image: billing-application
+            chart: billing
           - project: discovery
             context: .
             dockerfile: Discovery.Application/Dockerfile
             image: discovery-application
+            chart: discovery
 
     steps:
       - name: Checkout
@@ -260,6 +274,66 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             IDENTITY_KEY_PASSWORD=${{ secrets.IDENTITY_KEY_PASSWORD }}
+
+      # Argo only redeploys on a manifest change. This chart pins version: latest and renders
+      # image: ghcr.io/alpinebits-ch/<svc>:{{ .Values.version }}, so a new `latest` push changes
+      # nothing Argo can see and nothing restarts on its own. This step writes the tag this leg
+      # just pushed into its own chart in alpine-infra, so the rendered manifest actually changes.
+      #
+      # Runs right after this leg's own push and only touches ${{ matrix.chart }}/values.yaml - a
+      # service that built cleanly deploys even if an unrelated leg is still building or failed.
+      # Twelve legs doing this at once can only race on the alpine-infra branch tip, never on file
+      # content, since no two legs ever touch the same file. A rejected push means refetch,
+      # reapply this one line, recommit, retry.
+      - name: Pin this chart's version in alpine-infra
+        env:
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          CHART: ${{ matrix.chart }}
+        run: |
+          set -euo pipefail
+          tag=$(printf '%s\n' "$TAGS" | grep -v ':latest$' | head -n 1)
+          tag="${tag##*:}"
+          if [ -z "$tag" ]; then
+            echo "::error::no immutable tag was produced for ${CHART}; refusing to touch its chart"
+            exit 1
+          fi
+
+          workdir="${RUNNER_TEMP}/alpine-infra-${CHART}"
+          rm -rf "$workdir"
+          git clone --depth 1 --branch main \
+            "https://x-access-token:${PERSONAL_ACCESS_TOKEN}@github.com/AlpineBits-ch/alpine-infra.git" \
+            "$workdir"
+          cd "$workdir"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          max_attempts=5
+          attempt=1
+          while :; do
+            # Preserves the line's own CRLF or LF ending instead of forcing one - the charts are
+            # not uniform on that and this only ever needs to touch the one version: line.
+            sed -E -i "s/^version:[^\r]*(\r?)\$/version: ${tag}\1/" "${CHART}/values.yaml"
+            if git diff --quiet -- "${CHART}/values.yaml"; then
+              echo "${CHART} already pinned to ${tag}"
+              break
+            fi
+            git commit -am "deploy(${CHART}): ${tag}"
+            if git push origin HEAD:main; then
+              echo "pushed ${CHART} at ${tag}"
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::could not push the chart update for ${CHART} after ${max_attempts} attempts"
+              exit 1
+            fi
+            echo "push rejected for ${CHART} (attempt ${attempt}/${max_attempts}), refetching and retrying"
+            git reset --hard HEAD~1
+            sleep $((RANDOM % 4 + 1))
+            git fetch --depth 1 origin main
+            git reset --hard origin/main
+            attempt=$((attempt + 1))
+          done
   # ---------------------------------------------------------------------------------------------
   # Tell the full-stack E2E suite there is a new backend to test.
   #

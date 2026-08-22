@@ -74,6 +74,8 @@ internal static class TierFixtures
                 ["guild.emoji_slots"] = "50",
                 ["guild.bots_installed"] = "3",
                 ["guild.vanity_url"] = "false",
+                ["guild.public_listing"] = "false",
+                ["guild.recruitment"] = "false",
                 ["guild.audit_log_days"] = "30",
             },
             [PlusGuild] = new()
@@ -86,6 +88,8 @@ internal static class TierFixtures
                 ["guild.emoji_slots"] = "200",
                 ["guild.bots_installed"] = "10",
                 ["guild.vanity_url"] = "false",
+                ["guild.public_listing"] = "true",
+                ["guild.recruitment"] = "true",
                 ["guild.audit_log_days"] = "90",
             },
             [ProGuild] = new()
@@ -98,6 +102,8 @@ internal static class TierFixtures
                 ["guild.emoji_slots"] = "500",
                 ["guild.bots_installed"] = "unlimited",
                 ["guild.vanity_url"] = "true",
+                ["guild.public_listing"] = "true",
+                ["guild.recruitment"] = "true",
                 ["guild.audit_log_days"] = "365",
             },
             [FreeUser] = new()

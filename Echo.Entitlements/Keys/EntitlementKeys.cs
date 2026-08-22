@@ -51,6 +51,14 @@ public static class EntitlementKeys
     public static readonly EntitlementKey GuildVanityUrl =
         EntitlementKey.Flag("guild.vanity_url", EntitlementScope.Guild, false);
 
+    /// <summary>Whether the guild may appear in the public Discovery directory.</summary>
+    public static readonly EntitlementKey GuildPublicListing =
+        EntitlementKey.Flag("guild.public_listing", EntitlementScope.Guild, false);
+
+    /// <summary>Whether the guild may post recruitment listings on Discovery.</summary>
+    public static readonly EntitlementKey GuildRecruitment =
+        EntitlementKey.Flag("guild.recruitment", EntitlementScope.Guild, false);
+
     /// <summary>How far back the audit log is readable.</summary>
     public static readonly EntitlementKey GuildAuditLogDays =
         EntitlementKey.Numeric("guild.audit_log_days", EntitlementScope.Guild, EntitlementValue.Unlimited);
@@ -87,6 +95,8 @@ public static class EntitlementKeys
         GuildBotsInstalled,
         GuildMessageMaxLength,
         GuildVanityUrl,
+        GuildPublicListing,
+        GuildRecruitment,
         GuildAuditLogDays,
         UserUploadMaxBytes,
         UserMessageMaxLength,

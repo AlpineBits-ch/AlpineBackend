@@ -295,4 +295,20 @@ public sealed class PromotionCampaignService(MicroserviceContext db, TimeProvide
                 campaign.AlertThresholdPercent, campaign.RemainingRedemptions);
         }
     }
+
+    /// <inheritdoc cref="Charge(PromotionCampaign, DateTimeOffset, ILogger?)"/>
+    public void Charge(PromotionCampaign campaign, ILogger? logger) =>
+        Charge(campaign, clock.GetUtcNow(), logger);
+
+    /// <summary>
+    /// Gives back a redemption charged for something that then failed to be created. The endpoints
+    /// catch their own refusals and return normally, so AutoApplyTransactions would otherwise commit
+    /// a charge against a subscription that does not exist.
+    /// </summary>
+    public void Release(PromotionCampaign campaign)
+    {
+        ArgumentNullException.ThrowIfNull(campaign);
+
+        if (campaign.IssuedRedemptions > 0) campaign.IssuedRedemptions -= 1;
+    }
 }

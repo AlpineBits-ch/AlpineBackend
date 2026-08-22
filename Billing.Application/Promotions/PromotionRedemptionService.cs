@@ -24,7 +24,11 @@ public sealed class PromotionRedemptionService(
     /// Records a redemption against the owner account, against the guild it was applied to, and
     /// against every identity behind it.
     /// </summary>
-    /// <param name="campaign">The campaign, which is charged one redemption here.</param>
+    /// <param name="campaign">
+    /// The campaign, already charged by the caller. Charging belongs to whoever knows when the
+    /// slot is safe to spend: charging here left the budget checked only after a real Stripe
+    /// subscription existed that a refusal could not undo.
+    /// </param>
     /// <param name="ownerUserId">The account taking the offer.</param>
     /// <param name="guildId">The guild it applies to, or null for a user-scoped campaign.</param>
     /// <param name="hashes">
@@ -45,9 +49,6 @@ public sealed class PromotionRedemptionService(
         ArgumentException.ThrowIfNullOrWhiteSpace(ownerUserId);
 
         var now = clock.GetUtcNow();
-
-        campaigns.Charge(campaign, now, logger);
-
         var endsAt = now.AddDays(campaign.TrialDays);
 
         var owner = NewRow(campaign, SubjectKind.User, ownerUserId, ownerUserId, now, endsAt);

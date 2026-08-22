@@ -50,8 +50,14 @@ public class PromotionCampaignTests
         return campaign;
     }
 
+    /// <summary>
+    /// Charge then record, the order TrialService uses: the slot is taken before anything is
+    /// created, so a closed or exhausted campaign refuses before a Stripe subscription exists.
+    /// </summary>
     private async Task RedeemAsync(PromotionCampaign campaign, string owner, string guild)
     {
+        _campaigns.Charge(campaign, null);
+
         await _redemptions.RecordAsync(
             campaign, owner, guild, PromotionIdentityHashes.None, null, CancellationToken.None);
 

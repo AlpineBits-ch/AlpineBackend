@@ -105,6 +105,28 @@ public class TrialStartTests
         return started;
     }
 
+    /// <summary>
+    /// The cap is enforced before Stripe is called, not after. Charging once the subscription
+    /// existed meant an exhausted campaign still created a live trial with the caller's card while
+    /// answering 409, because the endpoint catches the refusal and returns normally.
+    /// </summary>
+    [Test]
+    public async Task An_exhausted_campaign_refuses_before_stripe_is_touched()
+    {
+        var campaign = await OpenAsync(budget: 1);
+        await AttachCardAsync();
+        await StartAsync(campaign);
+
+        _gateway.ClearReceivedCalls();
+
+        Assert.That(
+            async () => await StartAsync(campaign, owner: "user_second", guildId: "gild_second"),
+            Throws.InstanceOf<PromotionRefusedException>());
+
+        await _gateway.DidNotReceive().CreateSubscriptionAsync(
+            Arg.Any<StripeSubscriptionRequest>(), Arg.Any<StripeIdempotencyKey>(), Arg.Any<CancellationToken>());
+    }
+
     // ── The happy path ───────────────────────────────────────────────────────
 
     [Test]

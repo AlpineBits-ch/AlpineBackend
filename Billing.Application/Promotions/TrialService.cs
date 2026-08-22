@@ -96,6 +96,11 @@ public sealed class TrialService(
                 + "first if the trial is what was wanted.");
         }
 
+        // The slot is taken before anything is created, not after. Charging once the Stripe
+        // subscription exists left the cap enforced against a subscription no refusal could undo,
+        // because the endpoint catches this and returns normally.
+        campaigns.Charge(campaign, logger);
+
         // ── Only now is anything created ─────────────────────────────────────
 
         var stripeCustomer = customer ?? await customers.EnsureAsync(
@@ -104,15 +109,24 @@ public sealed class TrialService(
         var metadata = SubscriptionCheckoutService.MetadataFor(subject, plan, version, callerUserId);
         metadata[CampaignMetadataKey] = campaign.Code;
 
-        var result = await checkout.CreateTrialWithTaxFallbackAsync(
-            stripeCustomer.StripeCustomerId,
-            version.StripePriceId!,
-            subject,
-            metadata,
-            campaign.TrialDays,
-            card?.PaymentMethodId,
-            campaign.Code,
-            cancellationToken);
+        StripeSubscriptionResult result;
+        try
+        {
+            result = await checkout.CreateTrialWithTaxFallbackAsync(
+                stripeCustomer.StripeCustomerId,
+                version.StripePriceId!,
+                subject,
+                metadata,
+                campaign.TrialDays,
+                card?.PaymentMethodId,
+                campaign.Code,
+                cancellationToken);
+        }
+        catch
+        {
+            campaigns.Release(campaign);
+            throw;
+        }
 
         var row = new Subscription
         {

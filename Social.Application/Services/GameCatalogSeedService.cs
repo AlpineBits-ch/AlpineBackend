@@ -7,7 +7,6 @@ namespace Social.Api.Services;
 /// <summary>Runs the game-catalog bootstrap seed once the service is already up.</summary>
 public sealed class GameCatalogSeedService(
     IServiceScopeFactory scopeFactory,
-    IMessageBus bus,
     ILogger<GameCatalogSeedService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -23,7 +22,12 @@ public sealed class GameCatalogSeedService(
             // Only a real apply changes rows Discovery mirrors; AlreadyCurrent and
             // SkippedLockHeld leave the catalog exactly as Discovery last saw it.
             if (outcome == SeedOutcome.Applied)
+            {
+                // IMessageBus is Wolverine-scoped; this hosted service is a singleton, so it must
+                // come from this scope, not the constructor.
+                var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
                 await bus.PublishAsync(new GameCatalogChanged { Version = GameCatalogSeedReader.Read().Version });
+            }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {

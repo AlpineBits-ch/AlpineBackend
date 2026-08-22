@@ -1,6 +1,8 @@
 using Identity.Contracts.Bus.Commands;
 using Identity.Contracts.Bus.Response;
+using Microsoft.Extensions.Caching.Memory;
 using Social.Api.Commands;
+using Social.Api.Services;
 using Social.Domain.Aggregate;
 using Social.Domain.Enums;
 using Social.Tests.Helpers;
@@ -31,9 +33,32 @@ public class PurgeUserDataCommandHandlerTests
 
     private async Task<PurgeUserDataCommandResponse> Purge(string userId)
     {
-        var response = await PurgeUserDataCommandHandler.Handle(new PurgeUserDataCommand { UserId = userId }, _context);
+        // Null S3 client: DeleteCanvasImageAsync already swallows a storage failure, and no
+        // assertion here is about the blob.
+        var files = new FileService(null!, new MemoryCache(new MemoryCacheOptions()));
+
+        var response = await PurgeUserDataCommandHandler.Handle(
+            new PurgeUserDataCommand { UserId = userId }, _context, files);
         await _context.SaveChangesAsync();
         return response;
+    }
+
+    [Test]
+    public async Task Handle_ExistingProfile_RemovesTheCanvasAndItsImages()
+    {
+        var profile = Profile.Create(new CreateProfileParams { UserId = "user-123456", Username = "tester" });
+        _context.Profiles.Add(profile);
+        _context.ProfileCanvases.Add(ProfileCanvas.Create(profile.Id, "{}", "[]"));
+        _context.ProfileCanvasImages.Add(ProfileCanvasImage.Create(profile.Id, "image/png", 10));
+        await _context.SaveChangesAsync();
+
+        await Purge("user-123456");
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(_context.ProfileCanvases.Any(c => c.ProfileId == profile.Id), Is.False);
+            Assert.That(_context.ProfileCanvasImages.Any(i => i.ProfileId == profile.Id), Is.False);
+        });
     }
 
     [Test]

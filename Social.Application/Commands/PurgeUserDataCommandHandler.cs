@@ -1,6 +1,7 @@
 using Identity.Contracts.Bus.Commands;
 using Identity.Contracts.Bus.Response;
 using Microsoft.EntityFrameworkCore;
+using Social.Api.Services;
 using Social.Domain.Enums;
 using Social.Infrastructure.Persistence;
 
@@ -9,7 +10,8 @@ namespace Social.Api.Commands;
 /// <summary>Social's participant in the AccountDeletionSaga fan-out.</summary>
 public class PurgeUserDataCommandHandler
 {
-    public static async Task<PurgeUserDataCommandResponse> Handle(PurgeUserDataCommand command, MicroserviceContext ctx)
+    public static async Task<PurgeUserDataCommandResponse> Handle(
+        PurgeUserDataCommand command, MicroserviceContext ctx, FileService files)
     {
         var profile = await ctx.Profiles.FirstOrDefaultAsync(p => p.UserId == command.UserId);
         if (profile is not null)
@@ -36,6 +38,18 @@ public class PurgeUserDataCommandHandler
             await ctx.SaveChangesAsync();
 
             ctx.Relationships.RemoveRange(relationships);
+
+            // The profile row is tombstoned rather than deleted, so the canvas would outlive the
+            // account on its cascade alone.
+            var canvas = await ctx.ProfileCanvases.Where(c => c.ProfileId == profile.Id).ToListAsync();
+            ctx.ProfileCanvases.RemoveRange(canvas);
+
+            var images = await ctx.ProfileCanvasImages.Where(i => i.ProfileId == profile.Id).ToListAsync();
+            foreach (var image in images)
+            {
+                await files.DeleteCanvasImageAsync(image.Id);
+            }
+            ctx.ProfileCanvasImages.RemoveRange(images);
         }
 
         return new PurgeUserDataCommandResponse

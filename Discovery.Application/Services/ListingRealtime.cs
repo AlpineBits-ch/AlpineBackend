@@ -10,7 +10,7 @@ namespace Discovery.Api.Services;
 /// <summary>Every SignalR push this service makes. Nothing else injects IHubContext.</summary>
 public class ListingRealtime(IHubContext<EchoRealtimeHub> hub, IMessageBus bus)
 {
-    /// <summary>Guild's own handler clamps here, so asking for more achieves nothing.</summary>
+    /// <summary>This service's own fan-out budget - Guild's handler clamps at 1000, well above it.</summary>
     private const int FanOutLimit = 500;
 
     /// <summary>

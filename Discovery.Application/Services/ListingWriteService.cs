@@ -19,20 +19,23 @@ public enum ListingWriteRefusal
     NotFound,
     NotEntitled,
     CooldownActive,
+    NotPublished,
 }
 
 /// <summary>What every <see cref="ListingWriteService"/> call answers: the listing where one exists
 /// (even on refusal, so an endpoint can read <c>BumpAvailableAt</c> off a cooldown refusal), the
-/// built DTO on success, and why not otherwise.</summary>
-public sealed record ListingWriteResult(Listing? Listing, ListingDto? Dto, ListingWriteRefusal Refusal, string? Message = null)
+/// built DTO on success, and why not otherwise. <see cref="Changed"/> is only meaningful on success -
+/// false means the call reached a domain no-op (see <see cref="ListingWriteService.UnlistAsync"/>),
+/// so a caller that fans a change out over the network knows not to.</summary>
+public sealed record ListingWriteResult(Listing? Listing, ListingDto? Dto, ListingWriteRefusal Refusal, string? Message = null, bool Changed = true)
 {
-    public bool Success => Refusal == ListingWriteRefusal.None;
-
-    public static ListingWriteResult Ok(Listing listing, ListingDto dto) => new(listing, dto, ListingWriteRefusal.None);
+    public static ListingWriteResult Ok(Listing listing, ListingDto dto, bool changed = true) =>
+        new(listing, dto, ListingWriteRefusal.None, Changed: changed);
     public static ListingWriteResult Invalid(string message) => new(null, null, ListingWriteRefusal.Invalid, message);
     public static ListingWriteResult NotFound() => new(null, null, ListingWriteRefusal.NotFound);
     public static ListingWriteResult NotEntitled(Listing listing) => new(listing, null, ListingWriteRefusal.NotEntitled);
     public static ListingWriteResult CooldownActive(Listing listing) => new(listing, null, ListingWriteRefusal.CooldownActive);
+    public static ListingWriteResult NotPublished(Listing listing) => new(listing, null, ListingWriteRefusal.NotPublished);
 }
 
 /// <summary>
@@ -84,16 +87,8 @@ public class ListingWriteService(
     /// </summary>
     public async Task<ListingWriteResult> UpsertDraftAsync(string guildId, UpsertListingDraftDto dto, CancellationToken ct)
     {
-        var topics = new List<TopicInput>();
-        foreach (var raw in dto.Topics)
-        {
-            if (!TopicRef.TryParse(raw, out var topic)) return ListingWriteResult.Invalid($"Not a topic: {raw}");
-
-            // TopicRef.TryParse slugs the id and does not hand the pre-slug text back - recompute
-            // the same substring so a minted tag gets a readable display name, not its slug.
-            var separator = raw.IndexOf(':');
-            topics.Add(new TopicInput(topic, separator >= 0 ? raw[(separator + 1)..] : raw));
-        }
+        if (!TopicInput.TryParseAll(dto.Topics, out var topics, out var badRef))
+            return ListingWriteResult.Invalid($"Not a topic: {badRef}");
 
         var distinctTopics = topics.GroupBy(t => t.Topic).Select(g => g.First()).ToList();
 
@@ -101,6 +96,20 @@ public class ListingWriteService(
             return ListingWriteResult.Invalid("Join policy must be Open or Application.");
 
         if (Validate(dto, distinctTopics) is { } problem) return ListingWriteResult.Invalid(problem);
+
+        // Games are never minted - unlike a tag, an unknown game id is a bad request, not a new row.
+        // Checked before EnsureTagsAsync touches the context, so a request naming one game that does
+        // not exist mints no tags either. Mirrors InterestService.ReplaceAsync.
+        var gameIds = distinctTopics.Where(t => t.Topic.Kind == TopicKind.Game).Select(t => t.Topic.Id).ToList();
+        if (gameIds.Count > 0)
+        {
+            var knownGameIds = await ctx.GameTopics
+                .Where(g => gameIds.Contains(g.GameApplicationId))
+                .Select(g => g.GameApplicationId)
+                .ToListAsync(ct);
+            var unknown = gameIds.Except(knownGameIds).ToList();
+            if (unknown.Count > 0) return ListingWriteResult.Invalid($"Unknown topic: game:{unknown[0]}");
+        }
 
         var listing = await ctx.Listings.Include(l => l.Topics).FirstOrDefaultAsync(l => l.GuildId == guildId, ct);
         if (listing is null)
@@ -115,7 +124,7 @@ public class ListingWriteService(
         listing.JoinPolicy = joinPolicy;
         listing.Links = dto.Links.ToList();
 
-        await resolver.EnsureTagsAsync(distinctTopics, ct);
+        var minted = await resolver.EnsureTagsAsync(distinctTopics, ct);
 
         var requested = distinctTopics.Select(t => t.Topic).ToHashSet();
         var alreadyPresent = listing.Topics.Select(t => new TopicRef(t.Kind, t.TopicId)).ToHashSet();
@@ -129,7 +138,7 @@ public class ListingWriteService(
             ctx.ListingTopics.Add(ListingTopic.For(listing.Id, input.Topic));
         }
 
-        return ListingWriteResult.Ok(listing, await DescribeAsync(listing, requested, ct));
+        return ListingWriteResult.Ok(listing, await DescribeAsync(listing, requested, minted, ct));
     }
 
     /// <summary>
@@ -150,24 +159,33 @@ public class ListingWriteService(
     /// <summary>
     /// Owner-initiated withdrawal. No entitlement check: giving a listing up must stay reachable on
     /// every plan, the same as <c>VanityUrlService</c> lets a downgraded guild clear its slug.
+    /// <see cref="Listing.Unlist"/> no-ops on anything but a <c>Published</c> listing - the result
+    /// carries that as <see cref="ListingWriteResult.Changed"/> so the endpoint does not fan out a
+    /// state change that did not happen.
     /// </summary>
     public async Task<ListingWriteResult> UnlistAsync(string guildId, CancellationToken ct)
     {
         var listing = await LoadAsync(guildId, ct);
         if (listing is null) return ListingWriteResult.NotFound();
 
+        var wasPublished = listing.State == ListingState.Published;
         listing.Unlist();
-        return await SuccessAsync(listing, ct);
+        return await SuccessAsync(listing, ct, changed: wasPublished);
     }
 
-    /// <summary>Refreshes <c>LastBumpedAt</c> for ranking, once per cooldown. A listing that is not
-    /// published cannot bump - <see cref="Listing.Bump"/> - which already covers a suspended or
-    /// lapsed guild without a second entitlement check here.</summary>
+    /// <summary>
+    /// Refreshes <c>LastBumpedAt</c> for ranking, once per cooldown. Checked here rather than left to
+    /// <see cref="Listing.Bump"/>'s single false: that method answers false both for "not published"
+    /// and "still cooling down", and collapsing them would tell a Draft or a plan-lapsed Suspended
+    /// listing to wait out a cooldown that does not exist - the countdown the client renders would be
+    /// counting down from nothing.
+    /// </summary>
     public async Task<ListingWriteResult> BumpAsync(string guildId, CancellationToken ct)
     {
         var listing = await LoadAsync(guildId, ct);
         if (listing is null) return ListingWriteResult.NotFound();
 
+        if (listing.State != ListingState.Published) return ListingWriteResult.NotPublished(listing);
         if (!listing.Bump(clock.GetUtcNow())) return ListingWriteResult.CooldownActive(listing);
 
         return await SuccessAsync(listing, ct);
@@ -178,7 +196,7 @@ public class ListingWriteService(
     /// the draft save, which resolves against the requested set instead since <c>Topics</c> reflects
     /// entities that may not exist in the store yet.</summary>
     public Task<ListingDto> DescribeAsync(Listing listing, CancellationToken ct) =>
-        DescribeAsync(listing, listing.Topics.Select(t => new TopicRef(t.Kind, t.TopicId)).ToHashSet(), ct);
+        DescribeAsync(listing, listing.Topics.Select(t => new TopicRef(t.Kind, t.TopicId)).ToHashSet(), [], ct);
 
     /// <summary>
     /// The entitlement read behind <see cref="PublishAsync"/> only. Strict: unlike the display path
@@ -210,29 +228,25 @@ public class ListingWriteService(
     private Task<Listing?> LoadAsync(string guildId, CancellationToken ct) =>
         ctx.Listings.Include(l => l.Topics).FirstOrDefaultAsync(l => l.GuildId == guildId, ct);
 
-    private async Task<ListingWriteResult> SuccessAsync(Listing listing, CancellationToken ct) =>
-        ListingWriteResult.Ok(listing, await DescribeAsync(listing, ct));
+    private async Task<ListingWriteResult> SuccessAsync(Listing listing, CancellationToken ct, bool changed = true) =>
+        ListingWriteResult.Ok(listing, await DescribeAsync(listing, ct), changed);
 
     /// <summary>
-    /// Resolves <paramref name="topicRefs"/> into <see cref="TopicDto"/>s. Falls back to a tag this
-    /// same call just minted via <c>EnsureTagsAsync</c> but has not saved yet - it will not come back
-    /// from <c>resolver.ResolveAsync</c>, which queries the store, the same trap
-    /// <c>InterestService.DescribeAsync</c> works around.
+    /// Resolves <paramref name="topicRefs"/> into <see cref="TopicDto"/>s. Falls back to
+    /// <paramref name="mintedTags"/> - <c>EnsureTagsAsync</c>'s own return value - for anything this
+    /// same call just minted but has not saved yet, since it will not come back from
+    /// <c>resolver.ResolveAsync</c>, which queries the store. Reading the tags back off the
+    /// ChangeTracker instead would be a second path for turning a topic into a row, which spec
+    /// section 16 rules out - see <c>InterestService.DescribeAsync</c>, the same fix applied there.
     /// </summary>
-    private async Task<ListingDto> DescribeAsync(Listing listing, IReadOnlySet<TopicRef> topicRefs, CancellationToken ct)
+    private async Task<ListingDto> DescribeAsync(
+        Listing listing, IReadOnlySet<TopicRef> topicRefs, IReadOnlyList<TopicDto> mintedTags, CancellationToken ct)
     {
         var resolved = await resolver.ResolveAsync(topicRefs, ct);
         var byRef = resolved.ToDictionary(t => new TopicRef(t.Kind == "game" ? TopicKind.Game : TopicKind.Tag, t.Id));
+        var mintedByRef = mintedTags.ToDictionary(t => new TopicRef(TopicKind.Tag, t.Id));
 
-        var minted = ctx.ChangeTracker.Entries<Tag>()
-            .Where(e => e.State == EntityState.Added)
-            .Select(e => e.Entity)
-            .ToDictionary(t => new TopicRef(TopicKind.Tag, t.Slug));
-
-        var topics = topicRefs.Select(r => byRef.TryGetValue(r, out var dto)
-                ? dto
-                : new TopicDto { Kind = "tag", Id = r.Id, Name = minted.TryGetValue(r, out var tag) ? tag.DisplayName : r.Id })
-            .ToList();
+        var topics = topicRefs.Select(r => byRef.TryGetValue(r, out var dto) ? dto : mintedByRef[r]).ToList();
 
         return new ListingDto
         {
@@ -262,12 +276,21 @@ public class ListingWriteService(
 
         foreach (var link in dto.Links)
         {
-            if (!Uri.TryCreate(link, UriKind.Absolute, out var uri) || !AllowedLinkHosts.Contains(uri.Host))
+            if (!Uri.TryCreate(link, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps) ||
+                !AllowedLinkHosts.Contains(WithoutWww(uri.Host)))
+            {
                 return $"Only links to a known set of sites can be added right now, and {link} is not one of them.";
+            }
         }
 
         if (!Bcp47.IsMatch(dto.Language)) return "Language must be a well-formed BCP-47 tag.";
 
         return null;
     }
+
+    // Every site on the allowlist hands out both forms, and "www.youtube.com" is what copy-paste
+    // actually gives a user - refusing it would make the allowlist reject its own entries.
+    private static string WithoutWww(string host) =>
+        host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? host[4..] : host;
 }

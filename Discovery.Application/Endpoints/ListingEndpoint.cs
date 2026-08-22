@@ -28,7 +28,7 @@ public static class ListingEndpoint
         [NotBody] IMessageBus bus,
         CancellationToken ct = default)
     {
-        if (!await HasManageGuildAsync(bus, user, guildId)) return Results.Forbid();
+        if (!await HasManageGuildAsync(bus, user, guildId, ct)) return Results.Forbid();
 
         var listing = await ctx.Listings.Include(l => l.Topics).AsNoTracking()
             .FirstOrDefaultAsync(l => l.GuildId == guildId, ct);
@@ -49,7 +49,7 @@ public static class ListingEndpoint
         [NotBody] IMessageBus bus,
         CancellationToken ct = default)
     {
-        if (!await HasManageGuildAsync(bus, user, guildId)) return Results.Forbid();
+        if (!await HasManageGuildAsync(bus, user, guildId, ct)) return Results.Forbid();
 
         var result = await writes.UpsertDraftAsync(guildId, dto, ct);
         if (result.Refusal == ListingWriteRefusal.Invalid) return Results.BadRequest(result.Message);
@@ -71,7 +71,7 @@ public static class ListingEndpoint
         [NotBody] IMessageBus bus,
         CancellationToken ct = default)
     {
-        if (!await HasManageGuildAsync(bus, user, guildId)) return Results.Forbid();
+        if (!await HasManageGuildAsync(bus, user, guildId, ct)) return Results.Forbid();
 
         var result = await writes.PublishAsync(guildId, ct);
         if (result.Refusal == ListingWriteRefusal.NotFound) return Results.NotFound();
@@ -90,12 +90,16 @@ public static class ListingEndpoint
         [NotBody] IMessageBus bus,
         CancellationToken ct = default)
     {
-        if (!await HasManageGuildAsync(bus, user, guildId)) return Results.Forbid();
+        if (!await HasManageGuildAsync(bus, user, guildId, ct)) return Results.Forbid();
 
         var result = await writes.UnlistAsync(guildId, ct);
         if (result.Refusal == ListingWriteRefusal.NotFound) return Results.NotFound();
 
-        await realtime.ListingChangedAsync("discovery.ListingUnlisted", result.Listing!, ct);
+        // Unlist() no-ops on anything but a Published listing - do not fan a state change out that
+        // did not happen.
+        if (result.Changed)
+            await realtime.ListingChangedAsync("discovery.ListingUnlisted", result.Listing!, ct);
+
         return Results.Ok(result.Dto);
     }
 
@@ -107,10 +111,17 @@ public static class ListingEndpoint
         [NotBody] IMessageBus bus,
         CancellationToken ct = default)
     {
-        if (!await HasManageGuildAsync(bus, user, guildId)) return Results.Forbid();
+        if (!await HasManageGuildAsync(bus, user, guildId, ct)) return Results.Forbid();
 
         var result = await writes.BumpAsync(guildId, ct);
         if (result.Refusal == ListingWriteRefusal.NotFound) return Results.NotFound();
+
+        if (result.Refusal == ListingWriteRefusal.NotPublished)
+        {
+            return Results.Json(
+                new { error = "listing_not_published", message = "Only a published listing can be bumped." },
+                statusCode: StatusCodes.Status409Conflict);
+        }
 
         if (result.Refusal == ListingWriteRefusal.CooldownActive)
         {
@@ -126,13 +137,13 @@ public static class ListingEndpoint
         new { error = "public_listing_not_entitled", message = "This guild's plan does not include a public listing." },
         statusCode: StatusCodes.Status403Forbidden);
 
-    private static async Task<bool> HasManageGuildAsync(IMessageBus bus, ClaimsPrincipal user, string guildId)
+    private static async Task<bool> HasManageGuildAsync(IMessageBus bus, ClaimsPrincipal user, string guildId, CancellationToken ct)
     {
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (string.IsNullOrWhiteSpace(userId)) return false;
 
         var response = await bus.InvokeAsync<HasUserPermissionToGuildResponse>(
-            new HasUserPermissionToGuildRequest { UserId = userId, GuildId = guildId, Permission = ExternalPermission.ManageGuild });
+            new HasUserPermissionToGuildRequest { UserId = userId, GuildId = guildId, Permission = ExternalPermission.ManageGuild }, ct);
 
         return response.IsAllowed;
     }

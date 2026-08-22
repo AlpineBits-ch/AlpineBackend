@@ -52,6 +52,11 @@ public class MessagingEndpoints
         var mentions = Truncate(dto.Mentions, MaxMentionsPerMessage);
         var roleMentions = Truncate(dto.RoleMentions, MaxMentionsPerMessage);
 
+        // Bumped at the end of the method, not where it is resolved: AutoApplyTransactions commits
+        // this context on return without looking at the IResult, so bumping here reordered the
+        // conversation list for a send the MLS or persona checks below went on to refuse.
+        global::Messaging.Domain.Aggregates.Conversation? sentConversation = null;
+
         if(string.IsNullOrWhiteSpace(dto.ConversationId) && string.IsNullOrWhiteSpace(dto.ChannelId)) return Results.BadRequest();
 
         // The two ids are mutually exclusive, and that has to be enforced rather than assumed.
@@ -161,6 +166,7 @@ public class MessagingEndpoints
             var conversation = await context.Conversations.Include(c => c.Members).FirstOrDefaultAsync(c => c.Id == dto.ConversationId);
             if(conversation is null) return Results.NotFound();
 
+
             if(conversation.Members.All(m => m.UserId != userId))
             {
                 return Results.Forbid();
@@ -203,8 +209,7 @@ public class MessagingEndpoints
                 if (refuseForContent) return DmRefusalResults.ExplicitContent();
             }
 
-            conversation.UpdatedAt = DateTime.UtcNow;
-
+            sentConversation = conversation;
         }
 
 
@@ -311,6 +316,8 @@ public class MessagingEndpoints
                 authorIdType = AuthorIdType.Persona;
             }
         }
+
+        if (sentConversation is not null) sentConversation.UpdatedAt = DateTime.UtcNow;
 
         var message = await bus.InvokeAsync<Message>(new CreateMessageCommand()
         {

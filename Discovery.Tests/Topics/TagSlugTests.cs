@@ -32,7 +32,10 @@ public class TagSlugTests
     [Test]
     public void Truncation_does_not_leave_a_trailing_hyphen()
     {
-        var slug = TagSlug.Normalize(new string('a', TagSlug.MaxLength) + " tail");
+        // 47 a's then a separator puts the hyphen at index 47, inside the cut, so the guard
+        // has something to trim. MaxLength a's would place it exactly on the boundary and the
+        // slice would drop it for free.
+        var slug = TagSlug.Normalize(new string('a', TagSlug.MaxLength - 1) + " tail");
         Assert.Multiple(() =>
         {
             Assert.That(slug!.Length, Is.LessThanOrEqualTo(TagSlug.MaxLength));

@@ -41,6 +41,14 @@ public class ListingRankTests
     }
 
     [Test]
+    public void A_full_interest_match_outranks_a_fresher_healthier_listing_with_none()
+    {
+        var matched = ListingRank.Score(new RankInputs(4, 4, AWeek, 0));
+        var fresherAndHealthier = ListingRank.Score(new RankInputs(0, 4, Now, 10_000));
+        Assert.That(matched, Is.GreaterThan(fresherAndHealthier));
+    }
+
+    [Test]
     public void With_no_interests_the_interest_term_is_equal_for_everyone()
     {
         var a = ListingRank.Score(new RankInputs(0, 2, Now, 100));

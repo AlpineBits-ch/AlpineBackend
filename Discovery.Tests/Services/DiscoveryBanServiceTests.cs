@@ -110,7 +110,10 @@ public class DiscoveryBanServiceTests
         await service.LiftAsync(GuildId, StaffId, Now + TimeSpan.FromDays(1), CancellationToken.None);
         await ctx.SaveChangesAsync();
 
-        // A unique index on GuildId would make this insert fail - it must not exist.
+        // Pins BanAsync's own behavior: it never checks for an existing row before inserting.
+        // EF InMemory does not enforce indexes at all, so this cannot prove the real Postgres
+        // index is non-unique - that constraint is pinned in the migration file itself
+        // (20260822105047_DiscoveryBans.cs has no `unique: true` on ix_discovery_bans_guild_id).
         await service.BanAsync(GuildId, "Second offense.", null, StaffId, Now + TimeSpan.FromDays(2), expiresAt: null, CancellationToken.None);
         await ctx.SaveChangesAsync();
 

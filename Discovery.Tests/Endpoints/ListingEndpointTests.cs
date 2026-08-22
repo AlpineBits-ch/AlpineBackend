@@ -177,6 +177,70 @@ public class ListingEndpointTests
         });
     }
 
+    // ── Ban gate ─────────────────────────────────────────────────────────────
+
+    [Test]
+    public async Task Banning_outranks_a_denied_entitlement()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var bus = BusWithPermission(true);
+        var hub = new FakeHub();
+        var realtime = new ListingRealtime(hub, bus);
+        var bans = new DiscoveryBanService(ctx, realtime);
+        // Entitlement is denied too - swapping the ban check and the entitlement check in
+        // PublishAsync would still leave this suite green without this test.
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
+            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(false), bans);
+
+        await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        await bans.BanAsync(GuildId, "Directory abuse.", "Internal note.", "usr_staff", Now, expiresAt: null, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        var result = await ListingEndpoint.PublishAsync(GuildId, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
+
+        var value = GetValue(result);
+        Assert.Multiple(() =>
+        {
+            Assert.That(GetStatusCode(result), Is.EqualTo(StatusCodes.Status403Forbidden));
+            Assert.That(value.GetType().GetProperty("error")!.GetValue(value), Is.EqualTo("discovery_banned"));
+            Assert.That(value.GetType().GetProperty("message")!.GetValue(value), Is.EqualTo("Directory abuse."));
+        });
+    }
+
+    [Test]
+    public async Task SuspendedMessage_carries_the_reason_and_never_the_staff_note()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        var bus = BusWithPermission(true);
+        var hub = new FakeHub();
+        var realtime = new ListingRealtime(hub, bus);
+        var bans = new DiscoveryBanService(ctx, realtime);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
+            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), bans);
+
+        await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+        await ListingEndpoint.PublishAsync(GuildId, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        await bans.BanAsync(GuildId, "Shown to the owner.", "Never shown to the owner.", "usr_staff", Now, expiresAt: null, CancellationToken.None);
+        await ctx.SaveChangesAsync();
+
+        var result = await ListingEndpoint.GetAsync(GuildId, ctx, writes, Principal(ManagerId), bus, CancellationToken.None);
+
+        var dto = ((Ok<ListingDto>)result).Value!;
+        Assert.Multiple(() =>
+        {
+            Assert.That(dto.SuspendedMessage, Is.EqualTo("Shown to the owner."));
+            Assert.That(dto.SuspendedMessage, Is.Not.EqualTo("Never shown to the owner."));
+            // Structural guarantee, not just this test's payload: the DTO the owner reads has no
+            // field the StaffNote could ever be assigned to.
+            Assert.That(typeof(ListingDto).GetProperty("StaffNote"), Is.Null);
+        });
+    }
+
     // ── Bump ─────────────────────────────────────────────────────────────────
 
     [Test]

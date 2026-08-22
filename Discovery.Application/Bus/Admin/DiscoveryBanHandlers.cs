@@ -11,8 +11,19 @@ namespace Discovery.Api.Bus.Admin;
 /// staff - the gateway's AdminDiscoveryController resolves the acting principal and forwards it as
 /// a plain user id.
 /// </summary>
-public class DiscoveryBanHandlers
+/// <remarks>
+/// Class name is singular - "DiscoveryBanHandlers" (plural) silently drops every Handle overload
+/// from Wolverine's conventional discovery, confirmed against a clean codegen run. No other file in
+/// this repo actually exercises a plural "...Handlers" class with a Task&lt;TResponse&gt; overload
+/// successfully; do not rename this back.
+/// </remarks>
+public class DiscoveryBanHandler
 {
+    // Neither this method nor DiscoveryBanService saves. The commit still happens: Wolverine's
+    // AutoApplyTransactions walks the constructor graph and finds MicroserviceContext transitively
+    // through DiscoveryBanService, confirmed in the generated code (EfCoreEnvelopeTransaction wraps
+    // this handler and calls SaveChangesAsync). Add MicroserviceContext as a direct parameter here
+    // only if that generated frame ever disappears.
     public static async Task<BanGuildFromDiscoveryResponse> Handle(
         BanGuildFromDiscoveryRequest request, DiscoveryBanService bans, TimeProvider clock, CancellationToken ct)
     {
@@ -23,6 +34,7 @@ public class DiscoveryBanHandlers
         return new BanGuildFromDiscoveryResponse { BanId = ban.Id };
     }
 
+    // See the Ban handler's comment above - same transitive-DbContext commit path.
     public static async Task<LiftDiscoveryBanResponse> Handle(
         LiftDiscoveryBanRequest request, DiscoveryBanService bans, TimeProvider clock, CancellationToken ct)
     {
@@ -53,30 +65,30 @@ public class DiscoveryBanHandlers
     }
 
     /// <summary>The console's search over published listings, to find the guild before banning it.
-    /// Reuses DiscoveryFeedQuery's candidate filter rather than a second text-search query - the
-    /// ranking that query builds on top is skipped, this just orders by recency.</summary>
+    /// A plain Id keyset cursor, not DiscoveryFeedQuery's ranked one - this is a lookup tool for
+    /// staff, not the ranked feed, and it never reads Topics.</summary>
     public static async Task<SearchDiscoveryListingsResponse> Handle(
         SearchDiscoveryListingsRequest request, MicroserviceContext ctx, GuildProfileMirror mirror, CancellationToken ct)
     {
         const int pageSize = 20;
 
-        var candidates = await DiscoveryFeedQuery.PublishedCandidatesQuery(ctx, language: null, request.Query)
-            .ToListAsync(ct);
+        var query = ctx.Listings.AsNoTracking().Where(l => l.State == ListingState.Published);
 
-        var ordered = candidates
-            .OrderByDescending(l => l.PublishedAt)
-            .ThenBy(l => l.Id, StringComparer.Ordinal)
-            .ToList();
-
-        if (!string.IsNullOrEmpty(request.Cursor))
+        if (!string.IsNullOrWhiteSpace(request.Query))
         {
-            var cursorIndex = ordered.FindIndex(l => l.Id == request.Cursor);
-            if (cursorIndex >= 0) ordered = ordered.Skip(cursorIndex + 1).ToList();
+            var term = request.Query.Trim().ToLowerInvariant();
+            query = query.Where(l => l.Headline.ToLower().Contains(term) || l.Pitch.ToLower().Contains(term));
         }
 
-        var window = ordered.Take(pageSize + 1).ToList();
-        var hasMore = window.Count > pageSize;
-        var page = hasMore ? window.Take(pageSize).ToList() : window;
+        if (!string.IsNullOrEmpty(request.Cursor))
+            query = query.Where(l => string.Compare(l.Id, request.Cursor) > 0);
+
+        // Bounded in SQL: an unscoped admin search must not pull every published listing in the
+        // instance into memory just to page it.
+        var page = await query.OrderBy(l => l.Id).Take(pageSize + 1).ToListAsync(ct);
+
+        var hasMore = page.Count > pageSize;
+        if (hasMore) page.RemoveAt(page.Count - 1);
 
         var profiles = await mirror.EnsureFreshAsync(page.Select(l => l.GuildId).Distinct().ToList(), ct);
 

@@ -14,12 +14,8 @@ namespace Discovery.Api.Services;
 /// </summary>
 public class DiscoveryBanService(MicroserviceContext ctx, ListingRealtime realtime)
 {
-    /// <summary>
-    /// The guild's currently active ban, or null. Returns the entity rather than a bool because the
-    /// caller that matters most - <see cref="ListingWriteService.PublishAsync"/> - needs the
-    /// owner-facing <see cref="DiscoveryBan.Reason"/> for its refusal, and a second query for that
-    /// would just repeat this same predicate.
-    /// </summary>
+    /// <summary>The guild's currently active ban, or null. Returns the entity rather than a bool so
+    /// a refusal can carry the owner-facing <see cref="DiscoveryBan.Reason"/> directly.</summary>
     public Task<DiscoveryBan?> IsBannedAsync(string guildId, DateTimeOffset now, CancellationToken ct) =>
         ctx.DiscoveryBans.Where(Active(guildId, now)).FirstOrDefaultAsync(ct);
 
@@ -64,8 +60,7 @@ public class DiscoveryBanService(MicroserviceContext ctx, ListingRealtime realti
     }
 
     /// <summary>Every ban, most recent first. Active-only by default; <paramref name="includeLifted"/>
-    /// adds the history. <paramref name="guildId"/> narrows to one guild - used both by the admin
-    /// console's per-guild view and internally to find the reason behind a suspended listing.</summary>
+    /// adds the history. <paramref name="guildId"/> narrows to one guild.</summary>
     public Task<List<DiscoveryBan>> ListAsync(string? guildId, bool includeLifted, DateTimeOffset now, CancellationToken ct)
     {
         var query = ctx.DiscoveryBans.AsNoTracking().AsQueryable();

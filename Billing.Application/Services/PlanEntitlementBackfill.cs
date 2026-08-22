@@ -69,6 +69,10 @@ public static class PlanEntitlementBackfill
                     new EditPlan(merged, current.PriceMinorUnits, current.Currency, Reason),
                     PlanSeeder.SystemActor,
                     cancellationToken);
+
+                // PlanService is written for Wolverine handlers, where the middleware commits. This
+                // runs at startup, so nothing else will. Per plan, so one failure keeps the rest.
+                await db.SaveChangesAsync(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -77,6 +81,9 @@ public static class PlanEntitlementBackfill
                 logger?.LogError(ex,
                     "Could not backfill {Count} entitlement key(s) onto plan {Plan}: {Keys}",
                     missing.Count, plan.Name, string.Join(", ", missing.Select(pair => pair.Key)));
+
+                // A half-applied edit must not ride along with the next plan's save.
+                db.ChangeTracker.Clear();
                 continue;
             }
 

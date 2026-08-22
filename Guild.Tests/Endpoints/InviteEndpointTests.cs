@@ -915,6 +915,33 @@ public class InviteEndpointTests
         Assert.That(statusCode, Is.EqualTo(StatusCodes.Status403Forbidden));
     }
 
+    /// <summary>
+    /// The use is spent only once nothing can still refuse. AutoApplyTransactions commits on a
+    /// normal return without looking at the IResult, so incrementing before the verification gate
+    /// burned a one-time invite for everyone else on a redemption that was rejected.
+    /// </summary>
+    [Test]
+    public async Task RedeemInvite_VerificationLevelNotMet_DoesNotSpendTheUse()
+    {
+        await SeedRedeemableGuild(GuildVerificationLevel.Low);
+        var invite = await SeedInvite();
+        _bus.SetResponse<GetProfileByUserIdRequest>(new GetProfileByUserIdResponse { Profile = MakeProfile(UserId) });
+        _bus.SetResponse<GetUserByIdRequest>(new GetUserByIdResponse
+        {
+            User = new ApplicationUserDto { Id = UserId, Email = "a@b.com", EmailConfirmed = false, CreatedAt = DateTimeOffset.UtcNow },
+        });
+
+        await RedeemAsync(invite.Id, TestPrincipal.Create(UserId));
+        await _context.SaveChangesAsync();
+
+        var reloaded = await _context.GuildInvites.AsNoTracking().FirstAsync(i => i.Id == invite.Id);
+        Assert.Multiple(() =>
+        {
+            Assert.That(reloaded.UseCount, Is.EqualTo(0));
+            Assert.That(reloaded.State, Is.EqualTo(InviteState.Active));
+        });
+    }
+
     [Test]
     public async Task RedeemInvite_Valid_CreatesMemberAndAssignsEveryoneRole()
     {

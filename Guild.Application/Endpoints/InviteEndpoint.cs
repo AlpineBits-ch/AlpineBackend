@@ -313,9 +313,6 @@ public class InviteEndpoint
             .AnyAsync(m => m.GuildId == invite.GuildId && m.UserId == userId);
         if (alreadyMember) return Results.Conflict("User is already a member of this guild.");
 
-        invite.UseCount++;
-        if(invite.Type == InviteType.OneTime || invite.IsExhausted()) invite.State = InviteState.Expired;
-
         var guild = await ctx.Guilds.Include(guild => guild.Channels).Include(guild => guild.Roles).FirstOrDefaultAsync(g => g.Id == invite.GuildId);
         if(guild is null) return Results.NotFound();
 
@@ -360,15 +357,20 @@ public class InviteEndpoint
             OnboardingCompletedAt = onboardingRequired ? null : joinedAt,
         };
 
-        ctx.GuildMembers.Add(member);
-
         // A guild with no @everyone role is malformed rather than impossible - imports and template
-        // instantiation both build the role set themselves - and the previous `role!` turned that
-        // into an NRE (a 500) after the member had already been added to the change tracker.
+        // instantiation both build the role set themselves.
         var role = guild.Roles.FirstOrDefault(r => r.Type == RoleType.Everyone);
         if (role is null)
             return Results.Problem("Guild is missing its @everyone role; cannot complete the join.",
                 statusCode: StatusCodes.Status500InternalServerError);
+
+        // Spent here, once nothing above can still refuse. AutoApplyTransactions commits on a
+        // normal return without looking at the IResult, so an earlier increment burned a one-time
+        // invite for everyone else on a redemption that was rejected.
+        invite.UseCount++;
+        if(invite.Type == InviteType.OneTime || invite.IsExhausted()) invite.State = InviteState.Expired;
+
+        ctx.GuildMembers.Add(member);
 
         role.Members.Add(new RoleMember()
         {

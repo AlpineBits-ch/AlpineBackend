@@ -36,17 +36,8 @@ public static class InterestEndpoint
         var userId = user.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId is null) return Results.Unauthorized();
 
-        var topics = new List<TopicInput>();
-        foreach (var raw in dto.Topics)
-        {
-            if (!TopicRef.TryParse(raw, out var topic)) return Results.BadRequest($"Not a topic: {raw}");
-
-            // TopicRef.TryParse slugs the id and does not hand the pre-slug text back - recompute
-            // the same substring here so a minted tag gets a readable display name, not its slug.
-            var separator = raw.IndexOf(':');
-            var rawText = separator >= 0 ? raw[(separator + 1)..] : raw;
-            topics.Add(new TopicInput(topic, rawText));
-        }
+        if (!TopicInput.TryParseAll(dto.Topics, out var topics, out var badRef))
+            return Results.BadRequest($"Not a topic: {badRef}");
 
         // The cap bounds how many interests the user ends up with, not how verbose the request was
         // - dedup before counting, or a client that resent duplicates would get refused for it.

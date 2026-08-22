@@ -75,6 +75,7 @@ public static class ListingEndpoint
 
         var result = await writes.PublishAsync(guildId, ct);
         if (result.Refusal == ListingWriteRefusal.NotFound) return Results.NotFound();
+        if (result.Refusal == ListingWriteRefusal.Banned) return BannedResult(result.Message!);
         if (result.Refusal == ListingWriteRefusal.NotEntitled) return NotEntitledResult();
 
         await realtime.ListingChangedAsync("discovery.ListingPublished", result.Listing!, ct);
@@ -135,6 +136,11 @@ public static class ListingEndpoint
 
     private static IResult NotEntitledResult() => Results.Json(
         new { error = "public_listing_not_entitled", message = "This guild's plan does not include a public listing." },
+        statusCode: StatusCodes.Status403Forbidden);
+
+    // message is the ban's owner-facing Reason - never StaffNote, which never reaches this response.
+    private static IResult BannedResult(string message) => Results.Json(
+        new { error = "discovery_banned", message },
         statusCode: StatusCodes.Status403Forbidden);
 
     private static async Task<bool> HasManageGuildAsync(IMessageBus bus, ClaimsPrincipal user, string guildId, CancellationToken ct)

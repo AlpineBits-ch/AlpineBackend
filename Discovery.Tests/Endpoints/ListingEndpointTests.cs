@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Wolverine;
 
 namespace Discovery.Tests.Endpoints;
 
@@ -58,41 +59,6 @@ public class ListingEndpointTests
             return Task.FromResult(new EntitlementSetBuilder(EntitlementPrecedence.PlanDefault)
                 .Flag(EntitlementKeys.GuildPublicListing, granted.Value)
                 .Build());
-        }
-    }
-
-    /// <summary>Hand-rolled no-op IHubContext&lt;EchoRealtimeHub&gt; - Discovery.Tests has no
-    /// existing one (unlike Guild.Tests/Messaging.Tests), and this suite is the only place under
-    /// Discovery.Tests that needs it, so it stays local rather than becoming a new shared file.</summary>
-    private sealed class FakeHub : IHubContext<EchoRealtimeHub>
-    {
-        public List<(string Method, IReadOnlyList<string> UserIds)> Sent { get; } = [];
-
-        public IHubClients Clients { get; }
-        public IGroupManager Groups => throw new NotSupportedException();
-
-        public FakeHub() => Clients = new FakeHubClients(this);
-
-        private sealed class FakeHubClients(FakeHub owner) : IHubClients
-        {
-            public IClientProxy All => throw new NotSupportedException();
-            public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
-            public IClientProxy Client(string connectionId) => throw new NotSupportedException();
-            public IClientProxy Clients(IReadOnlyList<string> connectionIds) => throw new NotSupportedException();
-            public IClientProxy Group(string groupName) => throw new NotSupportedException();
-            public IClientProxy GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds) => throw new NotSupportedException();
-            public IClientProxy Groups(IReadOnlyList<string> groupNames) => throw new NotSupportedException();
-            public IClientProxy User(string userId) => new FakeClientProxy(owner, [userId]);
-            public IClientProxy Users(IReadOnlyList<string> userIds) => new FakeClientProxy(owner, userIds);
-        }
-
-        private sealed class FakeClientProxy(FakeHub owner, IReadOnlyList<string> userIds) : IClientProxy
-        {
-            public Task SendCoreAsync(string method, object?[] args, CancellationToken cancellationToken = default)
-            {
-                owner.Sent.Add((method, userIds));
-                return Task.CompletedTask;
-            }
         }
     }
 
@@ -144,9 +110,9 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
-            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(false));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
+            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(false), new DiscoveryBanService(ctx, realtime));
 
         await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
         await ctx.SaveChangesAsync();
@@ -167,9 +133,9 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
-            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
+            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
         await ctx.SaveChangesAsync();
@@ -196,9 +162,9 @@ public class ListingEndpointTests
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
         var resolver = new StubEntitlementResolver(true);
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
-            NullLogger<ListingWriteService>.Instance, resolver);
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
+            NullLogger<ListingWriteService>.Instance, resolver, new DiscoveryBanService(ctx, realtime));
 
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
 
@@ -219,9 +185,9 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
-            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now),
+            NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
         await ctx.SaveChangesAsync();
@@ -247,8 +213,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
         await ctx.SaveChangesAsync();
@@ -276,8 +242,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(false);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(), writes, realtime, Principal(OutsiderId), bus, CancellationToken.None);
 
@@ -292,8 +258,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, ValidDraft(topicCount: 9), writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
 
@@ -310,8 +276,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var dto = ValidDraft(links: ["https://not-on-the-list.example.com/invite"]);
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -333,8 +299,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var dto = ValidDraft(links: [link]);
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -349,8 +315,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var dto = ValidDraft(links: [link]);
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -366,8 +332,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var dto = ValidDraft(links: ["ftp://discord.gg/x"]);
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -381,8 +347,8 @@ public class ListingEndpointTests
         await using var ctx = TestDiscoveryContext.New();
         var bus = BusWithPermission(true);
         var hub = new FakeHub();
-        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true));
         var realtime = new ListingRealtime(hub, bus);
+        var writes = new ListingWriteService(ctx, new TopicResolver(ctx), new TestClock(Now), NullLogger<ListingWriteService>.Instance, new StubEntitlementResolver(true), new DiscoveryBanService(ctx, realtime));
 
         var dto = ValidDraft(topics: ["game:gapp_nonexistent"]);
         var result = await ListingEndpoint.SaveDraftAsync(GuildId, dto, writes, realtime, Principal(ManagerId), bus, CancellationToken.None);
@@ -411,8 +377,12 @@ public class ListingEndpointTests
         services.AddLogging();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<EntitlementResolver>(new StubEntitlementResolver(true));
+        services.AddSingleton<IHubContext<EchoRealtimeHub>>(new FakeHub());
+        services.AddSingleton<IMessageBus>(new FakeMessageBus());
         services.AddScoped<MicroserviceContext>(_ => TestDiscoveryContext.New());
         services.AddScoped<TopicResolver>();
+        services.AddScoped<ListingRealtime>();
+        services.AddScoped<DiscoveryBanService>();
         services.AddScoped<ListingWriteService>();
 
         using var provider = services.BuildServiceProvider();

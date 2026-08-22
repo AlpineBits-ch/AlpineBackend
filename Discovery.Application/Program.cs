@@ -25,6 +25,7 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TopicResolver>();
 builder.Services.AddScoped<InterestService>();
 builder.Services.AddScoped<ListingRealtime>();
+builder.Services.AddScoped<DiscoveryBanService>();
 builder.Services.AddScoped<ListingWriteService>();
 builder.Services.AddScoped<GuildProfileMirror>();
 builder.Services.AddScoped<DiscoveryFeedQuery>();

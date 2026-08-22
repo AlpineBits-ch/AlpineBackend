@@ -12,6 +12,11 @@ public class ListingDto
     public required IReadOnlyList<string> Links { get; init; }
     public required IReadOnlyList<TopicDto> Topics { get; init; }
     public required string State { get; init; }
+
+    /// <summary>The owner-facing reason when State is Suspended and the cause is a staff ban. Never
+    /// the ban's StaffNote - that stays in the console.</summary>
+    public string? SuspendedMessage { get; init; }
+
     public DateTimeOffset? PublishedAt { get; init; }
     public DateTimeOffset? LastBumpedAt { get; init; }
     public DateTimeOffset? BumpAvailableAt { get; init; }

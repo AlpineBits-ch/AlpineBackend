@@ -15,6 +15,7 @@ public class MicroserviceContext : DbContext
     public DbSet<UserInterest> UserInterests { get; set; }
     public DbSet<InterestVisibility> InterestVisibilities { get; set; }
     public DbSet<GuildProfile> GuildProfiles { get; set; }
+    public DbSet<DiscoveryBan> DiscoveryBans { get; set; }
 
     public MicroserviceContext(DbContextOptions<MicroserviceContext> options) : base(options) { }
 
@@ -72,6 +73,14 @@ public class MicroserviceContext : DbContext
         modelBuilder.Entity<InterestVisibility>(v => v.HasIndex(x => x.UserId).IsUnique());
 
         modelBuilder.Entity<GuildProfile>(profile => profile.HasIndex(p => p.GuildId).IsUnique());
+
+        modelBuilder.Entity<DiscoveryBan>(ban =>
+        {
+            // Not unique: a lifted ban keeps its row, and a guild can be banned again.
+            ban.HasIndex(b => b.GuildId);
+            ban.Property(b => b.Reason).HasMaxLength(500);
+            ban.Property(b => b.StaffNote).HasMaxLength(1000);
+        });
     }
 
     public override int SaveChanges()

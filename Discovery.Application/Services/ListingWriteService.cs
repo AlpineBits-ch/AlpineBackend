@@ -20,6 +20,7 @@ public enum ListingWriteRefusal
     NotEntitled,
     CooldownActive,
     NotPublished,
+    Banned,
 }
 
 /// <summary>What every <see cref="ListingWriteService"/> call answers: the listing where one exists
@@ -36,6 +37,7 @@ public sealed record ListingWriteResult(Listing? Listing, ListingDto? Dto, Listi
     public static ListingWriteResult NotEntitled(Listing listing) => new(listing, null, ListingWriteRefusal.NotEntitled);
     public static ListingWriteResult CooldownActive(Listing listing) => new(listing, null, ListingWriteRefusal.CooldownActive);
     public static ListingWriteResult NotPublished(Listing listing) => new(listing, null, ListingWriteRefusal.NotPublished);
+    public static ListingWriteResult Banned(Listing listing, string reason) => new(listing, null, ListingWriteRefusal.Banned, reason);
 }
 
 /// <summary>
@@ -48,7 +50,8 @@ public class ListingWriteService(
     TopicResolver resolver,
     TimeProvider clock,
     ILogger<ListingWriteService> logger,
-    EntitlementResolver entitlements)
+    EntitlementResolver entitlements,
+    DiscoveryBanService bans)
 {
     private const int HeadlineMaxLength = 80;
     private const int PitchMaxLength = 600;
@@ -150,9 +153,16 @@ public class ListingWriteService(
         var listing = await LoadAsync(guildId, ct);
         if (listing is null) return ListingWriteResult.NotFound();
 
+        var now = clock.GetUtcNow();
+
+        // Checked before the entitlement: telling a banned guild to upgrade its plan is worse than
+        // useless.
+        if (await bans.IsBannedAsync(guildId, now, ct) is { } activeBan)
+            return ListingWriteResult.Banned(listing, activeBan.Reason);
+
         if (!await IsEntitledAsync(guildId, ct)) return ListingWriteResult.NotEntitled(listing);
 
-        listing.Publish(clock.GetUtcNow());
+        listing.Publish(now);
         return await SuccessAsync(listing, ct);
     }
 
@@ -255,10 +265,23 @@ public class ListingWriteService(
             Links = listing.Links,
             Topics = topics,
             State = listing.State.ToString(),
+            SuspendedMessage = await SuspendedMessageAsync(listing, ct),
             PublishedAt = listing.PublishedAt,
             LastBumpedAt = listing.LastBumpedAt,
             BumpAvailableAt = listing.BumpAvailableAt,
         };
+    }
+
+    /// <summary>The owner-facing reason behind a staff suspension - the most recent ban row for the
+    /// guild, even a lifted one: lifting a ban does not republish, so the listing can still be
+    /// sitting Suspended/StaffAction with no active ban left to read the reason off.</summary>
+    private async Task<string?> SuspendedMessageAsync(Listing listing, CancellationToken ct)
+    {
+        if (listing.State != ListingState.Suspended || listing.SuspendedReason != SuspensionReason.StaffAction)
+            return null;
+
+        var history = await bans.ListAsync(listing.GuildId, includeLifted: true, clock.GetUtcNow(), ct);
+        return history.FirstOrDefault()?.Reason;
     }
 
     /// <summary>Rejects the whole request before anything is written - a partial write on a

@@ -1,10 +1,13 @@
+using Social.Contracts.Bus.Integration.Events;
 using Social.Infrastructure.Seed;
+using Wolverine;
 
 namespace Social.Api.Services;
 
 /// <summary>Runs the game-catalog bootstrap seed once the service is already up.</summary>
 public sealed class GameCatalogSeedService(
     IServiceScopeFactory scopeFactory,
+    IMessageBus bus,
     ILogger<GameCatalogSeedService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -16,6 +19,11 @@ public sealed class GameCatalogSeedService(
 
             var outcome = await seeder.SeedAsync(stoppingToken);
             logger.LogInformation("Game catalog seed outcome: {Outcome}.", outcome);
+
+            // Only a real apply changes rows Discovery mirrors; AlreadyCurrent and
+            // SkippedLockHeld leave the catalog exactly as Discovery last saw it.
+            if (outcome == SeedOutcome.Applied)
+                await bus.PublishAsync(new GameCatalogChanged { Version = GameCatalogSeedReader.Read().Version });
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {

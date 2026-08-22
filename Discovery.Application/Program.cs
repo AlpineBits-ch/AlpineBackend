@@ -1,4 +1,5 @@
 using AppEnvironment;
+using Discovery.Api.Bus;
 using Discovery.Infrastructure;
 using Discovery.Infrastructure.Persistence;
 using Echo.Auth;
@@ -33,6 +34,7 @@ builder.Services.AddSignalR(config => { config.EnableDetailedErrors = true; })
 
 builder.Services.AddWolverineHttp();
 builder.Services.AddVentaJwtBearer();
+builder.Services.AddHostedService<GameCatalogSyncService>();
 
 builder.UseWolverine(opts =>
 {

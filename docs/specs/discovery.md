@@ -45,11 +45,11 @@ Owned outright, in Discovery's own Postgres database:
 
 `Listing`, `Posting`, `Application`, `ApplicationAnswer`, `Tag`, `UserInterest`, `Report`.
 
-Mirrored by bus projection. Never a synchronous cross-service read on the query path:
+Mirrored locally, never a synchronous cross-service read on the query path:
 
 | Mirror | Source | Why it is projected |
 |---|---|---|
-| `guild_profile` | `guild.*` bus events | Name, icon, banner, member count, active-member count, enabled modules. Rendered on every card and used by the ranking function. |
+| `guild_profile` | Pulled from Guild on a 6-hour TTL | Name, icon, banner, member count, active-member count, enabled modules, rendered on every card and used by the ranking function. Pull, not event-projected: Guild publishes no guild-lifecycle events today, only the `...ForBots` family, and adding five to feed a card is a larger change to Guild than this feature earns. |
 | `game_topic` | Social's game catalog | Must be joinable inside the ranked query. About 900 KB gzipped for the whole catalog, so a local copy is cheap. |
 
 Deliberately not projected: **entitlement standing**. The plan gate is checked live through
@@ -57,17 +57,20 @@ Deliberately not projected: **entitlement standing**. The plan gate is checked l
 sells something that was not bought, which is the one staleness here with a real cost.
 
 `guild_profile` staleness is tolerable and self-correcting: a renamed guild shows its old name on a
-card until the next event lands. Worth stating rather than discovering, because it means the guild
-name on a Discovery card is not authoritative and must not be used for anything but display.
+card until the row's TTL expires and a feed request pulls it fresh. Worth stating rather than
+discovering, because it means the guild name on a Discovery card is not authoritative and must not be
+used for anything but display.
 
 ### 2.1 The consistency seam
 
 Publishing writes to Discovery and returns immediately. There is no window where a guild has
 published and Discovery does not know, because Discovery is the writer. The seam is the other
-direction: a guild renamed a moment ago still shows its old name until `guild.GuildUpdated` arrives.
+direction: a guild renamed a moment ago still shows its old name until the next card page pulls that
+guild past its TTL.
 
 This is why `guild_profile` carries `projected_at`. A projection older than 24 hours for a guild
-with a published listing is a reconcile trigger, not an error.
+with a published listing is a reconcile trigger, not an error - the pull is demand-driven, so a row
+stays that stale only when no feed page has asked for its guild in all that time.
 
 ---
 

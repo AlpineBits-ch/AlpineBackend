@@ -146,6 +146,11 @@ public static class StatusComponentCatalog
             "In-game commands and server links may not work.",
             ["isle-cluster"], 100),
 
+        new("discovery", "Community discovery",
+            "Browsing public communities and topics",
+            "Discover may not load, and searching for communities may fail.",
+            ["discovery-cluster"], 105),
+
         new(RealtimeKey, "Realtime connection",
             "The live connection that delivers messages as they happen",
             "The app may not update on its own; messages may only appear after a refresh.",

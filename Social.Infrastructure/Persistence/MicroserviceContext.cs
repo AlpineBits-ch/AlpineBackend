@@ -13,6 +13,8 @@ public class MicroserviceContext : DbContext
     public DbSet<GameApplication> GameApplications { get; set; }
     public DbSet<GameExecutable> GameExecutables { get; set; }
     public DbSet<GameCatalogState> GameCatalogStates { get; set; }
+    public DbSet<ProfileCanvas> ProfileCanvases { get; set; }
+    public DbSet<ProfileCanvasImage> ProfileCanvasImages { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -67,6 +69,34 @@ public class MicroserviceContext : DbContext
                 .HasForeignKey<Relationship>("RelatedId")
                 .OnDelete(DeleteBehavior.Cascade)
                 .IsRequired(false);
+        });
+
+        modelBuilder.Entity<ProfileCanvas>(canvasBuilder =>
+        {
+            // One canvas per profile: the write path upserts on this, so a second row would make
+            // "the" canvas ambiguous without any read ever failing.
+            canvasBuilder.HasIndex(c => c.ProfileId).IsUnique();
+
+            canvasBuilder.HasOne(c => c.Profile)
+                .WithMany()
+                .HasForeignKey(c => c.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Real jsonb, not text: this column only ever lives in Postgres.
+            canvasBuilder.Property(c => c.ThemeJson).HasColumnType("jsonb");
+            canvasBuilder.Property(c => c.WidgetsJson).HasColumnType("jsonb");
+        });
+
+        modelBuilder.Entity<ProfileCanvasImage>(imageBuilder =>
+        {
+            imageBuilder.HasIndex(i => i.ProfileId);
+
+            imageBuilder.HasOne(i => i.Profile)
+                .WithMany()
+                .HasForeignKey(i => i.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            imageBuilder.Property(i => i.ContentType).HasMaxLength(128);
         });
 
         modelBuilder.Entity<GameApplication>(gameBuilder =>

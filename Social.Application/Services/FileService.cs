@@ -171,4 +171,59 @@ public class FileService(IAmazonS3 s3Client, IMemoryCache cache)
         var key = GetBannerKey(id);
         return Task.FromResult<string?>(PresignedForWindow($"banner:{id}", key));
     }
+
+    // Canvas images are keyed by their own minted id, not by the profile: a profile holds several
+    // and the public route addresses one without knowing whose it is.
+    private static string GetCanvasImageKey(string imageId) => $"canvas/{imageId}";
+
+    public async Task<UploadedFile> UploadCanvasImageAsync(IFormFile file, string imageId)
+    {
+        var config = Env.StorageConfiguration;
+        string publicUrlBase = config.PublicUrl.TrimEnd('/');
+        string key = GetCanvasImageKey(imageId);
+
+        using var stream = file.OpenReadStream();
+        await s3Client.PutObjectAsync(new PutObjectRequest
+        {
+            BucketName = config.BucketName,
+            Key = key,
+            ContentType = file.ContentType,
+            InputStream = stream
+        });
+
+        return new UploadedFile
+        {
+            Id = imageId,
+            Url = $"{publicUrlBase}/{config.BucketName}/{key}",
+            FileName = file.FileName,
+            SizeBytes = file.Length,
+            ContentType = file.ContentType
+        };
+    }
+
+    public async Task DeleteCanvasImageAsync(string imageId)
+    {
+        try
+        {
+            await s3Client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = Env.StorageConfiguration.BucketName,
+                Key = GetCanvasImageKey(imageId)
+            });
+        }
+        catch (Exception)
+        {
+            // The row is the record of the image; a blob that is already gone still leaves the
+            // caller with nothing to fetch.
+        }
+    }
+
+    public Task<string?> GetPresignedUrlForCanvasImage(string imageId)
+    {
+        if (string.IsNullOrEmpty(imageId))
+            return Task.FromResult<string?>(null);
+
+        var key = GetCanvasImageKey(imageId);
+        return Task.FromResult<string?>(PresignedForWindow($"canvas:{imageId}", key));
+    }
 }

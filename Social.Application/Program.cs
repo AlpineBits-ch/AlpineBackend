@@ -38,6 +38,10 @@ builder.Services.AddScoped<ISharedGuildResolver, BusSharedGuildResolver>();
 builder.Services.AddScoped<IIdentityProfileFactsResolver, BusIdentityProfileFactsResolver>();
 builder.Services.AddScoped<UserDirectory>();
 
+// Profile canvas (docs/specs/profile-canvas-frontend-guide.md).
+builder.Services.AddScoped<ProfileCanvasService>();
+builder.Services.AddScoped<ProfileCanvasRealtime>();
+
 // Game catalog.
 builder.Services.AddScoped<GameCatalogSeeder>();
 builder.Services.AddScoped<GameCatalogLookup>();

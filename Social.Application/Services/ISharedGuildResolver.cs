@@ -15,6 +15,13 @@ public interface ISharedGuildResolver
         string viewerUserId, string subjectUserId, CancellationToken token = default);
 
     Task<bool> ShareAnyGuildAsync(string userA, string userB, CancellationToken token = default);
+
+    /// <summary>
+    /// Which of <paramref name="otherUserIds"/> share a guild with <paramref name="userId"/>, in
+    /// one round trip. The canvas fan-out asks this once for a whole friend list.
+    /// </summary>
+    Task<IReadOnlySet<string>> ShareAnyGuildAsync(
+        string userId, IReadOnlyCollection<string> otherUserIds, CancellationToken token = default);
 }
 
 /// <summary>Resolves shared guilds over the bus from Guild.</summary>
@@ -37,6 +44,28 @@ public sealed class BusSharedGuildResolver(IMessageBus bus, ILogger<BusSharedGui
 
     public async Task<bool> ShareAnyGuildAsync(string userA, string userB, CancellationToken token = default)
         => (await SharedSummaryAsync(userA, userB, token))?.GuildIds.Count > 0;
+
+    public async Task<IReadOnlySet<string>> ShareAnyGuildAsync(
+        string userId, IReadOnlyCollection<string> otherUserIds, CancellationToken token = default)
+    {
+        var others = otherUserIds.Where(id => !string.IsNullOrWhiteSpace(id) && id != userId).Distinct().ToList();
+        if (string.IsNullOrWhiteSpace(userId) || others.Count == 0) return new HashSet<string>();
+
+        GetSharedGuildsResponse? response;
+        try
+        {
+            response = await bus.InvokeAsync<GetSharedGuildsResponse>(
+                new GetSharedGuildsRequest { UserId = userId, OtherUserIds = others }, token);
+        }
+        catch (Exception e)
+        {
+            logger.LogWarning(e, "Batch shared-guild lookup failed for {UserId}; treating none as shared", userId);
+            return new HashSet<string>();
+        }
+
+        // A pair with no shared guilds is omitted from Shared, so the returned set is the answer.
+        return response?.Shared?.Select(s => s.OtherUserId).ToHashSet() ?? new HashSet<string>();
+    }
 
     private async Task<SharedGuildsSummary?> SharedSummaryAsync(
         string userId, string otherUserId, CancellationToken token)
@@ -75,4 +104,8 @@ public sealed class NoSharedGuildResolver : ISharedGuildResolver
 
     public Task<bool> ShareAnyGuildAsync(string userA, string userB, CancellationToken token = default)
         => Task.FromResult(false);
+
+    public Task<IReadOnlySet<string>> ShareAnyGuildAsync(
+        string userId, IReadOnlyCollection<string> otherUserIds, CancellationToken token = default)
+        => Task.FromResult<IReadOnlySet<string>>(new HashSet<string>());
 }

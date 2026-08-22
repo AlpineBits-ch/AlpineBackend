@@ -196,7 +196,7 @@ public class MicroserviceContext : DbContext
                 .HasFilter("vanity_url IS NOT NULL");
 
             guidBuilder.Property(g => g.PrimaryLanguage).HasMaxLength(35).HasDefaultValue("en");
-            guidBuilder.Property(g => g.OtherLanguages).HasColumnType("text[]").HasDefaultValue(new List<string>());
+            guidBuilder.Property(g => g.OtherLanguages).HasColumnType("text[]").HasDefaultValueSql("'{}'::text[]");
         });
 
         modelBuilder.Entity<ReadState>(readStateBuilder =>

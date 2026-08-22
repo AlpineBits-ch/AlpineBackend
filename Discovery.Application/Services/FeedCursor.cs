@@ -4,20 +4,25 @@ using System.Text;
 namespace Discovery.Api.Services;
 
 /// <summary>
-/// Opaque paging cursor over (score, listingId). The id breaks ties: score alone repeats or skips
-/// rows whenever two listings tie, which happens constantly at zero interest overlap.
+/// Opaque paging cursor over (score, listingId, now). The id breaks ties: score alone repeats or
+/// skips rows whenever two listings tie, which happens constantly at zero interest overlap. `now`
+/// rides along and is reused as the scoring clock for every later page in the same session - without
+/// it, freshness keeps decaying between page loads, two candidates whose bump times are close stop
+/// re-scoring equal, and the id tie-break above silently stops firing because the `==` branch it
+/// depends on almost never matches a live clock.
 /// </summary>
 public static class FeedCursor
 {
-    public static string Encode(double score, string listingId) =>
-        Base64UrlEncode(Encoding.UTF8.GetBytes($"{score:R}|{listingId}"));
+    public static string Encode(double score, string listingId, DateTimeOffset now) =>
+        Base64UrlEncode(Encoding.UTF8.GetBytes($"{score:R}|{listingId}|{now.ToUnixTimeMilliseconds()}"));
 
     /// <summary>False on anything malformed rather than throwing - a cursor arrives from a client,
     /// and a bad one must answer the first page, not a 500.</summary>
-    public static bool TryDecode(string? cursor, out double score, out string listingId)
+    public static bool TryDecode(string? cursor, out double score, out string listingId, out DateTimeOffset now)
     {
         score = 0;
         listingId = string.Empty;
+        now = default;
         if (string.IsNullOrEmpty(cursor)) return false;
 
         byte[] bytes;
@@ -31,13 +36,26 @@ public static class FeedCursor
         }
 
         var raw = Encoding.UTF8.GetString(bytes);
-        var separator = raw.IndexOf('|');
-        if (separator <= 0 || separator == raw.Length - 1) return false;
 
-        if (!double.TryParse(raw[..separator], NumberStyles.Float, CultureInfo.InvariantCulture, out score))
+        // listingId sits between the two separators - split from the end first, since the trailing
+        // "now" segment is the one guaranteed to contain no '|'.
+        var lastSeparator = raw.LastIndexOf('|');
+        if (lastSeparator <= 0 || lastSeparator == raw.Length - 1) return false;
+
+        var head = raw[..lastSeparator];
+        var nowPart = raw[(lastSeparator + 1)..];
+
+        var firstSeparator = head.IndexOf('|');
+        if (firstSeparator <= 0 || firstSeparator == head.Length - 1) return false;
+
+        if (!double.TryParse(head[..firstSeparator], NumberStyles.Float, CultureInfo.InvariantCulture, out score))
             return false;
 
-        listingId = raw[(separator + 1)..];
+        if (!long.TryParse(nowPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out var nowMillis))
+            return false;
+
+        listingId = head[(firstSeparator + 1)..];
+        now = DateTimeOffset.FromUnixTimeMilliseconds(nowMillis);
         return true;
     }
 

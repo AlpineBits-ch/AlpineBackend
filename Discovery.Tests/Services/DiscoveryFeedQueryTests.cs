@@ -2,6 +2,7 @@ using Discovery.Api.Services;
 using Discovery.Domain.Entities;
 using Discovery.Domain.Topics;
 using Discovery.Tests.Helpers;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Discovery.Tests.Services;
@@ -16,11 +17,11 @@ public class DiscoveryFeedQueryTests
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private static DiscoveryFeedQuery Query(TestDiscoveryContext ctx, FakeMessageBus? bus = null) => new(
+    private static DiscoveryFeedQuery Query(TestDiscoveryContext ctx, FakeMessageBus? bus = null, DateTimeOffset? now = null) => new(
         ctx,
-        new GuildProfileMirror(ctx, bus ?? new FakeMessageBus(), new TestClock(Now), NullLogger<GuildProfileMirror>.Instance),
+        new GuildProfileMirror(ctx, bus ?? new FakeMessageBus(), new TestClock(now ?? Now), NullLogger<GuildProfileMirror>.Instance),
         new TopicResolver(ctx),
-        new TestClock(Now));
+        new TestClock(now ?? Now));
 
     private static FeedRequest Request(
         string userId = "user_1",
@@ -115,16 +116,20 @@ public class DiscoveryFeedQueryTests
     [Test]
     public async Task A_topic_filter_excludes_listings_without_it()
     {
+        // OR across the requested set: a listing carrying only one of the two chosen topics still
+        // belongs on the feed - under AND every surfaced card would necessarily match every
+        // requested chip, which makes MatchedTopics unable to distinguish cards from each other.
         await using var ctx = TestDiscoveryContext.New();
         ctx.Listings.AddRange(
-            BuildListing("gild_has_it", "Has the topic", ListingState.Published, Now, TopicRef.Parse("tag:chess")),
-            BuildListing("gild_without", "Without the topic", ListingState.Published, Now, TopicRef.Parse("tag:golf")));
+            BuildListing("gild_chess_only", "Chess only", ListingState.Published, Now, TopicRef.Parse("tag:chess")),
+            BuildListing("gild_golf_only", "Golf only", ListingState.Published, Now, TopicRef.Parse("tag:golf")),
+            BuildListing("gild_neither", "Neither topic", ListingState.Published, Now, TopicRef.Parse("tag:tennis")));
         await ctx.SaveChangesAsync();
 
         var page = await Query(ctx).RunAsync(
-            Request(topics: [TopicRef.Parse("tag:chess")]), CancellationToken.None);
+            Request(topics: [TopicRef.Parse("tag:chess"), TopicRef.Parse("tag:golf")]), CancellationToken.None);
 
-        Assert.That(page.Cards.Select(c => c.GuildId), Is.EquivalentTo(new[] { "gild_has_it" }));
+        Assert.That(page.Cards.Select(c => c.GuildId), Is.EquivalentTo(new[] { "gild_chess_only", "gild_golf_only" }));
     }
 
     [Test]
@@ -153,6 +158,94 @@ public class DiscoveryFeedQueryTests
             Assert.That(card.GuildName, Is.EqualTo("The Isle"));
             Assert.That(card.GuildIconUrl, Is.EqualTo("/api/v1/guild/guilds/gild_1/icon"));
             Assert.That(card.MemberCount, Is.EqualTo(42));
+        });
+    }
+
+    [Test]
+    public async Task Paging_does_not_repeat_or_skip_equally_scored_listings()
+    {
+        // Same topics, same bump time, no interests and no guild profiles - every listing scores
+        // identically, so only the cursor's id component can order the two pages consistently.
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.Listings.AddRange(
+            BuildListing("gild_a", "A community", ListingState.Published, Now, TopicRef.Parse("tag:chess")),
+            BuildListing("gild_b", "B community", ListingState.Published, Now, TopicRef.Parse("tag:chess")),
+            BuildListing("gild_c", "C community", ListingState.Published, Now, TopicRef.Parse("tag:chess")));
+        await ctx.SaveChangesAsync();
+
+        var firstPage = await Query(ctx).RunAsync(Request(limit: 2), CancellationToken.None);
+        Assert.That(firstPage.NextCursor, Is.Not.Null);
+
+        var secondPage = await Query(ctx)
+            .RunAsync(Request(cursor: firstPage.NextCursor, limit: 2), CancellationToken.None);
+
+        var seenIds = firstPage.Cards.Concat(secondPage.Cards).Select(c => c.GuildId).ToList();
+        Assert.Multiple(() =>
+        {
+            Assert.That(firstPage.Cards, Has.Count.EqualTo(2));
+            Assert.That(secondPage.Cards, Has.Count.EqualTo(1));
+            Assert.That(secondPage.NextCursor, Is.Null);
+            Assert.That(seenIds.Distinct().Count(), Is.EqualTo(3), "no row repeated or was skipped across the page boundary");
+        });
+    }
+
+    [Test]
+    public async Task Paging_stays_consistent_even_when_the_clock_advances_between_pages()
+    {
+        // The server clock moves on between two requests, a real gap between a user's page loads.
+        // Freshness would otherwise decay differently per page and the cursor's score comparison
+        // would stop matching, silently falling back to score-only paging.
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.Listings.AddRange(
+            BuildListing("gild_a", "A community", ListingState.Published, Now, TopicRef.Parse("tag:chess")),
+            BuildListing("gild_b", "B community", ListingState.Published, Now, TopicRef.Parse("tag:chess")),
+            BuildListing("gild_c", "C community", ListingState.Published, Now, TopicRef.Parse("tag:chess")));
+        await ctx.SaveChangesAsync();
+
+        var firstPage = await Query(ctx, now: Now).RunAsync(Request(limit: 2), CancellationToken.None);
+
+        var secondPage = await Query(ctx, now: Now + TimeSpan.FromMinutes(5))
+            .RunAsync(Request(cursor: firstPage.NextCursor, limit: 2), CancellationToken.None);
+
+        var seenIds = firstPage.Cards.Concat(secondPage.Cards).Select(c => c.GuildId).ToList();
+        Assert.That(seenIds.Distinct().Count(), Is.EqualTo(3), "no row repeated once the clock had moved on between pages");
+    }
+
+    [Test]
+    public async Task A_text_query_matches_case_insensitively()
+    {
+        await using var ctx = TestDiscoveryContext.New();
+        ctx.Listings.Add(BuildListing("gild_1", "Chess Club", ListingState.Published, Now, TopicRef.Parse("tag:chess")));
+        await ctx.SaveChangesAsync();
+
+        var page = await Query(ctx).RunAsync(Request(query: "chess"), CancellationToken.None);
+
+        Assert.That(page.Cards.Select(c => c.GuildId), Is.EquivalentTo(new[] { "gild_1" }));
+    }
+
+    /// <summary>
+    /// Guards against the feed quietly reverting to fetching every listing and filtering in memory:
+    /// asserts against the real Npgsql provider (no live database - ToQueryString never executes)
+    /// that both extracted queries carry a WHERE clause rather than being a bare scan. Also the
+    /// permanent record of the translation check the OR topic filter needed - a throwaway probe run
+    /// once during development leaves nothing CI can re-run.
+    /// </summary>
+    [Test]
+    public void The_candidate_queries_filter_in_sql_rather_than_scanning_the_whole_table()
+    {
+        using var postgres = new PostgresDiscoveryContext();
+
+        var listingsSql = DiscoveryFeedQuery
+            .PublishedCandidatesQuery(postgres, "en", "chess")
+            .ToQueryString();
+        var topicIdsSql = DiscoveryFeedQuery
+            .ListingIdsForTopicQuery(postgres, TopicKind.Tag, ["chess", "golf"])
+            .ToQueryString();
+
+        Assert.Multiple(() =>
+        {
+            Assert.That(listingsSql, Does.Contain("WHERE"));
+            Assert.That(topicIdsSql, Does.Contain("WHERE"));
         });
     }
 }

@@ -28,36 +28,35 @@ public class DiscoveryFeedQuery(
 {
     public async Task<DiscoveryFeedDto> RunAsync(FeedRequest request, CancellationToken ct)
     {
+        // Public and defensive: the endpoint already clamps, but this class is a public seam in its
+        // own right and Limit = 0 against a non-empty candidate set would make page[^1] below throw.
+        var limit = Math.Clamp(request.Limit, 1, 50);
+
         var interestRows = await ctx.UserInterests
             .Where(i => i.UserId == request.UserId)
             .Select(i => new { i.Kind, i.TopicId })
             .ToListAsync(ct);
         var interests = interestRows.Select(r => (r.Kind, r.TopicId)).ToHashSet();
 
-        IQueryable<Listing> listingsQuery = ctx.Listings
-            .Include(l => l.Topics)
-            .Where(l => l.State == ListingState.Published);
+        var listingsQuery = PublishedCandidatesQuery(ctx, request.Language, request.Query);
 
-        if (!string.IsNullOrWhiteSpace(request.Language))
+        // OR across the requested set: a listing needs only one of the requested topics, not every
+        // one of them. Under AND, every card on a filtered page would necessarily carry every
+        // requested chip, which makes MatchedTopics informationally empty - the one thing spec 9.2
+        // exists for is cards differing in what they matched. Grouped by kind rather than one
+        // combined Contains over (kind, id) pairs: Contains() against two independent lists loses
+        // the pairing between them and would match a Tag id against a Game-kind row.
+        if (request.Topics.Count > 0)
         {
-            var language = request.Language.Trim();
-            listingsQuery = listingsQuery.Where(l => l.Language == language);
-        }
+            var matchingListingIds = new List<string>();
+            foreach (var group in request.Topics.GroupBy(t => t.Kind))
+            {
+                var ids = group.Select(t => t.Id).ToList();
+                matchingListingIds.AddRange(await ListingIdsForTopicQuery(ctx, group.Key, ids).ToListAsync(ct));
+            }
 
-        if (!string.IsNullOrWhiteSpace(request.Query))
-        {
-            var term = request.Query.Trim();
-            listingsQuery = listingsQuery.Where(l => l.Headline.Contains(term) || l.Pitch.Contains(term));
-        }
-
-        // AND semantics: a listing must carry every requested topic. One Where(Any) per topic
-        // rather than one combined Contains, because a method call inside a lambda nested inside
-        // another lambda is exactly what EF's InMemory provider refuses to translate.
-        foreach (var topic in request.Topics)
-        {
-            var kind = topic.Kind;
-            var id = topic.Id;
-            listingsQuery = listingsQuery.Where(l => l.Topics.Any(t => t.Kind == kind && t.TopicId == id));
+            var distinctIds = matchingListingIds.Distinct().ToList();
+            listingsQuery = listingsQuery.Where(l => distinctIds.Contains(l.Id));
         }
 
         var candidates = await listingsQuery.ToListAsync(ct);
@@ -67,10 +66,16 @@ public class DiscoveryFeedQuery(
         // TTL check and no Guild call. A live check per candidate would mean one Guild round trip
         // per listing in the instance; only the final page gets that treatment, below.
         var localProfiles = await ctx.GuildProfiles
+            .AsNoTracking()
             .Where(p => guildIds.Contains(p.GuildId))
             .ToDictionaryAsync(p => p.GuildId, ct);
 
-        var now = clock.GetUtcNow();
+        // A cursor carries the clock it was minted against - see FeedCursor's doc comment. Reusing
+        // it keeps every page of one pagination session scored against the same instant; re-reading
+        // the live clock per page would let freshness decay between requests and quietly defeat the
+        // score+id tie-break the cursor exists to guarantee.
+        var hasCursor = FeedCursor.TryDecode(request.Cursor, out var cursorScore, out var cursorId, out var cursorNow);
+        var now = hasCursor ? cursorNow : clock.GetUtcNow();
 
         // v1 scores every filtered candidate in memory rather than in SQL. Fine while published
         // listings number in the low thousands; past that the fix is a materialized score column
@@ -93,16 +98,16 @@ public class DiscoveryFeedQuery(
             .OrderByDescending(s => s.Score)
             .ThenBy(s => s.Listing.Id, StringComparer.Ordinal);
 
-        if (FeedCursor.TryDecode(request.Cursor, out var cursorScore, out var cursorId))
+        if (hasCursor)
         {
             ordered = ordered.SkipWhile(s =>
                 s.Score > cursorScore || (s.Score == cursorScore && string.CompareOrdinal(s.Listing.Id, cursorId) <= 0));
         }
 
         // One extra row past the limit, just to know whether a next page exists.
-        var window = ordered.Take(request.Limit + 1).ToList();
-        var hasMore = window.Count > request.Limit;
-        var page = hasMore ? window.Take(request.Limit).ToList() : window;
+        var window = ordered.Take(limit + 1).ToList();
+        var hasMore = window.Count > limit;
+        var page = hasMore ? window.Take(limit).ToList() : window;
 
         // Refreshed after paging, not before: a page of 24 cards refreshes at most 24 guild
         // profiles rather than every published listing in the instance.
@@ -111,8 +116,12 @@ public class DiscoveryFeedQuery(
 
         var matchedRefs = page.SelectMany(s => s.MatchedTopics).Distinct().ToList();
         var resolvedTopics = await resolver.ResolveAsync(matchedRefs, ct);
-        var topicsByRef = resolvedTopics.ToDictionary(t =>
-            new TopicRef(t.Kind == "game" ? TopicKind.Game : TopicKind.Tag, t.Id));
+        // GroupBy before the dictionary: ResolveAsync collapses an aliased tag onto its target
+        // slug, so two distinct requested refs can resolve to the same TopicRef and collide on a
+        // plain ToDictionary. Latent today, but a staff merge is exactly the tool that triggers it.
+        var topicsByRef = resolvedTopics
+            .GroupBy(t => new TopicRef(t.Kind == "game" ? TopicKind.Game : TopicKind.Tag, t.Id))
+            .ToDictionary(g => g.Key, g => g.First());
 
         var cards = page.Select(s =>
         {
@@ -137,9 +146,41 @@ public class DiscoveryFeedQuery(
             };
         }).ToList();
 
-        var nextCursor = hasMore ? FeedCursor.Encode(page[^1].Score, page[^1].Listing.Id) : null;
+        var nextCursor = hasMore ? FeedCursor.Encode(page[^1].Score, page[^1].Listing.Id, now) : null;
         return new DiscoveryFeedDto { Cards = cards, NextCursor = nextCursor };
     }
+
+    /// <summary>The SQL-side listing filter: published, matching language, and a headline/pitch
+    /// text search - both sides lowercased so "chess" finds "Chess" (see
+    /// TopicResolver.TagCandidatesQuery, same reason). AsNoTracking: a request-scoped read that gets
+    /// scored and discarded has no business entering the change tracker. Public and static so a
+    /// translation test can call ToQueryString() on it without a live database.</summary>
+    public static IQueryable<Listing> PublishedCandidatesQuery(MicroserviceContext ctx, string? language, string? query)
+    {
+        var q = ctx.Listings.Include(l => l.Topics).AsNoTracking().Where(l => l.State == ListingState.Published);
+
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            var lang = language.Trim();
+            q = q.Where(l => l.Language == lang);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var term = query.Trim().ToLowerInvariant();
+            q = q.Where(l => l.Headline.ToLower().Contains(term) || l.Pitch.ToLower().Contains(term));
+        }
+
+        return q;
+    }
+
+    /// <summary>Listing ids carrying any topic id in <paramref name="topicIds"/>, restricted to one
+    /// kind per call - matching id lists across two different kinds independently would pair a tag
+    /// id against a game-kind row. Public and static so a translation test can call ToQueryString()
+    /// on it without a live database.</summary>
+    public static IQueryable<string> ListingIdsForTopicQuery(
+        MicroserviceContext ctx, TopicKind kind, IReadOnlyCollection<string> topicIds) =>
+        ctx.ListingTopics.Where(t => t.Kind == kind && topicIds.Contains(t.TopicId)).Select(t => t.ListingId).Distinct();
 
     // Publish() always sets LastBumpedAt, so null here is an anomaly, not a case to score as
     // freshest - treat it as maximally stale rather than crash or favor it.

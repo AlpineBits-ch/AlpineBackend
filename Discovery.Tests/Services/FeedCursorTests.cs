@@ -6,56 +6,44 @@ namespace Discovery.Tests.Services;
 [TestFixture]
 public class FeedCursorTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
+
     [Test]
     public void A_cursor_round_trips()
     {
-        var cursor = FeedCursor.Encode(0.42, "disc_abc123");
-        var ok = FeedCursor.TryDecode(cursor, out var score, out var listingId);
+        var cursor = FeedCursor.Encode(0.42, "disc_abc123", Now);
+        var ok = FeedCursor.TryDecode(cursor, out var score, out var listingId, out var now);
 
         Assert.Multiple(() =>
         {
             Assert.That(ok, Is.True);
             Assert.That(score, Is.EqualTo(0.42));
             Assert.That(listingId, Is.EqualTo("disc_abc123"));
+            Assert.That(now, Is.EqualTo(Now));
         });
     }
 
     [Test]
     public void A_malformed_cursor_decodes_to_nothing_rather_than_throwing()
     {
-        var noSeparator = ToBase64Url("nopipehere");
-        var nonNumericScore = ToBase64Url("not-a-number|disc_x");
-        var emptyId = ToBase64Url("0.5|");
-        var emptyScore = ToBase64Url("|disc_x");
+        var oneSeparatorOnly = ToBase64Url("0.5|disc_x");
+        var nonNumericScore = ToBase64Url($"not-a-number|disc_x|{Now.ToUnixTimeMilliseconds()}");
+        var nonNumericNow = ToBase64Url("0.5|disc_x|not-a-timestamp");
+        var emptyId = ToBase64Url($"0.5||{Now.ToUnixTimeMilliseconds()}");
+        var emptyScore = ToBase64Url($"|disc_x|{Now.ToUnixTimeMilliseconds()}");
+        var emptyNow = ToBase64Url("0.5|disc_x|");
 
         Assert.Multiple(() =>
         {
-            Assert.That(FeedCursor.TryDecode(null, out _, out _), Is.False);
-            Assert.That(FeedCursor.TryDecode("", out _, out _), Is.False);
-            Assert.That(FeedCursor.TryDecode("%%%not-base64%%%", out _, out _), Is.False);
-            Assert.That(FeedCursor.TryDecode(noSeparator, out _, out _), Is.False);
-            Assert.That(FeedCursor.TryDecode(nonNumericScore, out _, out _), Is.False);
-            Assert.That(FeedCursor.TryDecode(emptyId, out _, out _), Is.False);
-            Assert.That(FeedCursor.TryDecode(emptyScore, out _, out _), Is.False);
-        });
-    }
-
-    [Test]
-    public void The_id_breaks_ties_so_equal_scores_page_without_repeating()
-    {
-        // Same score, two different listings - without the id in the cursor these would be
-        // indistinguishable, and paging past the first would either repeat or skip the second.
-        var first = FeedCursor.Encode(0.5, "disc_a");
-        var second = FeedCursor.Encode(0.5, "disc_b");
-
-        FeedCursor.TryDecode(first, out var scoreA, out var idA);
-        FeedCursor.TryDecode(second, out var scoreB, out var idB);
-
-        Assert.Multiple(() =>
-        {
-            Assert.That(first, Is.Not.EqualTo(second));
-            Assert.That(scoreA, Is.EqualTo(scoreB));
-            Assert.That(idA, Is.Not.EqualTo(idB));
+            Assert.That(FeedCursor.TryDecode(null, out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode("", out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode("%%%not-base64%%%", out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode(oneSeparatorOnly, out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode(nonNumericScore, out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode(nonNumericNow, out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode(emptyId, out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode(emptyScore, out _, out _, out _), Is.False);
+            Assert.That(FeedCursor.TryDecode(emptyNow, out _, out _, out _), Is.False);
         });
     }
 

@@ -292,8 +292,7 @@ jobs:
           CHART: ${{ matrix.chart }}
         run: |
           set -euo pipefail
-          tag=$(printf '%s\n' "$TAGS" | grep -v ':latest$' | head -n 1)
-          tag="${tag##*:}"
+          tag=$(printf '%s\n' "$TAGS" | awk -F: '$NF != "latest" { print $NF; exit }')
           if [ -z "$tag" ]; then
             echo "::error::no immutable tag was produced for ${CHART}; refusing to touch its chart"
             exit 1
@@ -311,14 +310,14 @@ jobs:
           max_attempts=5
           attempt=1
           while :; do
-            # Preserves the line's own CRLF or LF ending instead of forcing one - the charts are
-            # not uniform on that and this only ever needs to touch the one version: line.
+            # Keeps the line's own ending, so a chart that ever picks up CRLF does not get a
+            # whole-file diff out of a one-word change.
             sed -E -i "s/^version:[^\r]*(\r?)\$/version: ${tag}\1/" "${CHART}/values.yaml"
             if git diff --quiet -- "${CHART}/values.yaml"; then
               echo "${CHART} already pinned to ${tag}"
               break
             fi
-            git commit -am "deploy(${CHART}): ${tag}"
+            git commit -m "deploy(${CHART}): ${tag}" -- "${CHART}/values.yaml"
             if git push origin HEAD:main; then
               echo "pushed ${CHART} at ${tag}"
               break
@@ -328,10 +327,12 @@ jobs:
               exit 1
             fi
             echo "push rejected for ${CHART} (attempt ${attempt}/${max_attempts}), refetching and retrying"
-            git reset --hard HEAD~1
             sleep $((RANDOM % 4 + 1))
+            # FETCH_HEAD, not origin/main: this is a single-branch shallow clone, so whether the
+            # remote-tracking ref gets updated depends on the refspec. Resetting to a stale
+            # origin/main would re-push the same rejected commit until the attempts run out.
             git fetch --depth 1 origin main
-            git reset --hard origin/main
+            git reset --hard FETCH_HEAD
             attempt=$((attempt + 1))
           done
   # ---------------------------------------------------------------------------------------------

@@ -59,7 +59,7 @@ public class MicroserviceContext : DbContext
         modelBuilder.Entity<GameTopic>(game =>
         {
             game.HasIndex(g => g.GameApplicationId).IsUnique();
-            game.Property(g => g.Name).HasMaxLength(200);
+            // Name is Social's data, not ours to cap; a mirror must never be narrower than its source.
         });
 
         modelBuilder.Entity<UserInterest>(interest =>

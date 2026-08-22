@@ -42,6 +42,9 @@
            cache listens for. Contracts only, like Guild.Contracts below: the gateway asks Billing
            over the bus and holds none of its state. -->
       <ProjectReference Include="..\Billing.Contracts\Billing.Contracts.csproj" />
+      <!-- The admin discovery console asks Discovery over the bus and holds none of its state.
+           Contracts only, same as Billing.Contracts and Guild.Contracts. -->
+      <ProjectReference Include="..\Discovery.Contracts\Discovery.Contracts.csproj" />
       <ProjectReference Include="..\Echo.Domain\Echo.Domain.csproj" />
       <ProjectReference Include="..\Echo.Entitlements\Echo.Entitlements.csproj" />
       <ProjectReference Include="..\Echo.Infrastructure\Echo.Infrastructure.csproj" />

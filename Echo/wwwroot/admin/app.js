@@ -7452,6 +7452,8 @@
         'billing.promotion-campaign-paused': 'paused a promotion campaign',
         'billing.promotion-campaign-resumed': 'resumed a promotion campaign',
         'billing.promotion-campaign-budget-set': 'changed a promotion campaign budget',
+        'discovery.ban-issued': 'banned a guild from discovery',
+        'discovery.ban-lifted': 'lifted a discovery ban',
     };
 
     function auditVerb(action, withName = false) {

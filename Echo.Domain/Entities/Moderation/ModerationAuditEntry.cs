@@ -56,6 +56,10 @@ public static class ModerationAuditActions
     public const string WikiUnpublished = "wiki.unpublished";
     public const string WikiPageUnpublished = "wiki.page-unpublished";
 
+    // Discovery bans.
+    public const string DiscoveryBanIssued = "discovery.ban-issued";
+    public const string DiscoveryBanLifted = "discovery.ban-lifted";
+
     // The status page.
     public const string StatusIncidentCreated = "status.incident-created";
     public const string StatusIncidentUpdated = "status.incident-updated";

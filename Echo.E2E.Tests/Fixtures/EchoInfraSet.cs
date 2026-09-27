@@ -10,28 +10,26 @@ using Testcontainers.Redis;
 
 namespace Echo.E2E.Tests.Fixtures;
 
-/// <summary>One independent set of Postgres/RabbitMQ/Redis/MinIO containers.</summary>
+/// <summary>One independent set of Postgres/RabbitMQ/Redis/SeaweedFS containers.</summary>
 public sealed class EchoInfraSet : IAsyncDisposable
 {
     public const string RabbitMqUser = "admin";
     public const string RabbitMqPassword = "admin";
     public const string RedisPassword = "devpassword";
 
-    /// <summary>MinIO's own floor is eight characters for the root password; the access key has no
-    /// such rule but is kept symmetric with it.</summary>
-    public const string ObjectStorageAccessKey = "minioadmin";
-    public const string ObjectStorageSecretKey = "minioadmin";
+    public const string ObjectStorageAccessKey = "e2eaccess";
+    public const string ObjectStorageSecretKey = "e2esecret";
 
     /// <summary>Matches <c>Env.StorageConfiguration.BucketName</c>'s default so nothing has to be
     /// overridden twice.</summary>
     public const string ObjectStorageBucket = "echo-chat";
 
-    private const int MinioPort = 9000;
+    private const int ObjectStoragePort = 8333;
 
     private readonly PostgreSqlContainer _postgres;
     private readonly RabbitMqContainer _rabbitMq;
     private readonly RedisContainer _redis;
-    private readonly IContainer _minio;
+    private readonly IContainer _objectStorage;
 
     public string PostgresHost { get; private set; } = null!;
     public int PostgresPort { get; private set; }
@@ -46,12 +44,12 @@ public sealed class EchoInfraSet : IAsyncDisposable
     public string ObjectStorageUrl { get; private set; } = null!;
 
     private EchoInfraSet(
-        PostgreSqlContainer postgres, RabbitMqContainer rabbitMq, RedisContainer redis, IContainer minio)
+        PostgreSqlContainer postgres, RabbitMqContainer rabbitMq, RedisContainer redis, IContainer objectStorage)
     {
         _postgres = postgres;
         _rabbitMq = rabbitMq;
         _redis = redis;
-        _minio = minio;
+        _objectStorage = objectStorage;
     }
 
     public static async Task<EchoInfraSet> StartAsync()
@@ -74,26 +72,22 @@ public sealed class EchoInfraSet : IAsyncDisposable
             .WithCommand("redis-server", "--requirepass", RedisPassword)
             .Build();
 
-        // Built from the generic ContainerBuilder rather than Testcontainers.Minio: the module
-        // would be a new package for a container this harness configures in five lines, and the
-        // base package is already here as a dependency of the three modules above.
-        var minio = new ContainerBuilder()
-            .WithImage("minio/minio:latest")
-            .WithEnvironment("MINIO_ROOT_USER", ObjectStorageAccessKey)
-            .WithEnvironment("MINIO_ROOT_PASSWORD", ObjectStorageSecretKey)
-            .WithCommand("server", "/data")
-            .WithPortBinding(MinioPort, assignRandomHostPort: true)
-            // MinIO answers the health probe before it will serve the S3 API on a cold start, so
-            // this waits on the probe rather than on the port being open.
+        // SeaweedFS turns the AWS_* pair into its admin identity; without it the S3 API is anonymous.
+        var objectStorage = new ContainerBuilder()
+            .WithImage("chrislusf/seaweedfs:4.47")
+            .WithEnvironment("AWS_ACCESS_KEY_ID", ObjectStorageAccessKey)
+            .WithEnvironment("AWS_SECRET_ACCESS_KEY", ObjectStorageSecretKey)
+            .WithCommand("mini", "-dir=/data", $"-s3.port={ObjectStoragePort}", "-master.telemetry=false")
+            .WithPortBinding(ObjectStoragePort, assignRandomHostPort: true)
             .WithWaitStrategy(Wait.ForUnixContainer()
-                .UntilHttpRequestIsSucceeded(request => request.ForPath("/minio/health/live").ForPort(MinioPort)))
+                .UntilHttpRequestIsSucceeded(request => request.ForPath("/healthz").ForPort(ObjectStoragePort)))
             .Build();
 
-        var set = new EchoInfraSet(postgres, rabbitMq, redis, minio);
+        var set = new EchoInfraSet(postgres, rabbitMq, redis, objectStorage);
 
         // A bounded timeout here beats a silent multi-minute hang if a wait strategy ever
         // misbehaves.
-        await Task.WhenAll(postgres.StartAsync(), rabbitMq.StartAsync(), redis.StartAsync(), minio.StartAsync())
+        await Task.WhenAll(postgres.StartAsync(), rabbitMq.StartAsync(), redis.StartAsync(), objectStorage.StartAsync())
             .WaitAsync(TimeSpan.FromMinutes(3));
 
         set.PostgresHost = postgres.Hostname;
@@ -102,7 +96,7 @@ public sealed class EchoInfraSet : IAsyncDisposable
         set.RabbitMqPort = rabbitMq.GetMappedPublicPort(5672);
         set.RedisHost = redis.Hostname;
         set.RedisPort = redis.GetMappedPublicPort(6379);
-        set.ObjectStorageUrl = $"http://{minio.Hostname}:{minio.GetMappedPublicPort(MinioPort)}";
+        set.ObjectStorageUrl = $"http://{objectStorage.Hostname}:{objectStorage.GetMappedPublicPort(ObjectStoragePort)}";
 
         // Provisioned here rather than by the service that uses it: nothing in Echo creates its own
         // bucket (compose.yaml and the real deployments both assume one exists), and a harness that
@@ -120,9 +114,8 @@ public sealed class EchoInfraSet : IAsyncDisposable
             {
                 ServiceURL = ObjectStorageUrl,
                 ForcePathStyle = true,
-                // Same two settings AppEnvironment.StorageInstance applies to the real client -
-                // MinIO, like GCS's S3-interop API, rejects the SDK's default flexible-checksum
-                // trailer.
+                // Same two settings AppEnvironment.StorageInstance applies to the real client, since
+                // GCS's S3-interop API rejects the SDK's default flexible-checksum trailer.
                 RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
                 ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
             });
@@ -184,6 +177,6 @@ public sealed class EchoInfraSet : IAsyncDisposable
             _postgres.DisposeAsync().AsTask(),
             _rabbitMq.DisposeAsync().AsTask(),
             _redis.DisposeAsync().AsTask(),
-            _minio.DisposeAsync().AsTask());
+            _objectStorage.DisposeAsync().AsTask());
     }
 }

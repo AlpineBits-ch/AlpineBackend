@@ -51,7 +51,7 @@ x-app-env: &app-env
   BUCKET_NAME: "echo-chat"
   ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
   SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
-  SERVICE_URL: "http://minio:9000"
+  SERVICE_URL: "http://seaweedfs:9000"
   USE_SERVICE_URL: "true"
   REGION: "us-east-1"
 
@@ -128,38 +128,26 @@ services:
       start_period: 90s
     restart: unless-stopped
 
-  minio:
-    image: minio/minio:latest
-    container_name: minio_service
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.47
+    container_name: seaweedfs_service
     ports:
       - "9000:9000"
-      - "9001:9001"
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD}"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD}"
     volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
+      - seaweedfs_data:/data
+    configs:
+      - source: seaweedfs_s3
+        target: /etc/seaweedfs/s3.json
+    command: mini -dir=/data -s3.port=9000 -bucket=echo-chat -s3.config=/etc/seaweedfs/s3.json -master.telemetry=false
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
-
-  minio-init:
-    image: minio/mc:latest
-    container_name: minio_init_service
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      /usr/bin/mc alias set localminio http://minio:9000 \"${MINIO_ROOT_USER}\" \"${MINIO_ROOT_PASSWORD}\";
-      /usr/bin/mc mb --ignore-existing localminio/echo-chat;
-      /usr/bin/mc anonymous set public localminio/echo-chat;
-      exit 0;
-      "
 
   # ── Application Services ──────────────────────────────────────────────────────
 
@@ -342,8 +330,8 @@ services:
         condition: service_started
       federation:
         condition: service_started
-      minio-init:
-        condition: service_completed_successfully
+      seaweedfs:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/health || exit 1"]
       interval: 15s
@@ -377,9 +365,15 @@ volumes:
       type: none
       o: bind
       device: ${DATA_DIR}/scylla
-  minio_data:
+  seaweedfs_data:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${DATA_DIR}/minio
+      device: ${DATA_DIR}/seaweedfs
+
+configs:
+  # Anonymous read on the bucket, so the URLs the services hand out load without signing.
+  seaweedfs_s3:
+    content: |
+      {"identities": [{"name": "anonymous", "actions": ["Read:echo-chat"]}]}

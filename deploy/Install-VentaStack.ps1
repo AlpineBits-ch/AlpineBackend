@@ -6,7 +6,7 @@
     Windows counterpart to deploy/install.sh. Produces the same deployment from the same
     deploy/compose.yaml:
 
-      infrastructure   PostgreSQL, Redis, RabbitMQ, ScyllaDB (optional), MinIO (optional)
+      infrastructure   PostgreSQL, Redis, RabbitMQ, ScyllaDB (optional), SeaweedFS (optional)
       services         Identity, Guild, Messaging, Social, Federation, Bots, Import,
                        Isle (optional) and the Echo gateway
       edge             Caddy in front of everything for TLS termination, with automatic
@@ -347,7 +347,7 @@ if (-not $ReuseEnv) {
     $Config['USE_SCYLLA'] = if ($Scylla) { $Scylla } else { Read-YesNo 'Enable the ScyllaDB message store? (needs ~4 GB RAM; Postgres is used otherwise)' 'y' }
 
     # --- Object storage ---
-    $Config['USE_EXTERNAL_STORAGE'] = if ($ExternalStorage) { 'yes' } else { Read-YesNo 'Use external S3-compatible storage instead of the bundled MinIO?' 'n' }
+    $Config['USE_EXTERNAL_STORAGE'] = if ($ExternalStorage) { 'yes' } else { Read-YesNo 'Use external S3-compatible storage instead of the bundled SeaweedFS?' 'n' }
     if ($Config['USE_EXTERNAL_STORAGE'] -eq 'yes') {
         $Config['BUCKET_NAME']             = Format-EnvValue (Read-Answer 'Bucket name' 'echo-chat')
         $Config['ACCESS_KEY_ID']           = Format-EnvValue (Read-Answer 'S3 access key id' '')
@@ -361,7 +361,7 @@ if (-not $ReuseEnv) {
         $Config['BUCKET_NAME']             = 'echo-chat'
         $Config['ACCESS_KEY_ID']           = "venta_$(New-Secret 6)"
         $Config['SECRET_ACCESS_KEY']       = New-Secret 24
-        $Config['STORAGE_SERVICE_URL']     = 'http://minio:9000'
+        $Config['STORAGE_SERVICE_URL']     = 'http://seaweedfs:9000'
         $Config['STORAGE_USE_SERVICE_URL'] = 'true'
         $Config['STORAGE_REGION']          = 'us-east-1'
     }
@@ -413,7 +413,7 @@ $Defaults = @{
     USE_SCYLLA = 'no'; SCYLLA_PASSWORD = (New-Secret 20)
     USE_EXTERNAL_STORAGE = 'no'; BUCKET_NAME = 'echo-chat'
     ACCESS_KEY_ID = "venta_$(New-Secret 6)"; SECRET_ACCESS_KEY = (New-Secret 24)
-    STORAGE_SERVICE_URL = 'http://minio:9000'; STORAGE_USE_SERVICE_URL = 'true'; STORAGE_REGION = 'us-east-1'
+    STORAGE_SERVICE_URL = 'http://seaweedfs:9000'; STORAGE_USE_SERVICE_URL = 'true'; STORAGE_REGION = 'us-east-1'
     REDIS_PASSWORD = (New-Secret 24); RABBITMQ_USERNAME = 'venta'; RABBITMQ_PASSWORD = (New-Secret 24)
     IDENTITY_KEY_PASSWORD = (New-Secret 32); AUTH_REQUIRE_USER_EMAIL_VERIFICATION = 'false'
     ENABLE_ISLE = 'no'; ISLE_IP_ADDRESS = '10.0.0.0'; ISLE_BRIDGE_PORT = '8080'
@@ -542,15 +542,15 @@ $Config['USE_SCYLLA_DB']    = if ($Config['USE_SCYLLA'] -eq 'yes') { 'true' } el
 # switch in install.sh for the reasoning.
 switch ($Config['TLS_MODE']) {
     'letsencrypt' {
-        $Config['GATEWAY_BIND'] = '127.0.0.1:8080'; $Config['MINIO_BIND'] = '127.0.0.1:9000'
+        $Config['GATEWAY_BIND'] = '127.0.0.1:8080'; $Config['STORAGE_BIND'] = '127.0.0.1:9000'
         $Config['HAIRPIN_HOST_ENTRY'] = 'venta-hairpin.invalid:127.0.0.1'
     }
     'external-proxy' {
-        $Config['GATEWAY_BIND'] = '127.0.0.1:8080'; $Config['MINIO_BIND'] = '127.0.0.1:9000'
+        $Config['GATEWAY_BIND'] = '127.0.0.1:8080'; $Config['STORAGE_BIND'] = '127.0.0.1:9000'
         $Config['HAIRPIN_HOST_ENTRY'] = "$($Config['INSTANCE_DOMAIN']):host-gateway"
     }
     default {
-        $Config['GATEWAY_BIND'] = '0.0.0.0:8080'; $Config['MINIO_BIND'] = '0.0.0.0:9000'
+        $Config['GATEWAY_BIND'] = '0.0.0.0:8080'; $Config['STORAGE_BIND'] = '0.0.0.0:9000'
         $Config['HAIRPIN_HOST_ENTRY'] = 'venta-hairpin.invalid:127.0.0.1'
     }
 }
@@ -616,8 +616,7 @@ IMAGE_TAG="$($Config['IMAGE_TAG'])"
 HTTP_BIND="0.0.0.0:80"
 HTTPS_BIND="0.0.0.0:443"
 GATEWAY_BIND="$($Config['GATEWAY_BIND'])"
-MINIO_BIND="$($Config['MINIO_BIND'])"
-MINIO_CONSOLE_BIND="127.0.0.1:9001"
+STORAGE_BIND="$($Config['STORAGE_BIND'])"
 RABBITMQ_MGMT_BIND="127.0.0.1:15672"
 HAIRPIN_HOST_ENTRY="$($Config['HAIRPIN_HOST_ENTRY'])"
 
@@ -845,7 +844,7 @@ $($Config['STORAGE_DOMAIN']) {
 	}
 
 	# Attachment URLs are path-style: {STORAGE_PUBLIC_URL}/{bucket}/{key}
-	reverse_proxy minio:9000
+	reverse_proxy seaweedfs:9000
 }
 
 # The API reference. Served by the gateway itself, which decides what to serve from the Host

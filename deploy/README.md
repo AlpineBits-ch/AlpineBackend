@@ -24,7 +24,7 @@ can be moved between the two by copying that one file.
              ┌────────────┴────────────┐
              │                         │
       ┌──────▼──────┐           ┌──────▼──────┐
-      │ echo        │           │ minio       │  attachments, avatars, emoji
+      │ echo        │           │ seaweedfs   │  attachments, avatars, emoji
       │ (YARP + hub │           └─────────────┘
       │  + sagas)   │
       └──────┬──────┘
@@ -46,7 +46,7 @@ that complete user registration.
 
 **Infrastructure.** PostgreSQL (one database per service, plus the Wolverine
 inbox/outbox), Redis (cache, SignalR backplane, DataProtection ring), RabbitMQ (the
-Wolverine bus every service shares), ScyllaDB (message store, optional), MinIO (S3
+Wolverine bus every service shares), ScyllaDB (message store, optional), SeaweedFS (S3
 storage, optional).
 
 Each service applies its own EF Core migrations at startup, so there is no separate
@@ -127,8 +127,8 @@ remove the boot hook while keeping all data.
 | Mode | When to use | What the installer does |
 | --- | --- | --- |
 | `letsencrypt` (default) | public instance, nothing else on :80/:443 | runs Caddy, issues and renews certificates automatically, opens the firewall |
-| `external-proxy` | you already run nginx/Traefik/HAProxy | binds the gateway to `127.0.0.1:8080` and MinIO to `127.0.0.1:9000` and prints what to forward |
-| `local` | LAN or development | publishes the gateway on `:8080` and MinIO on `:9000`, no TLS |
+| `external-proxy` | you already run nginx/Traefik/HAProxy | binds the gateway to `127.0.0.1:8080` and storage to `127.0.0.1:9000` and prints what to forward |
+| `local` | LAN or development | publishes the gateway on `:8080` and storage on `:9000`, no TLS |
 
 Federation requires a publicly reachable HTTPS endpoint - remote instances fetch
 `/.well-known/federation` and post signed events to `/api/v1/federation/events`.
@@ -386,20 +386,50 @@ so refusing is the only answer that does not hand the fetcher back the job it wa
 
 Attachment URLs are path-style - `{STORAGE_PUBLIC_URL}/{bucket}/{key}` - so whatever
 serves the storage hostname must expose the bucket at the root path. The bundled Caddy
-site does exactly that. Pointing `STORAGE_PUBLIC_URL` at a CDN in front of MinIO works as
+site does exactly that. Pointing `STORAGE_PUBLIC_URL` at a CDN in front of SeaweedFS works as
 long as the path shape is preserved.
+
+### Upgrading an install that ran the bundled MinIO
+
+MinIO no longer publishes a pullable image, so the bundled store is now SeaweedFS. It starts
+with an empty bucket in a new volume; the old files stay in `venta_minio_data` until you copy
+them. `.env` needs no edits, since SeaweedFS also answers as `minio:9000`.
+
+The copy needs the old image from the local cache (`docker image ls minio/minio`), so check it
+is there before upgrading. Then, with the new stack up and the values from `deploy/.env`:
+
+```bash
+docker run -d --name minio-old --network venta_net -v venta_minio_data:/data \
+    -e MINIO_ROOT_USER="$ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$SECRET_ACCESS_KEY" \
+    minio/minio:latest server /data
+
+docker run --rm --network venta_net \
+    -e RCLONE_CONFIG_OLD_TYPE=s3 -e RCLONE_CONFIG_OLD_PROVIDER=Minio \
+    -e RCLONE_CONFIG_OLD_ENDPOINT=http://minio-old:9000 \
+    -e RCLONE_CONFIG_OLD_ACCESS_KEY_ID="$ACCESS_KEY_ID" \
+    -e RCLONE_CONFIG_OLD_SECRET_ACCESS_KEY="$SECRET_ACCESS_KEY" \
+    -e RCLONE_CONFIG_NEW_TYPE=s3 -e RCLONE_CONFIG_NEW_PROVIDER=SeaweedFS \
+    -e RCLONE_CONFIG_NEW_ENDPOINT=http://seaweedfs:9000 \
+    -e RCLONE_CONFIG_NEW_ACCESS_KEY_ID="$ACCESS_KEY_ID" \
+    -e RCLONE_CONFIG_NEW_SECRET_ACCESS_KEY="$SECRET_ACCESS_KEY" \
+    rclone/rclone:1.75.1 sync "old:$BUCKET_NAME" "new:$BUCKET_NAME"
+
+docker rm -f minio-old
+```
+
+Remove `venta_minio_data` once attachments load again.
 
 ---
 
 ## Backups
 
 State lives in named Docker volumes (`venta_postgres_data`, `venta_redis_data`,
-`venta_rabbitmq_data`, `venta_scylla_data`, `venta_minio_data`, `venta_caddy_data`).
+`venta_rabbitmq_data`, `venta_scylla_data`, `venta_seaweedfs_data`, `venta_caddy_data`).
 
 ```bash
 ventactl backup /var/backups/venta     # .env + pg_dumpall
-docker run --rm -v venta_minio_data:/data -v "$PWD:/out" alpine \
-    tar czf /out/minio-$(date +%F).tar.gz -C /data .
+docker run --rm -v venta_seaweedfs_data:/data -v "$PWD:/out" alpine \
+    tar czf /out/seaweedfs-$(date +%F).tar.gz -C /data .
 ```
 
 Back up `deploy/.env` and `deploy/generated/` together with the data: they hold the

@@ -13,7 +13,7 @@
 #
 # Profiles
 #   pg-local       built-in PostgreSQL (omit when pointing at an external database)
-#   storage-local  built-in MinIO S3 (omit when pointing at external S3/GCS)
+#   storage-local  built-in SeaweedFS S3 (omit when pointing at external S3/GCS)
 #   scylla         ScyllaDB message store (Messaging falls back to Postgres without it)
 #   caddy          bundled TLS-terminating reverse proxy
 #   isle           The Isle game-server integration service
@@ -126,7 +126,7 @@ x-app-env: &app-env
   ACCESS_KEY_ID: "${ACCESS_KEY_ID}"
   SECRET_ACCESS_KEY: "${SECRET_ACCESS_KEY}"
   PUBLIC_URL: "${STORAGE_PUBLIC_URL}"
-  SERVICE_URL: "${STORAGE_SERVICE_URL:-http://minio:9000}"
+  SERVICE_URL: "${STORAGE_SERVICE_URL:-http://seaweedfs:9000}"
   USE_SERVICE_URL: "${STORAGE_USE_SERVICE_URL:-true}"
   REGION: "${STORAGE_REGION:-us-east-1}"
 
@@ -344,42 +344,33 @@ services:
         exit 1
     restart: "no"
 
-  minio:
-    image: minio/minio:latest
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.47
     profiles: ["storage-local"]
     environment:
-      MINIO_ROOT_USER: "${ACCESS_KEY_ID}"
-      MINIO_ROOT_PASSWORD: "${SECRET_ACCESS_KEY}"
-    command: server /data --console-address ":9001"
+      AWS_ACCESS_KEY_ID: "${ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${SECRET_ACCESS_KEY}"
+    command: >-
+      mini -dir=/data -s3.port=9000 -bucket=${BUCKET_NAME:-echo-chat}
+      -s3.config=/etc/seaweedfs/s3.json -admin.ui=false -master.telemetry=false
+    configs:
+      - source: seaweedfs_s3
+        target: /etc/seaweedfs/s3.json
     ports:
-      - "${MINIO_BIND:-127.0.0.1:9000}:9000"
-      - "${MINIO_CONSOLE_BIND:-127.0.0.1:9001}:9001"
+      - "${STORAGE_BIND:-${MINIO_BIND:-127.0.0.1:9000}}:9000"
     volumes:
-      - minio_data:/data
+      - seaweedfs_data:/data
+    networks:
+      default:
+        # A .env or Caddyfile written before SeaweedFS still says minio:9000.
+        aliases: [minio]
     healthcheck:
-      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/healthz"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
     restart: unless-stopped
-
-  minio-init:
-    image: minio/mc:latest
-    profiles: ["storage-local"]
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        set -e
-        mc alias set localminio http://minio:9000 "${ACCESS_KEY_ID}" "${SECRET_ACCESS_KEY}"
-        mc mb --ignore-existing "localminio/${BUCKET_NAME:-echo-chat}"
-        mc anonymous set download "localminio/${BUCKET_NAME:-echo-chat}"
-        echo "Bucket ready."
-    restart: "no"
 
   # ── Application services ───────────────────────────────────────────────────────────
   # Each one applies its own EF Core migrations at startup (Database.Migrate() in its
@@ -797,10 +788,16 @@ volumes:
   redis_data:
   rabbitmq_data:
   scylla_data:
-  minio_data:
+  seaweedfs_data:
   caddy_data:
   caddy_config:
 
 networks:
   default:
     name: venta_net
+
+configs:
+  # Anonymous read on the bucket, matching what the installers promise for STORAGE_PUBLIC_URL.
+  seaweedfs_s3:
+    content: |
+      {"identities": [{"name": "anonymous", "actions": ["Read:${BUCKET_NAME:-echo-chat}"]}]}

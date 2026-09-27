@@ -4,7 +4,7 @@
 #
 #  Produces a complete, auto-booting deployment of the whole stack:
 #
-#    infrastructure   PostgreSQL, Redis, RabbitMQ, ScyllaDB (optional), MinIO (optional)
+#    infrastructure   PostgreSQL, Redis, RabbitMQ, ScyllaDB (optional), SeaweedFS (optional)
 #    services         Identity, Guild, Messaging, Social, Federation, Bots, Import,
 #                     Isle (optional) and the Echo gateway
 #    edge             Caddy in front of everything for TLS termination, with automatic
@@ -94,7 +94,7 @@ Venta self-hosted installer (Linux)
                                external PostgreSQL connection details
   --scylla / --no-scylla       enable/disable the ScyllaDB message store
   --isle / --no-isle           enable/disable the Isle game-server integration
-  --external-storage           use external S3-compatible storage instead of MinIO
+  --external-storage           use external S3-compatible storage instead of SeaweedFS
   --non-interactive            never prompt; use flags and defaults
   --reconfigure                re-run the questionnaire instead of reusing deploy/.env
   --skip-dependencies          do not attempt to install Docker/openssl
@@ -352,7 +352,7 @@ if [[ "$REUSE_ENV" == false ]]; then
     USE_SCYLLA="${ARG_SCYLLA:-$(ask_yes_no 'Enable the ScyllaDB message store? (needs ~4 GB RAM; Postgres is used otherwise)' 'y')}"
 
     # --- Object storage ---
-    USE_EXTERNAL_STORAGE="${ARG_EXTERNAL_STORAGE:-$(ask_yes_no 'Use external S3-compatible storage instead of the bundled MinIO?' 'n')}"
+    USE_EXTERNAL_STORAGE="${ARG_EXTERNAL_STORAGE:-$(ask_yes_no 'Use external S3-compatible storage instead of the bundled SeaweedFS?' 'n')}"
     if [[ "$USE_EXTERNAL_STORAGE" == "yes" ]]; then
         BUCKET_NAME="$(sanitize "$(ask 'Bucket name' 'echo-chat')")"
         ACCESS_KEY_ID="$(sanitize "$(ask 'S3 access key id' '')")"
@@ -365,7 +365,7 @@ if [[ "$REUSE_ENV" == false ]]; then
         BUCKET_NAME="echo-chat"
         ACCESS_KEY_ID="venta_$(openssl rand -hex 6)"
         SECRET_ACCESS_KEY="$(rand_hex 24)"
-        STORAGE_SERVICE_URL="http://minio:9000"
+        STORAGE_SERVICE_URL="http://seaweedfs:9000"
         STORAGE_USE_SERVICE_URL="true"
         STORAGE_REGION="us-east-1"
     fi
@@ -451,7 +451,7 @@ fi
 : "${ACCESS_KEY_ID:=venta_$(openssl rand -hex 6)}"
 : "${SECRET_ACCESS_KEY:=$(rand_hex 24)}"
 : "${STORAGE_PUBLIC_URL:=$INSTANCE_URL}"
-: "${STORAGE_SERVICE_URL:=http://minio:9000}"
+: "${STORAGE_SERVICE_URL:=http://seaweedfs:9000}"
 : "${STORAGE_USE_SERVICE_URL:=true}"
 : "${STORAGE_REGION:=us-east-1}"
 : "${REDIS_PASSWORD:=$(rand_hex 24)}"
@@ -538,20 +538,20 @@ if [[ "$USE_SCYLLA" == "yes" ]]; then USE_SCYLLA_DB="true"; fi
 # Port publishing and in-network name resolution differ per TLS mode:
 #   letsencrypt    only Caddy is public; it also carries a network alias for the public
 #                  hostname so containers resolve INSTANCE_URL without NAT hairpinning
-#   external-proxy the gateway/MinIO listen on loopback for the host's own proxy, and the
+#   external-proxy the gateway/storage listen on loopback for the host's own proxy, and the
 #                  public hostname is pointed back at the docker host
-#   local          the gateway and MinIO are published on the LAN directly
+#   local          the gateway and storage are published on the LAN directly
 case "$TLS_MODE" in
     letsencrypt)
-        GATEWAY_BIND="127.0.0.1:8080"; MINIO_BIND="127.0.0.1:9000"
+        GATEWAY_BIND="127.0.0.1:8080"; STORAGE_BIND="127.0.0.1:9000"
         HAIRPIN_HOST_ENTRY="venta-hairpin.invalid:127.0.0.1"
         ;;
     external-proxy)
-        GATEWAY_BIND="127.0.0.1:8080"; MINIO_BIND="127.0.0.1:9000"
+        GATEWAY_BIND="127.0.0.1:8080"; STORAGE_BIND="127.0.0.1:9000"
         HAIRPIN_HOST_ENTRY="${INSTANCE_DOMAIN}:host-gateway"
         ;;
     local)
-        GATEWAY_BIND="0.0.0.0:8080"; MINIO_BIND="0.0.0.0:9000"
+        GATEWAY_BIND="0.0.0.0:8080"; STORAGE_BIND="0.0.0.0:9000"
         HAIRPIN_HOST_ENTRY="venta-hairpin.invalid:127.0.0.1"
         ;;
 esac
@@ -617,8 +617,7 @@ IMAGE_TAG="$IMAGE_TAG"
 HTTP_BIND="0.0.0.0:80"
 HTTPS_BIND="0.0.0.0:443"
 GATEWAY_BIND="$GATEWAY_BIND"
-MINIO_BIND="$MINIO_BIND"
-MINIO_CONSOLE_BIND="127.0.0.1:9001"
+STORAGE_BIND="$STORAGE_BIND"
 RABBITMQ_MGMT_BIND="127.0.0.1:15672"
 HAIRPIN_HOST_ENTRY="$HAIRPIN_HOST_ENTRY"
 
@@ -844,7 +843,7 @@ $STORAGE_DOMAIN {
 	}
 
 	# Attachment URLs are path-style: {STORAGE_PUBLIC_URL}/{bucket}/{key}
-	reverse_proxy minio:9000
+	reverse_proxy seaweedfs:9000
 }
 
 # The API reference. Served by the gateway itself, which decides what to serve from the Host

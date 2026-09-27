@@ -79,6 +79,8 @@ builder.Services.AddOpenIddict()
 
         options.AllowPasswordFlow();
         options.AllowRefreshTokenFlow();
+        // Rolling, so this is an idle limit: every refresh issues a fresh 90-day token.
+        options.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
         options.AllowClientCredentialsFlow();
         options.AllowCustomFlow(SteamOpenIdService.SteamGrantType);
         options.AllowCustomFlow(QrLoginService.QrGrantType);

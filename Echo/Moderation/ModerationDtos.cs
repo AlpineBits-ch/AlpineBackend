@@ -52,6 +52,12 @@ public class SetRoleRequest
     public string Role { get; set; } = "Default";
 }
 
+public class SetEmailRequest
+{
+    /// <summary>The new sign-in address.</summary>
+    public string Email { get; set; } = string.Empty;
+}
+
 public class RevokeActionRequest
 {
     public string? Reason { get; set; }

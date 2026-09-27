@@ -247,6 +247,19 @@ public class ApplicationUser : IdentityUser<string>, IEventSource, IPrefixedEnti
         this.PasswordHash = passwordHash;
     }
 
+    /// <summary>Replaces the sign-in address with one staff have vouched for, so it counts as confirmed.</summary>
+    /// <param name="email">The validated new address.</param>
+    /// <param name="now">When the change is made.</param>
+    public void SetEmailByStaff(Email email, DateTimeOffset now)
+    {
+        Email = email.Value;
+        NormalizedEmail = email.Value.ToUpperInvariant();
+        EmailConfirmed = true;
+        EmailVerifiedAt = now;
+        SecurityStamp = Guid.NewGuid().ToString();
+        UpdatedAt = now;
+    }
+
     public bool IsSigninAllowed()
     {
         return Status == UserStatus.Active;

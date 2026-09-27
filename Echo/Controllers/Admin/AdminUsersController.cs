@@ -373,6 +373,66 @@ public class AdminUsersController(
         return Ok(new { userId = id, role = result.Role, userName = result.UserName });
     }
 
+    /// <summary>Replaces an account's sign-in address and ends its sessions.</summary>
+    [HttpPost("users/{id}/email")]
+    public async Task<IActionResult> SetEmailAsync(
+        string id, [FromBody] SetEmailRequest request, CancellationToken ct)
+    {
+        var actor = await ResolveStaffAsync();
+        if (actor is null) return StaffForbidden();
+        if (!actor.IsAdmin) return AdminOnly();
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return Failure(400, "invalid_email", "Email cannot be empty");
+
+        SetUserEmailResponse result;
+        try
+        {
+            result = await bus.InvokeAsync<SetUserEmailResponse>(new SetUserEmailRequest
+            {
+                UserId = id,
+                ActorUserId = actor.UserId,
+                Email = request.Email,
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Identity did not answer the email change for {UserId}", id);
+            return Failure(503, "identity_unavailable",
+                "The account service did not answer. Nothing was changed - try again.");
+        }
+
+        if (!result.Success)
+        {
+            return Failure(
+                result.FailureCode switch
+                {
+                    "not_found" => 404,
+                    "invalid_email" or "self_action" => 400,
+                    _ => 409,
+                },
+                result.FailureCode ?? "rejected",
+                result.FailureMessage ?? "The account service refused the change.");
+        }
+
+        if (result.FailureCode != "no_change")
+        {
+            Audit(actor, ModerationAuditActions.EmailChanged, id,
+                $"{result.PreviousEmail ?? "(none)"} -> {result.Email}");
+            await Db.SaveChangesAsync(ct);
+        }
+
+        return Ok(new
+        {
+            userId = id,
+            email = result.Email,
+            previousEmail = result.PreviousEmail,
+            userName = result.UserName,
+            sessionsRevoked = result.SessionsRevoked,
+            changed = result.FailureCode != "no_change",
+        });
+    }
+
     [HttpGet("users/{id}/actions")]
     public async Task<IActionResult> HistoryAsync(string id, CancellationToken ct)
     {

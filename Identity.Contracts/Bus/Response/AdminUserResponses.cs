@@ -75,6 +75,28 @@ public class SetUserRoleResponse
     public string? UserName { get; set; }
 }
 
+public class SetUserEmailResponse
+{
+    public bool Success { get; set; }
+
+    /// <summary><c>not_found</c>, <c>self_action</c>, <c>invalid_email</c>, <c>email_taken</c>,
+    /// <c>bot_account</c>, <c>invalid_state</c>, or <c>no_change</c>. Null on success.</summary>
+    public string? FailureCode { get; set; }
+
+    public string? FailureMessage { get; set; }
+
+    /// <summary>The address after the call, whether or not anything changed.</summary>
+    public string? Email { get; set; }
+
+    /// <summary>The address before the call.</summary>
+    public string? PreviousEmail { get; set; }
+
+    public string? UserName { get; set; }
+
+    /// <summary>Sign-in sessions the change ended.</summary>
+    public int SessionsRevoked { get; set; }
+}
+
 public class SetUserModerationStatusResponse
 {
     public bool Success { get; set; }

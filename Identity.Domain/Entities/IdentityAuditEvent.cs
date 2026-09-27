@@ -76,6 +76,9 @@ public static class IdentityAuditActions
 
     /// <summary>The account removed its phone number.</summary>
     public const string PhoneNumberRemoved = "phone.removed";
+
+    /// <summary>Staff replaced the account's sign-in address.</summary>
+    public const string EmailChangedByStaff = "moderation.email-changed";
 }
 
 public class CreateIdentityAuditEventParams

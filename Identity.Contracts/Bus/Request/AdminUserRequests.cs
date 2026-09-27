@@ -59,3 +59,15 @@ public class SetUserRoleRequest
     /// <summary>Target tier: <c>Default</c>, <c>Moderator</c> or <c>Admin</c>.</summary>
     public string Role { get; set; } = "Default";
 }
+
+/// <summary>Replaces an account's sign-in address on behalf of an administrator.</summary>
+public class SetUserEmailRequest
+{
+    public string UserId { get; set; } = string.Empty;
+
+    /// <summary>The administrator making the change.</summary>
+    public string ActorUserId { get; set; } = string.Empty;
+
+    /// <summary>The new address, as typed.</summary>
+    public string Email { get; set; } = string.Empty;
+}

@@ -310,6 +310,29 @@ Audited twice on purpose: an `IdentityAuditEvent` against the account whose tier
 on their own security timeline, and a `ModerationAuditEntry` against the acting administrator. Both
 log at Warning. This is the write that decides who can act on everyone else.
 
+### Changing someone's email
+
+`POST /api/v1/admin/users/{id}/email` with `{ "email": "new@example.com" }`. Admin only. Answers
+`{ userId, email, previousEmail, userName, sessionsRevoked, changed }`.
+
+The address is trimmed and run through the same validator registration uses, then stored with
+`NormalizedEmail` beside it. An operator-set address counts as verified (`EmailConfirmed`,
+`EmailVerifiedAt`). The security stamp rotates and every live `LoginSession` is revoked, as a password
+reset does. Refusals:
+
+* **`email_taken`** (409) - another account already has that address, compared on `NormalizedEmail`.
+  Staff get the plain answer; the uniform 202 is a rule for public registration only.
+* **`invalid_email`** (400) - empty, malformed, disposable, or longer than 256 characters.
+* **`self_action`** (400) - not on your own account.
+* **`bot_account`** / **`invalid_state`** (409) - bots have no address; an account being deleted is
+  not changed.
+* **`not_found`** (404).
+
+Sending the address the account already has is a success with `changed: false`, and nothing is
+revoked or audited. A change is audited twice: an `IdentityAuditEvent` (`moderation.email-changed`,
+plus `sessions.revoked` when any were live) on the account, and a `ModerationAuditEntry`
+(`user.email-changed`) whose detail is `old -> new`, against the acting administrator.
+
 Sign-in to the console is the ordinary password grant against `/connect/token` with `client_id=echo`,
 same as the desktop client, including the `mfa_required` / `mfa_invalid` responses. There is no
 separate staff credential. The console then checks `GET /api/v1/admin/session` and shows the sign-in
@@ -336,6 +359,7 @@ PATCH  /reports/{id}                 assign / status / resolution / duplicateOf
 POST   /users/{id}/actions           issue Note | Warning | Suspension | Ban | Unban
 GET    /users/{id}/actions
 POST   /users/{id}/role              promote / demote staff        (Admin only)
+POST   /users/{id}/email             replace the sign-in address   (Admin only)
 POST   /actions/{id}/revoke          revoke a live suspension or ban
 GET    /appeals?status=&limit=&offset=
 GET    /appeals/{id}

@@ -99,4 +99,7 @@ public static class ModerationAuditActions
 
     /// <summary>An account's staff tier changed.</summary>
     public const string RoleChanged = "user.role-changed";
+
+    /// <summary>An administrator replaced an account's sign-in address.</summary>
+    public const string EmailChanged = "user.email-changed";
 }

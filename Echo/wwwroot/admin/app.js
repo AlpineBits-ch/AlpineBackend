@@ -1914,6 +1914,11 @@
         // Administrators only, and hidden rather than disabled for everyone else: a moderator who
         // could promote themselves would be an administrator with extra steps, so this control does
         // not exist for them at all.
+        if (session.canViewAudit && user.user.userType !== 'Bot' && id !== session.userId
+            && !user.deletionRequestedAt && user.user.status !== 'Deleted') {
+            pane.append(emailBlock(id, user.user));
+        }
+
         if (session.canViewAudit && user.user.userType !== 'Bot' && id !== session.userId) {
             pane.append(roleBlock(id, user.user));
         } else if (session.canViewAudit && id === session.userId) {
@@ -1944,6 +1949,105 @@
         }
 
         openDetail(user.user.userName || 'Account', pane);
+    }
+
+    /** Replaces the sign-in address. Administrators only; the server decides whether it is free. */
+    function emailBlock(userId, user) {
+        const box = block('Change email');
+
+        box.append(el('p', 'hint',
+            'Replaces the address they sign in with. The new address counts as verified, and every '
+            + 'session on the account is signed out.'));
+
+        const form = el('form');
+        form.noValidate = true;
+        form.style.cssText = 'display:flex;gap:8px;align-items:flex-start;margin-top:12px;';
+
+        const input = el('input');
+        input.type = 'email';
+        input.autocomplete = 'off';
+        input.maxLength = 256;
+        input.placeholder = 'new@example.com';
+        input.setAttribute('aria-label', 'New email address');
+
+        const wrap = el('div', 'grow field');
+        wrap.append(input);
+        form.append(wrap);
+
+        const apply = el('button', 'btn sm primary');
+        apply.type = 'submit';
+        apply.disabled = true;
+        apply.append(icon('check'), document.createTextNode(' Change email'));
+        form.append(apply);
+
+        const next = () => input.value.trim();
+        input.addEventListener('input', () => { apply.disabled = !next(); });
+
+        form.addEventListener('submit', event => {
+            event.preventDefault();
+            const address = next();
+
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+                fieldError(input, 'That is not an email address.');
+                return;
+            }
+
+            if (address === user.email) {
+                fieldError(input, 'That is already the address on this account.');
+                return;
+            }
+
+            modal(close => {
+                const confirmForm = el('form');
+                confirmForm.append(el('h2', null, 'Change this account\'s email'));
+                confirmForm.append(el('p', 'lede',
+                    `${user.userName || userId} will sign in with ${address} instead of `
+                    + `${user.email || 'no address'}. Every session they have open is signed out.`));
+
+                const actions = el('div', 'actions');
+                const cancel = el('button', 'btn', 'Cancel');
+                cancel.type = 'button';
+                cancel.addEventListener('click', close);
+
+                const confirm = el('button', 'btn primary', 'Change email');
+                confirm.type = 'submit';
+                actions.append(cancel, confirm);
+                confirmForm.append(actions);
+
+                confirmForm.addEventListener('submit', async confirmEvent => {
+                    confirmEvent.preventDefault();
+                    confirm.disabled = true;
+
+                    try {
+                        const result = await call('POST', `${API}/users/${encodeURIComponent(userId)}/email`, {
+                            body: { email: address },
+                        });
+
+                        close();
+                        toast('ok', result.changed
+                            ? `Email changed to ${result.email}`
+                            : 'That was already the address on this account');
+
+                        openUser(userId);
+                        render();
+                    } catch (error) {
+                        if (error.code === 'email_taken' || error.code === 'invalid_email') {
+                            close();
+                            fieldError(input, error.message);
+                            return;
+                        }
+
+                        toast('danger', error.message);
+                        confirm.disabled = false;
+                    }
+                });
+
+                return confirmForm;
+            });
+        });
+
+        box.append(form);
+        return box;
     }
 
     /**
@@ -7420,6 +7524,7 @@
         'ticket.replied': ['replied to a ticket', 'from'],
         'ticket.updated': ['updated a ticket', 'from'],
         'user.role-changed': ['changed a staff role', 'for'],
+        'user.email-changed': ['changed the email', 'of'],
         'user.viewed': ['looked at an account', 'belonging to'],
         'wiki.unpublished': 'took a wiki off the public host',
         'wiki.page-unpublished': 'took a wiki page off the public host',

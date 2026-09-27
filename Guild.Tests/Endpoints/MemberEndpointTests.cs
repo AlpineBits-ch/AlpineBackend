@@ -643,6 +643,37 @@ public class MemberEndpointTests
     }
 
     [Test]
+    public async Task SetMemberPermissions_Owner_MayGrantBitsOfADisabledModule()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageRoles);
+        var guild = await _context.Guilds.FirstAsync(g => g.Id == GuildId);
+        guild.Features = GuildFeaturePresets.Community & ~GuildFeatures.Events;
+        await _context.SaveChangesAsync();
+
+        var result = await SetPermissions(
+            new SetMemberPermissionsDto { AllowPermissions = Permissions.ManageEvents | Permissions.ViewChannel },
+            actorUserId: OwnerId);
+        await _context.SaveChangesAsync();
+
+        Assert.That(result, Is.InstanceOf<Ok<Guild.Application.Dtos.Response.MemberPermissionsDto>>());
+        var member = await _context.GuildMembers.AsNoTracking().FirstAsync(m => m.Id == TargetMemberId);
+        Assert.That(member.AllowPermissions, Is.EqualTo(Permissions.ManageEvents | Permissions.ViewChannel));
+    }
+
+    [Test]
+    public async Task SetMemberPermissions_TargetIsOwner_ReturnsBadRequest()
+    {
+        await SeedModeratorAndTarget(Permissions.ManageRoles);
+        _context.GuildMembers.Add(new GuildMember { Id = "member-owner", GuildId = GuildId, UserId = OwnerId, JoinedAt = DateTime.UtcNow, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow, SearchValue = $"{OwnerId}#{GuildId}" });
+        await _context.SaveChangesAsync();
+
+        var result = await SetPermissions(new SetMemberPermissionsDto { AllowPermissions = Permissions.ViewChannel },
+            actorUserId: OwnerId, memberId: "member-owner");
+
+        Assert.That(result, Is.InstanceOf<BadRequest<string>>());
+    }
+
+    [Test]
     public async Task SetMemberPermissions_NoActualChange_WritesNoAuditEntry()
     {
         var target = await SeedModeratorAndTarget(Permissions.ManageRoles | Permissions.ViewChannel);

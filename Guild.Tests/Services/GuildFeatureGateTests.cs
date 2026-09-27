@@ -210,6 +210,31 @@ public class GuildFeatureGateTests
     }
 
     [Test]
+    public async Task CanGrant_OwnerMayStoreBitsOfDisabledModules()
+    {
+        await SeedAsync(GuildFeaturePresets.Community & ~GuildFeatures.Events & ~GuildFeatures.Wiki,
+            Permissions.None, ownerId: UserId);
+
+        Assert.Multiple(async () =>
+        {
+            Assert.That(await _service.CanGrantPermissionsAsync(
+                UserId, GuildId, Permissions.ManageEvents | Permissions.SendMessages), Is.True);
+            Assert.That(await _service.CanGrantPermissionsAsync(
+                UserId, GuildId, ModulePermissions.CreateWikiPages), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task CanGrant_NonOwnerMayNotGrantBitsOfDisabledModules()
+    {
+        await SeedAsync(GuildFeaturePresets.Community & ~GuildFeatures.Events,
+            Permissions.ManageEvents | Permissions.ManageRoles);
+
+        Assert.That(await _service.CanGrantPermissionsAsync(
+            UserId, GuildId, Permissions.ManageEvents), Is.False);
+    }
+
+    [Test]
     public async Task IsFeatureEnabled_ReadsTheGuildRow()
     {
         await SeedAsync(GuildFeaturePresets.Household, Permissions.None);

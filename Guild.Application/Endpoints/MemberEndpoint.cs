@@ -290,6 +290,9 @@ public class MemberEndpoint
         var member = await ctx.GuildMembers.FirstOrDefaultAsync(m => m.Id == memberId && m.GuildId == guildId);
         if (member is null) return Results.NotFound();
 
+        if (await ctx.Guilds.AsNoTracking().AnyAsync(g => g.Id == guildId && g.OwnerId == member.UserId))
+            return Results.BadRequest("The guild owner already holds every permission.");
+
         // Same hierarchy rule as kick/ban/mute/nickname.
         if (!await permissionService.CanModerateTargetAsync(userId, member.UserId, guildId))
             return Results.Forbid();

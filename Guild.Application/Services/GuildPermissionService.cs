@@ -1400,6 +1400,9 @@ public class GuildPermissionService(
     /// </summary>
     public async Task<bool> CanGrantPermissionsAsync(string actorUserId, string guildId, Permissions requestedPermissions)
     {
+        // A bit of a switched-off module is inert until the owner switches it on, so the owner may store it.
+        if (await IsOwnerAsync(actorUserId, guildId)) return true;
+
         var clamped = await ClampToGrantableAsync(actorUserId, guildId, requestedPermissions);
         return clamped == requestedPermissions;
     }
@@ -1425,6 +1428,8 @@ public class GuildPermissionService(
     /// <inheritdoc cref="CanGrantPermissionsAsync(string,string,Permissions)"/>
     public async Task<bool> CanGrantPermissionsAsync(string actorUserId, string guildId, ModulePermissions requestedPermissions)
     {
+        if (await IsOwnerAsync(actorUserId, guildId)) return true;
+
         var clamped = await ClampToGrantableAsync(actorUserId, guildId, requestedPermissions);
         return clamped == requestedPermissions;
     }
@@ -1438,6 +1443,9 @@ public class GuildPermissionService(
         var actorPermissions = await ComputePermissionsForUserAsync(actorUserId, guildId);
         return requested & actorPermissions.BaseModulePermissions;
     }
+
+    private Task<bool> IsOwnerAsync(string userId, string guildId) =>
+        ctx.Guilds.AsNoTracking().AnyAsync(g => g.Id == guildId && g.OwnerId == userId);
 
     /// <summary>Highest role Position the user holds in this guild.</summary>
     public async Task<int> GetHighestRolePositionAsync(string userId, string guildId)

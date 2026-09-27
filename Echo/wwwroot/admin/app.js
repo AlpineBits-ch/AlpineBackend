@@ -454,7 +454,7 @@
 
         $$('.admin-only').forEach(node => node.classList.toggle('hidden', !session.canViewAudit));
 
-        go(location.hash.replace('#', '') || 'queue');
+        route();
         refreshBadges();
         setInterval(refreshBadges, 60_000);
     }
@@ -521,7 +521,15 @@
 
     $$('.rail-item').forEach(item => item.addEventListener('click', () => go(item.dataset.view)));
     $('#refresh').addEventListener('click', () => { render(); refreshBadges(); });
-    addEventListener('hashchange', () => go(location.hash.replace('#', '')));
+    addEventListener('hashchange', route);
+
+    /** `#users/<id>` opens that account; any other hash names a view. */
+    function route() {
+        const hash = location.hash.replace('#', '');
+        const account = /^users\/(.+)$/.exec(hash);
+        if (account) openUser(decodeURIComponent(account[1]));
+        else go(hash || 'queue');
+    }
 
     async function render() {
         const host = $('#view');
@@ -568,6 +576,7 @@
 
         pane.classList.add('hidden');
         $('#detail-body').replaceChildren();
+        if (location.hash.startsWith('#users/')) history.replaceState(null, '', '#users');
         $$('.rw, .plan-row').forEach(row => row.setAttribute('aria-selected', 'false'));
 
         // Only reclaim focus if the pane actually had it. `go()` closes the pane as part of changing
@@ -1858,6 +1867,7 @@
     async function openUser(id) {
         selectedId = id;
         go2Users();
+        history.replaceState(null, '', `#users/${encodeURIComponent(id)}`);
         openDetail('Account', loading());
 
         const { user, actions, reportsAgainst, reportsFiledCount, activeSanction } =

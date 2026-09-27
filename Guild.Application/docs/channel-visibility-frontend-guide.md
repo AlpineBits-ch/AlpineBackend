@@ -69,7 +69,10 @@ PATCH /api/v1/guild/channels/{channelId}
 `name` does not make a private channel public. Send `false` to explicitly make it public.
 
 The other fields on this body are still replace-semantics, so send the values you want the channel
-to end up with.
+to end up with. `name` is required: a body carrying only `isPrivate` is a 400.
+
+The response carries the channel's `permissions` as they stand after the write, so a toggle can
+redraw its permission grid without refetching.
 
 ### It stays in agreement with the overwrite
 

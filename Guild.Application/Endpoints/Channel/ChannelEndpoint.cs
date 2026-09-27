@@ -6,6 +6,7 @@ using Guild.Application.Dtos.Response;
 using Guild.Application.Services;
 using Guild.Contracts.Bus.Events;
 using Guild.Domain.Aggregates;
+using Guild.Domain.Entity;
 using Guild.Domain.Enums;
 using Guild.Persistence.Persistence;
 using Messaging.Contracts.Bus.Commands;
@@ -216,6 +217,9 @@ public class ChannelEndpoint
         }
         catch (ValidationException validationException)
         {
+            // Update() assigns before it validates, and the middleware commits after a 400 too.
+            ctx.Entry(channel).State = EntityState.Detached;
+
             var errors = validationException.Errors
                 .GroupBy(e => e.PropertyName)
                 .ToDictionary(group => group.Key, group => group.Select(e => e.ErrorMessage).ToArray());
@@ -228,6 +232,27 @@ public class ChannelEndpoint
         // does, or the guild keeps reading a channel that is now private for up to the cache TTL.
         if (await channelPrivacy.ApplyAsync(channel, dto.IsPrivate) is { } privacyChanged)
             await bus.PublishAsync(privacyChanged);
+
+        // Local holds the uncommitted @everyone rewrite: the removed row drops out, the re-added one is in.
+        var overwrites = ctx.Set<ChannelPermission>();
+        await overwrites.Where(p => p.ChannelId == channelId && p.CategoryId == null).LoadAsync();
+        var permissions = overwrites.Local
+            .Where(p => p.ChannelId == channelId && p.CategoryId == null)
+            .Select(p => new ChannelPermissionDto
+            {
+                Id = p.Id,
+                ChannelId = p.ChannelId,
+                CategoryId = p.CategoryId,
+                RoleId = p.RoleId,
+                MemberId = p.MemberId,
+                AllowPermissions = p.AllowPermissions,
+                DenyPermissions = p.DenyPermissions,
+                AllowModulePermissions = p.AllowModulePermissions,
+                DenyModulePermissions = p.DenyModulePermissions,
+                CreatedAt = p.CreatedAt,
+                UpdatedAt = p.UpdatedAt,
+            })
+            .ToList();
 
         // Slowmode is read from a 15-minute cache on Messaging's send path; without this an
         // operator turning slowmode off would watch it keep rejecting messages for a quarter hour.
@@ -264,6 +289,7 @@ public class ChannelEndpoint
             SlowModeSeconds = channel.SlowModeSeconds,
             Icon = channel.Icon,
             IconColor = channel.IconColor,
+            Permissions = permissions,
         });
     }
 

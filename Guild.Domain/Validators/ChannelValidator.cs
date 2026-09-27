@@ -15,7 +15,7 @@ public class ChannelValidator : AbstractValidator<Channel>
         // thread's subject, a scene called "The Siege of Blackwater") - "Dark mode is too bright"
         // is a completely normal thread name that this rule would otherwise reject.
         RuleFor(x => x.Name)
-            .Must(v => !v.Any(char.IsWhiteSpace))
+            .Must(v => v is null || !v.Any(char.IsWhiteSpace))
             .WithMessage("Channel name cannot contain whitespace")
             .When(x => !x.Type.IsThreadShaped());
 

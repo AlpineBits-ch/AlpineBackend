@@ -13,7 +13,8 @@ public class EfCoreMentionIndexRepositoryTests
 {
     private const string UserId = "user-1";
 
-    private static readonly DateTimeOffset Base = new(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+    // Relative to now: the repository hides anything past the 31-day retention window.
+    private static readonly DateTimeOffset Base = DateTimeOffset.UtcNow.AddDays(-1);
 
     private TestMessagingContext _context = null!;
     private EfCoreMentionIndexRepository _repo = null!;

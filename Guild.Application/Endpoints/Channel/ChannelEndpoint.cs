@@ -285,6 +285,7 @@ public class ChannelEndpoint
             IsAgeRestricted = channel.IsAgeRestricted,
             IsPrivate = channel.IsPrivate,
             CategoryId = channel.CategoryId,
+            ParentChannelId = channel.ParentChannelId,
             Position = channel.Position,
             SlowModeSeconds = channel.SlowModeSeconds,
             Icon = channel.Icon,
